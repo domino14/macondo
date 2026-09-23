@@ -40,12 +40,15 @@ print(rows[-1]["step"], min(float(r["val_value"]) for r in rows))
 PY
 )
 log "training done: $STEPS steps, best val_value $BEST"
-# The single-head run was at 0.0937 by step 2000 and 0.0913 at the end.
-# Anything above 0.095 at the end means something is wrong with the run.
-if python -c "import sys; sys.exit(0 if float('$BEST') <= 0.095 else 1)"; then
+# The single-head run was at 0.0937 by step 2000 and 0.0913 at the end, so
+# anything above 0.095 means something is wrong with a bogowin-labeled run.
+# Other targets sit on other scales: +-1 results are ~0.28, smoothed rollout
+# labels ~0.005. VAL_MAX overrides the ceiling.
+VAL_MAX=${VAL_MAX:-0.095}
+if python -c "import sys; sys.exit(0 if float('$BEST') <= float('$VAL_MAX') else 1)"; then
     :
 else
-    log "NOT RUNNING MATCH: best val_value $BEST > 0.095, learning looks broken"
+    log "NOT RUNNING MATCH: best val_value $BEST > $VAL_MAX, learning looks broken"
     exit 1
 fi
 

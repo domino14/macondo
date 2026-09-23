@@ -18,4 +18,5 @@ EPOCHS=5 \
 STEPS=12500 \
 PRODUCER_ARGS="-labeler result -per-game -endgame-plies 2" \
 TRAIN_ARGS="--w-wdl 0" \
+VAL_MAX=0.5 \
 exec ./run-gen1.sh

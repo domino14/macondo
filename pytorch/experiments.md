@@ -1237,3 +1237,23 @@ of endgames (full rack to move): 97.0% (15 flips, 13 in close games),
 spread MAE 5.1, quick solve ~5 points pessimistic; the logged greedy
 outcome on the same positions: 96.2% (19 flips), MAE 8.1, max 88. So the
 2-ply label is a modest gain on results and a clear gain on spread.
+
+#### Result: generation 1, rollout labels (9/22/26)
+
+9.56M labels (25% of the first 40M positions of file 5; 16 two-ply
+rollouts each, heads2 at the leaf), five epochs, ~23k steps, aux-share
+0.15. Deployed as `macondo-nn-tf-gen1`. 100k game pairs vs HastyBot,
+`games-tf-gen1-v-hasty-pairs.txt`:
+
+```
+paired win rate 52.03% +/- 0.18   swept 18.1%  lost 14.0%  spread -4.6/game
+```
+
+**Worse than the balanced-heads net (53.19%) by 1.2 points**, back at the
+old single-head level. The smoothed labels trained beautifully (value val
+loss 0.0054 on their own scale) and lost at the board. Consistent with
+the collaborator's critique: uniformly random opponent racks make the
+rollout value optimistic and blunt the defensive signal; plus 9.6M
+positions vs 163M. Rollouts are not dead, but they need the opponent's
+real rack (or an inferred one) at ply 1 and more positions before they
+get another run.
