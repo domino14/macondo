@@ -87,10 +87,10 @@ log "$MODEL v$VER ready"
 
 # --- match -----------------------------------------------------------------
 cd "$REPO"
-log "starting paired match: FAST_ML_BOT($MODEL v$VER) vs HASTY_BOT, 100k pairs, 12 threads"
+log "starting paired match: FAST_ML_BOT($MODEL v$VER) vs HASTY_BOT, ${LEXICON:-NWL23}, 100k pairs, 12 threads"
 setsid nohup env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
     MACONDO_TRITON_MODEL_NAME=$MODEL MACONDO_TRITON_MODEL_VERSION=$VER \
-    ./bin/shell autoplay -botcode1 FAST_ML_BOT -botcode2 HASTY_BOT -numgames 100000 \
+    ./bin/shell autoplay -botcode1 FAST_ML_BOT -botcode2 HASTY_BOT -lexicon ${LEXICON:-NWL23} -numgames 100000 \
     -gamepairs true -threads 12 -block true -experimentid $EXP \
     > $EXP.log 2>&1 < /dev/null &
 sleep 90

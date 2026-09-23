@@ -1320,3 +1320,16 @@ only names the bots.
   (one turn drawn from 1..30 per game; endgame draws still emitted in this
   run, quick-search labeled; skipped from now on), cached by
   `training.py --cache-only` into `fresh-frames.bin`.
+
+#### Lexicon (9/23/26)
+
+Every match and generation run on this box used **NWL18**: the shell's
+`default-lexicon` was NWL18 and autoplay inherited it silently (the saved
+config had no lexicon field; it now records the resolved one). The
+producer has always replayed with NWL23 rules. Switched the shell default
+to NWL23, the deploy script's match passes `-lexicon NWL23`, and the
+generation script passes `-lexicon NWL23`. The 53.19% baseline
+(macondo-nn-tf-heads2) is queued for a re-run under NWL23
+(`rerun-baseline.sh`, experiment tf-heads2-nwl23-v-hasty-pairs) after the
+fresh model's match, so the two are compared under the same lexicon. The
+fresh 27M games are NWL18 and stay in this run as agreed.
