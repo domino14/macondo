@@ -22,6 +22,7 @@ GAMES=${GAMES:-27000000}
 EPOCHS=${EPOCHS:-5}
 WAIT_FOR=${WAIT_FOR:-"bin/shell autoplay.*tf-result-v-hasty-pairs"}
 THREADS=${THREADS:-16}
+LEXICON=${LEXICON:-NWL23}   # explicit: the shell's default-lexicon is NWL18 on this box
 VAL_SIZE=${VAL_SIZE:-150000}
 WATCH=${WATCH:-1}
 DATA=$HOME/data
@@ -33,7 +34,7 @@ log "starting $TAG: generating $GAMES games"
 #    games-<experimentid>.txt (summaries) into the working directory.
 ( cd "$DATA" && rm -f "$TAG.txt" "games-$TAG.txt" && \
   "$HOME/code/macondo/bin/shell" autoplay -botcode1 RANDOM_BOT_WITH_TEMPERATURE -botcode2 HASTY_BOT \
-    -numgames "$GAMES" -threads "$THREADS" -block true -experimentid "$TAG" > "$TAG.autoplay.log" 2>&1 )
+    -lexicon "$LEXICON" -numgames "$GAMES" -threads "$THREADS" -block true -experimentid "$TAG" > "$TAG.autoplay.log" 2>&1 )
 log "generated: $(( $(wc -l < "$DATA/games-$TAG.txt") - 1 )) games, turn log $(du -h "$DATA/$TAG.txt" | cut -f1)"
 
 # 2. Scan into the cache: one position per game, true result, quick

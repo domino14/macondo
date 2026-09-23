@@ -234,29 +234,6 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 		return "", fmt.Errorf("creating output dir: %w", err)
 	}
 
-	// Write a copy of the config for reproducibility (with the resolved ID).
-	expCfg.ExperimentId = experimentID
-	cfgJSON, err := protojson.MarshalOptions{Multiline: true}.Marshal(expCfg)
-	if err != nil {
-		return "", fmt.Errorf("marshalling config: %w", err)
-	}
-	cfgPath := filepath.Join(outputDir, experimentID+".config.json")
-	if err := os.WriteFile(cfgPath, cfgJSON, 0644); err != nil {
-		return "", fmt.Errorf("writing config file: %w", err)
-	}
-
-	logfile := filepath.Join(outputDir, experimentID+".txt")
-	players := PlayersFromConfig(expCfg)
-
-	numGames := int(expCfg.NumGames)
-	if numGames == 0 {
-		numGames = 1_000_000_000
-	}
-	threads := int(expCfg.Threads)
-	if threads == 0 {
-		threads = runtime.NumCPU()
-	}
-
 	lexicon := expCfg.Lexicon
 	if lexicon == "" {
 		lexicon = appCfg.GetString(config.ConfigDefaultLexicon)
@@ -276,6 +253,33 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 		} else {
 			letterDist = appCfg.GetString(config.ConfigDefaultLetterDistribution)
 		}
+	}
+
+	// Write a copy of the config for reproducibility, with the resolved ID,
+	// lexicon and letter distribution filled in: a run that relied on the
+	// shell's defaults must still say what it actually used.
+	expCfg.ExperimentId = experimentID
+	expCfg.Lexicon = lexicon
+	expCfg.LetterDistribution = letterDist
+	cfgJSON, err := protojson.MarshalOptions{Multiline: true}.Marshal(expCfg)
+	if err != nil {
+		return "", fmt.Errorf("marshalling config: %w", err)
+	}
+	cfgPath := filepath.Join(outputDir, experimentID+".config.json")
+	if err := os.WriteFile(cfgPath, cfgJSON, 0644); err != nil {
+		return "", fmt.Errorf("writing config file: %w", err)
+	}
+
+	logfile := filepath.Join(outputDir, experimentID+".txt")
+	players := PlayersFromConfig(expCfg)
+
+	numGames := int(expCfg.NumGames)
+	if numGames == 0 {
+		numGames = 1_000_000_000
+	}
+	threads := int(expCfg.Threads)
+	if threads == 0 {
+		threads = runtime.NumCPU()
 	}
 
 	if expCfg.Description != "" {
