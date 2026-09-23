@@ -1257,3 +1257,21 @@ rollout value optimistic and blunt the defensive signal; plus 9.6M
 positions vs 163M. Rollouts are not dead, but they need the opponent's
 real rack (or an inferred one) at ply 1 and more positions before they
 get another run.
+
+#### Result: true result, one position per game, file 5 (9/22/26)
+
+`-labeler result -per-game -endgame-plies 2` on file 5: 7.46M games,
+5.46M positions (426k endgame-solved), five epochs, 12.5k steps, wdl head
+off. Value val loss 0.283 (a +-1 target sits near there; the watcher's
+0.095 ceiling refused it, now VAL_MAX). Deployed as
+`macondo-nn-tf-result`. 100k pairs vs HastyBot:
+
+```
+paired win rate 50.98% +/- 0.18   swept 17.2%  lost 15.3%  spread -10.7/game
+```
+
+Worse than everything before it and the worst spread yet: with 5.4M
+positions the true-result target underfits badly. Not a verdict on the
+target, which the collaborator runs at >54% with more games; a verdict on
+5.4M positions. The fresh-games run (27M games, ~20M positions, same
+labeler) is the fair test.
