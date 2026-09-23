@@ -1293,3 +1293,30 @@ has them (~8%, quick-search labeled), harmless.
 
 The fresh 27M-game run trains with `--primary wdl --w-wdl 1 --w-value 0
 --aux-share 0.15` (`train-fresh.sh`) once its cache finishes.
+
+#### Fresh games: exact parameters (generated 9/22 23:24 - 9/23 06:32)
+
+Recorded here because the autoplay config file (`~/data/fresh.config.json`)
+only names the bots.
+
+- `bin/shell autoplay -botcode1 RANDOM_BOT_WITH_TEMPERATURE -botcode2 HASTY_BOT
+  -numgames 27000000 -threads 16 -block true -experimentid fresh`, run
+  from `~/data`, binary v0.13.7-35 (branch claude/transformer-valuenet).
+- Player 1, the softmax bot (`ai/bot/bot_player.go`): top 50 moves by
+  static equity, sampled with softmax over equity at temperature 1.0
+  while the bag has more than 60 tiles, greedy (temperature 0) after.
+  Player 2: HastyBot, greedy static best play. Greedy endgames both sides.
+- **Lexicon NWL18**, English distribution: the shell's config
+  (`default-lexicon` in ~/.config/macondo) sets NWL18, so every autoplay
+  match and generation run from this box has used NWL18. The producer
+  replays with NWL23 rules (hardcoded in game_assembler.go) for cross-sets,
+  leave values and the endgame search, so the training features are
+  NWL23 cross-sets on NWL18 positions. Consistent with every earlier run
+  (same config), so not changed mid-program; worth unifying later.
+- 27,000,000 games, 7 h 08 m, ~1,050 games/s; turn log 43 GB
+  (`~/data/fresh.txt`, gzipped after caching), summaries
+  `~/data/games-fresh.txt`, log `~/data/fresh.autoplay.log`.
+- Labeling: `mlproducer -labeler result -per-game -endgame-plies 2`
+  (one turn drawn from 1..30 per game; endgame draws still emitted in this
+  run, quick-search labeled; skipped from now on), cached by
+  `training.py --cache-only` into `fresh-frames.bin`.
