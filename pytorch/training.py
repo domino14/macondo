@@ -162,7 +162,12 @@ def unpack_row(row):
 
 
 class CacheDataset(Dataset):
-    """Random access into a frame cache; rows [start, end)."""
+    """Random access into a frame cache; rows [start, end).
+
+    Items are the packed rows themselves (uint8, CACHE_ROW_BYTES); the
+    batch is unpacked on the training device by `unpack_batch`, so only
+    2.7 KB per position crosses from the loader workers instead of 77 KB.
+    """
 
     def __init__(self, path, start=0, end=None):
         self.path = path
@@ -178,7 +183,25 @@ class CacheDataset(Dataset):
         if self.mm is None:
             self.mm = np.memmap(self.path, dtype=np.uint8, mode="r")
         off = (self.start + i) * CACHE_ROW_BYTES
-        return unpack_row(np.array(self.mm[off : off + CACHE_ROW_BYTES]))
+        return torch.from_numpy(np.array(self.mm[off : off + CACHE_ROW_BYTES]))
+
+    def unpacked(self, i):
+        return unpack_row(self[i].numpy())
+
+
+_BIT_SHIFTS = None
+
+
+def unpack_batch(packed):
+    """(B, CACHE_ROW_BYTES) uint8 on any device -> (board, scalars, targets)."""
+    global _BIT_SHIFTS
+    if _BIT_SHIFTS is None or _BIT_SHIFTS.device != packed.device:
+        _BIT_SHIFTS = torch.arange(7, -1, -1, device=packed.device, dtype=torch.uint8)
+    b = packed.shape[0]
+    bits = (packed[:, :PLANE_BYTES].unsqueeze(-1) >> _BIT_SHIFTS) & 1  # MSB first, as np.packbits
+    board = bits.reshape(b, -1)[:, :N_PLANE].to(torch.float32).view(b, C, H, W)
+    rest = packed[:, PLANE_BYTES:].contiguous().view(torch.float32)  # little-endian, as written
+    return board, rest[:, :N_SCAL].contiguous(), rest[:, N_SCAL:].contiguous()
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -341,6 +364,11 @@ def parse_args(argv=None):
         "rows are the validation set",
     )
     p.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="just write every stdin frame to --cache (no training, no GPU) and exit",
+    )
+    p.add_argument(
         "--grad-batch",
         type=int,
         default=256,
@@ -371,7 +399,38 @@ def parse_args(argv=None):
     args.weights = {name: getattr(args, f"w_{name}") for name in TARGETS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")
+    if args.cache_only and not args.cache:
+        p.error("--cache-only needs --cache")
     return args
+
+
+def cache_only(args):
+    """Pack every stdin frame into args.cache and exit."""
+    buf = sys.stdin.buffer
+    n = 0
+    t0 = time.time()
+    with open(args.cache, "ab") as out:
+        batch = []
+        while True:
+            hdr = buf.read(4)
+            if len(hdr) < 4:
+                break
+            (n_bytes,) = struct.unpack("<I", hdr)
+            payload = buf.read(n_bytes)
+            if len(payload) != n_bytes:
+                break
+            batch.append(unpack_frame(payload))
+            if len(batch) == 1024:
+                out.write(pack_rows(*(torch.stack(x) for x in zip(*batch))))
+                n += len(batch)
+                batch = []
+                if n % 102400 == 0:
+                    print(f"cached {n:,} frames, {n/(time.time()-t0):,.0f}/s", file=sys.stderr)
+        if batch:
+            out.write(pack_rows(*(torch.stack(x) for x in zip(*batch))))
+            n += len(batch)
+    total = os.path.getsize(args.cache) // CACHE_ROW_BYTES
+    print(f"cached {n:,} frames this run; {args.cache} now holds {total:,}", file=sys.stderr)
 
 
 def balance_weights(weights, norms, share, max_w=10.0):
@@ -512,6 +571,9 @@ def validate_streaming(
 def main():
     args = parse_args()
     sys.stdout.reconfigure(line_buffering=True)  # progress lines survive a pipe/log
+    if args.cache_only:
+        cache_only(args)
+        return
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bf16" else torch.float16
     print(f"config: {vars(args)}", file=sys.stderr)
 
@@ -532,7 +594,7 @@ def main():
         val_count = min(args.val_size, n_rows)
         val_ds = CacheDataset(args.from_cache, 0, val_count)
         val_file_name, val_count = write_validation_to_file(
-            (val_ds[i] for i in range(len(val_ds))), ckpt_dir
+            (val_ds.unpacked(i) for i in range(len(val_ds))), ckpt_dir
         )
         train_ds = CacheDataset(args.from_cache, val_count, n_rows)
         print(
@@ -652,11 +714,16 @@ def main():
                 n_cached = os.path.getsize(args.cache) // CACHE_ROW_BYTES
                 print(f"cached {n_cached:,} frames in {args.cache}", file=sys.stderr)
             print(f"epoch {epoch}", file=sys.stderr)
-            for board, scal, targets in loader:
-                if cache_w is not None:
-                    cache_w.write(pack_rows(board, scal, targets))
-                board, scal = board.to(device), scal.to(device)
-                targets = targets.to(device)
+            for item in loader:
+                if isinstance(item, torch.Tensor):
+                    # packed rows from the cache: unpack on the device
+                    board, scal, targets = unpack_batch(item.to(device, non_blocking=True))
+                else:
+                    board, scal, targets = item
+                    if cache_w is not None:
+                        cache_w.write(pack_rows(board, scal, targets))
+                    board, scal = board.to(device), scal.to(device)
+                    targets = targets.to(device)
 
                 with autocast(
                     device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
