@@ -643,3 +643,55 @@ func TestEndgameSearchTimeoutFallsBack(t *testing.T) {
 		t.Fatalf("logged label expected: value %v spread %v", got[0].predictions[TargetValue], got[0].predictions[TargetSpread])
 	}
 }
+
+// In per-game mode a drawn endgame turn emits nothing; the net is never
+// consulted with an empty bag.
+func TestPerGameSkipsEndgamePositions(t *testing.T) {
+	// Every turn of the sample game with the bag already empty must be skipped,
+	// and every other turn emitted, when drawn.
+	for turn := 20; turn <= 24; turn++ {
+		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga.valueFromResult = true
+		ga.pickMax = 30
+		// Draw exactly `turn`: pickMax marks per-game mode, fixedPick is
+		// overridden below to keep the skip active.
+		ga.fixedPick = 0
+		ga.games = map[string]*gameWindow{}
+		got := feedGameWithPick(t, ga, turn)
+		emptyBag := turn >= 23 // sample game: bag empty before turns 23 and 24
+		if emptyBag && len(got) != 0 {
+			t.Fatalf("turn %d: emitted %d vectors from an endgame draw", turn, len(got))
+		}
+		if !emptyBag && len(got) != 1 {
+			t.Fatalf("turn %d: emitted %d vectors, want 1", turn, len(got))
+		}
+	}
+}
+
+// feedGameWithPick feeds the sample game with the per-game draw forced to
+// `turn` without using the fixedPick test hook (which bypasses the skip).
+func feedGameWithPick(t *testing.T, ga *GameAssembler, turn int) []outputVector {
+	t.Helper()
+	hdr := "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n"
+	sc := NewTurnScanner(strings.NewReader(hdr + strings.Join(sampleGameTurns, "\n") + "\n"))
+	var out []outputVector
+	first := true
+	for sc.Scan() {
+		tn := sc.Turn()
+		if first {
+			// Create the window with a throwaway draw of turn 1, discard
+			// that position's state, then set the real draw.
+			ga.pickMax = 1
+			out = append(out, ga.FeedTurn(tn)...)
+			gw := ga.games[tn.GameID]
+			gw.pick = turn
+			game.MLVectorPool.Put(gw.plies[0].state)
+			gw.plies[0].state = nil
+			ga.pickMax = 30
+			first = false
+			continue
+		}
+		out = append(out, ga.FeedTurn(tn)...)
+	}
+	return out
+}

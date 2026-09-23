@@ -396,7 +396,11 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 		spread: float32(gw.game.SpreadFor(mover)),
 		bag:    gw.game.Bag().TilesRemaining(),
 	}
-	wanted := gw.pick == 0 || gw.pick == t.TurnNumber
+	// With one position per game, a drawn turn that lands in the endgame
+	// (bag already empty) emits nothing: the bot hands the endgame to the
+	// solver and never consults the net there. (fixedPick, the test hook,
+	// bypasses this so endgame labeling can be tested.)
+	wanted := gw.pick == 0 || (gw.pick == t.TurnNumber && (t.TilesRemaining > 0 || ga.fixedPick > 0))
 	if wanted {
 		leaveVal := ga.eqCalc.LeaveValue(rack.TilesOn())
 		p.state, err = gw.game.BuildMLVector(m, leaveVal, gw.moveHistory())

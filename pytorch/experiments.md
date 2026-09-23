@@ -1275,3 +1275,21 @@ positions the true-result target underfits badly. Not a verdict on the
 target, which the collaborator runs at >54% with more games; a verdict on
 5.4M positions. The fresh-games run (27M games, ~20M positions, same
 labeler) is the fair test.
+
+#### Matching the collaborator's objective (9/23/26)
+
+He trains WDL as a 3-logit softmax with cross-entropy and ranks on it;
+our true-result run trained the *value* head, tanh + smooth-L1 on the +-1
+result, with the WDL head off. Smooth-L1 on a +-1 target is not a proper
+scoring rule (it pulls toward the median, overconfident, weaker gradient);
+cross-entropy is. The trainer now has `--primary wdl`: checkpoints and
+`--aux-share` follow the WDL head, and export derives the ONNX `value`
+output as P(win) - P(loss) so Go and the match are unchanged. A WDL
+cross-entropy near 0.47 is the outcome's own entropy, not a bad fit.
+
+Also per his practice: `-per-game` no longer draws endgame positions (the
+bot never consults the net with an empty bag). The fresh cache already
+has them (~8%, quick-search labeled), harmless.
+
+The fresh 27M-game run trains with `--primary wdl --w-wdl 1 --w-value 0
+--aux-share 0.15` (`train-fresh.sh`) once its cache finishes.

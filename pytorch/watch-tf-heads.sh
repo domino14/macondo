@@ -33,13 +33,14 @@ if [ ! -f "$CKPT" ]; then
     log "NOT RUNNING MATCH: $CKPT missing"
     exit 1
 fi
-read -r STEPS BEST < <(python - "$CSV" <<'PY'
+PRIMARY=${PRIMARY:-value}
+read -r STEPS BEST < <(python - "$CSV" "val_$PRIMARY" <<'PY'
 import csv, sys
 rows = list(csv.DictReader(open(sys.argv[1])))
-print(rows[-1]["step"], min(float(r["val_value"]) for r in rows))
+print(rows[-1]["step"], min(float(r[sys.argv[2]]) for r in rows))
 PY
 )
-log "training done: $STEPS steps, best val_value $BEST"
+log "training done: $STEPS steps, best val_$PRIMARY $BEST"
 # The single-head run was at 0.0937 by step 2000 and 0.0913 at the end, so
 # anything above 0.095 means something is wrong with a bogowin-labeled run.
 # Other targets sit on other scales: +-1 results are ~0.28, smoothed rollout
@@ -48,7 +49,7 @@ VAL_MAX=${VAL_MAX:-0.095}
 if python -c "import sys; sys.exit(0 if float('$BEST') <= float('$VAL_MAX') else 1)"; then
     :
 else
-    log "NOT RUNNING MATCH: best val_value $BEST > $VAL_MAX, learning looks broken"
+    log "NOT RUNNING MATCH: best val_$PRIMARY $BEST > $VAL_MAX, learning looks broken"
     exit 1
 fi
 

@@ -321,6 +321,14 @@ def parse_args(argv=None):
     for name, w in DEFAULT_WEIGHTS.items():
         p.add_argument(f"--w-{name.replace('_', '-')}", type=float, default=w)
     p.add_argument(
+        "--primary",
+        choices=["value", "wdl"],
+        default="value",
+        help="the head the bot ranks on: checkpoints are chosen on its validation "
+        "loss, --aux-share is relative to it, and export derives the 'value' output "
+        "from it (for wdl: P(win) - P(loss))",
+    )
+    p.add_argument(
         "--aux-share",
         type=float,
         default=0.0,
@@ -433,16 +441,16 @@ def cache_only(args):
     print(f"cached {n:,} frames this run; {args.cache} now holds {total:,}", file=sys.stderr)
 
 
-def balance_weights(weights, norms, share, max_w=10.0):
-    """Set each auxiliary weight so weight * norm == share * value norm.
+def balance_weights(weights, norms, share, max_w=10.0, primary="value"):
+    """Set each auxiliary weight so weight * norm == share * primary norm.
 
     Heads switched off (weight 0) stay off. Weights are capped so a head
     whose gradient collapses cannot be amplified without limit.
     """
-    ref = norms["value"]
+    ref = norms[primary]
     out = dict(weights)
     for k in TARGETS:
-        if k == "value" or weights[k] == 0 or norms[k] == 0:
+        if k == primary or weights[k] == 0 or norms[k] == 0:
             continue
         out[k] = min(max_w, share * ref / norms[k])
     return out
@@ -654,7 +662,7 @@ def main():
     )
     if args.aux_share > 0:
         gn0 = head_grad_norms(net, *(t.to(device) for t in diag))
-        args.weights = balance_weights(args.weights, gn0, args.aux_share)
+        args.weights = balance_weights(args.weights, gn0, args.aux_share, primary=args.primary)
         print(
             "initial balanced weights: "
             + "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS),
@@ -768,7 +776,7 @@ def main():
                         )
                     gn = head_grad_norms(net, *(t.to(device) for t in diag))
                     if args.aux_share > 0:
-                        args.weights = balance_weights(args.weights, gn, args.aux_share)
+                        args.weights = balance_weights(args.weights, gn, args.aux_share, primary=args.primary)
                     csv_writer.writerow(
                         [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
                         + [f"{train[k]:.6f}" for k in TARGETS]
@@ -780,7 +788,7 @@ def main():
 
                     elapsed = time.time() - t0
                     heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
-                    ref = gn["value"] or 1.0
+                    ref = gn[args.primary] or 1.0
                     pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in TARGETS)
                     print(
                         f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
@@ -795,7 +803,7 @@ def main():
                     # Checkpoint on the value head alone: it is what the bot
                     # ranks on, and it keeps runs with different head weights
                     # comparable.
-                    if val["value"] < best_val:
+                    if val[args.primary] < best_val:
                         torch.save(
                             {
                                 "step": step,
@@ -803,12 +811,13 @@ def main():
                                 "arch": args.arch,
                                 "hparams": args.hparams,
                                 "weights": args.weights,
+                            "primary": args.primary,
                                 "val": val,
                             },
                             args.ckpt,
                         )
-                        best_val = val["value"]
-                        print("  ✓ checkpointed (best validation value loss)")
+                        best_val = val[args.primary]
+                        print(f"  ✓ checkpointed (best validation {args.primary} loss)")
 
                     if args.snapshot_every and step % args.snapshot_every == 0:
                         stem, ext = os.path.splitext(args.ckpt)
@@ -819,6 +828,7 @@ def main():
                                 "arch": args.arch,
                                 "hparams": args.hparams,
                                 "weights": args.weights,
+                            "primary": args.primary,
                                 "val": val,
                             },
                             f"{stem}-step{step}{ext}",

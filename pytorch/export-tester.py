@@ -76,6 +76,9 @@ def main():
         s = scalars[:bs]
         with torch.no_grad():
             refs = net(torch.from_numpy(b), torch.from_numpy(s))
+            if getattr(net, "primary", "value") == "wdl":
+                pw = torch.softmax(refs["wdl"], dim=1)
+                refs = dict(refs, value=pw[:, 2] - pw[:, 0])
         outs = sess.run(outputs, {"board": b, "scalars": s})
         touts = trt_runner.infer({"board": b, "scalars": s}) if trt_runner else None
         for name, out in zip(outputs, outs):

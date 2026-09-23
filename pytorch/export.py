@@ -21,12 +21,20 @@ EXPORTED_HEADS = ["value", "spread"]
 
 # Wrap the model to return a tuple instead of a dictionary for ONNX export
 class ModelWrapper(torch.nn.Module):
-    def __init__(self, model):
+    """Emits EXPORTED_HEADS in order. With a wdl-primary checkpoint the
+    'value' output is P(win) - P(loss) from the wdl softmax (classes are
+    loss, draw, win), so it keeps the value head's meaning and range."""
+
+    def __init__(self, model, primary="value"):
         super().__init__()
         self.model = model
+        self.primary = primary
 
     def forward(self, board, scalars):
         outputs = self.model(board, scalars)
+        if self.primary == "wdl":
+            p = torch.softmax(outputs["wdl"], dim=1)
+            outputs = dict(outputs, value=p[:, 2] - p[:, 0])
         # Return individual tensors in a definite order
         return tuple(outputs[h] for h in EXPORTED_HEADS)
 
@@ -42,6 +50,7 @@ def load_net(ckpt_path):
     net.eval()
     if hasattr(net, "set_export_mode"):
         net.set_export_mode(True)
+    net.primary = ckpt.get("primary", "value")
     return net, arch, hparams
 
 
@@ -53,13 +62,13 @@ def main():
     args = p.parse_args()
 
     net, arch, hparams = load_net(args.ckpt)
-    print(f"loaded {args.ckpt}: arch={arch} hparams={hparams}")
+    print(f"loaded {args.ckpt}: arch={arch} hparams={hparams} primary={net.primary}")
 
     # Create dummy inputs that match the model's input shapes
     dummy_board = torch.randn(1, C, H, W)
     dummy_scalars = torch.randn(1, N_SCAL)
 
-    wrapped_model = ModelWrapper(net)
+    wrapped_model = ModelWrapper(net, net.primary)
 
     # Export the model to ONNX. dynamo=False pins the TorchScript exporter;
     # newer torch versions flip the default and emit a different graph.
