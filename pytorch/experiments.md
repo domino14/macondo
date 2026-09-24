@@ -1354,3 +1354,28 @@ recipe works here once it has enough positions; 5.4M was starved, 20M is
 not. The NWL23 re-run of heads2 (tf-heads2-nwl23-v-hasty-pairs) is the
 like-for-like comparison. Next lever: more games (NWL23, no endgame
 draws) and/or the board-shape explorer for diversity.
+
+#### Accurate endgames during generation (9/24/26)
+
+Greedy bots misplay close endgames, so a slice of the true-result labels
+is wrong. Study on 500 logged close endgames (|spread| <= 30 at bag
+empty), reference = 4-ply `Solve` every turn (2.3 s/game):
+
+| endgame play                              | result agrees w/ ref | s/game (mean, median, max) |
+|-------------------------------------------|---------------------:|---------------------------:|
+| greedy (as logged)                        | 87.8%                | 0                          |
+| QuickAndDirtySolve 2-ply, full window     | 95.2%                | 0.31 / 0.12 / 8.65         |
+| QDS 3-ply, first-win (-1,1), 2 s cap      | 94.6% (27 timeouts)  | 0.35                       |
+
+2-ply full window wins on both axes. Built into the bots as autoplay
+options `-quickendgame 2 -quickendgamemargin 20 -quickendgamecap 250`
+(commit 461b0f54): bag empty and |spread| <= 20 -> the move comes from a
+one-thread QDS with a 250 ms cap, otherwise the static player. Smoke,
+4,000 softmax-v-Hasty games on 4 threads (a 12-thread match running):
+340 games/s plain, 148 with the quick endgame, i.e. +15 ms per game.
+
+Queued (`run-nwl23.sh`, after the heads2 NWL23 baseline match): 54M
+NWL23 games in two halves of 27M with the quick endgame, one position
+per game into `nwl23-frames.bin` (~40M rows), three epochs WDL-primary,
+deploy `macondo-nn-tf-nwl23`, 100k-pair match. Expect ~12 h per half of
+generation at 16 threads.
