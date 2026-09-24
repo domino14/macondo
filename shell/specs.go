@@ -314,7 +314,7 @@ func init() {
 			{Name: "tau2", Type: OptFloat,
 				Help: "player 2: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
 			{Name: "quickendgame", Type: OptInt,
-				Help: "both players: play close endgames with a quick N-ply search (0 = off)"},
+				Help: "both players: play close endgames with a quick N-ply result-only search, (-1,1) window (0 = off)"},
 			{Name: "quickendgamemargin", Type: OptInt,
 				Help: "with -quickendgame: only when |spread| <= this (0 = always); default 60"},
 			{Name: "quickendgamecap", Type: OptInt,
