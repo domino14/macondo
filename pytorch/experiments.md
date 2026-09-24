@@ -1400,3 +1400,19 @@ disagrees with 2-ply on 11% of endgames, worse than greedy's 4.4%.
 Chosen: 2-ply, margin 60 (per-band flip rate under 1% beyond it), cap
 250 ms. Expect ~230-300 games/s on 16 threads, i.e. ~1.3 days per 27M
 half.
+
+#### Result: heads2 re-measured under NWL23 (9/24/26)
+
+Same `macondo-nn-tf-heads2` v1 weights (file 5 = NWL23 games, table
+labels, 163M positions), 100k pairs vs HastyBot with `-lexicon NWL23`,
+`games-tf-heads2-nwl23-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.31% +/- 0.18   swept 19.8%  lost 13.2%  spread -2.8/game
+```
+
+vs 53.19% +/- 0.18 under NWL18: the lexicon moved it by a tenth of a
+point, within noise. Like-for-like ladder under NWL23: heads2 53.31%,
+fresh (20M true-result positions, NWL18 games) 53.10%. heads2 is still
+the best model. The NWL23 batch (54M games, quick endgames, margin 60)
+started generating 11:30.
