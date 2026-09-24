@@ -1383,3 +1383,20 @@ NWL23 games in two halves of 27M with the quick endgame, one position
 per game into `nwl23-frames.bin` (~40M rows), three epochs WDL-primary,
 deploy `macondo-nn-tf-nwl23`, 100k-pair match. Expect ~12 h per half of
 generation at 16 threads.
+
+#### Choosing the quick-endgame margin (9/24/26)
+
+5,000 logged endgames with entering |spread| up to 120, each played out
+greedily and with the quick 2-ply search every turn; a "flip" is a
+different game result. Flip rate by entering |spread|: 0-19 12%, 20-39
+7%, 40-59 2.7%, 60-69 0.9%, 70+ 0.2% (stuck-tile cases out to 113).
+Weighted by the real entering-spread distribution of softmax-v-Hasty
+games (21% of endgames start 120+ apart), greedy gets 3.5% of all game
+results wrong; a margin of 20 leaves 1.6%, 40 leaves 0.5%, 60 leaves
+0.11%, 70 leaves 0.05%. Throughput on 4 threads under a 12-thread match:
+plain 340 games/s, margin 20 148, 40 103, 60 76, 70 69, ungated 43.
+A 1-ply quick search is no cheaper in practice (0.18 vs 0.25 s/game) and
+disagrees with 2-ply on 11% of endgames, worse than greedy's 4.4%.
+Chosen: 2-ply, margin 60 (per-band flip rate under 1% beyond it), cap
+250 ms. Expect ~230-300 games/s on 16 threads, i.e. ~1.3 days per 27M
+half.
