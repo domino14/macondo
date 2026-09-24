@@ -23,9 +23,9 @@ EPOCHS=${EPOCHS:-5}
 WAIT_FOR=${WAIT_FOR:-"bin/shell autoplay.*tf-result-v-hasty-pairs"}
 THREADS=${THREADS:-16}
 LEXICON=${LEXICON:-NWL23}   # explicit: the shell's default-lexicon is NWL18 on this box
-# Close endgames (|spread| <= 20) played with a 2-ply quick search, 250 ms
+# Close endgames (|spread| <= 60) played with a 2-ply quick search, 250 ms
 # per move, so game results are right where greedy play gets them wrong.
-QUICK_ENDGAME=${QUICK_ENDGAME:-"-quickendgame 2 -quickendgamemargin 20 -quickendgamecap 250"}
+QUICK_ENDGAME=${QUICK_ENDGAME:-"-quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250"}
 VAL_SIZE=${VAL_SIZE:-150000}
 WATCH=${WATCH:-1}
 CACHE=${CACHE:-$TAG-frames.bin}   # APPEND=1 adds to an existing cache

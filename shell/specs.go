@@ -316,7 +316,7 @@ func init() {
 			{Name: "quickendgame", Type: OptInt,
 				Help: "both players: play close endgames with a quick N-ply search (0 = off)"},
 			{Name: "quickendgamemargin", Type: OptInt,
-				Help: "with -quickendgame: only when |spread| <= this (0 = always); default 20"},
+				Help: "with -quickendgame: only when |spread| <= this (0 = always); default 60"},
 			{Name: "quickendgamecap", Type: OptInt,
 				Help: "with -quickendgame: per-move cap in ms; default 250"},
 			{Name: "inferencetime1", Type: OptInt},
