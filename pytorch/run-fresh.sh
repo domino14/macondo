@@ -25,6 +25,9 @@ THREADS=${THREADS:-16}
 LEXICON=${LEXICON:-NWL23}   # explicit: the shell's default-lexicon is NWL18 on this box
 VAL_SIZE=${VAL_SIZE:-150000}
 WATCH=${WATCH:-1}
+CACHE=${CACHE:-$TAG-frames.bin}   # APPEND=1 adds to an existing cache
+APPEND=${APPEND:-0}
+TRAIN=${TRAIN:-1}                 # 0: stop after the scan (a driver trains later)
 DATA=$HOME/data
 
 while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 60; done
@@ -39,21 +42,22 @@ log "generated: $(( $(wc -l < "$DATA/games-$TAG.txt") - 1 )) games, turn log $(d
 
 # 2. Scan into the cache: one position per game, true result, quick
 #    endgame search where the bag was already empty.
-rm -f "$TAG-frames.bin"
+[ "$APPEND" = 1 ] || rm -f "$CACHE"
 ../bin/mlproducer -labeler result -per-game -endgame-plies 2 < "$DATA/$TAG.txt" 2> "producer-$TAG.log" | \
-  python training.py --cache-only --cache "$TAG-frames.bin" 2> "cache-$TAG.log"
+  python training.py --cache-only --cache "$CACHE" 2> "cache-$TAG.log"
 log "cached: $(tail -1 "cache-$TAG.log")"
 tail -1 "producer-$TAG.log"
 ( cd "$DATA" && nohup gzip "$TAG.txt" > /dev/null 2>&1 & )
+[ "$TRAIN" = 1 ] || exit 0
 
 # 3. Train from the cache. Steps: five epochs of (rows - 150k val) / 2048,
 #    rounded down to the thousand so the cosine reaches zero first.
-ROWS=$(python -c "import os; print(os.path.getsize('$TAG-frames.bin') // 2699)")
+ROWS=$(python -c "import os; print(os.path.getsize('$CACHE') // 2699)")
 STEPS=$(python -c "print(max(100, ($ROWS - $VAL_SIZE) * $EPOCHS // 2048 // 1000 * 1000))")
 log "training: $ROWS rows, $EPOCHS epochs, $STEPS steps"
 rm -f best-tf-$TAG*.pt
 python training.py --arch transformer --ckpt "best-tf-$TAG.pt" --csv "loss_tf_$TAG.csv" \
-  --aux-share 0.15 --w-wdl 0 --epochs "$EPOCHS" --from-cache "$TAG-frames.bin" --val-size "$VAL_SIZE" \
+  --aux-share 0.15 --w-wdl 0 --epochs "$EPOCHS" --from-cache "$CACHE" --val-size "$VAL_SIZE" \
   --total-steps "$STEPS" --snapshot-every 10000 2>&1 | tee "train-tf-$TAG.log" > /dev/null
 log "training exit=${PIPESTATUS[0]}"
 

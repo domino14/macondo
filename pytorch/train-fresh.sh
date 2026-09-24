@@ -13,6 +13,7 @@ source ./venv/bin/activate
 log() { echo "$(date '+%F %T') $*"; }
 
 TAG=${TAG:-fresh}
+CACHE=${CACHE:-$TAG-frames.bin}
 EPOCHS=${EPOCHS:-5}
 VAL_SIZE=${VAL_SIZE:-150000}
 WAIT_FOR=${WAIT_FOR:-"[t]raining.py --cache-only --cache $TAG-frames.bin"}
@@ -23,12 +24,12 @@ VAL_MAX=${VAL_MAX:-0.6}
 while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 60; done
 [ -f "$HOME/data/$TAG.txt" ] && ( cd "$HOME/data" && nohup gzip "$TAG.txt" > /dev/null 2>&1 & )
 
-ROWS=$(python -c "import os; print(os.path.getsize('$TAG-frames.bin') // 2699)")
+ROWS=$(python -c "import os; print(os.path.getsize('$CACHE') // 2699)")
 STEPS=$(python -c "print(max(100, ($ROWS - $VAL_SIZE) * $EPOCHS // 2048 // 1000 * 1000))")
 log "training $TAG: $ROWS rows, $EPOCHS epochs, $STEPS steps, $TRAIN_ARGS"
 rm -f best-tf-$TAG*.pt
 python training.py --arch transformer --ckpt "best-tf-$TAG.pt" --csv "loss_tf_$TAG.csv" \
-  $TRAIN_ARGS --epochs "$EPOCHS" --from-cache "$TAG-frames.bin" --val-size "$VAL_SIZE" \
+  $TRAIN_ARGS --epochs "$EPOCHS" --from-cache "$CACHE" --val-size "$VAL_SIZE" \
   --total-steps "$STEPS" --snapshot-every 10000 2>&1 | tee "train-tf-$TAG.log" > /dev/null
 log "training exit=${PIPESTATUS[0]}"
 
