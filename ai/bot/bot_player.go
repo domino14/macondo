@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/word-golib/kwg"
+
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -50,6 +54,13 @@ type BotConfig struct {
 	// instead of by wall clock, which is what makes a position infer the same way
 	// twice. If 0, InferenceTimeSecs applies instead.
 	InferenceBudget int
+	// QuickEndgamePlies > 0 makes a non-solving bot play close endgames
+	// (bag empty, |spread| <= QuickEndgameMargin; margin 0 = always) with a
+	// quick N-ply search (greedy playout at the leaves), capped at
+	// QuickEndgameCapMs per move (0 = 250), falling back to the static move.
+	QuickEndgamePlies  int
+	QuickEndgameMargin int
+	QuickEndgameCapMs  int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
@@ -71,6 +82,8 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// QuickEndgameSolves counts the moves chosen by the quick endgame search.
+	QuickEndgameSolves int
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -265,6 +278,9 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
+	if m, ok := p.quickEndgameMove(ctx); ok {
+		return m, nil
+	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
 		if p.Bag().TilesRemaining() == 0 {
 			// The bag is empty. Let's use the HastyBot endgame algorithm.
@@ -387,4 +403,58 @@ func (p *BotTurnPlayer) LastInferenceCount() int {
 		return -1
 	}
 	return len(inferences.InferredRacks)
+}
+
+var quickEndgameTableOnce sync.Once
+
+// quickEndgameMove plays a close endgame with a quick N-ply search when the
+// bot is configured for it (see BotConfig.QuickEndgamePlies). It searches on
+// a copy, as the full endgame engine does, and returns the search's first
+// move; on a timeout or error the caller falls back to its usual choice.
+func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool) {
+	cfg := p.cfg
+	if cfg == nil || cfg.QuickEndgamePlies <= 0 || p.Bag().TilesRemaining() > 0 ||
+		p.Game.Playing() != pb.PlayState_PLAYING {
+		return nil, false
+	}
+	onturn := p.Game.PlayerOnTurn()
+	if cfg.QuickEndgameMargin > 0 {
+		spread := p.Game.SpreadFor(onturn)
+		if spread > cfg.QuickEndgameMargin || spread < -cfg.QuickEndgameMargin {
+			return nil, false
+		}
+	}
+	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
+	if err != nil {
+		return nil, false
+	}
+	// One shared, lock-free transposition table for every bot in the process.
+	quickEndgameTableOnce.Do(func() {
+		negamax.GlobalTranspositionTable.Reset(0.02, p.Game.Board().Dim())
+	})
+	gameCopy := p.Game.Copy()
+	gameCopy.SetBackupMode(game.SimulationMode)
+	gameCopy.SetStateStackLength(cfg.QuickEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
+	gameCopy.SetEndgameMode(true)
+	gen := movegen.NewGordonGenerator(gd, gameCopy.Board(), gameCopy.Bag().LetterDistribution())
+	s := new(negamax.Solver)
+	if err := s.Init(gen, gameCopy); err != nil {
+		return nil, false
+	}
+	s.SetThreads(1)
+	s.SetSkipMaterialize(false)
+	capMs := cfg.QuickEndgameCapMs
+	if capMs <= 0 {
+		capMs = 250
+	}
+	sctx, cancel := context.WithTimeout(ctx, time.Duration(capMs)*time.Millisecond)
+	defer cancel()
+	_, seq, err := s.QuickAndDirtySolve(sctx, cfg.QuickEndgamePlies, 0)
+	if err != nil || len(seq) == 0 {
+		return nil, false
+	}
+	m := &move.Move{}
+	m.CopyFrom(seq[0])
+	p.QuickEndgameSolves++
+	return m, true
 }

@@ -478,6 +478,15 @@ message AutoplayPlayerConfig {
   // bounded by this count instead, so the same position always produces the
   // same posterior. If 0, inference is bounded by time as before.
   int32 inference_budget = 12;
+  // quick_endgame_plies > 0 makes any non-solving bot play close endgames
+  // (bag empty, |spread| <= quick_endgame_margin, 0 = no gate) with a
+  // quick N-ply endgame search, greedy playout at the leaves, capped at
+  // quick_endgame_cap_ms per move (0 = 250) with the static move as the
+  // fallback. Makes game results accurate where greedy play gets them
+  // wrong, at a few solves per close game.
+  int32 quick_endgame_plies = 13;
+  int32 quick_endgame_margin = 14;
+  int32 quick_endgame_cap_ms = 15;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

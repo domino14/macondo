@@ -51,17 +51,20 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		return AutomaticRunnerPlayer{BotCode: pb.BotRequest_HASTY_BOT}
 	}
 	return AutomaticRunnerPlayer{
-		BotCode:              p.BotCode,
-		LeaveFile:            p.LeaveFile,
-		PEGFile:              p.PegFile,
-		MinSimPlies:          int(p.MinSimPlies),
-		SimThreads:           int(p.SimThreads),
-		StochasticStaticEval: p.StochasticStaticEval,
-		InferenceTau:                p.InferenceTau,
-		InferenceTimeSecs:           int(p.InferenceTimeSecs),
-		InferenceSimIters:           int(p.InferenceSimIters),
+		BotCode:                      p.BotCode,
+		LeaveFile:                    p.LeaveFile,
+		PEGFile:                      p.PegFile,
+		MinSimPlies:                  int(p.MinSimPlies),
+		SimThreads:                   int(p.SimThreads),
+		StochasticStaticEval:         p.StochasticStaticEval,
+		InferenceTau:                 p.InferenceTau,
+		InferenceTimeSecs:            int(p.InferenceTimeSecs),
+		InferenceSimIters:            int(p.InferenceSimIters),
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
-		InferenceBudget:             int(p.InferenceBudget),
-		OracleInference:             p.OracleInference,
+		InferenceBudget:              int(p.InferenceBudget),
+		OracleInference:              p.OracleInference,
+		QuickEndgamePlies:            int(p.QuickEndgamePlies),
+		QuickEndgameMargin:           int(p.QuickEndgameMargin),
+		QuickEndgameCapMs:            int(p.QuickEndgameCapMs),
 	}
 }

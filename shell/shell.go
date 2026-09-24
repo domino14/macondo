@@ -1695,6 +1695,15 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 	applyPlayerOverrides(expCfg.Player1, options, "1")
 	applyPlayerOverrides(expCfg.Player2, options, "2")
+	if v, err := options.IntDefault("quickendgame", 0); err == nil && v > 0 {
+		margin, _ := options.IntDefault("quickendgamemargin", 20)
+		capMs, _ := options.IntDefault("quickendgamecap", 250)
+		for _, p := range []*pb.AutoplayPlayerConfig{expCfg.Player1, expCfg.Player2} {
+			p.QuickEndgamePlies = int32(v)
+			p.QuickEndgameMargin = int32(margin)
+			p.QuickEndgameCapMs = int32(capMs)
+		}
+	}
 
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)
