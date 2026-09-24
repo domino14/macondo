@@ -1333,3 +1333,24 @@ generation script passes `-lexicon NWL23`. The 53.19% baseline
 (`rerun-baseline.sh`, experiment tf-heads2-nwl23-v-hasty-pairs) after the
 fresh model's match, so the two are compared under the same lexicon. The
 fresh 27M games are NWL18 and stay in this run as agreed.
+
+#### Result: fresh games, true result, WDL-primary (9/24/26)
+
+27M fresh softmax-vs-Hasty games (NWL18, greedy endgames), one position
+per game (19.79M positions, ~8% empty-bag, quick-search labeled),
+`--primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15`, five epochs,
+47k steps, 11.6 h. Best val_wdl 0.4675; opp_bingo 0.4226 (the 163M-
+position heads2 net: 0.4229). Deployed as `macondo-nn-tf-fresh` v1.
+100k game pairs vs HastyBot **under NWL23**:
+
+```
+paired win rate 53.10% +/- 0.18   swept 19.4%  lost 13.3%  spread -2.6/game
+```
+
+Level with heads2 (53.19% +/- 0.18, measured under NWL18) on an eighth
+of the position count, and every secondary number matches (swept 19.4 vs
+19.4, lost 13.3 vs 13.1, spread -2.6 vs -2.7). So the collaborator's
+recipe works here once it has enough positions; 5.4M was starved, 20M is
+not. The NWL23 re-run of heads2 (tf-heads2-nwl23-v-hasty-pairs) is the
+like-for-like comparison. Next lever: more games (NWL23, no endgame
+draws) and/or the board-shape explorer for diversity.
