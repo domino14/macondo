@@ -1308,11 +1308,13 @@ only names the bots.
   Player 2: HastyBot, greedy static best play. Greedy endgames both sides.
 - **Lexicon NWL18**, English distribution: the shell's config
   (`default-lexicon` in ~/.config/macondo) sets NWL18, so every autoplay
-  match and generation run from this box has used NWL18. The producer
-  replays with NWL23 rules (hardcoded in game_assembler.go) for cross-sets,
-  leave values and the endgame search, so the training features are
-  NWL23 cross-sets on NWL18 positions. Consistent with every earlier run
-  (same config), so not changed mid-program; worth unifying later.
+  match and generation run from this box *this month* has used NWL18.
+  (Correction 9/24: the old logs, including file 5 that every transformer
+  run through heads2 trained on, were generated last year with NWL23.
+  Only this week's matches and the fresh 27M games are NWL18.) The
+  producer replays with NWL23 rules (hardcoded in game_assembler.go) for
+  cross-sets, leave values and the endgame search, so the fresh training
+  features are NWL23 cross-sets on NWL18 positions.
 - 27,000,000 games, 7 h 08 m, ~1,050 games/s; turn log 43 GB
   (`~/data/fresh.txt`, gzipped after caching), summaries
   `~/data/games-fresh.txt`, log `~/data/fresh.autoplay.log`.
@@ -1323,10 +1325,12 @@ only names the bots.
 
 #### Lexicon (9/23/26)
 
-Every match and generation run on this box used **NWL18**: the shell's
-`default-lexicon` was NWL18 and autoplay inherited it silently (the saved
-config had no lexicon field; it now records the resolved one). The
-producer has always replayed with NWL23 rules. Switched the shell default
+Every match this month and the fresh 27M-game generation used **NWL18**:
+the shell's `default-lexicon` was NWL18 and autoplay inherited it silently
+(the saved config had no lexicon field; it now records the resolved one).
+The old logs (file 5 etc.) were NWL23 games from last year, so heads2 and
+every earlier transformer run trained on NWL23 data; only their matches
+were NWL18. The producer has always replayed with NWL23 rules. Switched the shell default
 to NWL23, the deploy script's match passes `-lexicon NWL23`, and the
 generation script passes `-lexicon NWL23`. The 53.19% baseline
 (macondo-nn-tf-heads2) is queued for a re-run under NWL23
