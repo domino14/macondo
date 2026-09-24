@@ -1416,3 +1416,18 @@ point, within noise. Like-for-like ladder under NWL23: heads2 53.31%,
 fresh (20M true-result positions, NWL18 games) 53.10%. heads2 is still
 the best model. The NWL23 batch (54M games, quick endgames, margin 60)
 started generating 11:30.
+
+#### Tiny window for the quick endgame (9/24/26)
+
+500 close endgames (|spread| <= 30), every turn played by the search,
+4-ply `Solve` as reference: 2-ply full window and 2-ply first-win
+((-1, 1) root window) gave the *same game result in all 500 games*, both
+94.8% agreement with the reference (greedy 88.4%), at 0.024 s/game vs
+0.262 s/game. The bot now always uses the first-win window (9e66225d).
+Generation smoke on 4 threads under load: plain 176 games/s, margin 60
+tiny 81, ungated 48. Kept margin 60.
+
+Batch restarted 11:48 with the tiny window: **435 games/s on 16
+threads** (plain was ~1,050), so ~17 h per 27M half; both halves plus
+their scans ~40 h, three epochs on ~40M rows ~14 h, match ~3.5 h ->
+result expected late 9/26.
