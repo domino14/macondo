@@ -26,6 +26,7 @@ C, H, W = 85, 15, 15
 N_SQUARES = H * W  # 225
 N_SCAL = 72
 N_TILE_TYPES = 27  # blank + A..Z, matches rack[0:27] / unseen[27:54]
+N_SPATIAL = 4  # per-square training-only heads, see training.SPATIAL
 
 
 class Block(nn.Module):
@@ -108,6 +109,9 @@ class ScrabbleTransformerNet(nn.Module):
         from training import Heads  # lazy: training imports this module
 
         self.heads = Heads(128)
+        # Per-square spatial heads: one linear layer shared by the 225 square
+        # tokens, read after the final norm. Never exported.
+        self.heads_spatial = nn.Linear(d, N_SPATIAL)
 
     def set_export_mode(self, flag=True):
         for b in self.blocks:
@@ -134,9 +138,12 @@ class ScrabbleTransformerNet(nn.Module):
         T = self.N_TOKENS
         for blk in self.blocks:
             x = blk(x, T)
-        cls = self.ln_f(x[:, 0])
-        h = F.relu(self.fc1(cls))
-        return self.heads(h)
+        x = self.ln_f(x)
+        h = F.relu(self.fc1(x[:, 0]))
+        out = self.heads(h)
+        sq = self.heads_spatial(x[:, 1 : 1 + N_SQUARES])  # (B, 225, N_SPATIAL)
+        out["spatial"] = sq.transpose(1, 2).reshape(-1, N_SPATIAL, H, W)
+        return out
 
 
 if __name__ == "__main__":

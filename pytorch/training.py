@@ -34,13 +34,23 @@ N_PLANE = C * H * W  # 19_125
 N_SCAL = 72
 TARGETS = ["value", "spread", "wdl", "opp_bingo", "opp_score"]
 N_TARGETS = len(TARGETS)
-ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS
+# Spatial targets: four 15x15 0/1 planes after the scalar targets (the
+# producer's Spatial* constants): where the opponent's next move and the
+# mover's own next move land, and each conjoined with that player winning.
+# Training-only heads; the export never includes them.
+SPATIAL = ["opp_next", "self_next", "opp_win", "self_win"]
+N_SPATIAL = len(SPATIAL)
+N_SPATIAL_FLOATS = N_SPATIAL * H * W  # 900
+ALL_HEADS = TARGETS + SPATIAL
+ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS + N_SPATIAL_FLOATS
 DTYPE = np.float32
 
-# Frame cache: planes are 0/1 so they pack to bits; scalars and targets stay
-# float32. 2,699 bytes per position instead of 76,808.
-PLANE_BYTES = (N_PLANE + 7) // 8
-CACHE_ROW_BYTES = PLANE_BYTES + N_SCAL * 4 + N_TARGETS * 4
+# Frame cache: planes and spatial targets are 0/1 so they pack to bits;
+# scalars and scalar targets stay float32. 2,812 bytes per position instead
+# of 80,408 (2,699 before the spatial targets; an old cache is refused).
+BIT_FLOATS = N_PLANE + N_SPATIAL_FLOATS
+PACKED_BYTES = (BIT_FLOATS + 7) // 8
+CACHE_ROW_BYTES = PACKED_BYTES + N_SCAL * 4 + N_TARGETS * 4
 
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
@@ -52,7 +62,32 @@ DEFAULT_WEIGHTS = {
     "wdl": 0.25,
     "opp_bingo": 0.1,
     "opp_score": 0.1,
+    "opp_next": 0.25,
+    "self_next": 0.25,
+    "opp_win": 0.25,
+    "self_win": 0.25,
 }
+
+# Diagonal transpose: the one board symmetry that keeps words readable. It
+# swaps the horizontal cross-check planes (27..52) with the vertical ones
+# (53..78) and transposes every plane and spatial target; the scalars carry
+# nothing directional.
+TRANSPOSE_PERM = list(range(27)) + list(range(53, 79)) + list(range(27, 53)) + list(range(79, C))
+assert sorted(TRANSPOSE_PERM) == list(range(C))
+
+
+def transpose_batch(board, spatial, prob, generator=None):
+    """Transpose a random `prob` fraction of the rows of (board, spatial)."""
+    if prob <= 0:
+        return board, spatial
+    flip = torch.rand(board.shape[0], device=board.device, generator=generator) < prob
+    if not bool(flip.any()):
+        return board, spatial
+    perm = torch.as_tensor(TRANSPOSE_PERM, device=board.device)
+    board_t = board.transpose(2, 3)[:, perm]
+    spatial_t = spatial.transpose(2, 3)
+    f = flip.view(-1, 1, 1, 1)
+    return torch.where(f, board_t, board), torch.where(f, spatial_t, spatial)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -103,12 +138,19 @@ def producer(val_q, train_q, val_size, num_workers):
 
 
 def unpack_frame(payload):
-    """One frame -> (board (C,H,W), scalars (N_SCAL,), targets (N_TARGETS,))."""
+    """One frame -> (board (C,H,W), scalars (N_SCAL,), targets (N_TARGETS,),
+    spatial (N_SPATIAL,H,W))."""
+    if len(payload) != ROW_FLOATS * 4:
+        raise ValueError(
+            f"frame of {len(payload)} bytes, expected {ROW_FLOATS * 4}: "
+            "the producer and the trainer disagree on the row layout"
+        )
     vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
     board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
     scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-    targets = torch.from_numpy(vec[N_PLANE + N_SCAL :])
-    return board, scalars, targets
+    targets = torch.from_numpy(vec[N_PLANE + N_SCAL : N_PLANE + N_SCAL + N_TARGETS])
+    spatial = torch.from_numpy(vec[N_PLANE + N_SCAL + N_TARGETS :]).view(N_SPATIAL, H, W)
+    return board, scalars, targets, spatial
 
 
 class QueueDataset(IterableDataset):
@@ -133,11 +175,14 @@ class QueueDataset(IterableDataset):
             del payload
 
 
-def pack_rows(board, scalars, targets):
+def pack_rows(board, scalars, targets, spatial):
     """CPU batch tensors -> cache bytes, CACHE_ROW_BYTES per position."""
     n = board.shape[0]
-    bits = np.packbits(board.numpy().reshape(n, -1) > 0.5, axis=1)
-    assert bits.shape[1] == PLANE_BYTES
+    flat = np.concatenate(
+        [board.numpy().reshape(n, -1), spatial.numpy().reshape(n, -1)], axis=1
+    )
+    bits = np.packbits(flat > 0.5, axis=1)
+    assert bits.shape[1] == PACKED_BYTES
     rows = np.concatenate(
         [
             bits,
@@ -150,14 +195,15 @@ def pack_rows(board, scalars, targets):
 
 
 def unpack_row(row):
-    """One cache row (uint8 array) -> (board, scalars, targets) tensors."""
-    planes = np.unpackbits(row[:PLANE_BYTES], count=N_PLANE).astype(np.float32)
-    scal = row[PLANE_BYTES : PLANE_BYTES + N_SCAL * 4].view(np.float32).copy()
-    tg = row[PLANE_BYTES + N_SCAL * 4 :].view(np.float32).copy()
+    """One cache row (uint8 array) -> (board, scalars, targets, spatial) tensors."""
+    bits = np.unpackbits(row[:PACKED_BYTES], count=BIT_FLOATS).astype(np.float32)
+    scal = row[PACKED_BYTES : PACKED_BYTES + N_SCAL * 4].view(np.float32).copy()
+    tg = row[PACKED_BYTES + N_SCAL * 4 :].view(np.float32).copy()
     return (
-        torch.from_numpy(planes).view(C, H, W),
+        torch.from_numpy(bits[:N_PLANE]).view(C, H, W),
         torch.from_numpy(scal),
         torch.from_numpy(tg),
+        torch.from_numpy(bits[N_PLANE:]).view(N_SPATIAL, H, W),
     )
 
 
@@ -193,15 +239,17 @@ _BIT_SHIFTS = None
 
 
 def unpack_batch(packed):
-    """(B, CACHE_ROW_BYTES) uint8 on any device -> (board, scalars, targets)."""
+    """(B, CACHE_ROW_BYTES) uint8 on any device -> (board, scalars, targets, spatial)."""
     global _BIT_SHIFTS
     if _BIT_SHIFTS is None or _BIT_SHIFTS.device != packed.device:
         _BIT_SHIFTS = torch.arange(7, -1, -1, device=packed.device, dtype=torch.uint8)
     b = packed.shape[0]
-    bits = (packed[:, :PLANE_BYTES].unsqueeze(-1) >> _BIT_SHIFTS) & 1  # MSB first, as np.packbits
-    board = bits.reshape(b, -1)[:, :N_PLANE].to(torch.float32).view(b, C, H, W)
-    rest = packed[:, PLANE_BYTES:].contiguous().view(torch.float32)  # little-endian, as written
-    return board, rest[:, :N_SCAL].contiguous(), rest[:, N_SCAL:].contiguous()
+    bits = (packed[:, :PACKED_BYTES].unsqueeze(-1) >> _BIT_SHIFTS) & 1  # MSB first, as np.packbits
+    bits = bits.reshape(b, -1)[:, :BIT_FLOATS].to(torch.float32)
+    board = bits[:, :N_PLANE].view(b, C, H, W)
+    spatial = bits[:, N_PLANE:].contiguous().view(b, N_SPATIAL, H, W)
+    rest = packed[:, PACKED_BYTES:].contiguous().view(torch.float32)  # little-endian, as written
+    return board, rest[:, :N_SCAL].contiguous(), rest[:, N_SCAL:].contiguous(), spatial
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -247,14 +295,19 @@ class ScrabbleValueNet(nn.Module):
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Linear(ch + scalars, 128)
         self.heads = Heads(128)
+        # Per-square spatial heads: one 1x1 conv shared by every square.
+        self.heads_spatial = nn.Conv2d(ch, N_SPATIAL, 1)
 
     def forward(self, board, scalars):
         x = F.relu(self.in_bn(self.in_conv(board)))
         x = self.res(x)
+        spatial = self.heads_spatial(x)  # (B, N_SPATIAL, H, W) logits
         x = self.gap(x).flatten(1)
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        return self.heads(x)
+        out = self.heads(x)
+        out["spatial"] = spatial
+        return out
 
 
 def build_model(arch, hparams):
@@ -388,6 +441,19 @@ def parse_args(argv=None):
         default=0,
         help="also save the current model every N steps as <ckpt>-stepN.pt",
     )
+    p.add_argument(
+        "--spatial-share",
+        type=float,
+        default=None,
+        help="--aux-share for the four spatial heads (default: the same share)",
+    )
+    p.add_argument(
+        "--transpose-prob",
+        type=float,
+        default=0.0,
+        help="transpose this fraction of training positions across the main "
+        "diagonal (board, cross-check planes and spatial targets together)",
+    )
     args = p.parse_args(argv)
 
     for k, v in ARCH_DEFAULTS[args.arch].items():
@@ -404,7 +470,7 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
-    args.weights = {name: getattr(args, f"w_{name}") for name in TARGETS}
+    args.weights = {name: getattr(args, f"w_{name}") for name in ALL_HEADS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")
     if args.cache_only and not args.cache:
@@ -441,27 +507,31 @@ def cache_only(args):
     print(f"cached {n:,} frames this run; {args.cache} now holds {total:,}", file=sys.stderr)
 
 
-def balance_weights(weights, norms, share, max_w=10.0, primary="value"):
-    """Set each auxiliary weight so weight * norm == share * primary norm.
+def balance_weights(weights, norms, share, max_w=10.0, primary="value", spatial_share=None):
+    """Set each auxiliary weight so weight * norm == share * primary norm
+    (spatial_share, if given, for the spatial heads).
 
     Heads switched off (weight 0) stay off. Weights are capped so a head
     whose gradient collapses cannot be amplified without limit.
     """
     ref = norms[primary]
     out = dict(weights)
-    for k in TARGETS:
+    for k in ALL_HEADS:
         if k == primary or weights[k] == 0 or norms[k] == 0:
             continue
-        out[k] = min(max_w, share * ref / norms[k])
+        sh = spatial_share if (k in SPATIAL and spatial_share is not None) else share
+        out[k] = min(max_w, sh * ref / norms[k])
     return out
 
 
 # ────────────────────────────────────────────────────────────────────
-def compute_loss(pred, targets, weights):
+def compute_loss(pred, targets, spatial, weights):
     """Per-head losses and their weighted sum.
 
-    targets: (B, N_TARGETS) in frame order. Returns (total, {head: loss})
-    where the per-head losses are detached tensors for accumulation.
+    targets: (B, N_TARGETS) in frame order; spatial: (B, N_SPATIAL, H, W)
+    0/1 planes, scored per square against pred["spatial"] logits. Returns
+    (total, {head: loss}) where the per-head losses are detached tensors
+    for accumulation.
     """
     losses = {
         "value": F.smooth_l1_loss(pred["value"], targets[:, 0]),
@@ -473,11 +543,13 @@ def compute_loss(pred, targets, weights):
         ),
         "opp_score": F.smooth_l1_loss(pred["opp_score"], targets[:, 4]),
     }
-    total = sum(weights[k] * losses[k] for k in TARGETS if weights[k] > 0)
+    for i, k in enumerate(SPATIAL):
+        losses[k] = F.binary_cross_entropy_with_logits(pred["spatial"][:, i], spatial[:, i])
+    total = sum(weights[k] * losses[k] for k in ALL_HEADS if weights[k] > 0)
     return total, {k: v.detach() for k, v in losses.items()}
 
 
-def head_grad_norms(net, board, scalars, targets, chunk=64):
+def head_grad_norms(net, board, scalars, targets, spatial, chunk=64):
     """How hard each head pulls on the trunk.
 
     Returns {head: L2 norm of d(loss_head)/d(trunk params)} over the batch,
@@ -486,18 +558,19 @@ def head_grad_norms(net, board, scalars, targets, chunk=64):
     actually scale, since loss values on different scales (cross-entropy
     vs smooth-L1) say nothing about gradient magnitude.
     """
-    trunk = [p for n, p in net.named_parameters() if not n.startswith("heads.")]
+    trunk = [p for n, p in net.named_parameters() if not n.startswith("heads")]
     was_training = net.training
     net.eval()  # no dropout / BN-stat updates from a diagnostic pass
     n = board.shape[0]
-    acc = {k: [torch.zeros_like(p) for p in trunk] for k in TARGETS}
+    acc = {k: [torch.zeros_like(p) for p in trunk] for k in ALL_HEADS}
     for i in range(0, n, chunk):
         b, s, t = board[i : i + chunk], scalars[i : i + chunk], targets[i : i + chunk]
+        sp = spatial[i : i + chunk]
         pred = net(b, s)  # fp32 on purpose: no loss scaling to worry about
         frac = b.shape[0] / n  # mean over the whole batch
-        for k in TARGETS:
+        for k in ALL_HEADS:
             loss = compute_loss(
-                pred, t, {kk: 1.0 if kk == k else 0.0 for kk in TARGETS}
+                pred, t, sp, {kk: 1.0 if kk == k else 0.0 for kk in ALL_HEADS}
             )[0]
             grads = torch.autograd.grad(loss, trunk, retain_graph=True, allow_unused=True)
             for a, g in zip(acc[k], grads):
@@ -505,7 +578,7 @@ def head_grad_norms(net, board, scalars, targets, chunk=64):
                     a.add_(g, alpha=frac)
         del pred
     norms = {
-        k: math.sqrt(sum(float(a.pow(2).sum()) for a in acc[k])) for k in TARGETS
+        k: math.sqrt(sum(float(a.pow(2).sum()) for a in acc[k])) for k in ALL_HEADS
     }
     net.zero_grad(set_to_none=True)
     net.train(was_training)
@@ -520,10 +593,11 @@ def write_validation_to_file(val_ds, directory):
         prefix="val-", suffix=".bin", dir=directory, delete=False
     )
     val_count = 0
-    for b, s, t in val_ds:
+    for b, s, t, sp in val_ds:
         val_file.write(b.numpy().astype(DTYPE).tobytes())
         val_file.write(s.numpy().astype(DTYPE).tobytes())
         val_file.write(t.numpy().astype(DTYPE).tobytes())
+        val_file.write(sp.numpy().astype(DTYPE).tobytes())
         val_count += 1
     val_file.close()
     return val_file.name, val_count
@@ -536,10 +610,16 @@ def read_rows(val_filename, k, offset=0):
         f.seek(offset * row_bytes)
         raw = np.frombuffer(f.read(row_bytes * k), dtype=DTYPE).reshape(k, ROW_FLOATS)
     rows = torch.from_numpy(raw.copy())
+    return split_rows(rows, k)
+
+
+def split_rows(rows, k):
+    """(k, ROW_FLOATS) float rows -> (board, scalars, targets, spatial)."""
     return (
         rows[:, :N_PLANE].view(k, C, H, W),
         rows[:, N_PLANE : N_PLANE + N_SCAL],
-        rows[:, N_PLANE + N_SCAL :],
+        rows[:, N_PLANE + N_SCAL : N_PLANE + N_SCAL + N_TARGETS],
+        rows[:, N_PLANE + N_SCAL + N_TARGETS :].view(k, N_SPATIAL, H, W),
     )
 
 
@@ -549,7 +629,7 @@ def validate_streaming(
 ):
     """Mean loss per head (and weighted total) over the validation file."""
     net.eval()
-    sums = {k: torch.zeros((), device=device) for k in ["total", *TARGETS]}
+    sums = {k: torch.zeros((), device=device) for k in ["total", *ALL_HEADS]}
     n = 0
     row_bytes = ROW_FLOATS * 4
     with open(val_filename, "rb") as f:
@@ -559,14 +639,12 @@ def validate_streaming(
                 k, ROW_FLOATS
             )
             rows = torch.from_numpy(raw.copy()).to(device)
-            b = rows[:, :N_PLANE].view(k, C, H, W)
-            s = rows[:, N_PLANE : N_PLANE + N_SCAL]
-            t = rows[:, N_PLANE + N_SCAL :]
+            b, s, t, sp = split_rows(rows, k)
             with autocast(
                 device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
             ):
                 pred = net(b, s)
-                total, losses = compute_loss(pred, t, weights)
+                total, losses = compute_loss(pred, t, sp, weights)
             sums["total"] += total.detach() * k
             for name, l in losses.items():
                 sums[name] += l * k
@@ -598,7 +676,13 @@ def main():
 
     if args.from_cache:
         # ---- validation and every epoch from an existing cache ----------
-        n_rows = os.path.getsize(args.from_cache) // CACHE_ROW_BYTES
+        size = os.path.getsize(args.from_cache)
+        if size % CACHE_ROW_BYTES:
+            sys.exit(
+                f"{args.from_cache}: {size} bytes is not a multiple of {CACHE_ROW_BYTES}; "
+                "a cache written before the spatial targets (2,699-byte rows) must be rebuilt"
+            )
+        n_rows = size // CACHE_ROW_BYTES
         val_count = min(args.val_size, n_rows)
         val_ds = CacheDataset(args.from_cache, 0, val_count)
         val_file_name, val_count = write_validation_to_file(
@@ -662,10 +746,12 @@ def main():
     )
     if args.aux_share > 0:
         gn0 = head_grad_norms(net, *(t.to(device) for t in diag))
-        args.weights = balance_weights(args.weights, gn0, args.aux_share, primary=args.primary)
+        args.weights = balance_weights(
+            args.weights, gn0, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
+        )
         print(
             "initial balanced weights: "
-            + "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS),
+            + "  ".join(f"{k}={args.weights[k]:.3g}" for k in ALL_HEADS),
             file=sys.stderr,
         )
     # –– Optimiser -----------------------------------------------------------
@@ -697,7 +783,7 @@ def main():
     )
 
     def zero_running():
-        return {k: torch.zeros((), device=device) for k in ["total", *TARGETS]}
+        return {k: torch.zeros((), device=device) for k in ["total", *ALL_HEADS]}
 
     best_val, step, micro, t0 = float("inf"), 0, 0, time.time()
     running = zero_running()
@@ -705,10 +791,10 @@ def main():
     csv_writer = csv.writer(csv_fh)
     csv_writer.writerow(
         ["step", "train_loss", "val_loss"]
-        + [f"train_{k}" for k in TARGETS]
-        + [f"val_{k}" for k in TARGETS]
-        + [f"gnorm_{k}" for k in TARGETS]
-        + [f"w_{k}" for k in TARGETS]
+        + [f"train_{k}" for k in ALL_HEADS]
+        + [f"val_{k}" for k in ALL_HEADS]
+        + [f"gnorm_{k}" for k in ALL_HEADS]
+        + [f"w_{k}" for k in ALL_HEADS]
     )
 
     done = False
@@ -725,19 +811,22 @@ def main():
             for item in loader:
                 if isinstance(item, torch.Tensor):
                     # packed rows from the cache: unpack on the device
-                    board, scal, targets = unpack_batch(item.to(device, non_blocking=True))
+                    board, scal, targets, spatial = unpack_batch(
+                        item.to(device, non_blocking=True)
+                    )
                 else:
-                    board, scal, targets = item
+                    board, scal, targets, spatial = item
                     if cache_w is not None:
-                        cache_w.write(pack_rows(board, scal, targets))
+                        cache_w.write(pack_rows(board, scal, targets, spatial))
                     board, scal = board.to(device), scal.to(device)
-                    targets = targets.to(device)
+                    targets, spatial = targets.to(device), spatial.to(device)
+                board, spatial = transpose_batch(board, spatial, args.transpose_prob)
 
                 with autocast(
                     device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
                 ):
                     pred = net(board, scal)
-                    loss, losses = compute_loss(pred, targets, args.weights)
+                    loss, losses = compute_loss(pred, targets, spatial, args.weights)
 
                 # Track all loss components (per micro-batch), without syncing
                 running["total"] += loss.detach()
@@ -776,20 +865,22 @@ def main():
                         )
                     gn = head_grad_norms(net, *(t.to(device) for t in diag))
                     if args.aux_share > 0:
-                        args.weights = balance_weights(args.weights, gn, args.aux_share, primary=args.primary)
+                        args.weights = balance_weights(
+                            args.weights, gn, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
+                        )
                     csv_writer.writerow(
                         [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
-                        + [f"{train[k]:.6f}" for k in TARGETS]
-                        + [f"{val[k]:.6f}" for k in TARGETS]
-                        + [f"{gn[k]:.6g}" for k in TARGETS]
-                        + [f"{args.weights[k]:.4g}" for k in TARGETS]
+                        + [f"{train[k]:.6f}" for k in ALL_HEADS]
+                        + [f"{val[k]:.6f}" for k in ALL_HEADS]
+                        + [f"{gn[k]:.6g}" for k in ALL_HEADS]
+                        + [f"{args.weights[k]:.4g}" for k in ALL_HEADS]
                     )
                     csv_fh.flush()
 
                     elapsed = time.time() - t0
-                    heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
+                    heads = "  ".join(f"{k}={val[k]:.4f}" for k in ALL_HEADS)
                     ref = gn[args.primary] or 1.0
-                    pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in TARGETS)
+                    pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in ALL_HEADS)
                     print(
                         f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
                         f"[{heads}]  "
@@ -797,7 +888,7 @@ def main():
                     )
                     print(f"         trunk grad vs value head (unweighted): {pulls}")
                     if args.aux_share > 0:
-                        ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS)
+                        ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in ALL_HEADS)
                         print(f"         balanced weights: {ws}")
 
                     # Checkpoint on the value head alone: it is what the bot

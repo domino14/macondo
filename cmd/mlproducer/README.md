@@ -9,8 +9,14 @@ It has two components:
 
 #### Labels
 
-Every emitted frame is `[features | value, spread, wdl, opp_bingo, opp_score]`
-(see `Target*` in game_assembler.go and `TARGETS` in pytorch/training.py).
+Every emitted frame is `[features | value, spread, wdl, opp_bingo, opp_score |
+opp_next, self_next, opp_win, self_win]`: the five scalar targets (see
+`Target*` in game_assembler.go and `TARGETS` in pytorch/training.py), then
+four 15x15 0/1 planes (`Spatial*`, `SPATIAL` in training.py): the squares the
+opponent's next move covers, the squares the mover's own next move covers,
+and each of those kept only when that player went on to win the game. The
+planes are training-only signal for the net's per-square heads; the bot never
+reads them.
 
 `-labeler table` (default): `value` is the win-percentage table looked up
 with the spread after `NPlies` (5) real plies; `spread` is the spread change

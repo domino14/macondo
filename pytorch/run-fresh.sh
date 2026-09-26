@@ -55,7 +55,7 @@ tail -1 "producer-$TAG.log"
 
 # 3. Train from the cache. Steps: five epochs of (rows - 150k val) / 2048,
 #    rounded down to the thousand so the cosine reaches zero first.
-ROWS=$(python -c "import os; print(os.path.getsize('$CACHE') // 2699)")
+ROWS=$(python -c "import os, training; print(os.path.getsize('$CACHE') // training.CACHE_ROW_BYTES)")
 STEPS=$(python -c "print(max(100, ($ROWS - $VAL_SIZE) * $EPOCHS // 2048 // 1000 * 1000))")
 log "training: $ROWS rows, $EPOCHS epochs, $STEPS steps"
 rm -f best-tf-$TAG*.pt

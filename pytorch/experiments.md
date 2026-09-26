@@ -1445,3 +1445,38 @@ the whole game (up to ~0.5). Every model so far was trained with the
 capped version, including the one in tonight's match. The producer now
 keeps the full move history; the test passes. Small feature, but a real
 train/inference mismatch; future runs get the fixed vectors.
+
+#### Result: the NWL23 batch (9/26/26)
+
+54M NWL23 games (halves a 19.3M, b 27M, c 7.7M; softmax-v-Hasty with the
+quick 2-ply endgame, margin 60, tiny window), producer `-labeler result
+-per-game -endgame-plies 2`, cache `nwl23-frames.bin` = 36.4M rows.
+Trained like `fresh`: WDL primary, value head off, aux-share 0.15, 3 epochs
+= 53,000 steps (13.1 h). 100k pairs vs HastyBot, NWL23,
+`games-tf-nwl23-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.04% +/- 0.25   swept 19.3%  lost 13.3%  spread -1.5/game
+```
+
+Ladder under NWL23: heads2 53.31%, nwl23 53.04%, fresh 53.10%. Doubling
+the true-result games (20M -> 36M positions) and fixing the endgames moved
+nothing. More games of this kind is not the lever.
+
+Note found while reading Scribblez (9/26): the producer already transposes
+half of all games (`shouldTranspose`, by game-ID hash), so every run above
+was transpose-augmented at game level; a per-position flip in the trainer
+would add little.
+
+#### Spatial heads + transpose augmentation on the NWL23 games (started 9/26/26)
+
+From reading Scribblez: four per-square training-only heads on the 225
+square tokens, BCE per square against planes the producer now emits (the
+squares of the opponent's next move, of the mover's next move, and each
+kept only when that player won), plus a per-batch diagonal transpose of
+half the positions (the producer's game-level transpose stays). Same 54M
+NWL23 games, rescanned into `nwl23s-frames.bin` (2,812-byte rows), same
+recipe as `nwl23` otherwise: WDL primary, aux-share 0.15, spatial share
+0.1, 3 epochs. Driver `run-spatial.sh`; match tf-nwl23s-v-hasty-pairs.
+Baseline for this exact data: nwl23 53.04% +/- 0.25; best model heads2
+53.31%.

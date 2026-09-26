@@ -164,6 +164,53 @@ const (
 	NumTargets
 )
 
+// Spatial targets: four 15x15 planes written after the scalar targets, one
+// float per square, in this order. They are training-only signal for the
+// trunk (the bot never reads them): where each player's next move lands, and
+// the same conjoined with that player going on to win the game.
+const (
+	SpatialOppNext  = iota // squares the opponent's next move covers
+	SpatialSelfNext        // squares the mover's own next move covers
+	SpatialOppWin          // SpatialOppNext, all zeros unless the opponent won
+	SpatialSelfWin         // SpatialSelfNext, all zeros unless the mover won
+	NumSpatialTargets
+)
+
+const SpatialCells = 15 * 15
+
+// NumPredictions is the length of outputVector.predictions: the scalar
+// targets, then the spatial planes.
+const NumPredictions = NumTargets + NumSpatialTargets*SpatialCells
+
+// spatialPlane is plane k of a predictions slice.
+func spatialPlane(preds []float32, k int) []float32 {
+	off := NumTargets + k*SpatialCells
+	return preds[off : off+SpatialCells]
+}
+
+// markPlacement sets to 1 every square that m places a tile on. Exchanges,
+// passes, and played-through tiles mark nothing.
+func markPlacement(plane []float32, m *move.Move) {
+	if m == nil || m.Action() != move.MoveTypePlay {
+		return
+	}
+	r, c, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = 1, 0
+	}
+	for i, t := range m.Tiles() {
+		if t == 0 {
+			continue // played through
+		}
+		curR, curC := r+i*ri, c+i*ci
+		if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
+			log.Fatal().Msgf("placement out of bounds at (%d, %d) for %s", curR, curC, m.ShortDescription())
+		}
+		plane[curR*15+curC] = 1
+	}
+}
+
 type outputVector struct {
 	features    *[]float32
 	predictions []float32 // indexed by the Target* constants
@@ -282,6 +329,13 @@ func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
 			wdl = -1.0
 		}
 		vec.predictions[TargetWDL] = wdl
+		// The win-conjunction planes: the next-move planes, kept only for
+		// the player who went on to win (a draw leaves both empty).
+		if wdl < 0 {
+			copy(spatialPlane(vec.predictions, SpatialOppWin), spatialPlane(vec.predictions, SpatialOppNext))
+		} else if wdl > 0 {
+			copy(spatialPlane(vec.predictions, SpatialSelfWin), spatialPlane(vec.predictions, SpatialSelfNext))
+		}
 		if vec.solved != nil {
 			vec.predictions[TargetValue] = vec.solved.value
 			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(vec.solved.spread)
@@ -514,7 +568,7 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	(*pNow.state)[len(*pNow.state)-1] = game.NormalizeSpreadForML(pNow.spread)
 	ov := outputVector{
 		features:    pNow.state,
-		predictions: make([]float32, NumTargets),
+		predictions: make([]float32, NumPredictions),
 		gameID:      pNow.turn.GameID,
 		turn:        pNow.turn.TurnNumber,
 		mover:       pNow.mover,
@@ -542,6 +596,15 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 		score = 300
 	}
 	ov.predictions[TargetOppScore] = score / 300.0
+
+	// Where the opponent's reply and the mover's own next move land. The
+	// mover's next move is the ply after the reply; past the end of the game
+	// (the opponent went out) it stays empty. The win conjunctions are
+	// filled in by release.
+	markPlacement(spatialPlane(ov.predictions, SpatialOppNext), pNext.move)
+	if self := next + 1; next > now && self < len(gw.plies) {
+		markPlacement(spatialPlane(ov.predictions, SpatialSelfNext), gw.plies[self].move)
+	}
 
 	return ov, true
 }

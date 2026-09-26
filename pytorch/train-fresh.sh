@@ -24,7 +24,7 @@ VAL_MAX=${VAL_MAX:-0.6}
 while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 60; done
 [ -f "$HOME/data/$TAG.txt" ] && ( cd "$HOME/data" && nohup gzip "$TAG.txt" > /dev/null 2>&1 & )
 
-ROWS=$(python -c "import os; print(os.path.getsize('$CACHE') // 2699)")
+ROWS=$(python -c "import os, training; print(os.path.getsize('$CACHE') // training.CACHE_ROW_BYTES)")
 STEPS=$(python -c "print(max(100, ($ROWS - $VAL_SIZE) * $EPOCHS // 2048 // 1000 * 1000))")
 log "training $TAG: $ROWS rows, $EPOCHS epochs, $STEPS steps, $TRAIN_ARGS"
 rm -f best-tf-$TAG*.pt
