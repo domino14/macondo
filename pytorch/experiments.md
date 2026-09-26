@@ -1478,5 +1478,8 @@ half the positions (the producer's game-level transpose stays). Same 54M
 NWL23 games, rescanned into `nwl23s-frames.bin` (2,812-byte rows), same
 recipe as `nwl23` otherwise: WDL primary, aux-share 0.15, spatial share
 0.1, 3 epochs. Driver `run-spatial.sh`; match tf-nwl23s-v-hasty-pairs.
+Restarted 14:59 with the transpose OFF (`TRANSPOSE=0`) so the run reads
+the spatial heads alone; `queue-spatial-transpose.sh` then trains
+`nwl23st` (same cache, transpose 0.5) once the nwl23s match is done.
 Baseline for this exact data: nwl23 53.04% +/- 0.25; best model heads2
 53.31%.

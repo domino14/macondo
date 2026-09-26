@@ -6,7 +6,7 @@
 #
 #   TAG (default nwl23s), LOGS (the turn logs, default nwl23{a,b,c}.txt.gz),
 #   EPOCHS (3), SPATIAL_SHARE (0.1), TRANSPOSE (0.5), SCAN (1: rebuild the
-#   cache; 0: reuse it)
+#   cache; 0: reuse it), CACHE (default <TAG>-frames.bin)
 #
 # Outputs: pytorch/<TAG>-frames.bin, producer-<TAG>-<half>.log,
 # cache-<TAG>.log, then train-fresh.sh's outputs under TAG.
@@ -21,7 +21,7 @@ EPOCHS=${EPOCHS:-3}
 SPATIAL_SHARE=${SPATIAL_SHARE:-0.1}
 TRANSPOSE=${TRANSPOSE:-0.5}
 SCAN=${SCAN:-1}
-CACHE=$TAG-frames.bin
+CACHE=${CACHE:-$TAG-frames.bin}   # SCAN=0 CACHE=... trains a second run off an existing cache
 
 if [ "$SCAN" = 1 ]; then
     rm -f "$CACHE" "cache-$TAG.log"
