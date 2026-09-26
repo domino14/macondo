@@ -14,6 +14,7 @@ import (
 // ModelOutputs contains the different outputs from the model
 type ModelOutputs struct {
 	Value     []float32 // win prediction value
+	Spread    []float32 // predicted spread change, tanh-scaled (see game.NormalizeSpreadForML)
 	Points    []float32 // predicted points
 	BingoProb []float32 // bingo probability
 	OppScore  []float32 // opponent score
@@ -24,7 +25,8 @@ type TritonClient struct {
 	client       *grpc_client.GRPCInferenceServiceClient
 	modelName    string
 	modelVersion string
-	debug        bool // Enable debug logging
+	outputs      []string // output tensors to request; default just "value"
+	debug        bool     // Enable debug logging
 }
 
 // NewTritonClient creates a new TritonClient.
@@ -41,8 +43,16 @@ func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, 
 		client:       &client,
 		modelName:    modelName,
 		modelVersion: modelVersion,
+		outputs:      []string{"value"},
 		debug:        false, // Set to true for detailed debugging
 	}, nil
+}
+
+// SetOutputs chooses which output tensors to request. Every name must be an
+// output of the served model; "value" is always available, "spread" only on
+// multi-head exports.
+func (c *TritonClient) SetOutputs(names []string) {
+	c.outputs = names
 }
 
 // SetDebug enables or disables debug logging
@@ -67,25 +77,16 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		Shape:    []int64{int64(numMoves), 72},
 	}
 
-	// Define output tensors to be requested
-	valueOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-		Name: "value",
+	requested := make([]*grpc_client.ModelInferRequest_InferRequestedOutputTensor, len(c.outputs))
+	for i, name := range c.outputs {
+		requested[i] = &grpc_client.ModelInferRequest_InferRequestedOutputTensor{Name: name}
 	}
-	// pointsOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "total_game_points",
-	// }
-	// bingoOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "opp_bingo_prob",
-	// }
-	// oppScoreOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "opp_score",
-	// }
 
 	inferRequest := &grpc_client.ModelInferRequest{
 		ModelName:    c.modelName,
 		ModelVersion: c.modelVersion,
 		Inputs:       []*grpc_client.ModelInferRequest_InferInputTensor{boardInput, scalarInput},
-		Outputs:      []*grpc_client.ModelInferRequest_InferRequestedOutputTensor{valueOutput}, //, pointsOutput, bingoOutput, oppScoreOutput},
+		Outputs:      requested,
 	}
 	inferRequest.RawInputContents = append(inferRequest.RawInputContents, float32ToByte(boardTensorData), float32ToByte(scalarTensorData))
 
@@ -105,48 +106,22 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		}
 	}
 
-	// Process all outputs
-	rawValues := byteToFloat32(inferResponse.RawOutputContents[0])
-	//
-	// // Check for NaN values in output
-	// hasNaN := false
-	// for i, v := range rawValues {
-	// 	if math.IsNaN(float64(v)) {
-	// 		if c.debug {
-	// 			log.Debug().Msgf("NaN detected at index %d", i)
-	// 		}
-	// 		hasNaN = true
-	// 		// Replace NaN with a default value of 0
-	// 		rawValues[i] = 0.0
-	// 	}
-	// }
-
-	// if hasNaN && c.debug {
-	// 	log.Warn().Msg("NaN values detected in model output and replaced with 0.0")
-	// }
-
-	// rawPoints := byteToFloat32(inferResponse.RawOutputContents[1])
-	// rawBingoProb := byteToFloat32(inferResponse.RawOutputContents[2])
-	// rawOppScore := byteToFloat32(inferResponse.RawOutputContents[3])
-
-	// Ensure opponent score is non-negative (like ReLU)
-	// oppScores := make([]float32, len(rawOppScore))
-	// for i, v := range rawOppScore {
-	// 	if v < 0 {
-	// 		if c.debug {
-	// 			log.Debug().Msgf("OppScore output %d negative: %f -> 0.0", i, v)
-	// 		}
-	// 		oppScores[i] = 0.0
-	// 	} else {
-	// 		oppScores[i] = v
-	// 	}
-	// }
-
-	outputs := &ModelOutputs{
-		Value: rawValues,
-		// Points:    rawPoints,
-		// BingoProb: sigmoid(rawBingoProb),
-		// OppScore:  oppScores,
+	// Outputs come back in the order requested, but map them by name anyway.
+	outputs := &ModelOutputs{}
+	for i, out := range inferResponse.Outputs {
+		if i >= len(inferResponse.RawOutputContents) {
+			return nil, fmt.Errorf("output %s has no raw contents", out.Name)
+		}
+		data := byteToFloat32(inferResponse.RawOutputContents[i])
+		switch out.Name {
+		case "value":
+			outputs.Value = data
+		case "spread":
+			outputs.Spread = data
+		}
+	}
+	if outputs.Value == nil {
+		return nil, fmt.Errorf("model %s returned no value output", c.modelName)
 	}
 
 	return outputs, nil

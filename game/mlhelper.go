@@ -148,6 +148,25 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	if len(moves) == 0 {
 		return nil, nil
 	}
+	allPlaneVectors, allScalarVectors, err := g.MLVectorsForMoves(moves, leaveCalc, lastMoves)
+	if err != nil {
+		return nil, err
+	}
+	if g.config.GetBool(config.ConfigTritonUseTriton) {
+		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
+	}
+	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+}
+
+// MLVectorsForMoves builds the feature vectors the net sees for each
+// candidate move, concatenated: the position right after the move, from
+// the mover's side, holding only the leave, with the opponent's rack put
+// back into the unseen pool and no tiles drawn. This is the inference-side
+// counterpart of the producer's training vectors (cmd/mlproducer), and
+// the two must agree; TestInferenceVectorsMatchTraining checks that.
+func (g *Game) MLVectorsForMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
+	lastMoves []*move.Move) (planes, scalars []float32, err error) {
+
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
@@ -200,13 +219,8 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMoves)
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
-			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
+			return nil, nil, fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
-
-		// Compute SHA256 hash of the vector for debugging or deduplication
-		// Import "crypto/sha256" at the top if not already imported
-		// hash := sha256.Sum256(unsafe.Slice((*byte)(unsafe.Pointer(&(*vec)[0])), len(*vec)*4))
-		// fmt.Printf("ML vector SHA256: %x, move %s\n", hash, m.ShortDescription())
 
 		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
 		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
@@ -214,27 +228,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		g.onturn = 1 - g.onturn // switch turn back to the original player
 		g.UnplayLastMove()
 	}
-
-	// write the vector to a test file for debugging. I think this only works
-	// for one single position.
-	// testFile, err := os.Create("/tmp/test-vec-infer.bin")
-	// if err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to create test file")
-	// }
-
-	// testOut := bufio.NewWriterSize(testFile, 50000)
-	// if err := BinaryWriteMLVector(testOut, append(allPlaneVectors, allScalarVectors...)); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
-	// }
-	// if err := testOut.Flush(); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
-	// }
-	// testFile.Close()
-
-	if g.config.GetBool(config.ConfigTritonUseTriton) {
-		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
-	}
-	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+	return allPlaneVectors, allScalarVectors, nil
 }
 
 func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
@@ -447,8 +441,10 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
 	for i := 0; i < 27; i++ {
-		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
-		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		rackVector[i] = float32(rack.LetArr[i]) / 7 // Rack tiles
+		if tr > 0 {
+			unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		}
 		// power tiles seem very redundant since this info is already in the bag
 		// vector. However, it's not scaled there the same. Let's try it anyway.
 		switch i {

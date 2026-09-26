@@ -87,7 +87,13 @@ type AutomaticRunnerPlayer struct {
 	InferenceSimIters            int
 	InferenceMaxEnumeratedLeaves int
 	InferenceBudget              int
-	OracleInference              bool
+	// QuickEndgamePlies > 0: close endgames (|spread| <= QuickEndgameMargin,
+	// 0 = always) are played with a quick N-ply search capped at
+	// QuickEndgameCapMs per move. See AutoplayPlayerConfig.
+	QuickEndgamePlies  int
+	QuickEndgameMargin int
+	QuickEndgameCapMs  int
+	OracleInference    bool
 }
 
 // Init initializes the runner
@@ -136,6 +142,9 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceSimIters:            players[idx].InferenceSimIters,
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
 			InferenceBudget:              players[idx].InferenceBudget,
+			QuickEndgamePlies:            players[idx].QuickEndgamePlies,
+			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
+			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
 			OracleInference:              players[idx].OracleInference,
 		}
 

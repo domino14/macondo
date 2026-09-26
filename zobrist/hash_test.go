@@ -185,3 +185,20 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AO", alph), tilemapping.RackFromString("HI", alph), true, 0)
 	is.Equal(h1, h2)
 }
+
+// A rack can hold seven copies of one letter (EEEEEEE), so the rack-count
+// tables need slots for counts 0..7. This indexed slot 7 of a 7-slot table
+// and crashed an autoplay run after 19M games.
+func TestHashSevenOfAKindRack(t *testing.T) {
+	z := &Zobrist{}
+	z.Initialize(15)
+	alph := testhelpers.EnglishAlphabet()
+	squares := make(tilemapping.MachineWord, 15*15) // an empty board is enough
+	seven := tilemapping.RackFromString("EEEEEEE", alph)
+	six := tilemapping.RackFromString("EEEEEE", alph)
+	h7 := z.Hash(squares, seven, seven, false, 0)
+	h6 := z.Hash(squares, six, seven, false, 0)
+	if h7 == h6 {
+		t.Fatal("racks EEEEEEE and EEEEEE hashed the same")
+	}
+}
