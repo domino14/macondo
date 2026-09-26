@@ -90,9 +90,13 @@ type ply struct {
 // Sliding window of recent positions for one game.
 type gameWindow struct {
 	plies []ply // length ≤ horizon+1
-	game  turnplayer.BaseTurnPlayer
-	ai    *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
-	pick  int                              // the one turn to emit, or 0 for all
+	// Every move of the game so far. The feature vector's
+	// turns-since-opponent-bingo counts back over this, and the bot at play
+	// time has the whole game, so the window alone would cap it at 3.
+	history []*move.Move
+	game    turnplayer.BaseTurnPlayer
+	ai      *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
+	pick    int                              // the one turn to emit, or 0 for all
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
@@ -175,45 +179,16 @@ type outputVector struct {
 func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 	gw := ga.games[t.GameID]
 	if gw == nil {
-		gw = &gameWindow{}
-		// The lexicon doesn't matter below; just choose any random one.
-		rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23",
-			board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
-		if err != nil {
-			panic(err)
-		}
-		tp, err := turnplayer.BaseTurnPlayerFromRules(
-			&turnplayer.GameOptions{
-				Variant:         game.VarClassic,
-				BoardLayoutName: board.CrosswordGameLayout},
-			[]*pb.PlayerInfo{
-				{Nickname: t.PlayerID, RealName: t.PlayerID},
-				{Nickname: otherPlayer(t.PlayerID), RealName: otherPlayer(t.PlayerID)},
-			}, rules)
-		if err != nil {
-			panic(err)
-		}
-		gw.game = *tp
-		if ga.labeler != nil {
-			gw.ai, err = aiturnplayer.NewAIStaticTurnPlayerFromGame(gw.game.Game, DefaultConfig, ga.labeler.calcs)
-			if err != nil {
-				panic(err)
-			}
-			gw.game.SetStateStackLength(ga.labeler.StackLength())
-		}
-		if ga.fixedPick > 0 {
-			gw.pick = ga.fixedPick
-		} else if ga.pickMax > 0 {
-			gw.pick = 1 + rand.Intn(ga.pickMax)
-		}
+		gw = ga.newGameWindow(t)
 		ga.games[t.GameID] = gw
 	}
 
 	// 1) Apply move, update board/racks, compute after-move features.
 	p := ga.updateBoardAndExtractFeatures(gw, t)
 
-	// 2) Push into sliding window.
+	// 2) Push into sliding window (and the full history).
 	gw.plies = append(gw.plies, p)
+	gw.history = append(gw.history, p.move)
 
 	// 3) Emit when window deep enough.
 	if len(gw.plies) > ga.horizon {
@@ -252,6 +227,44 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 		ga.gamesProcessed++
 	}
 	return out
+}
+
+// newGameWindow starts the replay of a game whose first turn is t: a fresh
+// game between t's player and the other one, plus whatever the labelers
+// need per game.
+func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
+	gw := &gameWindow{}
+	// The lexicon doesn't matter below; just choose any random one.
+	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23",
+		board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	if err != nil {
+		panic(err)
+	}
+	tp, err := turnplayer.BaseTurnPlayerFromRules(
+		&turnplayer.GameOptions{
+			Variant:         game.VarClassic,
+			BoardLayoutName: board.CrosswordGameLayout},
+		[]*pb.PlayerInfo{
+			{Nickname: t.PlayerID, RealName: t.PlayerID},
+			{Nickname: otherPlayer(t.PlayerID), RealName: otherPlayer(t.PlayerID)},
+		}, rules)
+	if err != nil {
+		panic(err)
+	}
+	gw.game = *tp
+	if ga.labeler != nil {
+		gw.ai, err = aiturnplayer.NewAIStaticTurnPlayerFromGame(gw.game.Game, DefaultConfig, ga.labeler.calcs)
+		if err != nil {
+			panic(err)
+		}
+		gw.game.SetStateStackLength(ga.labeler.StackLength())
+	}
+	if ga.fixedPick > 0 {
+		gw.pick = ga.fixedPick
+	} else if ga.pickMax > 0 {
+		gw.pick = 1 + rand.Intn(ga.pickMax)
+	}
+	return gw
 }
 
 // release stamps every held vector with the final result from its mover's
@@ -324,13 +337,9 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 	}
 }
 
-// moveHistory is every move of the game still in the window, oldest first.
+// moveHistory is every move of the game so far, oldest first.
 func (gw *gameWindow) moveHistory() []*move.Move {
-	h := make([]*move.Move, len(gw.plies))
-	for i := range gw.plies {
-		h[i] = gw.plies[i].move
-	}
-	return h
+	return gw.history
 }
 
 // Given current game window + turn, mutate board state and return the ply.

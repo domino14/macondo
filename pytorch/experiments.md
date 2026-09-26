@@ -1431,3 +1431,17 @@ Batch restarted 11:48 with the tiny window: **435 games/s on 16
 threads** (plain was ~1,050), so ~17 h per 27M half; both halves plus
 their scans ~40 h, three epochs on ~40M rows ~14 h, match ~3.5 h ->
 result expected late 9/26.
+
+#### Training vs inference vectors: checked (9/26/26)
+
+`TestInferenceVectorsMatchTraining` builds, for every turn of three logged
+games (incl. an exchange), the inference-side vector for the move actually
+played (`game.MLVectorsForMoves`, split out of `MLEvaluateMoves`) and
+compares it with the producer's training vector for that turn. All
+19,196 features agree byte for byte except one: `turnsSinceOppBingo`
+(scalar 67). The producer computed it over its 5-move sliding window, so
+training never saw a value above 3/25 = 0.12, while the bot counts over
+the whole game (up to ~0.5). Every model so far was trained with the
+capped version, including the one in tonight's match. The producer now
+keeps the full move history; the test passes. Small feature, but a real
+train/inference mismatch; future runs get the fixed vectors.
