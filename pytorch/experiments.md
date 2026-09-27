@@ -1547,3 +1547,26 @@ steps and then pulls ahead by 0.001; train and validation stay together
 0.063/0.074 per square for the next-move planes and 0.038/0.043 for the
 win conjunctions; their balanced weights fall from ~4 at the start to
 ~1 as the trunk starts representing what they ask for.
+
+#### Where the net departs from equity, adjudicated by the 5-ply sim (9/27/26)
+
+`cmd/mlreads` replays a match log and records every FastMlBot turn whose
+play differs from HastyBot's top static-equity play (20,000 games of the
+nwl23s match: 165,593 disagreements, 36% of the net's turns). In contested
+positions (15-75 in the bag, |diff| <= 40) the net wins 64% of those games,
+70% when it deviates by 10+ equity points. `pytorch/reads_gallery.py`
+scores the candidates with the ONNX on the CPU, sims the two plays with
+`sim -plies 5 -stop 99` over the top 40, and builds the gallery
+(https://claude.ai/artifact/1dy3cwMCdmcMwdYU2N5mSD; files in the archive's
+reads/).
+
+Random sample of 38 contested disagreements (gap >= 2): head to head the
+sim ranks the net's play above the equity play 15 times, below 8, too close
+15; in 9 a third play beat both. The 35 largest-gap disagreements (gap 18-34):
+mostly declined bingos and big scores, and the sim sides with equity in
+~19, with the net in ~4. Two findings for the next model: (1) the net's
+boldest deviations, declining bingos in contested midgames, are usually
+wrong; (2) in decided games (|diff| ~200+) the value head saturates at
++/-0.999 for every candidate and its ranking is noise (it walked past a
+176-point VORTICES), which costs spread and could be fixed at play time by
+breaking near-saturated ties on the exported spread head.
