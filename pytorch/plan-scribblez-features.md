@@ -120,6 +120,12 @@ Compare to the step-1 run to isolate steps 2+3 from step 1.
 
 ### 4. Random openings in generation (autoplay flag, new batch)
 
+**Status 2026-09-26: built and queued** (`-openingplies` in autoplay, the
+`openingplies` log column, producer eligibility from K; `run-openings.sh`,
+`queue-openings.sh`). Variant chosen: softmax over the top 50 by equity at
+3 points rather than uniform random plies, both seats greedy HastyBot after
+the opening.
+
 What: `-random-opening-mean M` in autoplay. Per game, K ~ round(Exp(M))
 opening plies are drawn uniformly from all legal placements plus all legal
 exchanges (Scribblez uses M=2; about 22% of games get no random ply). The

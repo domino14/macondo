@@ -213,6 +213,12 @@ type moveEval struct {
 // softmax distribution. Assume that moves are already sorted from
 // best to worst.
 func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.Move, error) {
+	return ChooseMoveWithExplorationRand(moves, temperature, frand.Float64)
+}
+
+// ChooseMoveWithExplorationRand is ChooseMoveWithExploration drawing its
+// uniform variate from `uniform`, so a seeded caller replays the same choice.
+func ChooseMoveWithExplorationRand(moves []*move.Move, temperature float64, uniform func() float64) (*move.Move, error) {
 	if len(moves) == 0 {
 		return nil, fmt.Errorf("moves slice cannot be empty")
 	}
@@ -255,7 +261,7 @@ func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.M
 	}
 
 	// 5. Pick a random number and find which "bucket" it falls into.
-	r := frand.Float64()
+	r := uniform()
 	for i, c := range cdf {
 		if r < c {
 			return moves[i], nil

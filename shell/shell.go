@@ -1704,6 +1704,18 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 			p.QuickEndgameCapMs = int32(capMs)
 		}
 	}
+	if v, err := options.Float("openingplies"); err == nil && v > 0 {
+		expCfg.OpeningPliesMean = v
+		expCfg.OpeningTemperature = 3
+		if t, err := options.Float("openingtemp"); err == nil && t > 0 {
+			expCfg.OpeningTemperature = t
+		}
+		topN, _ := options.IntDefault("openingtopn", 50)
+		expCfg.OpeningTopN = int32(topN)
+		if u, err := options.Float("openinguniform"); err == nil && u > 0 {
+			expCfg.OpeningUniformProb = u
+		}
+	}
 
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)

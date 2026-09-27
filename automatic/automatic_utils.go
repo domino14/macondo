@@ -336,8 +336,14 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 		}
 	}
 
+	opening := OpeningConfig{
+		Mean:        expCfg.OpeningPliesMean,
+		Temperature: expCfg.OpeningTemperature,
+		TopN:        int(expCfg.OpeningTopN),
+		UniformProb: expCfg.OpeningUniformProb,
+	}
 	err = StartCompVCompStaticGames(ctx, appCfg, numGames, expCfg.Block, threads,
-		logfile, lexicon, letterDist, players, detConfig)
+		logfile, lexicon, letterDist, players, detConfig, opening)
 	if err != nil {
 		return experimentID, err
 	}
@@ -347,7 +353,8 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, block bool, threads int,
 	outputFilename, lexicon, letterDistribution string,
-	players []AutomaticRunnerPlayer, detConfig *DeterministicConfig) error {
+	players []AutomaticRunnerPlayer, detConfig *DeterministicConfig,
+	opening OpeningConfig) error {
 
 	if len(players) != 2 {
 		return errors.New("must have two players")
@@ -451,7 +458,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution,
-				gamePairs: gamePairs}
+				gamePairs: gamePairs, opening: opening}
 			err := r.Init(players)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
@@ -524,6 +531,10 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			// Only rows played by a bot that infers carry these; the other bot's
 			// rows stop at oppscore.
 			header += InferenceLogColumns
+		}
+		if opening.Enabled() {
+			// K, the game's sampled opening plies, on every row of the game.
+			header += ",openingplies"
 		}
 		logfile.WriteString(header + "\n")
 		for msg := range logChan {

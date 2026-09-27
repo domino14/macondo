@@ -281,6 +281,10 @@ func main() {
 			workerIndex := hash % uint64(numWorkers)
 			jobChans[workerIndex] <- turn
 		}
+		if err := scanner.Err(); err != nil {
+			// A malformed log used to end the run silently with zero games.
+			log.Fatal().Err(err).Msg("reading the turn log")
+		}
 		for _, ch := range jobChans {
 			close(ch)
 		}

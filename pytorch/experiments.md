@@ -1499,3 +1499,18 @@ gradient unweighted, so the balancer sets their weights to ~4 (cap 10)
 for a 0.1 share.
 Baseline for this exact data: nwl23 53.04% +/- 0.25; best model heads2
 53.31%.
+
+#### Queued: sampled openings with clean labels (built 9/26/26)
+
+Why: the temperature bot's sampled moves sit in the future of every
+earlier position's label, so more sampling meant noisier labels; the
+collaborator's random openings put all the randomness before the first
+eligible position. Ours: HastyBot vs HastyBot (greedy, quick 2-ply
+endgames), each game's first K ~ round(Exp(2)) plies drawn from a softmax
+over equity (3 points, top 50), then greedy; the producer starts the
+eligible turns at K. Smoke on 2,000 games: K mean 2.02 (21% zero, max 16),
+sampled first moves average 2.3 equity points below the greedy choice,
+4.6% of sampled plies are exchanges. `run-openings.sh` (27M games, TAG
+open) with spatial heads, transpose off; `queue-openings.sh` generates once
+the nwl23s match is over and trains after the nwl23st match. Compare with
+fresh 53.10% (27M temperature games, no spatial heads) and nwl23s.

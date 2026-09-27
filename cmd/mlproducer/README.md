@@ -134,3 +134,15 @@ The training vector for this position would contain:
 - The last opponent move tiles marked as "just played".
 
 The predictor would be the spread gain after N turns, and maybe the game's final spread.
+
+## Sampled openings
+
+Autoplay's `-openingplies M` samples each game's first K plies (K ~
+round(Exp(M))) from a softmax over static equity (`-openingtemp`, points,
+over the `-openingtopn` best plays; `-openinguniform P` mixes in uniform
+draws over every legal play) and then lets the bots play. The turn log
+gains an `openingplies` column carrying K on every row. With `-per-game`
+the producer draws the emitted turn from K..pick-max instead of 1..pick-max,
+so the first eligible position is the one right after the last sampled
+ply and no outcome label is decided by a sampled move. Logs without the
+column behave as before.

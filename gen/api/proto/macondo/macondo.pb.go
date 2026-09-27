@@ -3024,9 +3024,22 @@ type AutoplayConfig struct {
 	// Master seed for the run. Each game (or pair) derives its own seed from
 	// this, so the same value replays the same experiment. If 0 and the run
 	// needs seeds, one is generated and logged.
-	Seed          uint64 `protobuf:"varint,15,opt,name=seed,proto3" json:"seed,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Seed uint64 `protobuf:"varint,15,opt,name=seed,proto3" json:"seed,omitempty"`
+	// Random openings (both seats, any bot type). Each game's first K plies
+	// are sampled instead of played by the bots, with K drawn per game from a
+	// rounded exponential of this mean (0 = off). A sampled ply is a softmax
+	// over static equity (opening_temperature, in points) across the top
+	// opening_top_n plays, or with probability opening_uniform_prob a uniform
+	// draw over every legal play and exchange. The per-turn log gains an
+	// `openingplies` column carrying K, so a training consumer can start its
+	// eligible positions at the last sampled ply: everything after it is
+	// ordinary bot play, so no outcome label is decided by a sampled move.
+	OpeningPliesMean   float64 `protobuf:"fixed64,16,opt,name=opening_plies_mean,json=openingPliesMean,proto3" json:"opening_plies_mean,omitempty"`
+	OpeningTemperature float64 `protobuf:"fixed64,17,opt,name=opening_temperature,json=openingTemperature,proto3" json:"opening_temperature,omitempty"`
+	OpeningTopN        int32   `protobuf:"varint,18,opt,name=opening_top_n,json=openingTopN,proto3" json:"opening_top_n,omitempty"`
+	OpeningUniformProb float64 `protobuf:"fixed64,19,opt,name=opening_uniform_prob,json=openingUniformProb,proto3" json:"opening_uniform_prob,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AutoplayConfig) Reset() {
@@ -3160,6 +3173,34 @@ func (x *AutoplayConfig) GetGamePairs() bool {
 func (x *AutoplayConfig) GetSeed() uint64 {
 	if x != nil {
 		return x.Seed
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningPliesMean() float64 {
+	if x != nil {
+		return x.OpeningPliesMean
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningTemperature() float64 {
+	if x != nil {
+		return x.OpeningTemperature
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningTopN() int32 {
+	if x != nil {
+		return x.OpeningTopN
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningUniformProb() float64 {
+	if x != nil {
+		return x.OpeningUniformProb
 	}
 	return 0
 }
@@ -3457,7 +3498,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\x12.\n" +
 	"\x13quick_endgame_plies\x18\r \x01(\x05R\x11quickEndgamePlies\x120\n" +
 	"\x14quick_endgame_margin\x18\x0e \x01(\x05R\x12quickEndgameMargin\x12/\n" +
-	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\"\x9d\x04\n" +
+	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +
@@ -3476,7 +3517,11 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\rdeterministic\x18\r \x01(\bR\rdeterministic\x12\x1d\n" +
 	"\n" +
 	"game_pairs\x18\x0e \x01(\bR\tgamePairs\x12\x12\n" +
-	"\x04seed\x18\x0f \x01(\x04R\x04seed*C\n" +
+	"\x04seed\x18\x0f \x01(\x04R\x04seed\x12,\n" +
+	"\x12opening_plies_mean\x18\x10 \x01(\x01R\x10openingPliesMean\x12/\n" +
+	"\x13opening_temperature\x18\x11 \x01(\x01R\x12openingTemperature\x12\"\n" +
+	"\ropening_top_n\x18\x12 \x01(\x05R\vopeningTopN\x120\n" +
+	"\x14opening_uniform_prob\x18\x13 \x01(\x01R\x12openingUniformProb*C\n" +
 	"\tPlayState\x12\v\n" +
 	"\aPLAYING\x10\x00\x12\x1a\n" +
 	"\x16WAITING_FOR_FINAL_PASS\x10\x01\x12\r\n" +

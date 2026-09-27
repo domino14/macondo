@@ -309,7 +309,16 @@ func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 	if ga.fixedPick > 0 {
 		gw.pick = ga.fixedPick
 	} else if ga.pickMax > 0 {
-		gw.pick = 1 + rand.Intn(ga.pickMax)
+		// A game that opened with K sampled plies is eligible from turn K
+		// on: the position after the last sampled ply is the first whose
+		// whole future is bot play. A game sampled past pickMax emits
+		// nothing.
+		lo := max(1, t.OpeningPlies)
+		if lo > ga.pickMax {
+			gw.pick = ga.pickMax + 1
+		} else {
+			gw.pick = lo + rand.Intn(ga.pickMax-lo+1)
+		}
 	}
 	return gw
 }
