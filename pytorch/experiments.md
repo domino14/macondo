@@ -1535,3 +1535,15 @@ logs, MD5SUMS; REPRO.md to be committed when this batch of experiments
 is done); the run's code is commit 10710e5b. A
 replication match (fresh seed, seats reversed, 20k pairs) runs after the
 main one (`finalize-nwl23s.sh`); final numbers go to RESULTS.md there.
+
+Final (9/27): main match 57.17% +/- 0.18 over 100k pairs; replication
+(fresh seed 20260927, HastyBot in seat 1, 20k pairs) 57.13% +/- 0.40.
+
+![](loss_tf_nwl23s.png)
+
+The curves: validation WDL cross-entropy tracks nwl23 for the first 20k
+steps and then pulls ahead by 0.001; train and validation stay together
+(no memorization over 3 passes); the spatial heads plateau by 20k steps at
+0.063/0.074 per square for the next-move planes and 0.038/0.043 for the
+win conjunctions; their balanced weights fall from ~4 at the start to
+~1 as the trunk starts representing what they ask for.
