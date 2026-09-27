@@ -1446,7 +1446,7 @@ capped version, including the one in tonight's match. The producer now
 keeps the full move history; the test passes. Small feature, but a real
 train/inference mismatch; future runs get the fixed vectors.
 
-#### Result: the NWL23 batch (9/26/26)
+#### Interim: the NWL23 batch at 50k of 100k pairs (9/26/26, 14:42)
 
 54M NWL23 games (halves a 19.3M, b 27M, c 7.7M; softmax-v-Hasty with the
 quick 2-ply endgame, margin 60, tiny window), producer `-labeler result
@@ -1459,8 +1459,14 @@ Trained like `fresh`: WDL primary, value head off, aux-share 0.15, 3 epochs
 paired win rate 53.04% +/- 0.25   swept 19.3%  lost 13.3%  spread -1.5/game
 ```
 
-Ladder under NWL23: heads2 53.31%, nwl23 53.04%, fresh 53.10%. Doubling
-the true-result games (20M -> 36M positions) and fixing the endgames moved
+Final, 100k pairs (16:20):
+
+```
+paired win rate 53.13% +/- 0.18   swept 19.3%  lost 13.1%  spread -1.4/game
+```
+
+Ladder under NWL23: heads2 53.31%, nwl23 53.13%, fresh 53.10%. Doubling the
+true-result games (20M -> 36M positions) and fixing the endgames moved
 nothing. More games of this kind is not the lever.
 
 Note found while reading Scribblez (9/26): the producer already transposes
@@ -1481,5 +1487,15 @@ recipe as `nwl23` otherwise: WDL primary, aux-share 0.15, spatial share
 Restarted 14:59 with the transpose OFF (`TRANSPOSE=0`) so the run reads
 the spatial heads alone; `queue-spatial-transpose.sh` then trains
 `nwl23st` (same cache, transpose 0.5) once the nwl23s match is done.
+The rescan took 1 h 40 min (36.4M rows, 2,812 B each, 102 GB). The first
+training attempt died at step ~500 with a cuBLAS internal error and no
+message (the trainer's os._exit(0) swallowed the traceback; fixed): the
+card had 3.70 GiB free against the run's 3.69 GiB peak, the desktop and
+eight loaded Triton models having grown. Unloaded the six finished
+experiment models from Triton (1.2 GB -> 0.5 GB), relaunched 20:35 at
+batch 128 x accum 16 (peak 3.2 GiB, ~5% slower, 2,150 pos/s). Gradient
+pulls at the start: each spatial head pulls 2-3% of the WDL head's trunk
+gradient unweighted, so the balancer sets their weights to ~4 (cap 10)
+for a 0.1 share.
 Baseline for this exact data: nwl23 53.04% +/- 0.25; best model heads2
 53.31%.
