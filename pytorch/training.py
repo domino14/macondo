@@ -798,6 +798,7 @@ def main():
     )
 
     done = False
+    exit_code = 0
     try:
         for epoch, loader in enumerate(epoch_loaders(), start=1):
             if done:
@@ -938,6 +939,15 @@ def main():
             f"Total training time: {total_time:.1f} seconds ({total_time/60:.2f} min)"
         )
 
+    except BaseException as e:
+        # The finally block below ends the process with os._exit, which would
+        # swallow the interpreter's own traceback: print it here first.
+        import traceback
+
+        print(f"training aborted: {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        exit_code = 1
     finally:
         if cache_w is not None:
             cache_w.close()
@@ -946,7 +956,7 @@ def main():
         sys.stdout.flush()
         # Leave without waiting on the loader workers or the stdin producer
         # thread, which may be blocked mid-stream if we stopped early.
-        os._exit(0)
+        os._exit(exit_code)
 
 
 if __name__ == "__main__":

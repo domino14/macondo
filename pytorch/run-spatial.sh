@@ -6,7 +6,8 @@
 #
 #   TAG (default nwl23s), LOGS (the turn logs, default nwl23{a,b,c}.txt.gz),
 #   EPOCHS (3), SPATIAL_SHARE (0.1), TRANSPOSE (0.5), SCAN (1: rebuild the
-#   cache; 0: reuse it), CACHE (default <TAG>-frames.bin)
+#   cache; 0: reuse it), CACHE (default <TAG>-frames.bin), BATCH (128),
+#   ACCUM (16)
 #
 # Outputs: pytorch/<TAG>-frames.bin, producer-<TAG>-<half>.log,
 # cache-<TAG>.log, then train-fresh.sh's outputs under TAG.
@@ -22,6 +23,14 @@ SPATIAL_SHARE=${SPATIAL_SHARE:-0.1}
 TRANSPOSE=${TRANSPOSE:-0.5}
 SCAN=${SCAN:-1}
 CACHE=${CACHE:-$TAG-frames.bin}   # SCAN=0 CACHE=... trains a second run off an existing cache
+# Batch 128 x 16 accumulation steps (same 2048 effective): peak GPU memory
+# 3.2 GiB instead of 3.7, which is what the 8 GB card has left once the
+# desktop and Triton hold their share. At 256 the first nwl23s attempt died
+# at step ~500 with a cuBLAS internal error (an allocation failure inside
+# cuBLAS); 128 costs ~5% throughput.
+BATCH=${BATCH:-128}
+ACCUM=${ACCUM:-16}
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 if [ "$SCAN" = 1 ]; then
     rm -f "$CACHE" "cache-$TAG.log"
@@ -37,5 +46,5 @@ ROWS=$(python -c "import os, training; print(os.path.getsize('$CACHE') // traini
 log "cache $CACHE: $ROWS rows"
 
 TAG=$TAG CACHE=$CACHE EPOCHS=$EPOCHS WAIT_FOR="[n]ever-matches-anything" \
-  TRAIN_ARGS="--primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share $SPATIAL_SHARE --transpose-prob $TRANSPOSE" \
+  TRAIN_ARGS="--primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share $SPATIAL_SHARE --transpose-prob $TRANSPOSE --batch-size $BATCH --accum $ACCUM" \
   ./train-fresh.sh
