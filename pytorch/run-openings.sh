@@ -46,15 +46,19 @@ if [ "$GEN" = 1 ]; then
         -openingplies "$OPENING_MEAN" -openingtemp "$OPENING_TEMP" -openingtopn "$OPENING_TOPN" -openinguniform "$OPENING_UNIFORM" \
         -numgames "$GAMES" -threads "$THREADS" -block true -experimentid "$TAG" > "$TAG.autoplay.log" 2>&1 )
     log "generated: $(( $(wc -l < "$DATA/games-$TAG.txt") - 1 )) games, turn log $(du -h "$DATA/$TAG.txt" | cut -f1)"
+    # Gzip before the scan (not after): the plain log and the cache together
+    # would not fit next to the other cache on this disk.
+    log "gzipping the turn log"
+    ( cd "$DATA" && gzip -f "$TAG.txt" )
+    log "  $(du -h "$DATA/$TAG.txt.gz" | cut -f1)"
 fi
 [ "$TRAIN" = 1 ] || exit 0
 
 rm -f "$CACHE" "cache-$TAG.log"
-log "scanning $DATA/$TAG.txt"
-../bin/mlproducer -labeler result -per-game -endgame-plies 2 < "$DATA/$TAG.txt" 2> "producer-$TAG.log" | \
+log "scanning $DATA/$TAG.txt.gz"
+zcat "$DATA/$TAG.txt.gz" | ../bin/mlproducer -labeler result -per-game -endgame-plies 2 2> "producer-$TAG.log" | \
   python training.py --cache-only --cache "$CACHE" 2> "cache-$TAG.log"
 log "cached: $(tail -1 "cache-$TAG.log")"
-( cd "$DATA" && nohup gzip "$TAG.txt" > /dev/null 2>&1 & )
 
 TAG=$TAG CACHE=$CACHE EPOCHS=$EPOCHS WAIT_FOR="[n]ever-matches-anything" \
   TRAIN_ARGS="--primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share $SPATIAL_SHARE --transpose-prob $TRANSPOSE --batch-size $BATCH --accum $ACCUM" \

@@ -1,21 +1,13 @@
 #!/usr/bin/env bash
-# Queue the sampled-openings batch behind the spatial runs. Generation is CPU
-# only, so it starts once the nwl23s match (12 bot threads + Triton) is over
-# and runs alongside the nwl23st training; the scan, training and match wait
-# for the nwl23st match to end so the GPU is free.
+# After the openings generation (run-openings.sh TRAIN=0, started alongside
+# the nwl23st training) and after nwl23st's training and match are over,
+# scan, train and match the openings batch. Never overlaps a GPU job.
 cd "$(dirname "$0")"
 log() { echo "$(date '+%F %T') $*"; }
 wait_gone() { while pgrep -f "$1" >/dev/null; do sleep 120; done; }
-
-log "waiting for the nwl23s training and match"
-wait_gone "[t]rain-fresh.sh"
-sleep 180
-wait_gone "[b]in/shell autoplay"
-log "generating the openings batch (alongside nwl23st training)"
-TRAIN=0 ./run-openings.sh
-
+log "waiting for the openings generation"
+wait_gone "[r]un-openings.sh"
 log "waiting for the nwl23st training and match"
-sleep 600   # let the queued nwl23st driver start its trainer first
 wait_gone "[t]rain-fresh.sh"
 sleep 180
 wait_gone "[b]in/shell autoplay"
