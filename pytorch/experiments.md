@@ -1514,3 +1514,23 @@ sampled first moves average 2.3 equity points below the greedy choice,
 open) with spatial heads, transpose off; `queue-openings.sh` generates once
 the nwl23s match is over and trains after the nwl23st match. Compare with
 fresh 53.10% (27M temperature games, no spatial heads) and nwl23s.
+
+#### RESULT: spatial heads, +4 points (9/27/26, interim at 64k pairs)
+
+`nwl23s` (spatial heads on, transpose off, same 36.4M rows and recipe as
+`nwl23`), match `games-tf-nwl23s-v-hasty-pairs.txt`:
+
+```
+64k of 100k pairs: paired win rate 57.17% +/- 0.22  swept 24.5%  lost 10.2%  spread +1.4/game
+```
+
+vs nwl23 53.13% +/- 0.18 on identical data. Best val_wdl 0.4993 vs 0.5004.
+HastyBot's own mean score fell 434.2 -> 426.7 and its bingo rate 2.018 ->
+1.968 per game: the bot got defensive, not luckier. Verified: match env
+names the model, Triton READY, parity passed, first-mover rate 0.556 as
+always, and HastyBot plays byte-identical seeded games under the rebuilt
+shell (600 games vs the 0986c24f binary). Archived with reproduction notes
+at ~/data/results/nwl23s-spatial-heads/ (REPRO.md, model, checkpoints,
+logs, MD5SUMS); git tag `exp-nwl23s-spatial-heads` on 10710e5b. A
+replication match (fresh seed, seats reversed, 20k pairs) runs after the
+main one (`finalize-nwl23s.sh`); final numbers go to RESULTS.md there.
