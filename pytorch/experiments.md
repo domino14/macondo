@@ -1531,6 +1531,7 @@ names the model, Triton READY, parity passed, first-mover rate 0.556 as
 always, and HastyBot plays byte-identical seeded games under the rebuilt
 shell (600 games vs the 0986c24f binary). Archived with reproduction notes
 at ~/data/results/nwl23s-spatial-heads/ (REPRO.md, model, checkpoints,
-logs, MD5SUMS); git tag `exp-nwl23s-spatial-heads` on 10710e5b. A
+logs, MD5SUMS; REPRO.md to be committed when this batch of experiments
+is done); the run's code is commit 10710e5b. A
 replication match (fresh seed, seats reversed, 20k pairs) runs after the
 main one (`finalize-nwl23s.sh`); final numbers go to RESULTS.md there.
