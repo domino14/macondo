@@ -10,7 +10,7 @@ wait_gone() { while pgrep -f "$1" >/dev/null; do sleep 120; done; }
 log "waiting for the nwl23s training and match"
 wait_gone "[t]rain-fresh.sh"
 sleep 180
-wait_gone "[a]utoplay.*experimentid tf-nwl23s-v-hasty-pairs"
+wait_gone "[b]in/shell autoplay"
 log "generating the openings batch (alongside nwl23st training)"
 TRAIN=0 ./run-openings.sh
 
@@ -18,6 +18,6 @@ log "waiting for the nwl23st training and match"
 sleep 600   # let the queued nwl23st driver start its trainer first
 wait_gone "[t]rain-fresh.sh"
 sleep 180
-wait_gone "[a]utoplay.*experimentid tf-nwl23st-v-hasty-pairs"
+wait_gone "[b]in/shell autoplay"
 log "scanning, training and matching the openings batch"
 GEN=0 ./run-openings.sh

@@ -22,6 +22,9 @@ PRIMARY=${PRIMARY:-wdl}
 VAL_MAX=${VAL_MAX:-0.6}
 
 while pgrep -f "$WAIT_FOR" >/dev/null; do sleep 60; done
+# Training never shares the GPU with a match or with served models.
+while pgrep -f "[b]in/shell autoplay" >/dev/null; do sleep 60; done
+./triton-models.sh unload-all
 [ -f "$HOME/data/$TAG.txt" ] && ( cd "$HOME/data" && nohup gzip "$TAG.txt" > /dev/null 2>&1 & )
 
 ROWS=$(python -c "import os, training; print(os.path.getsize('$CACHE') // training.CACHE_ROW_BYTES)")

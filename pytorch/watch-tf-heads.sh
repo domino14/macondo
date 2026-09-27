@@ -71,19 +71,11 @@ if ! python export-tester.py --ckpt "${CKPT%.pt}-bak.pt" --onnx "$VER_DIR/model.
 fi
 
 log "loading $MODEL into Triton (explicit model control)"
-curl -s -X POST "localhost:8100/v2/repository/models/$MODEL/load" -o /dev/null -w "load http %{http_code}\n"
-for i in $(seq 1 30); do
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8100/v2/models/$MODEL/versions/$VER/ready)" = 200 ]; then
-        break
-    fi
-    sleep 5
-done
-if [ "$(curl -s -o /dev/null -w '%{http_code}' localhost:8100/v2/models/$MODEL/versions/$VER/ready)" != 200 ]; then
+if ! ./triton-models.sh load "$MODEL" "$VER"; then
     log "NOT RUNNING MATCH: Triton did not report $MODEL v$VER ready"
     docker logs macondo-triton 2>&1 | tail -20
     exit 1
 fi
-log "$MODEL v$VER ready"
 
 # --- match -----------------------------------------------------------------
 cd "$REPO"
@@ -96,6 +88,9 @@ setsid nohup env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:810
 sleep 90
 if pgrep -f "bin/shell autoplay.*experimentid $EXP" >/dev/null; then
     log "match running: $(( $(wc -l < games-$EXP.txt) - 1 )) games after 90 s; log $EXP.log"
+    # Free the card when the match is over: unload the model again.
+    setsid nohup bash -c "while pgrep -f '[a]utoplay.*experimentid $EXP' >/dev/null; do sleep 60; done; \
+        cd '$REPO/pytorch' && ./triton-models.sh unload '$MODEL' >> watch-unload.log 2>&1" > /dev/null 2>&1 < /dev/null &
 else
     log "match process died; tail of $EXP.log:"
     tail -20 $EXP.log

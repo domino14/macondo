@@ -10,6 +10,6 @@ log "waiting for the nwl23s training"
 while pgrep -f "[t]rain-fresh.sh" >/dev/null; do sleep 120; done
 sleep 180   # train-fresh.sh exits ~90 s after starting its match
 log "waiting for the nwl23s match"
-while pgrep -f "[a]utoplay.*experimentid tf-nwl23s-v-hasty-pairs" >/dev/null; do sleep 120; done
+while pgrep -f "[b]in/shell autoplay" >/dev/null; do sleep 120; done
 log "starting nwl23st (transpose 0.5) from nwl23s-frames.bin"
 SCAN=0 TAG=nwl23st CACHE=nwl23s-frames.bin TRANSPOSE=0.5 ./run-spatial.sh

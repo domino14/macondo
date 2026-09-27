@@ -448,6 +448,13 @@ def parse_args(argv=None):
         help="--aux-share for the four spatial heads (default: the same share)",
     )
     p.add_argument(
+        "--gpu-mem-mib",
+        type=int,
+        default=4096,
+        help="cap this process's CUDA memory (allocator limit); the run fails with "
+        "an OOM instead of starving the desktop and Triton (0 = no cap)",
+    )
+    p.add_argument(
         "--transpose-prob",
         type=float,
         default=0.0,
@@ -669,6 +676,16 @@ def main():
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
+
+    if device.type == "cuda" and args.gpu_mem_mib > 0:
+        idx = torch.cuda.current_device()
+        total = torch.cuda.get_device_properties(idx).total_memory
+        frac = min(1.0, args.gpu_mem_mib * 2**20 / total)
+        torch.cuda.set_per_process_memory_fraction(frac, idx)
+        print(
+            f"GPU memory cap: {args.gpu_mem_mib} MiB ({frac:.0%} of {total / 2**30:.2f} GiB)",
+            file=sys.stderr,
+        )
 
     num_workers = os.cpu_count()
     ckpt_dir = os.path.dirname(os.path.abspath(args.ckpt))
