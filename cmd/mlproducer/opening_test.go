@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/cespare/xxhash"
 )
 
 const baseHeader = "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore"
@@ -102,5 +105,44 @@ func TestPerGameSeveralPicks(t *testing.T) {
 	}
 	if d := drawTurns(3, 30, 2); len(d) != 2 || d[0] >= d[1] || d[0] < 3 || d[1] > 30 {
 		t.Fatalf("drawTurns: %v", d)
+	}
+}
+
+func TestHoldoutSplitPartitionsGames(t *testing.T) {
+	// Every game is on exactly one side, about 1/mod of them on the val side,
+	// and no split means every game is emitted.
+	held := 0
+	for i := 0; i < 20000; i++ {
+		h := xxhash.Sum64String(fmt.Sprintf("seed:game-%d", i))
+		tr, va := inSplit(h, 20, "train"), inSplit(h, 20, "val")
+		if tr == va {
+			t.Fatalf("game %d: train=%v val=%v", i, tr, va)
+		}
+		if va {
+			held++
+		}
+		if !inSplit(h, 0, "train") || !inSplit(h, 0, "val") {
+			t.Fatalf("game %d: dropped without a split", i)
+		}
+	}
+	if held < 800 || held > 1200 {
+		t.Fatalf("held out %d of 20000 with mod 20, want ~1000", held)
+	}
+}
+
+func TestPicksDifferAcrossScans(t *testing.T) {
+	// A second scan of the same game draws its own turn, so streamed passes
+	// see different positions of a game (20 scans, one draw each: not all equal).
+	seen := map[int]bool{}
+	for i := 0; i < 20; i++ {
+		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga.valueFromResult = true
+		ga.pickMax = 22
+		for _, v := range feedGame(t, ga) {
+			seen[v.turn] = true
+		}
+	}
+	if len(seen) < 3 {
+		t.Fatalf("20 scans drew only turns %v", seen)
 	}
 }

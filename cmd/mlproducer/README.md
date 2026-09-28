@@ -146,3 +146,14 @@ the producer draws the emitted turn from K..pick-max instead of 1..pick-max,
 so the first eligible position is the one right after the last sampled
 ply and no outcome label is decided by a sampled move. Logs without the
 column behave as before.
+
+## Several picks, held-out games
+
+`-picks K` (with `-per-game`) draws K distinct turns per game and emits each
+as its own position. A second scan of the same log draws different turns,
+which is what streamed training relies on.
+
+`-holdout-mod M -split train|val` partitions the games by their ID hash:
+the games whose hash is 0 mod M are the `val` side (M=20 holds out 5%),
+the rest the `train` side; the two sides never overlap whatever order the
+logs are scanned in. Without `-holdout-mod` every game is emitted.

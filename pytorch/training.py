@@ -154,25 +154,43 @@ def unpack_frame(payload):
 
 
 class QueueDataset(IterableDataset):
-    """An iterable dataset that pulls from a multiprocessing queue."""
+    """An iterable dataset that pulls from a multiprocessing queue.
 
-    def __init__(self, queue):
+    `shuffle` > 0 holds that many frames per loader worker and yields a random
+    one each time, on top of the producer's own interleaving of games, so a
+    streamed batch is not the last few games that happened to finish.
+    """
+
+    def __init__(self, queue, shuffle=0):
         super().__init__()
         self.queue = queue
+        self.shuffle = shuffle
         self.worker_sentinel_received = False
 
     def __iter__(self):
+        import random
+
+        buf = []
         while True:
             if self.worker_sentinel_received:
                 break
 
-            payload = self.queue.get(timeout=60)  # Add timeout to avoid hanging
+            payload = self.queue.get(timeout=600)  # a stalled producer, not a slow one
             if payload is None:
                 self.worker_sentinel_received = True
                 break
-
+            if self.shuffle > 0:
+                buf.append(payload)
+                if len(buf) < self.shuffle:
+                    continue
+                i = random.randrange(len(buf))
+                payload, buf[i] = buf[i], buf[-1]
+                buf.pop()
             yield unpack_frame(payload)
             del payload
+        random.shuffle(buf)
+        for payload in buf:
+            yield unpack_frame(payload)
 
 
 def pack_rows(board, scalars, targets, spatial):
@@ -455,6 +473,18 @@ def parse_args(argv=None):
         "an OOM instead of starving the desktop and Triton (0 = no cap)",
     )
     p.add_argument(
+        "--val-cache",
+        help="stream mode: take the validation rows from this (small) frame cache instead "
+        "of the head of stdin, so held-out games never reach training at another turn",
+    )
+    p.add_argument(
+        "--shuffle-buffer",
+        type=int,
+        default=1024,
+        help="stream mode: frames held per loader worker for shuffling (0 = none)",
+    )
+    p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
+    p.add_argument(
         "--transpose-prob",
         type=float,
         default=0.0,
@@ -670,10 +700,12 @@ def main():
     amp_dtype = torch.bfloat16 if args.amp_dtype == "bf16" else torch.float16
     print(f"config: {vars(args)}", file=sys.stderr)
 
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-    elif torch.cuda.is_available():
+    if args.device == "cpu":
+        device = torch.device("cpu")
+    elif args.device == "cuda" or torch.cuda.is_available():
         device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
     else:
         device = torch.device("cpu")
 
@@ -726,16 +758,27 @@ def main():
         # ---- validation from the head of stdin, epoch 1 from the rest ----
         val_q = Queue()
         train_q = Queue(maxsize=2048)
-        p = Thread(target=producer, args=(val_q, train_q, args.val_size, num_workers))
+        stream_val = 0 if args.val_cache else args.val_size
+        p = Thread(target=producer, args=(val_q, train_q, stream_val, num_workers))
         p.daemon = True
         p.start()
-        val_file_name, val_count = write_validation_to_file(QueueDataset(val_q), ckpt_dir)
+        if args.val_cache:
+            # Validation from its own cache (the producer's held-out split);
+            # the whole stream is training data.
+            n_val = os.path.getsize(args.val_cache) // CACHE_ROW_BYTES
+            val_ds = CacheDataset(args.val_cache, 0, min(args.val_size, n_val))
+            val_file_name, val_count = write_validation_to_file(
+                (val_ds.unpacked(i) for i in range(len(val_ds))), ckpt_dir
+            )
+            print(f"validation from {args.val_cache}: {val_count:,} of {n_val:,} rows", file=sys.stderr)
+        else:
+            val_file_name, val_count = write_validation_to_file(QueueDataset(val_q), ckpt_dir)
         if args.cache:
             cache_w = open(args.cache, "wb")
 
         def epoch_loaders():
             yield DataLoader(
-                QueueDataset(train_q),
+                QueueDataset(train_q, shuffle=args.shuffle_buffer),
                 batch_size=args.batch_size,
                 num_workers=num_workers,
                 pin_memory=False,

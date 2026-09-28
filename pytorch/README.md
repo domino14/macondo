@@ -53,6 +53,17 @@ at every validation so each head's measured pull on the trunk is F times
 the value head's (recommended; `head_grads.py` shows the same measurement
 for a checkpoint). The checkpoint is chosen on value val loss only.
 
+Streaming (`run-stream.sh`): no cache at all. The producer rescans the
+gzipped turn logs PASSES times, drawing a fresh turn per game each pass, and
+pipes the frames into one trainer (`--epochs 1`, `--total-steps` set to the
+pass count); validation comes from the producer's held-out games
+(`-holdout-mod 20 -split val`, scanned once into a small cache and passed
+as `--val-cache`), so held-out games never reach training at another turn.
+`--shuffle-buffer` frames per loader worker are mixed on top of the
+producer's own interleaving. The producer streams ~6,000 rows/s, the GPU
+takes ~2,150, so it idles on back-pressure. Prefer this to a cache: every
+pass sees new positions of the same games and disk is no longer a limit.
+
 `--epochs N --cache frames.bin` caches every stdin frame (bit-packed, 2,812 B
 each; caches from before the spatial targets had 2,699-byte rows and are
 refused) during epoch 1 and reads epochs 2..N from it; `--from-cache frames.bin`
