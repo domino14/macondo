@@ -87,7 +87,7 @@ func main() {
 	var sample float64
 	var labelsOut string
 	var perGame bool
-	var pickMax, endgamePlies int
+	var pickMax, picks, endgamePlies int
 	var endgameTimeout time.Duration
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&labeler, "labeler", "table",
@@ -97,6 +97,7 @@ func main() {
 		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
 			"instead of every position; with -labeler rollout this replaces -sample")
 	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
+	flag.IntVar(&picks, "picks", 1, "with -per-game: distinct turns drawn per game (each emitted as its own position)")
 	flag.IntVar(&endgamePlies, "endgame-plies", 0,
 		"label emitted positions whose bag was already empty by a quick endgame search of this many plies "+
 			"(greedy playout at the leaves) instead of the logged game's outcome; 0 = off")
@@ -195,7 +196,7 @@ func main() {
 		log.Fatal().Msgf("unknown -labeler %q", labeler)
 	}
 	if perGame {
-		log.Info().Msgf("Emitting one position per game, turn drawn from 1..%d", pickMax)
+		log.Info().Msgf("Emitting %d position(s) per game, turns drawn from 1..%d", picks, pickMax)
 	}
 	var gd *kwg.KWG
 	if endgamePlies > 0 {
@@ -223,6 +224,7 @@ func main() {
 			assembler.valueFromResult = labeler == "result"
 			if perGame {
 				assembler.pickMax = pickMax
+				assembler.picks = picks
 			}
 			assembler.endgamePlies = endgamePlies
 			assembler.endgameTimeout = endgameTimeout

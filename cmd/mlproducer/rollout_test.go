@@ -684,7 +684,7 @@ func feedGameWithPick(t *testing.T, ga *GameAssembler, turn int) []outputVector 
 			ga.pickMax = 1
 			out = append(out, ga.FeedTurn(tn)...)
 			gw := ga.games[tn.GameID]
-			gw.pick = turn
+			gw.pick, gw.picks = turn, []int{turn}
 			game.MLVectorPool.Put(gw.plies[0].state)
 			gw.plies[0].state = nil
 			ga.pickMax = 30

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,8 +68,12 @@ type GameAssembler struct {
 	// position is emitted, subject to `sample` when rollout-labeling.
 	pickMax   int
 	fixedPick int // tests: the turn to pick for every game instead of drawing one
-	sample    float64
-	labeled   int64
+	// picks is how many distinct turns per game are drawn in per-game mode
+	// (0 or 1 = one). Each is emitted like the single pick; the game's
+	// outcome labels are shared, the positions are not.
+	picks   int
+	sample  float64
+	labeled int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -96,7 +101,8 @@ type gameWindow struct {
 	history []*move.Move
 	game    turnplayer.BaseTurnPlayer
 	ai      *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
-	pick    int                              // the one turn to emit, or 0 for all
+	pick    int                              // the first drawn turn to emit, or 0 for all
+	picks   []int                            // every drawn turn (per-game mode), ascending
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
@@ -312,15 +318,51 @@ func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 		// A game that opened with K sampled plies is eligible from turn K
 		// on: the position after the last sampled ply is the first whose
 		// whole future is bot play. A game sampled past pickMax emits
-		// nothing.
+		// nothing. With picks > 1, that many distinct turns are drawn
+		// uniformly from the eligible range.
 		lo := max(1, t.OpeningPlies)
 		if lo > ga.pickMax {
 			gw.pick = ga.pickMax + 1
 		} else {
-			gw.pick = lo + rand.Intn(ga.pickMax-lo+1)
+			gw.picks = drawTurns(lo, ga.pickMax, max(1, ga.picks))
+			gw.pick = gw.picks[0]
 		}
 	}
 	return gw
+}
+
+// drawTurns draws k distinct turns uniformly from [lo, hi], ascending (all
+// of them when the range holds fewer than k).
+func drawTurns(lo, hi, k int) []int {
+	n := hi - lo + 1
+	if k >= n {
+		out := make([]int, n)
+		for i := range out {
+			out[i] = lo + i
+		}
+		return out
+	}
+	perm := rand.Perm(n)[:k]
+	sort.Ints(perm)
+	out := make([]int, k)
+	for i, p := range perm {
+		out[i] = lo + p
+	}
+	return out
+}
+
+// wants reports whether the turn is one this game emits: every turn when
+// nothing was drawn (table mode), else the drawn turn(s).
+func (gw *gameWindow) wants(turn int) bool {
+	if len(gw.picks) > 0 {
+		for _, p := range gw.picks {
+			if p == turn {
+				return true
+			}
+		}
+		return false
+	}
+	return gw.pick == 0 || gw.pick == turn
 }
 
 // release stamps every held vector with the final result from its mover's
@@ -472,7 +514,7 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 	// (bag already empty) emits nothing: the bot hands the endgame to the
 	// solver and never consults the net there. (fixedPick, the test hook,
 	// bypasses this so endgame labeling can be tested.)
-	wanted := gw.pick == 0 || (gw.pick == t.TurnNumber && (t.TilesRemaining > 0 || ga.fixedPick > 0))
+	wanted := gw.pick == 0 || (gw.wants(t.TurnNumber) && (t.TilesRemaining > 0 || ga.fixedPick > 0))
 	if wanted {
 		leaveVal := ga.eqCalc.LeaveValue(rack.TilesOn())
 		p.state, err = gw.game.BuildMLVector(m, leaveVal, gw.moveHistory())

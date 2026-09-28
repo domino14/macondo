@@ -70,3 +70,37 @@ func TestPerGamePickStartsAtOpening(t *testing.T) {
 		}
 	}
 }
+
+func TestPerGameSeveralPicks(t *testing.T) {
+	// Two picks per game: two positions at distinct turns, both with the
+	// game's result label; an empty-bag draw still emits nothing.
+	for trial := 0; trial < 20; trial++ {
+		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga.valueFromResult = true
+		ga.pickMax = 22 // the sample game's last non-empty-bag turn
+		ga.picks = 2
+		got := feedGame(t, ga)
+		if len(got) != 2 {
+			t.Fatalf("trial %d: emitted %d vectors, want 2", trial, len(got))
+		}
+		if got[0].turn == got[1].turn {
+			t.Fatalf("trial %d: both picks at turn %d", trial, got[0].turn)
+		}
+		for _, v := range got {
+			if v.predictions[TargetWDL] == 0 || v.predictions[TargetValue] != v.predictions[TargetWDL] {
+				t.Fatalf("trial %d turn %d: labels %v", trial, v.turn, v.predictions[:3])
+			}
+		}
+	}
+	// More picks than eligible turns: every turn in the range, once.
+	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	ga.valueFromResult = true
+	ga.pickMax = 5
+	ga.picks = 9
+	if got := feedGame(t, ga); len(got) != 5 {
+		t.Fatalf("emitted %d vectors, want 5 (turns 1..5)", len(got))
+	}
+	if d := drawTurns(3, 30, 2); len(d) != 2 || d[0] >= d[1] || d[0] < 3 || d[1] > 30 {
+		t.Fatalf("drawTurns: %v", d)
+	}
+}
