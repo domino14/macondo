@@ -1585,3 +1585,20 @@ spread output whenever the model has it (it defaulted to value only, so
 the bot never saw the spread head). Validation: `queue-decided-match.sh`
 plays nwl23s with the rule, 100k pairs vs HastyBot, after the nwl23st
 match; compare with 57.17% +/- 0.18 and spread +1.2/game.
+
+#### Streamed training replaces the frame cache (9/27/26, queued)
+
+The cache only existed for multi-epoch reuse and shuffling; the producer
+streams ~6,000 rows/s against the GPU's ~2,150, so `run-stream.sh` pipes
+PASSES consecutive scans of the gzipped logs into one trainer instead. Each
+scan draws a fresh turn per game, so 6 passes = 6 distinct positions per
+game (~218M row-views, none repeated) at the K=2 cache's step count (106k)
+with no disk; validation is a held-out 5% of games (`-holdout-mod 20`) scanned
+once from nwl23c into `val-stream.bin`, so held-out games never reach
+training. Verified on a 17k-game slice: split 864/16,534 games, two passes
+gave 11,106 and 11,198 rows with 3.4% identical (the same turn drawn
+twice), and a streamed CPU run trained with validation from the file.
+`queue-stream.sh` runs TAG=stream (spatial heads, transpose off, 6 passes)
+after the openings run; compare with nwl23s 57.17% (3 passes over 36M
+cached rows). Producer `-picks K` also exists (9464dc88) but the cache it
+would need (205 GB for K=2) is why streaming won.
