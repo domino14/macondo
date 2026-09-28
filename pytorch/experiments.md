@@ -1634,3 +1634,16 @@ hung. The openings training ran alone on the GPU after 12:52. Fixes: the
 scanner skips header rows inside a stream, the trainer stops loudly on a
 bad frame length and terminates its loader workers on exit, run-stream.sh
 kills the trainer if a producer fails.
+
+#### Openings at full scale, streamed (queued 9/28/26 19:45)
+
+The `open` model trained on 17.9M positions (one per game from 27M
+openings games, eligible from the last sampled ply) for 25k steps, half
+the positions and steps of nwl23s, so its match is handicapped. For a
+single-variable test: `queue-stream-open.sh` generates a second 27M
+openings batch (`open2`, same parameters) on the CPU now, then after the
+`stream` run's match streams all 54M openings games for the same six
+passes / 106k steps as `stream`. `stream` vs `streamopen` then differ
+only in how the games were generated. Deleted the finished, rebuildable
+caches nwl23s-frames.bin (96 GB) and open-frames.bin (51 GB). The run
+ledger is `pytorch/RUNS.md`.
