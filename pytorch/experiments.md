@@ -1570,3 +1570,18 @@ wrong; (2) in decided games (|diff| ~200+) the value head saturates at
 +/-0.999 for every candidate and its ranking is noise (it walked past a
 176-point VORTICES), which costs spread and could be fixed at play time by
 breaking near-saturated ties on the exported spread head.
+
+#### Decided-game ranking rule (9/27/26, queued match)
+
+Checked on the dumped positions: the logit margin (z_win - z_loss) ranks
+them the same as the saturated value, so the net's tail ordering is
+genuinely wrong, not a precision artifact. Its spread head still resolves
+them: ranking by post-move spread + 130*atanh(spread_out) picks the 176-
+and 167-point bingos and the 158-point one in all three dumped positions.
+`ai/bot/mlrank.go` (d1784d92): when the best candidate's |value| >= 0.97,
+the candidates within 0.01 of it are ranked by expected final spread;
+otherwise by value as before. The game's Triton client now requests the
+spread output whenever the model has it (it defaulted to value only, so
+the bot never saw the spread head). Validation: `queue-decided-match.sh`
+plays nwl23s with the rule, 100k pairs vs HastyBot, after the nwl23st
+match; compare with 57.17% +/- 0.18 and spread +1.2/game.
