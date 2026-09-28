@@ -120,12 +120,23 @@ def producer(val_q, train_q, val_size, num_workers):
     val_q.put(None)  # Sentinel for validation queue
 
     # Training data
+    frame_bytes = ROW_FLOATS * 4
     while True:
         try:
             hdr = buf.read(4)
             if not hdr:
                 break
             (n_bytes,) = struct.unpack("<I", hdr)
+            if n_bytes != frame_bytes:
+                # A producer that died mid-frame leaves the stream out of
+                # step; anything after this point would be garbage.
+                print(
+                    f"stream out of sync: frame header says {n_bytes} bytes, expected {frame_bytes}; "
+                    "stopping (did a producer crash?)",
+                    file=sys.stderr,
+                )
+                sys.stderr.flush()
+                os._exit(3)
             payload = buf.read(n_bytes)
             if len(payload) != n_bytes:
                 break
@@ -1014,6 +1025,12 @@ def main():
         csv_fh.close()
         os.unlink(val_file_name)
         sys.stdout.flush()
+        # Take the loader workers down with us: left alive they hold the
+        # stdin pipe open and a streaming producer blocks on it forever.
+        import multiprocessing
+
+        for child in multiprocessing.active_children():
+            child.terminate()
         # Leave without waiting on the loader workers or the stdin producer
         # thread, which may be blocked mid-stream if we stopped early.
         os._exit(exit_code)

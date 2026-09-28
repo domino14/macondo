@@ -81,6 +81,12 @@ func (ts *TurnScanner) Scan() bool {
 		}
 		return false
 	}
+	if rec[0] == "playerID" {
+		// A header row inside the stream: several logs concatenated. The
+		// column layout comes from the first header; extra ones are skipped
+		// (parsing one as a turn panicked the replay on the rack "rack").
+		return ts.Scan()
+	}
 
 	if len(rec) < 12 {
 		ts.err = fmt.Errorf("turn row has %d columns, need 12", len(rec))

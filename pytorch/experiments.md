@@ -1602,3 +1602,35 @@ twice), and a streamed CPU run trained with validation from the file.
 after the openings run; compare with nwl23s 57.17% (3 passes over 36M
 cached rows). Producer `-picks K` also exists (9464dc88) but the cache it
 would need (205 GB for K=2) is why streaming won.
+
+#### Results: transpose, decided-game rule (9/28/26)
+
+Both 100k pairs vs HastyBot, NWL23, both played with the rebuilt shell
+(decided-game rule on):
+
+```
+nwl23st (spatial heads + transpose 0.5): 57.30% +/- 0.18  swept 24.7%  lost 10.2%  spread +9.1/game
+nwl23s  (spatial heads, decided rule):   57.00% +/- 0.18  swept 24.1%  lost 10.3%  spread +8.5/game
+nwl23s  (spatial heads, old bot, 9/27):  57.17% +/- 0.18  swept 24.4%  lost 10.2%  spread +1.2/game
+```
+
+The decided-game rule: win rate unchanged (-0.17 +/- 0.25), spread per
+game +7.3. It does what it was meant to: the dumps in decided games become
+the big plays. Per-batch transposition on top of the producer's game-level
+transpose: +0.30 +/- 0.25 over the same rule, not significant; val_wdl
+0.4992 vs 0.4993. Dropped from the recipe.
+
+#### Streamed run, first attempt failed (9/28/26)
+
+All three queues released together when the nwl23st match ended (the
+decided match had not started yet when the others polled), so the stream
+run, the decided match and the openings scan overlapped. The stream
+trainer then died at 11:45 at the a->b log boundary: the concatenated
+logs carry a header row per file, the producer parsed the second header
+as a turn ("rack" -> blank letters -> index 146 of 27) and panicked
+mid-frame, the trainer read a desynchronized stream and aborted, and its
+orphaned loader workers kept the pipe open so the remaining producers
+hung. The openings training ran alone on the GPU after 12:52. Fixes: the
+scanner skips header rows inside a stream, the trainer stops loudly on a
+bad frame length and terminates its loader workers on exit, run-stream.sh
+kills the trainer if a producer fails.

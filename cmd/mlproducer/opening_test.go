@@ -146,3 +146,12 @@ func TestPicksDifferAcrossScans(t *testing.T) {
 		t.Fatalf("20 scans drew only turns %v", seen)
 	}
 }
+
+func TestTurnScannerSkipsRepeatedHeaders(t *testing.T) {
+	// Concatenated logs carry a header row per file; each is skipped.
+	row := "p1,g1,1,ADEEIOT, 8C IODATE,16,16,6,E,15.884,86,0"
+	turns := scanAll(t, baseHeader+"\n"+row+"\n"+baseHeader+"\n"+row+"\n"+baseHeader+",openingplies\n"+row+",0\n")
+	if len(turns) != 3 {
+		t.Fatalf("got %d turns, want 3: %+v", len(turns), turns)
+	}
+}
