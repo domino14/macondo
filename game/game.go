@@ -207,6 +207,14 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create triton client: %w", err)
 		}
+		// Request the spread head too when the served model has one; the
+		// ML bot ranks decided games on it. Not fatal: the value-only
+		// default still plays.
+		if err := game.tritonClient.DetectOutputs(); err != nil {
+			log.Warn().Err(err).Str("model", modelName).Msg("could not read the model's outputs; requesting value only")
+		} else {
+			log.Info().Str("model", modelName).Strs("outputs", game.tritonClient.Outputs()).Msg("triton outputs requested")
+		}
 	}
 
 	return game, nil

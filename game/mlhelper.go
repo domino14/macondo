@@ -298,8 +298,12 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 	return mo, nil
 }
 
+// MLSpreadScale is the tanh scale of the net's spread input and spread
+// output: NormalizeSpreadForML(x) = tanh(x / MLSpreadScale).
+const MLSpreadScale = 130.0
+
 func NormalizeSpreadForML(spread float32) float32 {
-	return ScaleScoreWithTanh(spread, 0.0, 130.0)
+	return ScaleScoreWithTanh(spread, 0.0, MLSpreadScale)
 }
 
 func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) float32 {

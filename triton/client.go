@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
 
 	grpc_client "github.com/domino14/macondo/triton/grpc-client"
 	"github.com/rs/zerolog/log"
@@ -53,6 +54,31 @@ func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, 
 // multi-head exports.
 func (c *TritonClient) SetOutputs(names []string) {
 	c.outputs = names
+}
+
+// Outputs is the list of output tensors the client requests.
+func (c *TritonClient) Outputs() []string { return c.outputs }
+
+// DetectOutputs asks the server which outputs the served model has and
+// requests "value" plus "spread" when the model exports it (the multi-head
+// nets do; the old CNN does not). The bot's decided-game ranking needs the
+// spread head, so this is called once when the game's client is created.
+func (c *TritonClient) DetectOutputs() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	md, err := (*c.client).ModelMetadata(ctx, &grpc_client.ModelMetadataRequest{
+		Name: c.modelName, Version: c.modelVersion})
+	if err != nil {
+		return err
+	}
+	outputs := []string{"value"}
+	for _, o := range md.Outputs {
+		if o.Name == "spread" {
+			outputs = append(outputs, "spread")
+		}
+	}
+	c.outputs = outputs
+	return nil
 }
 
 // SetDebug enables or disables debug logging

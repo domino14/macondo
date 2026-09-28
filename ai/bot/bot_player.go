@@ -25,7 +25,6 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
-	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -314,24 +313,10 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err
 		}
-		pairs := make([]moveEval, len(moves))
-		for i, m := range moves {
-			pairs[i] = moveEval{
-				move: m,
-				eval: resp.Value[i],
-				idx:  i + 1, // Store original index for reference
-			}
-		}
-		// Sort by evaluation in descending order
-		sort.Slice(pairs, func(i, j int) bool {
-			// If the evaluations are equal, prefer the move with more tiles played
-			// This helps in the endgame.
-			if stats.FuzzyEqual(float64(pairs[i].eval), float64(pairs[j].eval)) {
-				return pairs[i].move.TilesPlayed() > pairs[j].move.TilesPlayed()
-			}
-			return pairs[i].eval > pairs[j].eval
-		})
-		return pairs[0].move, nil
+		// Best value first; in a decided game, the best expected final spread
+		// among the value head's near-ties (see mlrank.go).
+		ranked := rankMLMoves(moves, resp.Value, resp.Spread, p.SpreadFor(p.PlayerOnTurn()), mlDecidedThreshold())
+		return ranked[0], nil
 	} else if p.botType == pb.BotRequest_RANDOM_BOT_WITH_TEMPERATURE {
 
 		// Random bot just picks a random move among top N (not currenetly configurable)
