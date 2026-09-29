@@ -12,7 +12,7 @@ log "waiting for the nwl23st training"
 wait_gone "[t]rain-fresh.sh"
 sleep 240
 log "waiting for the nwl23st match"
-wait_gone "[b]in/shell autoplay"
+wait_gone "[b]in/shell autoplay.*FAST_ML_BOT"
 MODEL=macondo-nn-tf-nwl23s; VER=1; EXP=tf-nwl23s-decided-v-hasty-pairs
 ./triton-models.sh load $MODEL $VER || { log "could not load $MODEL"; exit 1; }
 cd "$REPO"

@@ -8,8 +8,9 @@
 #   TAG (stream), LOGS (nwl23{a,b,c}.txt.gz), VAL_LOG (nwl23c.txt.gz),
 #   PASSES (6), HOLDOUT_MOD (20 = 5% of games held out), ROWS_PER_PASS
 #   (36400365 x 0.95 by default; sets the schedule length), SPATIAL_SHARE
-#   (0.1), TRANSPOSE (0), BATCH (128), ACCUM (16), VAL_SIZE (150000),
-#   SHUFFLE (1024 frames per loader worker), DEVICE (auto|cuda|cpu)
+#   (0.1), TRANSPOSE (0), BATCH x ACCUM (probed: fastest of 128x16, 256x8,
+#   256x8 --compile; set BATCH/ACCUM/COMPILE/GPU_MEM to skip the probe),
+#   VAL_SIZE (150000), SHUFFLE (1024 frames per loader worker), DEVICE
 set -o pipefail
 cd "$(dirname "$0")"
 source venv/bin/activate
@@ -23,6 +24,7 @@ HOLDOUT_MOD=${HOLDOUT_MOD:-20}
 ROWS_PER_PASS=${ROWS_PER_PASS:-34580000}
 SPATIAL_SHARE=${SPATIAL_SHARE:-0.1}
 TRANSPOSE=${TRANSPOSE:-0}
+BATCH_SET=${BATCH:-}${ACCUM:-}
 BATCH=${BATCH:-128}
 ACCUM=${ACCUM:-16}
 VAL_SIZE=${VAL_SIZE:-150000}
@@ -35,7 +37,7 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 # (SMOKE=1: a CPU smoke test; skips the GPU guard and the deploy.)
 SMOKE=${SMOKE:-0}
 if [ "$SMOKE" != 1 ]; then
-    while pgrep -f "[b]in/shell autoplay" >/dev/null; do sleep 60; done
+    while pgrep -f "[b]in/shell autoplay.*FAST_ML_BOT" >/dev/null; do sleep 60; done
     ./triton-models.sh unload-all
 fi
 
@@ -47,8 +49,52 @@ if [ ! -s "$VAL" ]; then
     log "  $(tail -1 "cache-$TAG-val.log")"
 fi
 
+# Speed probe: unless BATCH/ACCUM/COMPILE are given, time a few dozen steps of
+# each candidate on the validation cache and take the fastest that runs.
+# The effective batch is BATCH x ACCUM = 2048 in every candidate, so the
+# choice changes speed and GPU memory only, not the recipe.
+COMPILE=${COMPILE:-}
+GPU_MEM=${GPU_MEM:-}
+if [ -z "$PROBE_DONE" ] && [ "$SMOKE" != 1 ] && [ -z "${BATCH_SET}${COMPILE}${GPU_MEM}" ]; then
+    best_rate=0; best=""
+    for cand in "128 16 0 4096" "256 8 0 5120" "256 8 1 5120"; do
+        set -- $cand; b=$1; a=$2; c=$3; m=$4
+        flag=""; [ "$c" = 1 ] && flag="--compile"
+        log "probe: batch $b x $a${flag:+ $flag} (cap $m MiB)"
+        rm -f probe-$TAG.pt probe-$TAG.csv
+        # 120 steps, reported at 60 and 120: the steady rate is the second
+        # interval's, which excludes start-up and torch.compile time.
+        if python training.py --arch transformer --from-cache "$VAL" --val-size 2048 --val-every 60 \
+             --total-steps 120 --batch-size $b --accum $a $flag --gpu-mem-mib $m \
+             --primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share "$SPATIAL_SHARE" \
+             --ckpt probe-$TAG.pt --csv probe-$TAG.csv > "probe-$TAG-$b-$a-$c.log" 2>&1; then
+            rate=$(python - "probe-$TAG-$b-$a-$c.log" <<'PY'
+import re, sys
+r = [int(x.replace(",", "")) for x in re.findall(r"([0-9,]+) pos/s", open(sys.argv[1]).read())]
+if len(r) >= 2 and r[0] > 0 and r[1] > 0:
+    n = 60 * 2048
+    print(int(n / (2 * n / r[1] - n / r[0])))
+PY
+)
+            peak=$(grep -oE "peak GPU memory: [0-9.]+ GiB" "probe-$TAG-$b-$a-$c.log" | tail -1)
+            log "  ${rate:-?} pos/s, $peak"
+            if [ -n "$rate" ] && [ "$rate" -gt "$best_rate" ]; then best_rate=$rate; best="$b $a $c $m"; fi
+        else
+            log "  failed (exit $?): $(grep -iE "error|abort" "probe-$TAG-$b-$a-$c.log" | tail -1 | cut -c1-120)"
+        fi
+        rm -f probe-$TAG.pt probe-$TAG.csv
+    done
+    if [ -n "$best" ]; then
+        set -- $best; BATCH=$1; ACCUM=$2; [ "$3" = 1 ] && COMPILE=--compile; GPU_MEM=$4
+        log "probe picked batch $BATCH x $ACCUM${COMPILE:+ $COMPILE} at $best_rate pos/s"
+    else
+        log "every probe failed; keeping batch $BATCH x $ACCUM"
+    fi
+fi
+GPU_MEM=${GPU_MEM:-4096}
+
 STEPS=$(python -c "print(max(100, $ROWS_PER_PASS * $PASSES // ($BATCH * $ACCUM) // 1000 * 1000))")
-log "training $TAG: $PASSES passes over $LOGS, ~$ROWS_PER_PASS rows/pass, $STEPS steps"
+log "training $TAG: $PASSES passes over $LOGS, ~$ROWS_PER_PASS rows/pass, $STEPS steps, batch $BATCH x $ACCUM${COMPILE:+ $COMPILE}"
 rm -f best-tf-$TAG*.pt "producer-$TAG.log" "producer-$TAG-passes.log"
 
 # The trainer reads a FIFO; the passes are written into it by a feeder
@@ -58,7 +104,7 @@ rm -f best-tf-$TAG*.pt "producer-$TAG.log" "producer-$TAG-passes.log"
 FIFO=$(mktemp -u "stream-$TAG.XXXX.fifo"); mkfifo "$FIFO"
 python training.py --arch transformer --ckpt "best-tf-$TAG.pt" --csv "loss_tf_$TAG.csv" \
   --primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share "$SPATIAL_SHARE" \
-  --transpose-prob "$TRANSPOSE" --batch-size "$BATCH" --accum "$ACCUM" \
+  --transpose-prob "$TRANSPOSE" --batch-size "$BATCH" --accum "$ACCUM" $COMPILE --gpu-mem-mib "$GPU_MEM" \
   --epochs 1 --val-cache "$VAL" --val-size "$VAL_SIZE" --shuffle-buffer "$SHUFFLE" \
   --total-steps "$STEPS" --snapshot-every 10000 --device "$DEVICE" < "$FIFO" 2>&1 | tee "train-tf-$TAG.log" > /dev/null &
 TRAIN_PIPE=$!

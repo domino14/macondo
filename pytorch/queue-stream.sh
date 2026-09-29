@@ -9,6 +9,6 @@ log "waiting for the openings run"
 wait_gone "[r]un-openings.sh"
 wait_gone "[t]rain-fresh.sh"
 sleep 240
-wait_gone "[b]in/shell autoplay"
+wait_gone "[b]in/shell autoplay.*FAST_ML_BOT"
 log "starting the streamed run"
 ./run-stream.sh

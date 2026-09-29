@@ -10,6 +10,6 @@ wait_gone "[r]un-openings.sh"
 log "waiting for the nwl23st training and match"
 wait_gone "[t]rain-fresh.sh"
 sleep 180
-wait_gone "[b]in/shell autoplay"
+wait_gone "[b]in/shell autoplay.*FAST_ML_BOT"
 log "scanning, training and matching the openings batch"
 GEN=0 ./run-openings.sh

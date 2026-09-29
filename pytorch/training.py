@@ -496,6 +496,12 @@ def parse_args(argv=None):
     )
     p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
     p.add_argument(
+        "--compile",
+        action="store_true",
+        help="torch.compile the model (fuses layernorm/gelu/residual kernels; the "
+        "checkpoint is still the plain module's state_dict)",
+    )
+    p.add_argument(
         "--transpose-prob",
         type=float,
         default=0.0,
@@ -810,13 +816,17 @@ def main():
     # comparable from one validation to the next.
     diag = read_rows(val_file_name, min(args.grad_batch, val_count))
 
-    net = build_model(args.arch, args.hparams).to(device)
+    raw_net = build_model(args.arch, args.hparams).to(device)
     print(
-        f"{args.arch} params: {sum(p.numel() for p in net.parameters()):,}",
+        f"{args.arch} params: {sum(p.numel() for p in raw_net.parameters()):,}",
         file=sys.stderr,
     )
+    # raw_net is the module itself: checkpoints and the per-head gradient
+    # diagnostic use it. net is what the training/validation passes call,
+    # the compiled wrapper when --compile is on (its parameters are shared).
+    net = torch.compile(raw_net) if args.compile else raw_net
     if args.aux_share > 0:
-        gn0 = head_grad_norms(net, *(t.to(device) for t in diag))
+        gn0 = head_grad_norms(raw_net, *(t.to(device) for t in diag))
         args.weights = balance_weights(
             args.weights, gn0, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
         )
@@ -935,7 +945,7 @@ def main():
                             f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
                             file=sys.stderr,
                         )
-                    gn = head_grad_norms(net, *(t.to(device) for t in diag))
+                    gn = head_grad_norms(raw_net, *(t.to(device) for t in diag))
                     if args.aux_share > 0:
                         args.weights = balance_weights(
                             args.weights, gn, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
@@ -970,7 +980,7 @@ def main():
                         torch.save(
                             {
                                 "step": step,
-                                "model": net.state_dict(),
+                                "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,
                                 "weights": args.weights,
@@ -987,7 +997,7 @@ def main():
                         torch.save(
                             {
                                 "step": step,
-                                "model": net.state_dict(),
+                                "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,
                                 "weights": args.weights,

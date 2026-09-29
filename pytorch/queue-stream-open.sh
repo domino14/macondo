@@ -13,6 +13,6 @@ TAG=open2 GEN=1 TRAIN=0 THREADS=8 ./run-openings.sh
 log "open2 done; waiting for the temperature-games streamed run and its match"
 wait_gone "[r]un-stream.sh"
 sleep 240
-wait_gone "[b]in/shell autoplay"
+wait_gone "[b]in/shell autoplay.*FAST_ML_BOT"
 log "starting the openings streamed run"
 TAG=streamopen LOGS="$HOME/data/open.txt.gz $HOME/data/open2.txt.gz" VAL_LOG="$HOME/data/open2.txt.gz" ./run-stream.sh

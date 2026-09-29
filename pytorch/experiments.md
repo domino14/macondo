@@ -1647,3 +1647,39 @@ passes / 106k steps as `stream`. `stream` vs `streamopen` then differ
 only in how the games were generated. Deleted the finished, rebuildable
 caches nwl23s-frames.bin (96 GB) and open-frames.bin (51 GB). The run
 ledger is `pytorch/RUNS.md`.
+
+#### Result: open (sampled openings, cached, 9/28/26 23:15)
+
+`open`: 17.9M positions from 27M sampled-openings games (eligible from the
+last sampled ply), 3 epochs = 25k steps, spatial heads, transpose off:
+
+```
+paired win rate 56.07% +/- 0.18   swept 22.9%  lost 10.9%  spread +7.2/game
+```
+
+About a point below the spatial models on the temperature games (57.0-57.3
+with the same bot), but on half the positions and half the steps, so not
+a verdict on the scheme; `streamopen` (54M openings games, 6 passes,
+106k steps) vs `stream` (54M temperature games, same) is the fair test.
+Its own validation loss is not comparable to nwl23s's: different held-out
+distributions.
+
+The stream run then sat idle from 23:15: its GPU guard waited for any
+`bin/shell autoplay`, and the open2 generation (HastyBot vs HastyBot, CPU
+only) matched it. Guards now wait only for matches (`autoplay.*FAST_ML_BOT`);
+the stalled launcher was killed and run-stream.sh relaunched at 23:50,
+concurrent with the open2 generation (8 threads, no GPU).
+
+#### Speed probe for the next streamed run (9/29/26 08:10)
+
+The 3070 Ti is the bottleneck of the stream run (100% busy, 263 W of 310,
+~1 step/s = 2,100 pos/s; the producer alone does ~6,000 rows/s). Peak GPU
+memory at batch 128 is 3.24 GiB and the old batch-256 runs (heads2) peaked
+at 3.69 GiB, so most of it is not activations; batch 256 x 8 fits now that
+no Triton models sit on the card (the earlier 256 crash was with them
+loaded). Added `--compile` (torch.compile of the model; checkpoints and the
+gradient diagnostic still use the plain module, verified on a CPU smoke)
+and a probe in run-stream.sh: 120 steps of each of 128x16, 256x8, 256x8
+--compile on the validation cache, steady rate from the second 60 steps
+(excludes compile time), fastest wins. Effective batch stays 2048, so the
+recipe is unchanged. First use: streamopen, after the stream match.
