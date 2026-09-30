@@ -37,8 +37,8 @@ The producer replays half of all games transposed.
 | nwl23s + decided rule | 9/28 | same model | bot ranks decided games by expected final spread | | 57.00 ± 0.18 | +8.5 | rule is win-neutral, +7.3 spread; on for every match since |
 | nwl23st | 9/28 | nwl23 (36.4M pos) | + per-batch transpose 0.5 | 53k | 57.30 ± 0.18 | +9.1 | n.s. vs decided-rule nwl23s; dropped |
 | open | 9/28 | open 27M (17.9M pos) | sampled-openings games (clean labels), cache | 25k | 56.07 ± 0.18 | +7.2 | half the positions and steps of nwl23s; not a verdict on the scheme |
-| stream | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 106k | (queued) | | "train longer" on the same games |
-| streamopen | 9/30- | open+open2 54M, streamed | same as stream on openings games | 106k | (queued) | | isolates the opening scheme |
+| **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 ± 0.25 over nwl23s + decided rule (twice the steps, fresh positions) |
+| streamopen | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games | 101k | (training since 9/30 07:15, batch 256x8 --compile) | | isolates the opening scheme; compare with stream 57.55 |
 
 ## Bot changes that affect matches
 

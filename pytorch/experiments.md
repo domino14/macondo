@@ -1683,3 +1683,34 @@ and a probe in run-stream.sh: 120 steps of each of 128x16, 256x8, 256x8
 --compile on the validation cache, steady rate from the second 60 steps
 (excludes compile time), fastest wins. Effective batch stays 2048, so the
 recipe is unchanged. First use: streamopen, after the stream match.
+
+#### Result: stream (streamed, 6 passes, 101k steps, 9/30/26 07:05)
+
+`stream`: the 54M NWL23 temperature games streamed six times with a fresh
+turn per game per pass, no cache, 101k steps (28.0 h at 2,054 pos/s),
+spatial heads, transpose off, decided-game rule in the bot:
+
+```
+paired win rate 57.55% +/- 0.18   swept 24.8%  lost 9.9%  spread +9.3/game
+```
+
+Best held-out WDL loss 0.50033 (step 98,500), still inching down at the end.
+Against the 53k-step cached models under the same bot: nwl23s + decided rule
+57.00 +/- 0.18 (+8.5), nwl23st 57.30 +/- 0.18 (+9.1). So +0.55 +/- 0.25 over
+the like-for-like nwl23s (2.2 SE), +0.4 +/- 0.2 over the two pooled: a small
+real-looking gain from twice the steps on fresh positions, and the best
+model so far. The streamed flow is validated: no cache, no loss.
+
+#### streamopen started (9/30/26 07:15); first use of the speed probe
+
+Held-out scan of open2: 892,650 frames (150k used). Probe on the 3070 Ti,
+steady rate over 60 steps:
+
+```
+batch 128 x 16             2,208 pos/s   peak 3.24 GiB
+batch 256 x 8              2,315 pos/s   peak 3.67 GiB
+batch 256 x 8 --compile    2,765 pos/s   peak 3.59 GiB   <- picked
+```
+
+In the run itself 2,566 pos/s including validations, 1.25x the stream
+run's 2,054: 101k steps in ~22.4 h instead of 28. Pass 1 scanned at 10:56.
