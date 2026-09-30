@@ -1714,3 +1714,40 @@ batch 256 x 8 --compile    2,765 pos/s   peak 3.59 GiB   <- picked
 
 In the run itself 2,566 pos/s including validations, 1.25x the stream
 run's 2,054: 101k steps in ~22.4 h instead of 28. Pass 1 scanned at 10:56.
+
+#### Would 100 candidates help? Rank histogram and a queued match (9/30/26)
+
+FastMlBot ranks HastyBot's top 50 plays. `bin/mlreads -ranks` (new) replays
+a match log and records the static-equity rank of every play the net chose
+with tiles in the bag. Whole `stream` match, 2,066,249 ML turns (10.3 per
+game):
+
+```
+rank 1      62.93%          rank 11-20  2.56%  (0.256% per rank)
+rank 2-5    27.89%          rank 21-30  0.95%  (0.095%)
+rank 6-10    4.77%          rank 31-40  0.53%  (0.053%)
+                            rank 41-50  0.36%  (0.036%; 0.031% at rank 50)
+```
+
+The tail is heavy (per-rank density falls roughly as rank^-1.6 past 20,
+not geometrically), so the cut at 50 does bind: extrapolating, the net
+would pick from ranks 51-100 in ~0.7-1.0% of turns, i.e. about one changed
+move per ten games. If such a move is worth 1-3 points of win probability,
+that is +0.1 to +0.3 in the match: at or under what one 100k-pair match
+resolves (the difference of two matches has SE 0.25).
+
+Cost: the match is GPU-bound (16.5 games/s = 8,500 positions/s through one
+TensorRT instance; HastyBot alone plays 340+ games/s), and at a cap of 100
+the bot sends 99.8 candidates per turn instead of 50.0, so a 100k-pair
+match takes ~6.7 h instead of 3.4. The engine takes batches up to 128, so
+100 still goes in one request.
+
+Code: `MACONDO_ML_TOPN` (default 50) sets the candidate count
+(ai/bot/mlrank.go); requests above 128 are split (game/mlhelper.go).
+Queued: `queue-top100.sh`, after the streamopen match, top 100 on whichever
+of stream/streamopen scored higher at 50.
+
+mlreads also leaked a whole replay per game (40 GB at 40k games: the kernel
+OOM-killed it at 11:41; the training run was not touched). Replays are now
+dropped when a half ends (265 MB flat); run analysis jobs under `ulimit -v`
+while a training is up.

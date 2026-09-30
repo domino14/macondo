@@ -238,8 +238,43 @@ func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []f
 	}
 	log.Debug().Int("num_moves", nmoves).
 		Msg("evaluating moves with Triton")
-	// Ensure the input vectors are of the correct size
-	return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
+	if nmoves <= MLMaxBatch {
+		return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
+	}
+	// More candidates than the engine's largest batch: several requests,
+	// outputs concatenated in order.
+	all := &triton.ModelOutputs{}
+	for _, r := range mlBatchRanges(nmoves, MLMaxBatch) {
+		out, err := g.tritonClient.Infer(planeVectors[r[0]*NN_N_PLANES:r[1]*NN_N_PLANES],
+			scalarVectors[r[0]*NN_N_SCAL:r[1]*NN_N_SCAL], r[1]-r[0])
+		if err != nil {
+			return nil, err
+		}
+		all.Value = append(all.Value, out.Value...)
+		all.Spread = append(all.Spread, out.Spread...)
+		all.Points = append(all.Points, out.Points...)
+		all.BingoProb = append(all.BingoProb, out.BingoProb...)
+		all.OppScore = append(all.OppScore, out.OppScore...)
+	}
+	return all, nil
+}
+
+// MLMaxBatch is the largest batch the served TensorRT engines accept
+// (pytorch/onnx-to-tensorrt.py builds them for batch 1..128).
+const MLMaxBatch = 128
+
+// mlBatchRanges splits n items into consecutive [from, to) ranges of at
+// most max items.
+func mlBatchRanges(n, max int) [][2]int {
+	var out [][2]int
+	for from := 0; from < n; from += max {
+		to := from + max
+		if to > n {
+			to = n
+		}
+		out = append(out, [2]int{from, to})
+	}
+	return out
 }
 
 func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {

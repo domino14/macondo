@@ -293,7 +293,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return p.GenerateMoves(1)[0], nil
 		}
 		// Fast ML bot uses a different method
-		moves := p.GenerateMoves(50)
+		moves := p.GenerateMoves(mlCandidates())
 
 		if len(moves) == 1 {
 			return moves[0], nil

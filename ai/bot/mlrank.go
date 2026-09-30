@@ -27,6 +27,20 @@ const (
 	mlDecidedTieWindow = 0.01
 )
 
+// mlDefaultCandidates is how many of the top static-equity plays the fast ML
+// bot sends to the net. MACONDO_ML_TOPN overrides it, so a match can test a
+// wider candidate list without a rebuild.
+const mlDefaultCandidates = 50
+
+func mlCandidates() int {
+	if v := os.Getenv("MACONDO_ML_TOPN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return mlDefaultCandidates
+}
+
 func mlDecidedThreshold() float32 {
 	if v := os.Getenv("MACONDO_ML_DECIDED_THRESHOLD"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {

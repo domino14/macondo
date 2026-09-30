@@ -66,6 +66,22 @@ type turnRow struct {
 	bag    int // tiles remaining after the ply
 }
 
+// rankStats is where the net's chosen play sat in the static-equity
+// ordering, over every ML move made with tiles in the bag.
+type rankStats struct {
+	Turns int `json:"turns"`
+	// Hist[r] = plays chosen at equity rank r (1 = HastyBot's play);
+	// Hist[0] = the played move was not among the top rankN.
+	Hist []int `json:"hist"`
+	// Candidate counts: how many plays the bot evaluates per turn at a
+	// cap of 50 and of rankN (turns with fewer legal plays send fewer).
+	Cands50 int `json:"cands_at_50"`
+	CandsN  int `json:"cands_at_n"`
+	N       int `json:"n"`
+}
+
+const rankN = 100
+
 type halfResult struct {
 	mlSpread int
 	first    string // nickname of the bot that moved first
@@ -172,8 +188,12 @@ type worker struct {
 	// disagreements of the current half, emitted once the half's move count is known
 	pending map[string][]disagreement
 	mlMoves map[string]int
-	games_  int
-	dump    *dumpSpec
+	// halves finished per game ID; a finished half's replay is dropped at
+	// once (a replay holds a whole game and move generator, ~1 MB).
+	halves map[string]int
+	games_ int
+	dump   *dumpSpec
+	ranks  *rankStats
 }
 
 func (w *worker) feed(t turnRow) error {
@@ -183,10 +203,10 @@ func (w *worker) feed(t turnRow) error {
 		if rp != nil {
 			w.flush(t.game, rp)
 		}
-		half := 0
 		if rp != nil {
-			half = rp.half + 1
+			w.halves[t.game]++
 		}
+		half := w.halves[t.game]
 		other := "p2"
 		if t.player == "p2" {
 			other = "p1"
@@ -218,6 +238,21 @@ func (w *worker) feed(t turnRow) error {
 				return err
 			}
 		}
+		if w.ranks != nil && g.Bag().TilesRemaining() > 0 {
+			rp.ai.MoveGenerator().SetPlayRecorder(movegen.AllPlaysRecorder)
+			cands := rp.ai.GenerateMoves(rankN)
+			rank, desc := 0, m.ShortDescription()
+			for i, c := range cands {
+				if c.ShortDescription() == desc {
+					rank = i + 1
+					break
+				}
+			}
+			w.ranks.Turns++
+			w.ranks.Hist[rank]++
+			w.ranks.Cands50 += min(len(cands), 50)
+			w.ranks.CandsN += len(cands)
+		}
 		if g.Bag().TilesRemaining() > 0 {
 			best := aiturnplayer.GenBestStaticTurn(g, rp.ai, onturn)
 			bestDesc, bestEq := best.ShortDescription(), best.Equity()
@@ -236,6 +271,12 @@ func (w *worker) feed(t turnRow) error {
 		return fmt.Errorf("game %s turn %d: play %q: %w", t.game, t.turn, t.play, err)
 	}
 	rp.hist = append(rp.hist, m)
+	if g.Playing() != pb.PlayState_PLAYING {
+		w.flush(t.game, rp)
+		delete(w.live, t.game)
+		delete(w.mlMoves, t.game)
+		w.halves[t.game]++
+	}
 	return nil
 }
 
@@ -334,6 +375,8 @@ func main() {
 	flag.StringVar(&lexicon, "lexicon", "NWL23", "lexicon")
 	flag.IntVar(&maxGames, "max-games", 0, "stop after this many distinct game IDs (0 = all)")
 	flag.IntVar(&threads, "threads", 4, "replay workers")
+	var ranksPath string
+	flag.StringVar(&ranksPath, "ranks", "", "also write, as JSON, the histogram of the static-equity rank of the ML bot's chosen plays (top 100)")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 
@@ -364,11 +407,16 @@ func main() {
 
 	out := make(chan disagreement, 1024)
 	jobs := make([]chan turnRow, threads)
+	allRanks := make([]*rankStats, threads)
 	var wg sync.WaitGroup
 	for i := range jobs {
 		jobs[i] = make(chan turnRow, 4096)
 		w := &worker{cfg: cfg, lexicon: lexicon, calcs: calcs, mlNick: mlNick, games: games, out: out,
-			live: map[string]*replay{}, pending: map[string][]disagreement{}, mlMoves: map[string]int{}, dump: dump}
+			live: map[string]*replay{}, pending: map[string][]disagreement{}, mlMoves: map[string]int{}, halves: map[string]int{}, dump: dump}
+		if ranksPath != "" {
+			w.ranks = &rankStats{Hist: make([]int, rankN+1), N: rankN}
+			allRanks[i] = w.ranks
+		}
 		wg.Add(1)
 		go func(ch <-chan turnRow) {
 			defer wg.Done()
@@ -438,4 +486,20 @@ func main() {
 		n++
 	}
 	fmt.Fprintf(os.Stderr, "%d disagreements written\n", n)
+	if ranksPath != "" {
+		// The out channel closed after every worker finished.
+		total := &rankStats{Hist: make([]int, rankN+1), N: rankN}
+		for _, r := range allRanks {
+			total.Turns += r.Turns
+			total.Cands50 += r.Cands50
+			total.CandsN += r.CandsN
+			for i, c := range r.Hist {
+				total.Hist[i] += c
+			}
+		}
+		b, _ := json.Marshal(total)
+		if err := os.WriteFile(ranksPath, b, 0o644); err != nil {
+			log.Fatal().Err(err).Msg("ranks")
+		}
+	}
 }

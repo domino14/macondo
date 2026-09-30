@@ -81,3 +81,15 @@ func TestExpectedFinalSpreadUndoesTheNormalization(t *testing.T) {
 	ex := move.NewExchangeMove(nil, nil, alph)
 	is.True(math.Abs(expectedFinalSpread(ex, -50, norm(25))-(-25)) < 0.01)
 }
+
+func TestMLCandidatesFromEnv(t *testing.T) {
+	for _, c := range []struct {
+		env  string
+		want int
+	}{{"", 50}, {"100", 100}, {"1", 1}, {"0", 50}, {"-3", 50}, {"many", 50}} {
+		t.Setenv("MACONDO_ML_TOPN", c.env)
+		if got := mlCandidates(); got != c.want {
+			t.Errorf("MACONDO_ML_TOPN=%q: %d candidates, want %d", c.env, got, c.want)
+		}
+	}
+}
