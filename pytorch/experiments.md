@@ -1785,3 +1785,51 @@ Reproduction notes committed: `pytorch/results/nwl23s-spatial-heads/` and
 
 The top-100 match started 08:44 on streamopen (the higher of the two);
 8.9 games/s against 16.5 at 50 candidates, i.e. 1.86x slower, ~6.3 h.
+
+#### Ising board-shape model: the fit (10/1/26)
+
+First step of the explorer idea (Witteveen & Bauer, arXiv 2605.00813:
+pairwise maximum-entropy model of board occupancy; spins = squares, +1 a
+tile; E = -sum W_ij s_i s_j - sum h_i s_i on connected patterns).
+`pytorch/ising_fit.py` fits it by pseudolikelihood restricted, as in the
+paper, to squares whose flip keeps the tiles connected (an empty square
+next to a tile, or a tile that is not an articulation point). Unlike the
+paper (final boards) the boards are mid-game positions from the held-out
+frame caches, fitted per band of tiles on the board: `temp` = 260k
+positions of the temperature games, `open` = 893k of the sampled-openings
+games; up to 50k boards per band, 10% held out. Parameters in
+`~/data/ising/{temp,open}.npz`, numbers in `summary.json`, log `fit.log`.
+
+Held-out log p per flippable square (temp; open is within 0.01 except the
+first band):
+
+```
+tiles    pairwise  independent      W horiz/vert   W diagonal / anti   W far (|.|)
+ 1-15    -0.195     -0.371          +0.4 / +0.33      -0.18 / -0.14       0.06
+16-30    -0.278     -0.456          +0.47 / +0.45     -0.20 / -0.13       0.07
+31-45    -0.323     -0.493          +0.43 / +0.43     -0.19 / -0.12       0.04
+46-60    -0.359     -0.523          +0.39 / +0.40     -0.17 / -0.10       0.03
+61-75    -0.387     -0.551          +0.35 / +0.37     -0.16 / -0.09       0.02
+76+      -0.412     -0.573          +0.32 / +0.34     -0.15 / -0.09       0.02
+```
+
+The fit is sane and matches the paper's picture: neighbours along a row or
+column attract, diagonal neighbours repel (parallel plays are hard), far
+squares barely interact; the fields rank TW > DW > TL > DL > plain late in
+the game. The train/held-out gap is ~0.01.
+
+The two generation schemes make the same boards. Shape statistics per band
+agree to the third digit from 16 tiles on (words, word length, perimeter
+and frontier per tile, radius of gyration), and each set's model explains
+the other's held-out boards as well as its own to within 0.001-0.003 nats
+per square. Only the first band differs: openings boards are more varied
+(-0.224 vs -0.195 under their own models; 3.27 vs 2.88 words at 9.5 vs 8.8
+tiles), the T=3 sampling of the first plies, and it has washed out by 30
+tiles. That is the shape-space version of the match result (57.65 vs 57.55):
+neither scheme moves the board-shape distribution, so an explorer that does
+is testing something new.
+
+Not done yet: sampling from the fitted model (constrained Metropolis) to
+check that it reproduces means, pair and triplet correlations and the
+shape statistics; an entropy estimate; a human-game comparison. The
+sampler belongs with the Go energy code the explorer bot needs anyway.
