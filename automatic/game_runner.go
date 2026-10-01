@@ -117,6 +117,7 @@ type AutomaticRunnerPlayer struct {
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
+	FixedSimPlies        int
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau pins the softmax temperature for P(play | leave). Leave it
@@ -175,6 +176,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			PEGAdjustmentFile:            pegfile,
 			LeavesFile:                   leavefile,
 			MinSimPlies:                  players[idx].MinSimPlies,
+			FixedSimPlies:                players[idx].FixedSimPlies,
 			SimThreads:                   players[idx].SimThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,
 			InferenceTau:                 players[idx].InferenceTau,

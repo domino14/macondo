@@ -55,6 +55,7 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		LeaveFile:                    p.LeaveFile,
 		PEGFile:                      p.PegFile,
 		MinSimPlies:                  int(p.MinSimPlies),
+		FixedSimPlies:                int(p.FixedSimPlies),
 		SimThreads:                   int(p.SimThreads),
 		StochasticStaticEval:         p.StochasticStaticEval,
 		InferenceTau:                 p.InferenceTau,

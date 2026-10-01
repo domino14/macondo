@@ -487,6 +487,12 @@ message AutoplayPlayerConfig {
   int32 quick_endgame_plies = 13;
   int32 quick_endgame_margin = 14;
   int32 quick_endgame_cap_ms = 15;
+  // fixed_sim_plies, when positive, makes every sim exactly this many plies
+  // deep whenever tiles are left in the bag. Without it a simming bot sims
+  // min_sim_plies in the midgame but `unseen` plies (9..14) once the bag is
+  // down to 2..7 tiles, and a no-endgame bot plays statically with one tile
+  // in the bag. For benchmarks where "N-ply" must mean N plies throughout.
+  int32 fixed_sim_plies = 16;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

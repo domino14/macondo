@@ -295,6 +295,8 @@ func init() {
 			{Name: "pegfile2", Type: OptString},
 			{Name: "minsimplies1", Type: OptInt},
 			{Name: "minsimplies2", Type: OptInt},
+			{Name: "fixedsimplies1", Type: OptInt, Help: "player 1: every sim exactly this many plies, late game included"},
+			{Name: "fixedsimplies2", Type: OptInt, Help: "player 2: every sim exactly this many plies, late game included"},
 			{Name: "numgames", Type: OptInt},
 			{Name: "stochastic1", Type: OptBool, Values: boolValues},
 			{Name: "stochastic2", Type: OptBool, Values: boolValues},

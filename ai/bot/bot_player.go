@@ -32,9 +32,12 @@ import (
 
 type BotConfig struct {
 	config.Config
-	PEGAdjustmentFile    string
-	LeavesFile           string
-	MinSimPlies          int
+	PEGAdjustmentFile string
+	LeavesFile        string
+	MinSimPlies       int
+	// FixedSimPlies, when positive, makes every sim exactly this deep while
+	// tiles are left in the bag (see eliteBestPlay).
+	FixedSimPlies        int
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau overrides the default softmax temperature for inference.
@@ -77,6 +80,7 @@ type BotTurnPlayer struct {
 	simmerCalcs           []equity.EquityCalculator
 	simThreads            int
 	minSimPlies           int
+	fixedSimPlies         int
 	cfg                   *BotConfig
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
@@ -154,6 +158,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
+		btp.fixedSimPlies = conf.FixedSimPlies
 		if conf.SimThreads > 0 {
 			btp.SetSimThreads(conf.SimThreads)
 		}

@@ -1871,3 +1871,22 @@ now says what its interval is, prints the SE, and pools several files.
 Sim benchmark, same day: the 2-ply match was extended from 500 to 1,250
 pairs (a second run of 750, pooled), then 3-ply at 1,250; expected 95%
 interval about +/- 1.6 points (SE 0.8).
+
+#### Sim benchmark restarted with N-ply meaning N plies throughout (10/1/26 12:52)
+
+The stock simming bot sims `unseen` plies (9..14) once the bag is down to
+2..7 tiles, and a no-endgame bot plays statically with one tile in the
+bag, so "2-ply" was 2-ply only in the midgame. New per-player autoplay
+option `fixedSimPlies` (`-fixedsimplies1/2`, proto field 16;
+`simPliesFor` in ai/bot/elite.go): when positive every sim is exactly that
+deep while tiles are in the bag, including the one-tile position for a
+bot without a pre-endgame solver. Empty bag: static play, as before.
+
+Pilot (6 pairs, fixed 2-ply): depth 2 at every stage (114 midgame sims, 8
+with 2-7 tiles in the bag, 2 with one tile; 18 static moves on an empty
+bag); 111 CPU-seconds per game against 146 with the deep late sims.
+
+The earlier variable-depth runs were stopped and moved to
+`~/data/simbench/variable-late/` (the 500-pair 2-ply match had played only
+a few pairs). Running: fixed 2-ply, 1,250 pairs, then fixed 3-ply, 1,250
+pairs (`queue-simbench.sh`).

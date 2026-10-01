@@ -1743,6 +1743,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
 		p.MinSimPlies = int32(v)
 	}
+	if v, err := options.IntDefault("fixedsimplies"+suffix, -1); err == nil && v >= 0 {
+		p.FixedSimPlies = int32(v)
+	}
 	if v, err := options.IntDefault("simthreads"+suffix, -1); err == nil && v >= 0 {
 		p.SimThreads = int32(v)
 	}
