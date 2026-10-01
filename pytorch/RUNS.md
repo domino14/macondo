@@ -40,7 +40,7 @@ The producer replays half of all games transposed.
 | open | 9/28 | open 27M (17.9M pos) | sampled-openings games (clean labels), cache | 25k | 56.07 ± 0.18 | +7.2 | half the positions and steps of nwl23s; not a verdict on the scheme |
 | **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 (SE 0.13, 4 SE) over nwl23s + decided rule (twice the steps, fresh positions) |
 | **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 (SE 0.13) vs stream: the opening scheme makes no measurable difference |
-| streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | (match running since 10/1 08:44, ~6.3 h) | | compare with 57.65; expected gain small (+0.1-0.3) |
+| streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | 57.64 ± 0.18 | +9.0 | no gain over 50 candidates (57.65), at 1.9x the match time; keep 50 |
 
 ## Bot changes that affect matches
 

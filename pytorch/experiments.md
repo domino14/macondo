@@ -1890,3 +1890,14 @@ The earlier variable-depth runs were stopped and moved to
 `~/data/simbench/variable-late/` (the 500-pair 2-ply match had played only
 a few pairs). Running: fixed 2-ply, 1,250 pairs, then fixed 3-ply, 1,250
 pairs (`queue-simbench.sh`).
+
+#### Result: top 100 candidates (10/1/26 15:14)
+
+streamopen ranking HastyBot's top 100 plays instead of 50, 100k pairs:
+
+```
+paired win rate 57.64% +/- 0.18 (95%)   swept 25.1%  lost 9.9%  spread +9.0/game
+```
+
+Against 57.65 / +9.5 at 50 candidates: no gain (-0.01, SE 0.13), in 6.5 h
+instead of 3.4. The cut at 50 costs nothing measurable; keep 50.
