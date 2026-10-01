@@ -38,8 +38,8 @@ The producer replays half of all games transposed.
 | nwl23st | 9/28 | nwl23 (36.4M pos) | + per-batch transpose 0.5 | 53k | 57.30 ± 0.18 | +9.1 | n.s. vs decided-rule nwl23s; dropped |
 | open | 9/28 | open 27M (17.9M pos) | sampled-openings games (clean labels), cache | 25k | 56.07 ± 0.18 | +7.2 | half the positions and steps of nwl23s; not a verdict on the scheme |
 | **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 ± 0.25 over nwl23s + decided rule (twice the steps, fresh positions) |
-| streamopen | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games | 101k | (training since 9/30 07:15, batch 256x8 --compile) | | isolates the opening scheme; compare with stream 57.55 |
-| (stream or streamopen) top 100 | 10/1 | better of the two models | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | (queued, `queue-top100.sh`) | | expected gain small (+0.1-0.3): net picks ranks 41-50 in 0.36% of turns |
+| **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 ± 0.25 vs stream: the opening scheme makes no measurable difference |
+| streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | (match running since 10/1 08:44, ~6.3 h) | | compare with 57.65; expected gain small (+0.1-0.3) |
 
 ## Bot changes that affect matches
 
@@ -54,3 +54,5 @@ The producer replays half of all games transposed.
 - `pytorch/training.py`: trainer (cache mode and stream mode); `run-spatial.sh`, `run-openings.sh`, `run-stream.sh` drivers; `train-fresh.sh` + `watch-tf-heads.sh` deploy and match. `run-stream.sh` probes the fastest of batch 128x16 / 256x8 / 256x8 `--compile` (same effective batch 2048) before training; `probe-<tag>-*.log` keep the timings.
 - `cmd/mlreads` + `pytorch/reads_gallery.py`: where the net departs from equity, adjudicated by the 5-ply sim (`-ranks FILE`: histogram of the equity rank of the net's chosen plays); gallery https://claude.ai/artifact/1dy3cwMCdmcMwdYU2N5mSD.
 - `pytorch/pairs-stats.py`: paired match statistics; `autoanalyze` in the shell prints the same.
+
+Reproduction notes: `pytorch/results/nwl23s-spatial-heads/` (the spatial-heads result) and `pytorch/results/streamed/` (stream, streamopen).

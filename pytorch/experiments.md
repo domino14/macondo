@@ -1751,3 +1751,37 @@ mlreads also leaked a whole replay per game (40 GB at 40k games: the kernel
 OOM-killed it at 11:41; the training run was not touched). Replays are now
 dropped when a half ends (265 MB flat); run analysis jobs under `ulimit -v`
 while a training is up.
+
+#### Result: streamopen (10/1/26 08:42); end of the batch
+
+`streamopen`: 54M sampled-openings games (open + open2), streamed six
+times, batch 256 x 8 with --compile (2,567 pos/s, 22.1 h; the six passes
+gave 34.0M rows each, so the run ended at ~99,600 of 101,000 steps with the
+learning rate at ~0):
+
+```
+paired win rate 57.65% +/- 0.18   swept 25.0%  lost 9.8%  spread +9.5/game
+```
+
+Against `stream` (57.55 +/- 0.18, +9.3) on the temperature games: +0.10 +/-
+0.25. The opening scheme makes no measurable difference at this scale;
+clean labels and noisy-but-diverse games end in the same place. Either set
+of games will do; the openings generation is a little cheaper (HastyBot on
+both sides) and keeps every label clean.
+
+The batch, same bot throughout (top 50, decided-game rule):
+
+```
+nwl23s      cached, 53k steps            57.00 +/- 0.18   +8.5
+nwl23st     + per-batch transpose        57.30 +/- 0.18   +9.1
+open        openings, half data, 25k     56.07 +/- 0.18   +7.2
+stream      streamed, 101k steps         57.55 +/- 0.18   +9.3
+streamopen  openings, streamed, 100k     57.65 +/- 0.18   +9.5
+```
+
+Reproduction notes committed: `pytorch/results/nwl23s-spatial-heads/` and
+`pytorch/results/streamed/`. Archive of stream/streamopen:
+`~/data/results/streamed-stream-streamopen`.
+
+The top-100 match started 08:44 on streamopen (the higher of the two);
+8.9 games/s against 16.5 at 50 candidates, i.e. 1.86x slower, ~6.3 h.
