@@ -2,8 +2,12 @@
 import csv, math, sys
 from collections import defaultdict
 
-path = sys.argv[1]
-rows = list(csv.DictReader(open(path)))
+# Several files pool their pairs (separate runs of the same matchup; game
+# IDs are seeds, so they do not collide). The "+/-" printed is the 95%
+# interval half-width, 1.96 standard errors of the per-pair win share.
+paths = sys.argv[1:]
+path = paths[0] if len(paths) == 1 else "+".join(paths)
+rows = [r for p in paths for r in csv.DictReader(open(p))]
 cols = [c for c in rows[0] if c.endswith("_score")]
 a_col, b_col = cols[0], cols[1]
 pairs = defaultdict(list)
@@ -24,5 +28,6 @@ lost = sum(1 for v in full if sum(v) == 0)
 print(
     f"{path}: games={n} pairs={len(full)} {a_col[:-6]} paired win rate "
     f"{100*m:.2f}% +/- {100*ci:.2f}  swept {100*swept/len(full):.1f}%  "
-    f"lost {100*lost/len(full):.1f}%  spread {spread/n:+.1f}/game"
+    f"lost {100*lost/len(full):.1f}%  spread {spread/n:+.1f}/game  "
+    f"(+/- is the 95% interval; SE {100*sd/math.sqrt(len(ps)):.2f})"
 )

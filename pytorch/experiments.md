@@ -1845,6 +1845,29 @@ sims (required for pairs), outputs in `~/data/simbench`. The bot sims
 streamopen 57.65% +/- 0.18 vs HastyBot. With 500 pairs the standard error
 is about 2.5 points, so this places the sims roughly, not to a point.
 
-Pilot, 2-ply, 20 pairs on 10 game threads: 40 games in ~13 min, about 200
-CPU-seconds per game (~14 s per simmed move), i.e. ~5.5 h for 500 pairs at
-2 plies. Started 12:17 beside the top-100 match (CPU only).
+Pilot, 2-ply, 20 pairs on 10 game threads: 40 games in 14 min 36 s wall,
+97 CPU-minutes, i.e. 146 CPU-seconds per game (~10 s per simmed move, 404
+sims of which 31 were the 9-14-ply late ones); ~4.5 h for 500 pairs at 2
+plies. Started 12:17 beside the top-100 match (CPU only).
+
+#### Correction: the "+/-" on every paired result is a 95% interval, not a standard error (10/1/26)
+
+`pairs-stats.py` prints 1.96 x SE. Entries above (and RUNS.md until today)
+called it the standard error and judged differences against it, which
+understated every significance by a factor of two. A 100k-pair match has
+SE 0.09, the difference of two such matches SE 0.13. Re-read:
+
+```
+stream     - nwl23s (decided rule)   +0.55   4.2 SE   real (was "2.2 SE")
+nwl23st    - nwl23s (decided rule)   +0.30   2.3 SE   p ~ 0.02 (was "not significant, dropped")
+streamopen - stream                  +0.10   0.8 SE   no difference (unchanged)
+decided rule on nwl23s               -0.17   1.3 SE   win-neutral (unchanged)
+```
+
+So per-batch transposition probably does help a little (+0.3), and the
+streamed runs, which had it off, could be rerun with it on. pairs-stats.py
+now says what its interval is, prints the SE, and pools several files.
+
+Sim benchmark, same day: the 2-ply match was extended from 500 to 1,250
+pairs (a second run of 750, pooled), then 3-ply at 1,250; expected 95%
+interval about +/- 1.6 points (SE 0.8).

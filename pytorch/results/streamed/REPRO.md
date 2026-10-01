@@ -11,7 +11,8 @@ FastMlBot ranking HastyBot's top 50 plays, decided-game rule on, no solver:
 Baselines under the same bot: `nwl23s` (cached, 53k steps) 57.00% ± 0.18,
 `nwl23st` 57.30% ± 0.18. So streaming six fresh-turn passes (twice the
 steps) is worth about +0.4 to +0.5, and the two ways of generating games
-are indistinguishable (+0.10 ± 0.25).
+are indistinguishable (+0.10, standard error 0.13). The "±" in the table
+is the 95% interval half-width (1.96 standard errors).
 
 The network, targets and loss are those of `nwl23s`
 (`../nwl23s-spatial-heads/REPRO.md`): transformer d=192 x 8 layers, WDL

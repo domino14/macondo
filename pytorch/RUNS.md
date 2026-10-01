@@ -3,8 +3,9 @@
 One line per model or experiment in the value-net program, newest last.
 The narrative and the numbers' provenance are in `experiments.md`; this is
 the map. Every match is 100,000 game pairs vs HastyBot, NWL23 unless noted,
-FastMlBot ranking HastyBot's top 50 plays by the net; "± " is the paired
-standard error. Spread is FastMlBot's average final spread per game.
+FastMlBot ranking HastyBot's top 50 plays by the net; "± " is the 95%
+interval half-width of the per-pair win share (1.96 standard errors; the
+SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread is FastMlBot's average final spread per game.
 
 ## Data sets (turn logs in `~/data`, gzipped)
 
@@ -35,10 +36,10 @@ The producer replays half of all games transposed.
 | nwl23 | 9/26 | nwl23 54M (36.4M pos) | + quick endgames, NWL23, more games | 53k | 53.13 ± 0.18 | -1.4 | more games: no gain |
 | **nwl23s** | 9/27 | nwl23 (36.4M pos) | **+ four per-square placement heads** (share 0.1) | 53k | **57.17 ± 0.18** (replication 57.13 ± 0.40) | +1.2 | archive `~/data/results/nwl23s-spatial-heads` |
 | nwl23s + decided rule | 9/28 | same model | bot ranks decided games by expected final spread | | 57.00 ± 0.18 | +8.5 | rule is win-neutral, +7.3 spread; on for every match since |
-| nwl23st | 9/28 | nwl23 (36.4M pos) | + per-batch transpose 0.5 | 53k | 57.30 ± 0.18 | +9.1 | n.s. vs decided-rule nwl23s; dropped |
+| nwl23st | 9/28 | nwl23 (36.4M pos) | + per-batch transpose 0.5 | 53k | 57.30 ± 0.18 | +9.1 | +0.30 over decided-rule nwl23s (2.3 SE, p ~ 0.02); dropped at the time as not significant, see the 10/1 correction |
 | open | 9/28 | open 27M (17.9M pos) | sampled-openings games (clean labels), cache | 25k | 56.07 ± 0.18 | +7.2 | half the positions and steps of nwl23s; not a verdict on the scheme |
-| **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 ± 0.25 over nwl23s + decided rule (twice the steps, fresh positions) |
-| **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 ± 0.25 vs stream: the opening scheme makes no measurable difference |
+| **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 (SE 0.13, 4 SE) over nwl23s + decided rule (twice the steps, fresh positions) |
+| **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 (SE 0.13) vs stream: the opening scheme makes no measurable difference |
 | streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | (match running since 10/1 08:44, ~6.3 h) | | compare with 57.65; expected gain small (+0.1-0.3) |
 
 ## Bot changes that affect matches
