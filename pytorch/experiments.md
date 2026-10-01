@@ -1833,3 +1833,18 @@ Not done yet: sampling from the fitted model (constrained Metropolis) to
 check that it reproduces means, pair and triplet correlations and the
 shape statistics; an entropy estimate; a human-game comparison. The
 sampler belongs with the Go energy code the explorer bot needs anyway.
+
+#### Sim benchmark: where does the ML bot stand against Monte Carlo sims? (10/1/26)
+
+`pytorch/queue-simbench.sh`: SIMMING_BOT_NO_EG (100 candidates, Stop99,
+static play once the bag is empty; no pre-endgame or endgame solver) at 2
+and then 3 plies vs HastyBot, NWL23, 500 game pairs each, single-threaded
+sims (required for pairs), outputs in `~/data/simbench`. The bot sims
+`unseen` plies (9..14) when the bag holds 2..7 tiles at every setting;
+`-minsimplies` only sets the depth before that. Reference: FastMlBot
+streamopen 57.65% +/- 0.18 vs HastyBot. With 500 pairs the standard error
+is about 2.5 points, so this places the sims roughly, not to a point.
+
+Pilot, 2-ply, 20 pairs on 10 game threads: 40 games in ~13 min, about 200
+CPU-seconds per game (~14 s per simmed move), i.e. ~5.5 h for 500 pairs at
+2 plies. Started 12:17 beside the top-100 match (CPU only).
