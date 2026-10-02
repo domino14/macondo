@@ -1901,3 +1901,17 @@ paired win rate 57.64% +/- 0.18 (95%)   swept 25.1%  lost 9.9%  spread +9.0/game
 
 Against 57.65 / +9.5 at 50 candidates: no gain (-0.01, SE 0.13), in 6.5 h
 instead of 3.4. The cut at 50 costs nothing measurable; keep 50.
+
+#### Result: fixed 2-ply sim vs HastyBot (10/1/26 20:20)
+
+SIMMING_BOT_NO_EG, fixedSimPlies 2, 1,250 pairs, NWL23:
+
+```
+paired win rate 58.62% +/- 1.61 (95%; SE 0.82)   swept 27.0%  lost 9.7%  spread +9.5/game
+```
+
+FastMlBot (streamopen) against the same opponent: 57.65% +/- 0.18, spread
++9.5. Difference +0.97, SE 0.83 (1.2 SE): the net is level with a 2-ply
+sim of 100 candidates, at a few ms per move against ~8 s. 7.5 h on 10
+threads. Fixed 3-ply started 20:20 on 14 threads (1.6 pairs/min, ~09:20
+Oct 2).
