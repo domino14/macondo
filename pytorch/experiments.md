@@ -1915,3 +1915,13 @@ FastMlBot (streamopen) against the same opponent: 57.65% +/- 0.18, spread
 sim of 100 candidates, at a few ms per move against ~8 s. 7.5 h on 10
 threads. Fixed 3-ply started 20:20 on 14 threads (1.6 pairs/min, ~09:20
 Oct 2).
+
+#### Result: fixed 3-ply sim vs HastyBot (10/2/26 08:31)
+
+```
+paired win rate 60.10% +/- 1.61 (95%; SE 0.82)   swept 28.8%  lost 8.7%  spread +11.1/game
+```
+
+Against HastyBot: ML bot 57.65, 2-ply 58.62, 3-ply 60.10. 3-ply is 2.45
+above the net (SE 0.83, 3 SE). 12.2 h on 14 threads. Head-to-head
+FastMlBot vs fixed 2-ply started 08:33.
