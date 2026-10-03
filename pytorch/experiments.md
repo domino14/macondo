@@ -1925,3 +1925,16 @@ paired win rate 60.10% +/- 1.61 (95%; SE 0.82)   swept 28.8%  lost 8.7%  spread 
 Against HastyBot: ML bot 57.65, 2-ply 58.62, 3-ply 60.10. 3-ply is 2.45
 above the net (SE 0.83, 3 SE). 12.2 h on 14 threads. Head-to-head
 FastMlBot vs fixed 2-ply started 08:33.
+
+#### Result: FastMlBot vs fixed 2-ply sim, head to head (10/2/26 14:51)
+
+streamopen (top 50, decided-game rule) vs SIMMING_BOT_NO_EG fixedSimPlies 2,
+1,250 pairs, NWL23:
+
+```
+FastMlBot paired win rate 49.04% +/- 1.56 (95%; SE 0.80)   swept 14.9%  lost 16.6%  spread -0.8/game
+```
+
+Even (1.2 SE from 50%), consistent with the two being level against
+HastyBot (57.65 vs 58.62). Fixed 4-ply vs HastyBot started 14:52 (~60
+pairs/h on 14 threads, done ~12:00 Oct 3).
