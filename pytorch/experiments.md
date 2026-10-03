@@ -1938,3 +1938,22 @@ FastMlBot paired win rate 49.04% +/- 1.56 (95%; SE 0.80)   swept 14.9%  lost 16.
 Even (1.2 SE from 50%), consistent with the two being level against
 HastyBot (57.65 vs 58.62). Fixed 4-ply vs HastyBot started 14:52 (~60
 pairs/h on 14 threads, done ~12:00 Oct 3).
+
+#### Inference speed: model alone vs in a match (10/2/26)
+
+The served TensorRT engine (streamopen, fp16), timed alone on the idle
+3070 Ti, back-to-back batches, random inputs:
+
+```
+batch  50   3.81 ms   13,123 positions/s
+batch 100   6.98 ms   14,325 positions/s
+batch 128   8.65 ms   14,805 positions/s
+```
+
+In the 100k-pair matches the same engine delivered ~8,500 positions/s end
+to end (~5.8 ms per 50-candidate request, GPU ~80% busy). So ~2 ms per
+request goes to the serving path, not the model: building 50 feature
+vectors on the CPU, sending 77 KB of fp32 per position over gRPC to
+Triton, and the gaps between requests. An earlier note here called the
+match "GPU-bound"; it is serving-bound. A collaborator's Metal port on an
+M5 Max reports ~13,000/s, the same as this engine alone at batch 50.
