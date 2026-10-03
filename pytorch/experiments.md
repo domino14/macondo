@@ -1981,3 +1981,25 @@ a bot's ML evaluation queries its own Triton model, so two nets can play
 each other. Pilot (20 pairs): each model served its own side (430 and 428
 requests). Running: streamopen (57.65% vs Hasty) vs nwl23s (57.17%), 100k
 pairs, `queue-ml-v-ml.sh`, ~11 games/s, done ~13:00.
+
+#### Results: 4-ply sim, and streamopen vs nwl23s head to head (10/3/26)
+
+Fixed 4-ply SIMMING_BOT_NO_EG vs HastyBot, 1,250 pairs:
+
+```
+paired win rate 60.04% +/- 1.58 (95%; SE 0.81)   swept 28.1%  lost 8.2%  spread +10.3/game
+```
+
+Level with 3-ply (60.10): past 3 plies the sim gains nothing measurable
+against HastyBot. The ladder vs HastyBot: ML bot 57.65, 2-ply 58.62,
+3-ply 60.10, 4-ply 60.04.
+
+streamopen vs nwl23s, both FastMlBot (top 50, decided rule), 100k pairs:
+
+```
+streamopen paired win rate 50.56% +/- 0.16 (95%; SE 0.08)   swept 14.6%  lost 13.5%  spread +0.5/game
+```
+
+streamopen is stronger by 0.56 (7 SE), the same gap the two showed
+against HastyBot (57.65 vs 57.17); head to head and via a common opponent
+agree.
