@@ -5,6 +5,54 @@ It has two components:
 - turn_scanner scans a file with turns, one per row. This file can be produced using the macondo `autoplay` command. It is saved by default to `/tmp/autoplay.txt`.
 
 - game_assembler assembles games and does the hard work of actually turning it into features for a model. A more in-depth description below.
+- rollout labels positions by sampled rollouts with the value net at the leaf (see below).
+
+#### Labels
+
+Every emitted frame is `[features | value, spread, wdl, opp_bingo, opp_score |
+opp_next, self_next, opp_win, self_win]`: the five scalar targets (see
+`Target*` in game_assembler.go and `TARGETS` in pytorch/training.py), then
+four 15x15 0/1 planes (`Spatial*`, `SPATIAL` in training.py): the squares the
+opponent's next move covers, the squares the mover's own next move covers,
+and each of those kept only when that player went on to win the game. The
+planes are training-only signal for the net's per-square heads; the bot never
+reads them.
+
+`-labeler table` (default): `value` is the win-percentage table looked up
+with the spread after `NPlies` (5) real plies; `spread` is the spread change
+over those plies. Every position is emitted.
+
+`-labeler rollout -plies K -rollouts N -sample F`: for a fraction F of
+positions, `value` is the mean over N rollouts of K plies of static best
+play (random draws for both sides) scored by the net at the leaf; `spread`
+is the real K-ply change plus the net's predicted change at the leaf. Only
+sampled positions are emitted. Needs Triton (`MACONDO_TRITON_URL`,
+`MACONDO_TRITON_MODEL_NAME`, `MACONDO_TRITON_MODEL_VERSION`) serving a model
+with `value` and `spread` outputs. `-labels-out f.csv` also writes
+`gameID,turn,value,spread` per labeled position.
+
+`-labeler result`: `value` is the mover's real game result (-1/0/1, the
+same signal as `wdl`) and `spread` the spread change to the end of the
+game. No table, no rollouts.
+
+`-per-game [-pick-max 30]`: emit one position per game, its turn drawn
+uniformly from 1..pick-max when the game starts (a game shorter than the
+draw emits nothing). Only that position gets a feature vector, so the scan
+is fast, and with `-labeler rollout` only that position is rolled out.
+This is the sampling to use with a whole-game target, which every position
+of a game would otherwise share.
+
+`-endgame-plies N`: an emitted position whose bag was already empty before
+the move (so both racks are known) is labeled by a quick endgame search
+from the opponent's reply, N plies of negamax with a greedy playout at the
+leaves (`negamax.QuickAndDirtySolve`, the pre-endgame solver's path),
+instead of by how the logged game happened to play out. `value` is the
+sign of the mover's spread change to the end, `spread` that change. A
+position whose move empties the bag keeps its logged-outcome label. About
+0.1 s for a full-rack position at 2 plies, milliseconds after that.
+
+`wdl` (the mover's final result), `opp_bingo` and `opp_score` come from the
+real game in every mode; a game's frames are held until it ends.
 
 #### Responsibilities for game_assembler
 
@@ -86,3 +134,26 @@ The training vector for this position would contain:
 - The last opponent move tiles marked as "just played".
 
 The predictor would be the spread gain after N turns, and maybe the game's final spread.
+
+## Sampled openings
+
+Autoplay's `-openingplies M` samples each game's first K plies (K ~
+round(Exp(M))) from a softmax over static equity (`-openingtemp`, points,
+over the `-openingtopn` best plays; `-openinguniform P` mixes in uniform
+draws over every legal play) and then lets the bots play. The turn log
+gains an `openingplies` column carrying K on every row. With `-per-game`
+the producer draws the emitted turn from K..pick-max instead of 1..pick-max,
+so the first eligible position is the one right after the last sampled
+ply and no outcome label is decided by a sampled move. Logs without the
+column behave as before.
+
+## Several picks, held-out games
+
+`-picks K` (with `-per-game`) draws K distinct turns per game and emits each
+as its own position. A second scan of the same log draws different turns,
+which is what streamed training relies on.
+
+`-holdout-mod M -split train|val` partitions the games by their ID hash:
+the games whose hash is 0 mod M are the `val` side (M=20 holds out 5%),
+the rest the `train` side; the two sides never overlap whatever order the
+logs are scanned in. Without `-holdout-mod` every game is emitted.

@@ -5,7 +5,10 @@ package automatic
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
+	"math/rand"
 	"time"
 
 	"github.com/domino14/word-golib/kwg"
@@ -54,6 +57,43 @@ type GameRunner struct {
 	// does not infer. Keeping the rows the same width is what makes the file a
 	// table rather than two interleaved shapes.
 	logInference bool
+
+	// Random openings (see OpeningConfig). openingPlies is this game's K, drawn
+	// at StartGameWithSeed; openingRng is seeded from the game seed when there
+	// is one, so a replayed or paired game samples the same opening.
+	opening      OpeningConfig
+	openingPlies int
+	openingRng   *rand.Rand
+}
+
+// OpeningConfig makes each game's first K plies sampled instead of played by
+// the bots, K ~ round(Exp(Mean)) per game. A sampled ply is a softmax over
+// static equity (Temperature in points) across the TopN best plays, or with
+// probability UniformProb a uniform draw over every legal play and exchange.
+// Both seats get it, whatever their bot type. The per-turn log carries K on
+// every row of the game (the `openingplies` column), so a training consumer
+// can take the position after the last sampled ply as its first eligible one
+// and know that no sampled move sits in the future of any label.
+//
+// This is the label-clean version of temperature self-play: the randomness
+// creates unusual states, but the play that decides their labels is the
+// bots' own.
+type OpeningConfig struct {
+	Mean        float64
+	Temperature float64
+	TopN        int
+	UniformProb float64
+}
+
+// Enabled reports whether any opening plies are ever sampled.
+func (o OpeningConfig) Enabled() bool { return o.Mean > 0 }
+
+// drawOpeningPlies draws K ~ round(Exp(mean)).
+func drawOpeningPlies(mean float64, rng *rand.Rand) int {
+	if mean <= 0 {
+		return 0
+	}
+	return int(math.Round(rng.ExpFloat64() * mean))
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
@@ -77,6 +117,7 @@ type AutomaticRunnerPlayer struct {
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
+	FixedSimPlies        int
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau pins the softmax temperature for P(play | leave). Leave it
@@ -87,7 +128,13 @@ type AutomaticRunnerPlayer struct {
 	InferenceSimIters            int
 	InferenceMaxEnumeratedLeaves int
 	InferenceBudget              int
-	OracleInference              bool
+	// QuickEndgamePlies > 0: close endgames (|spread| <= QuickEndgameMargin,
+	// 0 = always) are played with a quick N-ply search capped at
+	// QuickEndgameCapMs per move. See AutoplayPlayerConfig.
+	QuickEndgamePlies  int
+	QuickEndgameMargin int
+	QuickEndgameCapMs  int
+	OracleInference    bool
 }
 
 // Init initializes the runner
@@ -129,6 +176,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			PEGAdjustmentFile:            pegfile,
 			LeavesFile:                   leavefile,
 			MinSimPlies:                  players[idx].MinSimPlies,
+			FixedSimPlies:                players[idx].FixedSimPlies,
 			SimThreads:                   players[idx].SimThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,
 			InferenceTau:                 players[idx].InferenceTau,
@@ -136,6 +184,9 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceSimIters:            players[idx].InferenceSimIters,
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
 			InferenceBudget:              players[idx].InferenceBudget,
+			QuickEndgamePlies:            players[idx].QuickEndgamePlies,
+			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
+			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
 			OracleInference:              players[idx].OracleInference,
 		}
 
@@ -185,6 +236,16 @@ func (r *GameRunner) StartGameWithSeed(gidx int, seed [32]byte) {
 	r.game.SetPairedBagMode(r.gamePairs && seed != zeroSeed)
 	if seed != zeroSeed {
 		r.game.SeedBag(seed)
+	}
+	if r.opening.Enabled() {
+		if seed != zeroSeed {
+			// The seed pins the opening too, so a pair's two halves and a
+			// replayed run sample the same opening moves.
+			r.openingRng = rand.New(rand.NewSource(int64(binary.LittleEndian.Uint64(seed[:8]))))
+		} else if r.openingRng == nil {
+			r.openingRng = rand.New(rand.NewSource(rand.Int63()))
+		}
+		r.openingPlies = drawOpeningPlies(r.opening.Mean, r.openingRng)
 	}
 	r.game.StartGame()
 	// Set deterministic game ID if seeded
@@ -253,9 +314,40 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 	return m
 }
 
+// sampleOpeningMove picks this turn's move under the opening config instead
+// of asking the bot: a uniform draw over every legal play (UniformProb), else
+// a softmax over static equity across the TopN best plays.
+func (r *GameRunner) sampleOpeningMove(playerIdx int) *move.Move {
+	ai := r.aiplayers[playerIdx].(*bot.BotTurnPlayer)
+	// HastyBot leaves its generator recording only the top play (with shadow
+	// pruning); sampling needs every play, ranked. HastyBot sets its recorder
+	// again on its next turn, so this need not be undone.
+	ai.MoveGenerator().SetPlayRecorder(movegen.AllPlaysRecorder)
+	if r.opening.UniformProb > 0 && r.openingRng.Float64() < r.opening.UniformProb {
+		all := ai.GenerateMoves(math.MaxInt32)
+		return all[r.openingRng.Intn(len(all))]
+	}
+	topN := r.opening.TopN
+	if topN <= 0 {
+		topN = 50
+	}
+	moves := ai.GenerateMoves(topN) // sorted best first
+	m, err := bot.ChooseMoveWithExplorationRand(moves, r.opening.Temperature, r.openingRng.Float64)
+	if err != nil {
+		log.Err(err).Msg("sampling an opening move; playing the best one")
+		return moves[0]
+	}
+	return m
+}
+
 // PlayBestTurn generates the best move for the player and plays it on the board.
 func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
-	bestPlay := r.genBestMoveForBot(playerIdx)
+	var bestPlay *move.Move
+	if r.game.Turn() < r.openingPlies {
+		bestPlay = r.sampleOpeningMove(playerIdx)
+	} else {
+		bestPlay = r.genBestMoveForBot(playerIdx)
+	}
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 
@@ -288,7 +380,11 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	r.aiplayers[1].AddLastMove(bestPlay)
 
 	if r.logchan != nil {
-		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v%v\n",
+		openingField := ""
+		if r.opening.Enabled() {
+			openingField = fmt.Sprintf(",%d", r.openingPlies)
+		}
+		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v%v%v\n",
 			nickOnTurn,
 			r.game.Uid(),
 			r.game.Turn(),
@@ -301,7 +397,8 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 			bestPlay.Equity(),
 			tilesRemaining,
 			r.game.PointsFor((playerIdx+1)%2),
-			inferFields)
+			inferFields,
+			openingField)
 	}
 	return nil
 }
