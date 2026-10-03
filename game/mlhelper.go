@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -148,10 +149,13 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	if len(moves) == 0 {
 		return nil, nil
 	}
-	allPlaneVectors, allScalarVectors, err := g.MLVectorsForMoves(moves, leaveCalc, lastMoves)
+	allPlaneVectors, allScalarVectors, err := g.mlVectorsInto(g.mlPlanesBuf[:0], g.mlScalarsBuf[:0], moves, leaveCalc, lastMoves)
 	if err != nil {
 		return nil, err
 	}
+	// Keep the (possibly grown) buffers for the next request. The vectors
+	// are consumed before this returns: the inference call is synchronous.
+	g.mlPlanesBuf, g.mlScalarsBuf = allPlaneVectors, allScalarVectors
 	if g.config.GetBool(config.ConfigTritonUseTriton) {
 		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
 	}
@@ -166,14 +170,21 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 // the two must agree; TestInferenceVectorsMatchTraining checks that.
 func (g *Game) MLVectorsForMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
 	lastMoves []*move.Move) (planes, scalars []float32, err error) {
+	return g.mlVectorsInto(nil, nil, moves, leaveCalc, lastMoves)
+}
+
+// mlVectorsInto is MLVectorsForMoves appending to the given buffers (pass
+// them with length 0 to reuse their capacity); it returns the filled slices.
+func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves []*move.Move,
+	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (planes, scalars []float32, err error) {
 
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
 
 	numMoves := len(moves)
-	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
-	allScalarVectors := make([]float32, 0, numMoves*NN_N_SCAL)
+	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*NN_N_PLANES)
+	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*NN_N_SCAL)
 	for _, m := range moves {
 		g.backupState()
 		switch m.Action() {

@@ -89,6 +89,10 @@ type Game struct {
 	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
 
 	tritonClient *triton.TritonClient
+	// Feature buffers reused by MLEvaluateMoves from one request to the next
+	// (about 3.9 MB for 50 candidates). Copy() does not carry them over, so
+	// every copy of a game, e.g. one per sim thread, grows its own.
+	mlPlanesBuf, mlScalarsBuf []float32
 }
 
 func (g *Game) Config() *config.Config {

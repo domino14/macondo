@@ -1957,3 +1957,19 @@ vectors on the CPU, sending 77 KB of fp32 per position over gRPC to
 Triton, and the gaps between requests. An earlier note here called the
 match "GPU-bound"; it is serving-bound. A collaborator's Metal port on an
 M5 Max reports ~13,000/s, the same as this engine alone at batch 50.
+
+#### Serving path: zero-copy request bytes and reused feature buffers (10/2/26)
+
+triton/client.go sends the float slices as bytes without the per-request
+copy (was 1.94 ms and 3.8 MB per 50-candidate request); MLEvaluateMoves
+reuses per-game feature buffers instead of allocating 3.9 MB per request.
+Same seeded 1,500 pairs, old vs new shell: game results byte-identical;
+15.8 vs 16.2 games/s (+2.5%). With 24 game threads instead of 12 also
+16.3 games/s, the game process used 1.6 cores, and the GPU sat at 80-86%:
+the client was never the limit. The ceiling is inside Triton: at 84%
+busy the GPU delivers ~8,300 positions/s, i.e. ~9,900 at 100%, against
+13,100 for the engine alone, so each request costs ~1.2 ms more inside
+Triton (copying 3.8 MB of fp32 input to the card, launches, output copy)
+with one instance doing it serially. Next levers: smaller inputs (bytes
+or packed bits), two instances to overlap copy and compute, dynamic
+batching.

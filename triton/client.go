@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"time"
+	"unsafe"
 
 	grpc_client "github.com/domino14/macondo/triton/grpc-client"
 	"github.com/rs/zerolog/log"
@@ -248,16 +249,14 @@ func analyzeFloatArray(data []float32) map[string]interface{} {
 	}
 }
 
+// float32ToByte views f as its little-endian bytes without copying (the
+// wire format Triton expects; every platform we build for is little-endian).
+// The result aliases f: callers must not change f until the request is sent.
 func float32ToByte(f []float32) []byte {
-	b := make([]byte, 4*len(f))
-	for i, v := range f {
-		u := math.Float32bits(v)
-		b[4*i+0] = byte(u)
-		b[4*i+1] = byte(u >> 8)
-		b[4*i+2] = byte(u >> 16)
-		b[4*i+3] = byte(u >> 24)
+	if len(f) == 0 {
+		return nil
 	}
-	return b
+	return unsafe.Slice((*byte)(unsafe.Pointer(&f[0])), 4*len(f))
 }
 
 func byteToFloat32(b []byte) []float32 {
