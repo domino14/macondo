@@ -44,6 +44,8 @@ def main():
     p.add_argument("--frames", default="calibrate.bin")
     p.add_argument("--n-frames", type=int, default=64)
     p.add_argument("--out", required=True)
+    p.add_argument("--model-name", default=None,
+                   help="name recorded in the manifest (default: macondo-nn-tf-<tag> v1 from best-tf-<tag>.pt)")
     args = p.parse_args()
     os.makedirs(os.path.join(args.out, "parity"), exist_ok=True)
 
@@ -59,7 +61,7 @@ def main():
             tensors.append({"name": name, "shape": list(a.shape), "offset_floats": offset, "count": a.size})
             offset += a.size
     manifest = {
-        "model": "macondo-nn-tf-nwl23s v1",
+        "model": args.model_name or "macondo-nn-tf-%s v1" % os.path.basename(args.ckpt).removeprefix("best-tf-").removesuffix(".pt"),
         "checkpoint": os.path.basename(args.ckpt),
         "checkpoint_step": ckpt.get("step"),
         "arch": arch,
