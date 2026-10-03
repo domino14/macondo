@@ -493,6 +493,10 @@ message AutoplayPlayerConfig {
   // down to 2..7 tiles, and a no-endgame bot plays statically with one tile
   // in the bag. For benchmarks where "N-ply" must mean N plies throughout.
   int32 fixed_sim_plies = 16;
+  // triton_model, when set, makes this player's ML bot query that Triton
+  // model (version 1) instead of the global triton-model-name, so two ML
+  // bots with different nets can play each other. Needs Triton enabled.
+  string triton_model = 17;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

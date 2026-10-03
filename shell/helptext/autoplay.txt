@@ -126,6 +126,8 @@ Available override flags:
     -minsimplies2 N       Override player2 minimum sim plies
     -fixedsimplies1 N     Override player1 fixed sim plies
     -fixedsimplies2 N     Override player2 fixed sim plies
+    -tritonmodel1 NAME    Player 1's ML bot queries this Triton model (v1)
+    -tritonmodel2 NAME    Player 2's ML bot queries this Triton model (v1)
     -simthreads1 N        Override player1 sim threads
     -simthreads2 N        Override player2 sim threads
     -tau1 F               Override player1 inference tau

@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
+	"github.com/domino14/macondo/triton"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -37,7 +38,10 @@ type BotConfig struct {
 	MinSimPlies       int
 	// FixedSimPlies, when positive, makes every sim exactly this deep while
 	// tiles are left in the bag (see eliteBestPlay).
-	FixedSimPlies        int
+	FixedSimPlies int
+	// TritonModel, when set, is the Triton model this bot's ML evaluation
+	// queries (version 1) instead of the game's global one.
+	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau overrides the default softmax temperature for inference.
@@ -81,6 +85,7 @@ type BotTurnPlayer struct {
 	simThreads            int
 	minSimPlies           int
 	fixedSimPlies         int
+	tritonClient          *triton.TritonClient
 	cfg                   *BotConfig
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
@@ -139,6 +144,16 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		AIStaticTurnPlayer: *aip,
 		botType:            botType,
 		cfg:                conf,
+	}
+	if conf.TritonModel != "" {
+		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), conf.TritonModel, "1")
+		if err != nil {
+			return nil, fmt.Errorf("triton client for %s: %w", conf.TritonModel, err)
+		}
+		if err := tc.DetectOutputs(); err != nil {
+			log.Warn().Err(err).Str("model", conf.TritonModel).Msg("could not read the model's outputs; requesting value only")
+		}
+		btp.tritonClient = tc
 	}
 
 	// If it is a simming bot, add more fields.
@@ -313,7 +328,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		if lc == nil {
 			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
 		}
-		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMoves)
+		resp, err := p.MLEvaluateMovesWith(p.tritonClient, moves, lc, p.lastMoves)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err

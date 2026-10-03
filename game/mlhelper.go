@@ -134,6 +134,13 @@ func (g *Game) MLEvaluateMove(m *move.Move, leaveCalc *equity.ExhaustiveLeaveCal
 // Their equities must already be set.
 func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
 	lastMoves []*move.Move) (*triton.ModelOutputs, error) {
+	return g.MLEvaluateMovesWith(nil, moves, leaveCalc, lastMoves)
+}
+
+// MLEvaluateMovesWith is MLEvaluateMoves against the given Triton client
+// (a bot's own model); nil means the game's client.
+func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Move,
+	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (*triton.ModelOutputs, error) {
 
 	if strings.ToLower(g.letterDistribution.Name) != "english" {
 		return nil, fmt.Errorf("machine learning evaluation is only supported for English lexica at this time, got %s", g.letterDistribution.Name)
@@ -157,7 +164,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	// are consumed before this returns: the inference call is synchronous.
 	g.mlPlanesBuf, g.mlScalarsBuf = allPlaneVectors, allScalarVectors
 	if g.config.GetBool(config.ConfigTritonUseTriton) {
-		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
+		return g.mlevaluateMovesTriton(client, len(moves), allPlaneVectors, allScalarVectors)
 	}
 	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
 }
@@ -242,21 +249,23 @@ func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves 
 	return allPlaneVectors, allScalarVectors, nil
 }
 
-func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
-
-	if g.tritonClient == nil {
+func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
+	if client == nil {
+		client = g.tritonClient
+	}
+	if client == nil {
 		return nil, errors.New("triton client is not initialized")
 	}
 	log.Debug().Int("num_moves", nmoves).
 		Msg("evaluating moves with Triton")
 	if nmoves <= MLMaxBatch {
-		return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
+		return client.Infer(planeVectors, scalarVectors, nmoves)
 	}
 	// More candidates than the engine's largest batch: several requests,
 	// outputs concatenated in order.
 	all := &triton.ModelOutputs{}
 	for _, r := range mlBatchRanges(nmoves, MLMaxBatch) {
-		out, err := g.tritonClient.Infer(planeVectors[r[0]*NN_N_PLANES:r[1]*NN_N_PLANES],
+		out, err := client.Infer(planeVectors[r[0]*NN_N_PLANES:r[1]*NN_N_PLANES],
 			scalarVectors[r[0]*NN_N_SCAL:r[1]*NN_N_SCAL], r[1]-r[0])
 		if err != nil {
 			return nil, err

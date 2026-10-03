@@ -1973,3 +1973,11 @@ Triton (copying 3.8 MB of fp32 input to the card, launches, output copy)
 with one instance doing it serially. Next levers: smaller inputs (bytes
 or packed bits), two instances to overlap copy and compute, dynamic
 batching.
+
+#### The two Magpie handoff models head to head (10/3/26 08:02)
+
+New per-player option `tritonModel` (`-tritonmodel1/2`, proto field 17):
+a bot's ML evaluation queries its own Triton model, so two nets can play
+each other. Pilot (20 pairs): each model served its own side (430 and 428
+requests). Running: streamopen (57.65% vs Hasty) vs nwl23s (57.17%), 100k
+pairs, `queue-ml-v-ml.sh`, ~11 games/s, done ~13:00.
