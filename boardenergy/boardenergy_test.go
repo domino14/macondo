@@ -25,9 +25,11 @@ func load(t *testing.T) *Model {
 
 func TestEnergyMatchesPython(t *testing.T) {
 	m := load(t)
+	// fixture.bin is git-ignored like the parameters; both come from
+	// pytorch/ising_export.py --fixture.
 	b, err := os.ReadFile(filepath.Join("testdata", "fixture.bin"))
 	if err != nil {
-		t.Fatal(err)
+		t.Skip("parity fixture not present (run pytorch/ising_export.py --fixture)")
 	}
 	n := int(binary.LittleEndian.Uint32(b))
 	off := 4
