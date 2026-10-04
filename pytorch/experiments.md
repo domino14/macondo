@@ -2003,3 +2003,29 @@ streamopen paired win rate 50.56% +/- 0.16 (95%; SE 0.08)   swept 14.6%  lost 13
 streamopen is stronger by 0.56 (7 SE), the same gap the two showed
 against HastyBot (57.65 vs 57.17); head to head and via a common opponent
 agree.
+
+#### Ising energy as a Bogowin feature (10/4/26)
+
+Collaborator feedback on the explorer: (1) parameters smooth in tiles on
+board instead of independent bands (agreed; they are not monotone, so a
+spline, not a monotone constraint); (2) energy is two-sided, sample both
+tails; (3) test whether energy improves a Bogowin-style win probability.
+
+(3), `pytorch/ising_bogowin.py` + a smooth logistic check, on the held-out
+caches (temp 259k, open 891k positions; board after the move, mover's
+true result). Energy is ranked within boards of the same tile count.
+
+- Energy predicts variance, not the mean: high-energy boards have a
+  flatter spread slope in every bag band, both data sets (e.g. 8-14
+  unseen: 4.84 low-E vs 4.48 high-E per 100 points; 71-93: 1.80 vs 1.65),
+  and less extreme tails (where the table says <15%: low-E 5.4% actual,
+  high-E 6.6%; >85%: 94.5% vs 93.8%). Mean shift by tercile < 0.3 pts.
+- Splitting the table cells by tercile makes held-out log loss worse
+  (+0.0015 / +0.0004): the split costs more estimation noise than the
+  signal is worth. As one smooth slope term in a logistic model it helps,
+  significantly but by little: -0.00008 (SE 0.00004) and -0.00010 (SE
+  0.00002). The effect is strongest near the end of the bag.
+
+So the collaborator's variance hypothesis holds, at about 0.5-1 point of
+win probability in the tails. Worth one slope term in a sim's leaf win%,
+not a table dimension; the net already sees the board.
