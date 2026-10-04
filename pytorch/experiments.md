@@ -2029,3 +2029,25 @@ true result). Energy is ranked within boards of the same tile count.
 So the collaborator's variance hypothesis holds, at about 0.5-1 point of
 win probability in the tails. Worth one slope term in a sim's leaf win%,
 not a table dimension; the net already sees the board.
+
+#### Null test for the energy effect (10/4/26)
+
+Collaborator's check: would random but smooth parameters give the same
+bump? `pytorch/ising_null.py` scores the real energy against 10 controls
+with the fitted values on randomly permuted squares (geometry destroyed)
+and 10 with random Gaussian fields and couplings of the same scale, the
+same in every tile band (smooth). Same ranking within tile count, same
+statistics, same held-out split (`~/data/ising/null.log`):
+
+```
+                      lower-tail gap    upper-tail gap    slope hi/lo - 1    log-loss change
+temp   real           +0.0159           +0.0119           -0.073             -0.000080
+       controls (20)  +0.000 sd 0.005   +0.000 sd 0.004   +0.000 sd 0.013    +0.00002 sd 0.00002
+open   real           +0.0152           +0.0070           -0.069             -0.000103
+       controls (20)  +0.000 sd 0.003   +0.000 sd 0.003   -0.003 sd 0.007    +0.00001 sd 0.00001
+```
+
+All 40 controls are less extreme than the real energy on every statistic;
+the real effect is 3-9 control SDs out. Random parameters add nothing (the
+log-loss change of the five extra terms is ~0 or slightly worse). The
+effect is the fitted board geometry, not extra parameters.
