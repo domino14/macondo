@@ -313,7 +313,13 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return p.GenerateMoves(1)[0], nil
 		}
 		// Fast ML bot uses a different method
-		moves := p.GenerateMoves(mlCandidates())
+		var moves []*move.Move
+		if k := mlEnergyExtra(); k > 0 {
+			all := p.GenerateMoves(math.MaxInt32)
+			moves = withEnergyExtras(all, mlCandidates(), k, p.Board(), loadEnergyModel(p.Config().WGLConfig().DataPath))
+		} else {
+			moves = p.GenerateMoves(mlCandidates())
+		}
 
 		if len(moves) == 1 {
 			return moves[0], nil
