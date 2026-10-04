@@ -128,6 +128,8 @@ Available override flags:
     -fixedsimplies2 N     Override player2 fixed sim plies
     -tritonmodel1 NAME    Player 1's ML bot queries this Triton model (v1)
     -tritonmodel2 NAME    Player 2's ML bot queries this Triton model (v1)
+    -simleafwin1 MODE     Player 1's sim scores line ends with table|base|energy
+    -simleafwin2 MODE     Player 2's sim scores line ends with table|base|energy
     -simthreads1 N        Override player1 sim threads
     -simthreads2 N        Override player2 sim threads
     -tau1 F               Override player1 inference tau

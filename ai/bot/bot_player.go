@@ -41,7 +41,9 @@ type BotConfig struct {
 	FixedSimPlies int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation
 	// queries (version 1) instead of the game's global one.
-	TritonModel          string
+	TritonModel string
+	// SimLeafWin overrides MACONDO_SIM_LEAFWIN for this bot (see simLeafWin).
+	SimLeafWin           string
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau overrides the default softmax temperature for inference.

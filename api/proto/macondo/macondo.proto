@@ -497,6 +497,11 @@ message AutoplayPlayerConfig {
   // model (version 1) instead of the global triton-model-name, so two ML
   // bots with different nets can play each other. Needs Triton enabled.
   string triton_model = 17;
+  // sim_leaf_win sets how this player's sim scores the end of a simulated
+  // line: "" or "table" (the win-percentage table), "base" (logistic model
+  // fitted on our games), "energy" (that model plus board-energy terms).
+  // Overrides MACONDO_SIM_LEAFWIN for this player.
+  string sim_leaf_win = 18;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

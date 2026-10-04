@@ -123,33 +123,42 @@ func withEnergyExtras(all []*move.Move, top, k int, b *board.GameBoard, model *b
 // for that model with the board-energy terms. The file is
 // MACONDO_SIM_LEAFWIN_FILE, else <data>/strategy/default/ising/leafwin-v1.json.
 var (
-	leafWinOnce sync.Once
-	leafWin     *boardenergy.LeafWin
+	leafWinMu    sync.Mutex
+	leafWinCache = map[string]*boardenergy.LeafWin{}
 )
 
-func simLeafWin(dataPath string) *boardenergy.LeafWin {
-	mode := os.Getenv("MACONDO_SIM_LEAFWIN")
+// simLeafWin returns the leaf model for mode ("" means MACONDO_SIM_LEAFWIN),
+// or nil for the table. Loaded once per mode.
+func simLeafWin(mode, dataPath string) *boardenergy.LeafWin {
+	if mode == "" {
+		mode = os.Getenv("MACONDO_SIM_LEAFWIN")
+	}
 	if mode == "" || mode == "table" {
 		return nil
 	}
-	leafWinOnce.Do(func() {
-		path := os.Getenv("MACONDO_SIM_LEAFWIN_FILE")
-		if path == "" {
-			path = filepath.Join(dataPath, "strategy", "default", "ising", "leafwin-v1.json")
+	leafWinMu.Lock()
+	defer leafWinMu.Unlock()
+	if lw, ok := leafWinCache[mode]; ok {
+		return lw
+	}
+	path := os.Getenv("MACONDO_SIM_LEAFWIN_FILE")
+	if path == "" {
+		path = filepath.Join(dataPath, "strategy", "default", "ising", "leafwin-v1.json")
+	}
+	var model *boardenergy.Model
+	if mode == "energy" {
+		if model = loadEnergyModel(dataPath); model == nil {
+			leafWinCache[mode] = nil
+			return nil
 		}
-		var model *boardenergy.Model
-		if mode == "energy" {
-			if model = loadEnergyModel(dataPath); model == nil {
-				return
-			}
-		}
-		lw, err := boardenergy.LoadLeafWin(path, mode == "energy", model)
-		if err != nil {
-			log.Error().Err(err).Str("path", path).Msg("could not load the leaf win model; using the table")
-			return
-		}
-		leafWin = lw
+	}
+	lw, err := boardenergy.LoadLeafWin(path, mode == "energy", model)
+	if err != nil {
+		log.Error().Err(err).Str("path", path).Msg("could not load the leaf win model; using the table")
+		lw = nil
+	} else {
 		log.Info().Str("mode", mode).Str("path", path).Msg("sim leaf win model loaded")
-	})
-	return leafWin
+	}
+	leafWinCache[mode] = lw
+	return lw
 }

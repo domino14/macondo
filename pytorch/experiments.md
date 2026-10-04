@@ -2051,3 +2051,25 @@ All 40 controls are less extreme than the real energy on every statistic;
 the real effect is 3-9 control SDs out. Random parameters add nothing (the
 log-loss change of the five extra terms is ~0 or slightly worse). The
 effect is the fitted board geometry, not extra parameters.
+
+#### Board energy in play: two tests (10/4/26)
+
+Collaborator's next steps: (1) energy in the sim's end-of-line win
+probability; (2) energy-chosen candidates for the net to evaluate (reading
+2: play-time candidates, no retraining).
+
+Code: `boardenergy` (Go Ising model, parity with Python; ΔE of a play;
+LeafWin model fitted by `pytorch/ising_leafwin.py` on our NWL23 games,
+on-turn convention, 8..93 unseen, table outside). Bot switches:
+`MACONDO_ML_ENERGY_EXTRA=k`; `MACONDO_SIM_LEAFWIN` / per player
+`-simleafwin1/2` = table | base | energy (proto field 18).
+
+(2) Pilot 300 pairs, k=10: same speed; the net picked an extra in 7 of
+6,187 moves (0.11%). 100k-pair match running since 18:16
+(`queue-ml-energy.sh`).
+
+(1) Pilot, same 12 seeded pairs, fixed 2-ply sim vs Hasty: a rerun with
+the table replays exactly (0 of 287 decisions differ); fitted model vs
+table changes 13 of 184 decisions; energy vs fitted model 10 of 193 (5%).
+No measurable cost. Queued: 2-ply energy vs 2-ply base head to head, 2,500
+pairs (`queue-leafwin.sh`), after the 5- and 6-ply benchmark.
