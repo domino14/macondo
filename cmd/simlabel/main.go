@@ -21,7 +21,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: simlabel select|sim [flags]   (-h for flags)")
+		fmt.Fprintln(os.Stderr, "usage: simlabel select|sim|check [flags]   (-h for flags)")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -29,8 +29,10 @@ func main() {
 		selectMain(os.Args[2:])
 	case "sim":
 		simMain(os.Args[2:])
+	case "check":
+		checkMain(os.Args[2:])
 	default:
-		fmt.Fprintf(os.Stderr, "unknown mode %q: want select or sim\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown mode %q: want select, sim or check\n", os.Args[1])
 		os.Exit(2)
 	}
 }
