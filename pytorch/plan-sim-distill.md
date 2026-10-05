@@ -62,38 +62,70 @@ equity separates them: the ranking target must fall back on equity there
 
 ### 3. The big run  [you, on the borrowed machine; Claude prepares]
 
-What the machine needs: Linux or macOS, Go 1.26+, git, ~10 GB free disk,
-many cores (no GPU). Nothing else; the positions file and two lexicon files
-are copied over.
+What the machine needs: Linux (or macOS), git, ~5 GB free disk, as many
+cores as possible, no GPU. ~260 MB of memory for 6 simulations at once, so
+memory is not a concern. Before cloning, the branch must be pushed
+(`git push origin claude/transformer-valuenet` on the home machine).
+
+From the home machine, copy over three files (~110 MB in all):
 
 ```
-# once
+scp ~/data/simdistill/positions-train.jsonl.gz BIG:
+scp data/lexica/gaddag/NWL23.kwg data/lexica/gaddag/NWL23.klv2 BIG:
+```
+
+On the big machine:
+
+```
+# Go 1.26 without root, if it is not installed
+mkdir -p ~/sdk && curl -L https://go.dev/dl/go1.26.1.linux-amd64.tar.gz | tar -C ~/sdk -xz
+export PATH=~/sdk/go/bin:$PATH
+
 git clone https://github.com/domino14/macondo && cd macondo
 git checkout claude/transformer-valuenet
 go build -o bin/simlabel ./cmd/simlabel
-mkdir -p data/lexica/gaddag
-# from the home machine:
-#   scp data/lexica/gaddag/NWL23.kwg data/lexica/gaddag/NWL23.klv2 big:macondo/data/lexica/gaddag/
-#   scp positions-train.jsonl.gz big:macondo/
-# run (nohup so it survives logout; restartable)
-nohup bin/simlabel sim -in positions-train.jsonl.gz -out labels.jsonl.gz -threads $(nproc) > simlabel.log 2>&1 &
-tail -f simlabel.log        # progress: positions done, rate, ETA
-# when done, copy labels.jsonl.gz back
+mkdir -p data/lexica/gaddag && mv ~/NWL23.kwg ~/NWL23.klv2 data/lexica/gaddag/
+export MACONDO_DATA_PATH=$PWD/data
+
+# a 2-minute smoke test: label 4 positions
+bin/simlabel sim -in ~/positions-train.jsonl.gz -out smoke.jsonl -threads 4 -limit 4
+
+# the run: detached, restartable (rerun the same line after a crash or
+# reboot; finished positions are skipped)
+nohup bin/simlabel sim -in ~/positions-train.jsonl.gz -out labels.jsonl -threads $(nproc) > simlabel.log 2>&1 &
+tail -f simlabel.log     # every 30 s: positions done, rate per hour, ETA
 ```
 
-Size: set by the pilot's rate. At ~1 CPU-minute per position a 128-core
-machine labels ~180,000 positions a day; target 1M (about 6 days) or
-whatever the machine allows. Several machines: give each a shard
-(`-shard i -shards n`).
+Several machines: the same command with `-shard i -shards n` on each
+(i = 0..n-1); each writes its own labels file.
 
-### 4. Training data  [Claude]
+When done (or whenever you want a partial copy): `gzip -k labels.jsonl` and
+copy `labels.jsonl.gz` home. A fresh clone was tested this way with only the
+git-tracked data and the two lexicon files (10/5).
 
-Converter (in `cmd/mlproducer`): replay each labelled game locally from the
-logs to the position, build the net's input vector for every labelled
-candidate (the same code the bot uses), and stream groups of up to 50
-candidate frames with their sim labels into the trainer.
+Size: the positions file holds ~1.2M positions (4% of the 54M openings
+games). At ~25-90 CPU-seconds each (25 on an idle core; ~90 here beside
+the 6-ply match) a 128-core machine does ~5,000-18,000 an hour: all of it
+in 3-10 days. Stop whenever; any number of labels is usable.
 
-### 5. Fine-tune  [Claude]
+### 4. Training data  [Claude]  (built 10/5)
+
+`simlabel frames -turns <log> -tag <tag> -positions ... -labels ... -out groups.bin`
+replays each labelled game from the logs to the position, builds the net's
+input for every candidate (the bot's own code) and writes one record per
+position: the sim's win, equity, standard error and iterations per
+candidate plus the packed rows. Decided positions (sim win span < 0.5 pt)
+are skipped. ~135 KB per position; 1M positions ~135 GB, so for the full
+run the trainer reads it memory-mapped (or it is built in parts).
+`simlabel check` reports the served net's agreement with the sim.
+
+### 5. Fine-tune  [Claude]  (trainer support built 10/5)
+
+`training.py --init-ckpt best-tf-streamopen.pt --sim-groups groups.bin
+--sim-val-groups groups-val.bin --groups-per-micro 2 --rank-weight 1
+--rank-tau 2` plus the usual streamed data. Smoke-tested on the pilot
+groups (20 steps): held-out agreement and sim win given up are printed at
+every validation and written to `<csv>.rank.csv`.
 
 From best-tf-streamopen.pt, learning rate ~1e-4 to 0 over 10-20k steps;
 half of each batch ordinary streamed positions with all current losses
