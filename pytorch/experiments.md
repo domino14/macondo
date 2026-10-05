@@ -2073,3 +2073,18 @@ the table replays exactly (0 of 287 decisions differ); fitted model vs
 table changes 13 of 184 decisions; energy vs fitted model 10 of 193 (5%).
 No measurable cost. Queued: 2-ply energy vs 2-ply base head to head, 2,500
 pairs (`queue-leafwin.sh`), after the 5- and 6-ply benchmark.
+
+#### Result: energy-chosen extra candidates (10/4/26 22:59)
+
+streamopen, top 50 + 10 lowest-ΔE + 10 highest-ΔE plays from outside the
+top 50, 100k pairs vs HastyBot:
+
+```
+paired win rate 57.44% +/- 0.18 (95%; SE 0.09)   swept 24.8%  lost 10.0%  spread +9.2/game
+```
+
+-0.21 against top 50 alone (57.65; SE of the difference 0.13, 1.6 SE): no
+gain, perhaps a small loss. The extras have no equity floor and lean to
+long plays (ΔE grows with tiles placed); the net took one in ~0.1% of
+moves. A fairer version would draw the extremes from plausible plays only
+(top ~200 or within ~20 points of the best) ranked by ΔE per tile.
