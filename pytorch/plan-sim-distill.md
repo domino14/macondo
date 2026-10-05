@@ -60,6 +60,11 @@ equity separates them: the ranking target must fall back on equity there
 - Decide 5-ply vs 3-ply for the big run (3-ply is ~2.7x cheaper and plays
   ~2.6 points weaker than 5-ply).
 
+Pilot result (558 held-out positions, 531 contested): the net's pick is
+the sim's in 70.8% of positions (static equity: 64.2%) and gives up 0.46
+points of sim win% per move (static equity: 1.11). 54.5 CPU-seconds per
+position beside the 6-ply match.
+
 ### 3. The big run  [you, on the borrowed machine; Claude prepares]
 
 What the machine needs: Linux (or macOS), git, ~5 GB free disk, as many
@@ -103,7 +108,7 @@ When done (or whenever you want a partial copy): `gzip -k labels.jsonl` and
 copy `labels.jsonl.gz` home. A fresh clone was tested this way with only the
 git-tracked data and the two lexicon files (10/5).
 
-Size: the positions file holds ~1.2M positions (4% of the 54M openings
+Size: the positions file holds 1,320,078 positions (4% of the 54M openings
 games). At ~25-90 CPU-seconds each (25 on an idle core; ~90 here beside
 the 6-ply match) a 128-core machine does ~5,000-18,000 an hour: all of it
 in 3-10 days. Stop whenever; any number of labels is usable.

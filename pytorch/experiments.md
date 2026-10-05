@@ -2088,3 +2088,23 @@ gain, perhaps a small loss. The extras have no equity floor and lean to
 long plays (ΔE grows with tiles placed); the net took one in ~0.1% of
 moves. A fairer version would draw the extremes from plausible plays only
 (top ~200 or within ~20 points of the best) ranked by ΔE per tile.
+
+#### Sim distillation: pilot (10/5/26)
+
+Plan and runbook: `pytorch/plan-sim-distill.md`; tools `cmd/simlabel`
+(select, sim, check, frames) and `training.py --init-ckpt --sim-groups`.
+Pilot: 558 held-out positions from the first 20k games of open2, fixed
+5-ply sim of the top 50 (Stop99, no inference): 1 h 21 min on 6 threads
+beside the 6-ply match, 54.5 CPU-seconds per position. 27 decided
+positions (sim win span < 0.5 pt). On the 531 contested ones:
+
+```
+                         pick = sim's pick    sim win% given up per move
+HastyBot (static eq)     64.2%                1.11
+streamopen (the net)     70.8%                0.46
+```
+
+The net is already much closer to the 5-ply sim than static equity is;
+what is left to distill is ~0.46 points of sim win% per move (part of it
+the sim's own noise). Positions for the big run: 1,320,078 training and
+68,932 held out (4% of open + open2), positions-train.jsonl.gz 128 MB.
