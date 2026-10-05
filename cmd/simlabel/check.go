@@ -78,132 +78,52 @@ func checkMain(args []string) {
 		defer outW.Flush()
 	}
 
-	in, err := openMaybeGzip(turnsPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("turn log")
-	}
-	defer in.Close()
-	cr := csv.NewReader(bufio.NewReaderSize(in, 1<<20))
-	cr.FieldsPerRecord = -1
-	cr.TrimLeadingSpace = true
-	hdr, _ := cr.Read()
-	col := map[string]int{}
-	for i, h := range hdr {
-		col[h] = i
-	}
-	type replay struct {
-		tp   *turnplayer.BaseTurnPlayer
-		hist []*move.Move
-		done bool
-	}
-	live := map[string]*replay{}
 	var n, same int
 	var winRegret, eqRegret, rankCorr float64
 	var simTopNetRank []int
-	remaining := len(target)
-	for remaining > 0 {
-		rec, err := cr.Read()
-		if err == io.EOF {
-			break
-		}
+	walkLabelled(cfg, lexicon, tag, turnsPath, target, labels, func(tp *turnplayer.BaseTurnPlayer, onturn int, hist []*move.Move, l *Label) {
+		gm := tp.Game
+		moves, idx := parseCands(tp, onturn, l)
+		resp, err := gm.MLEvaluateMoves(moves, leaves, hist)
 		if err != nil {
-			log.Fatal().Err(err).Msg("turn row")
+			log.Fatal().Err(err).Msg("net (is Triton up and MACONDO_TRITON_* set?)")
 		}
-		if rec[0] == "playerID" {
-			continue
-		}
-		g := rec[col["gameID"]]
-		tt, ok := target[g]
-		if !ok {
-			continue
-		}
-		rp := live[g]
-		if rp == nil {
-			other := "p2"
-			if rec[0] == "p2" {
-				other = "p1"
+		// The net's pick: highest value (ties: as FastMlBot, more tiles).
+		best := 0
+		for i := range moves {
+			if resp.Value[i] > resp.Value[best] || (resp.Value[i] == resp.Value[best] && moves[i].TilesPlayed() > moves[best].TilesPlayed()) {
+				best = i
 			}
-			tp, err := newSelGame(cfg, lexicon, rec[0], other)
-			if err != nil {
-				log.Fatal().Err(err).Msg("game")
-			}
-			rp = &replay{tp: tp}
-			live[g] = rp
 		}
-		if rp.done {
-			continue
+		simBest := l.Cands[0] // sorted by sim win probability
+		pick := l.Cands[idx[best]]
+		n++
+		if idx[best] == 0 {
+			same++
 		}
-		gm := rp.tp.Game
-		onturn := gm.PlayerOnTurn()
-		turn, _ := strconv.Atoi(rec[col["turn"]])
-		if err := gm.SetRackFor(onturn, tilemapping.RackFromString(strings.TrimSpace(rec[col["rack"]]), gm.Alphabet())); err != nil {
-			log.Fatal().Err(err).Msg("rack")
+		winRegret += simBest.Win - pick.Win
+		bestEq := simBest.Eq
+		for _, c := range l.Cands {
+			if c.Win >= simBest.Win-1e-9 && c.Eq > bestEq {
+				bestEq = c.Eq
+			}
 		}
-		if turn == tt {
-			l := labels[fmt.Sprintf("%s:%s:%d", tag, g, turn)]
-			moves := make([]*move.Move, 0, len(l.Cands))
-			idx := make([]int, 0, len(l.Cands))
-			for i, c := range l.Cands {
-				m, err := rp.tp.ParseMove(onturn, false, strings.Fields(stats.Normalize(c.Move)), false)
-				if err != nil {
-					log.Warn().Err(err).Str("move", c.Move).Msg("unparsable candidate; skipped")
-					continue
-				}
-				moves = append(moves, m)
-				idx = append(idx, i)
-			}
-			resp, err := gm.MLEvaluateMoves(moves, leaves, rp.hist)
-			if err != nil {
-				log.Fatal().Err(err).Msg("net (is Triton up and MACONDO_TRITON_* set?)")
-			}
-			// The net's pick: highest value (ties: as FastMlBot, more tiles).
-			best := 0
+		eqRegret += bestEq - pick.Eq
+		if j := sort.SearchInts(idx, 0); j < len(idx) && idx[j] == 0 {
+			r := 1
 			for i := range moves {
-				if resp.Value[i] > resp.Value[best] || (resp.Value[i] == resp.Value[best] && moves[i].TilesPlayed() > moves[best].TilesPlayed()) {
-					best = i
+				if resp.Value[i] > resp.Value[j] {
+					r++
 				}
 			}
-			simBest := l.Cands[0] // sorted by sim win probability
-			pick := l.Cands[idx[best]]
-			n++
-			if idx[best] == 0 {
-				same++
-			}
-			winRegret += simBest.Win - pick.Win
-			bestEq := simBest.Eq
-			for _, c := range l.Cands {
-				if c.Win >= simBest.Win-1e-9 && c.Eq > bestEq {
-					bestEq = c.Eq
-				}
-			}
-			eqRegret += bestEq - pick.Eq
-			// where the sim's best sits in the net's order
-			if j := sort.SearchInts(idx, 0); j < len(idx) && idx[j] == 0 {
-				r := 1
-				for i := range moves {
-					if resp.Value[i] > resp.Value[j] {
-						r++
-					}
-				}
-				simTopNetRank = append(simTopNetRank, r)
-			}
-			rankCorr += spearman(l, idx, resp.Value)
-			if outW != nil {
-				b, _ := json.Marshal(map[string]any{"key": l.Key, "net_value": resp.Value, "cand_index": idx})
-				outW.Write(append(b, '\n'))
-			}
-			rp.done = true
-			remaining--
+			simTopNetRank = append(simTopNetRank, r)
 		}
-		m, err := rp.tp.ParseMove(onturn, false, strings.Fields(stats.Normalize(rec[col["play"]])), false)
-		if err != nil {
-			log.Fatal().Err(err).Msg("parse")
+		rankCorr += spearman(l, idx, resp.Value)
+		if outW != nil {
+			b, _ := json.Marshal(map[string]any{"key": l.Key, "net_value": resp.Value, "cand_index": idx})
+			outW.Write(append(b, '\n'))
 		}
-		if err := gm.PlayMove(m, false, 0); err != nil {
-			log.Fatal().Err(err).Msg("play")
-		}
-		rp.hist = append(rp.hist, m)
-	}
+	})
 	sort.Ints(simTopNetRank)
 	fmt.Printf("positions %d\n", n)
 	fmt.Printf("net's pick = sim's pick     %.1f%%\n", 100*float64(same)/float64(n))
@@ -279,4 +199,99 @@ func ranks(x []float64) []float64 {
 		i = j + 1
 	}
 	return r
+}
+
+// parseCands turns a label's candidate strings back into moves on the
+// position; idx maps each move to its candidate index (unparsable ones are
+// skipped with a warning).
+func parseCands(tp *turnplayer.BaseTurnPlayer, onturn int, l *Label) ([]*move.Move, []int) {
+	moves := make([]*move.Move, 0, len(l.Cands))
+	idx := make([]int, 0, len(l.Cands))
+	for i, c := range l.Cands {
+		m, err := tp.ParseMove(onturn, false, strings.Fields(stats.Normalize(c.Move)), false)
+		if err != nil {
+			log.Warn().Err(err).Str("move", c.Move).Msg("unparsable candidate; skipped")
+			continue
+		}
+		moves = append(moves, m)
+		idx = append(idx, i)
+	}
+	return moves, idx
+}
+
+// walkLabelled replays the turn log's games that have a labelled position
+// and calls visit at each one, with the game set to the position (the
+// mover's rack on, the move history so far).
+func walkLabelled(cfg *config.Config, lexicon, tag, turnsPath string, target map[string]int, labels map[string]*Label,
+	visit func(tp *turnplayer.BaseTurnPlayer, onturn int, hist []*move.Move, l *Label)) {
+	in, err := openMaybeGzip(turnsPath)
+	if err != nil {
+		log.Fatal().Err(err).Msg("turn log")
+	}
+	defer in.Close()
+	cr := csv.NewReader(bufio.NewReaderSize(in, 1<<20))
+	cr.FieldsPerRecord = -1
+	cr.TrimLeadingSpace = true
+	hdr, _ := cr.Read()
+	col := map[string]int{}
+	for i, h := range hdr {
+		col[h] = i
+	}
+	type replay struct {
+		tp   *turnplayer.BaseTurnPlayer
+		hist []*move.Move
+	}
+	live := map[string]*replay{}
+	remaining := len(target)
+	for remaining > 0 {
+		rec, err := cr.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal().Err(err).Msg("turn row")
+		}
+		if rec[0] == "playerID" {
+			continue
+		}
+		g := rec[col["gameID"]]
+		tt, ok := target[g]
+		if !ok {
+			continue
+		}
+		rp := live[g]
+		if rp == nil {
+			other := "p2"
+			if rec[0] == "p2" {
+				other = "p1"
+			}
+			tp, err := newSelGame(cfg, lexicon, rec[0], other)
+			if err != nil {
+				log.Fatal().Err(err).Msg("game")
+			}
+			rp = &replay{tp: tp}
+			live[g] = rp
+		}
+		gm := rp.tp.Game
+		onturn := gm.PlayerOnTurn()
+		turn, _ := strconv.Atoi(rec[col["turn"]])
+		if err := gm.SetRackFor(onturn, tilemapping.RackFromString(strings.TrimSpace(rec[col["rack"]]), gm.Alphabet())); err != nil {
+			log.Fatal().Err(err).Msg("rack")
+		}
+		if turn == tt {
+			visit(rp.tp, onturn, rp.hist, labels[fmt.Sprintf("%s:%s:%d", tag, g, turn)])
+			delete(live, g)
+			delete(target, g)
+			remaining--
+			continue
+		}
+		m, err := rp.tp.ParseMove(onturn, false, strings.Fields(stats.Normalize(rec[col["play"]])), false)
+		if err != nil {
+			log.Fatal().Err(err).Msg("parse")
+		}
+		if err := gm.PlayMove(m, false, 0); err != nil {
+			log.Fatal().Err(err).Msg("play")
+		}
+		rp.hist = append(rp.hist, m)
+	}
 }
