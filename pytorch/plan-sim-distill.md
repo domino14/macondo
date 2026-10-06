@@ -113,6 +113,15 @@ games). At ~25-90 CPU-seconds each (25 on an idle core; ~90 here beside
 the 6-ply match) a 128-core machine does ~5,000-18,000 an hour: all of it
 in 3-10 days. Stop whenever; any number of labels is usable.
 
+Running since 2026-10-06 00:03 on deb192 (dual EPYC 7K62, 96 cores / 192
+threads, 503 GB): `~/macondo/simdistill/` holds the positions, `labels.jsonl`,
+`simlabel.log`, `run.sh` (supervisor: restarts the labeller if it dies; after
+a reboot run `setsid -f ~/macondo/simdistill/run.sh > /dev/null 2>&1 < /dev/null`)
+and `status.sh` (progress). Go 1.26.1 in ~/sdk/go; NWL23.kwg was downloaded by
+the shell (different node order from ours, the same 212,868 words; klv2
+identical). 192 threads: ~67 s per position per thread, ~9,400-10,300
+positions an hour, ~5.5 days for all 1.32M.
+
 ### 4. Training data  [Claude]  (built 10/5)
 
 `simlabel frames -turns <log> -tag <tag> -positions ... -labels ... -out groups.bin`
