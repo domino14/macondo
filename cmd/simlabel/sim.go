@@ -81,6 +81,18 @@ func simMain(args []string) {
 		log.Fatal().Err(err).Msg("labels")
 	}
 	defer out.Close()
+	// A crash can leave a partial last line; end it so the next label starts
+	// on a line of its own (readers skip the broken line, and its position is
+	// labelled again since its key was not read above).
+	if st, err := out.Stat(); err == nil && st.Size() > 0 {
+		if f, err := os.Open(outPath); err == nil {
+			b := make([]byte, 1)
+			if _, err := f.ReadAt(b, st.Size()-1); err == nil && b[0] != '\n' {
+				out.Write([]byte{'\n'})
+			}
+			f.Close()
+		}
+	}
 	fmt.Fprintf(os.Stderr, "%d positions in %s; shard %d/%d; %d already labelled; %d to do; %d-ply, top %d, %d at once\n",
 		n, inPath, shard, shards, len(done), len(todo), plies, cands, threads)
 
