@@ -2108,3 +2108,15 @@ The net is already much closer to the 5-ply sim than static equity is;
 what is left to distill is ~0.46 points of sim win% per move (part of it
 the sim's own noise). Positions for the big run: 1,320,078 training and
 68,932 held out (4% of open + open2), positions-train.jsonl.gz 128 MB.
+
+#### Result: fixed 6-ply sim vs HastyBot (10/6/26 21:47)
+
+```
+paired win rate 62.32% +/- 1.62 (95%; SE 0.83)   swept 32.3%  lost 7.8%  spread +11.1/game
+```
+
+The ladder vs HastyBot (1,250 pairs each, no endgame solver, N plies all
+game): 2-ply 58.62, 3-ply 60.10, 4-ply 60.04, 5-ply 62.80, 6-ply 62.32;
+FastMlBot (streamopen) 57.65 at a few ms a move. Gains come at 2->3 and
+4->5; 6 adds nothing over 5. The 2-ply energy vs base head to head
+started 21:48 (~80 pairs/h, ~31 h).
