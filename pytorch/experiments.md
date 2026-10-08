@@ -2120,3 +2120,20 @@ game): 2-ply 58.62, 3-ply 60.10, 4-ply 60.04, 5-ply 62.80, 6-ply 62.32;
 FastMlBot (streamopen) 57.65 at a few ms a move. Gains come at 2->3 and
 4->5; 6 adds nothing over 5. The 2-ply energy vs base head to head
 started 21:48 (~80 pairs/h, ~31 h).
+
+#### Result: board energy at the end of sim lines (10/7/26 23:42)
+
+Fixed 2-ply SIMMING_BOT_NO_EG scoring line ends with the fitted logistic
+model plus the energy terms (player 1) vs the same model without them,
+2,500 pairs, NWL23:
+
+```
+energy side: paired win rate 49.85% +/- 0.88 (95%; SE 0.45)   swept 9.8%  lost 10.1%  spread -0.7/game
+```
+
+No effect: |difference| < ~0.9 points at 95%. The two bots chose
+differently somewhere in 1,895 of the 2,500 pairs (76%), so it was not for
+lack of different decisions: the energy terms move the sim's choices but
+not the results. The calibration gain at the tails is real (null test) but
+too small to change play. Closes (1) of the collaborator's list; (2),
+energy-chosen candidates for the net, was also flat (57.44 vs 57.65).
