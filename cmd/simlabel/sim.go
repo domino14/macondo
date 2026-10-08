@@ -36,6 +36,8 @@ func simMain(args []string) {
 	fs.IntVar(&shard, "shard", 0, "this machine's shard, 0..shards-1")
 	fs.IntVar(&shards, "shards", 1, "number of machines splitting the positions")
 	fs.IntVar(&limit, "limit", 0, "stop after this many new positions (0 = all)")
+	var ramp time.Duration
+	fs.DurationVar(&ramp, "ramp", 0, "start the workers this far apart instead of all at once (e.g. 250ms), so the machine's load rises gradually")
 	fs.Parse(args)
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	cfg := config.DefaultConfig()
@@ -122,6 +124,9 @@ func simMain(args []string) {
 	work := make(chan Position)
 	var wg sync.WaitGroup
 	for w := 0; w < threads; w++ {
+		if ramp > 0 && w > 0 {
+			time.Sleep(ramp)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
