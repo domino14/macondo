@@ -174,3 +174,13 @@ micro-batch = 32 groups per step, ~320k groups seen; LR 1e-4, warmup 500;
 play 100k pairs vs HastyBot. Ranking target now widens each candidate's
 temperature by its standard error (tau_i = sqrt(tau^2 + (100 SE_i)^2) on the
 gap to the sim's best). Batch 256 x 8 with groups runs out of GPU memory.
+
+## To try next (when the full labels are in, ~10/13)
+
+Tries 1 and 2 lowered the listwise ranking loss (also on held-out
+positions) without raising top-pick agreement: most of a 50-candidate
+ordering is among plays nobody would choose. Try a loss that only scores
+the top of the list, e.g. cross-entropy on the sim's top k (k ~ 3-5)
+candidates only, or a pairwise loss on the sim's best vs each of the
+others, weighted by how clearly the sim separated them (gap / SE), so
+coin-flip pairs (43% of positions have top two within 2 SE) count little.
