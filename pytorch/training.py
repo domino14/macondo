@@ -168,11 +168,20 @@ def rank_grad_norm(net, groups, idx, device, tau):
     trunk = [p for n, p in net.named_parameters() if not n.startswith("heads")]
     was = net.training
     net.eval()
-    board, scal, spans, wins = groups.batch(idx, device)
-    loss, _, _ = rank_loss(net(board, scal), spans, wins, tau)
-    g = torch.autograd.grad(loss, trunk, allow_unused=True)
+    # Two groups at a time (16 groups of 50 candidates at once do not fit on
+    # an 8 GB card); the mean of the chunks' gradients is the full gradient.
+    total = [torch.zeros_like(p) for p in trunk]
+    chunks = [idx[i : i + 2] for i in range(0, len(idx), 2)]
+    for c in chunks:
+        board, scal, spans, wins = groups.batch(c, device)
+        loss, _, _ = rank_loss(net(board, scal), spans, wins, tau)
+        g = torch.autograd.grad(loss, trunk, allow_unused=True)
+        for t, x in zip(total, g):
+            if x is not None:
+                t += x.float() * len(c) / len(idx)
+        del board, scal, loss, g
     net.train(was)
-    return float(torch.sqrt(sum((x.float() ** 2).sum() for x in g if x is not None)))
+    return float(torch.sqrt(sum((t**2).sum() for t in total)))
 
 
 @torch.no_grad()

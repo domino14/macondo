@@ -2177,3 +2177,17 @@ Try 2 (`queue-simft2.sh`, after the simft match): the same 485k groups,
 `--rank-share 1` (new: the ranking weight is set so its trunk gradient
 equals the WDL head's, re-measured every 500 steps; about 0.025 at tau 1)
 and `--rank-tau 1` (sharper target). Deploys as macondo-nn-tf-simft2.
+
+#### Result: simft (try 1) vs HastyBot (10/9/26 11:19)
+
+```
+FastMlBot(simft): paired win rate 57.48% +/- 0.18 (95%; SE 0.09)   swept 24.8%  lost 10.0%  spread +8.8/game
+```
+
+streamopen 57.65: -0.17, 1.3 SE of the difference; no gain (if anything
+slightly worse), as the flat held-out agreement predicted.
+
+Try 2 first launch (11:19) died at step 0: the rank-gradient measurement
+on 16 groups at once ran out of GPU memory, and the trainer hung instead of
+exiting, so run-stream.sh waited 5.5 h. Now measured 2 groups at a time
+(rank weight ~0.014-0.018 at tau 1); relaunched 17:05.
