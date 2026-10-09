@@ -2137,3 +2137,25 @@ lack of different decisions: the energy terms move the sim's choices but
 not the results. The calibration gain at the tails is real (null test) but
 too small to change play. Closes (1) of the collaborator's list; (2),
 energy-chosen candidates for the net, was also flat (57.44 vs 57.65).
+
+#### Result: base (NWL23-fitted line-end model) vs table, 2-ply sim (10/9/26 02:41)
+
+```
+base side: paired win rate 50.79% +/- 0.84 (95%; SE 0.43)   swept 9.9%  lost 8.3%  spread +0.9/game
+```
+
++0.79 for the refit, 1.8 SE (p ~ 0.07): suggestive, not conclusive.
+
+#### Early sim-distillation fine-tune (simft, 10/9/26)
+
+506,399 labels copied from deb192 at 02:43 (all from the `open` half, which
+deb192 labels first); 485,217 contested groups (21,179 decided skipped),
+64 GB; held out: the 531 contested pilot groups. Fine-tune of streamopen,
+10,000 steps, 128 x 16, 2 groups per micro-batch (320k groups seen), LR
+1e-4, warmup 500, SE-aware teacher (tau 2): 4 h 51 min (1,182 pos/s).
+
+Held-out ranking barely moved: net pick = sim pick 67.6% at step 0 ->
+69.1% at the end (+/- ~2 on 531 positions), sim win given up 0.51 -> 0.56
+pts; ranking loss 2.894 -> 2.773. On training groups agreement went 67-69%
+-> 69-70%. The net hardly learned the sim's ordering at this weight and
+length. Val WDL 0.4921 -> 0.4906 (more training on streamopen's data).
