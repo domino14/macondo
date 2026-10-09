@@ -2159,3 +2159,21 @@ Held-out ranking barely moved: net pick = sim pick 67.6% at step 0 ->
 pts; ranking loss 2.894 -> 2.773. On training groups agreement went 67-69%
 -> 69-70%. The net hardly learned the sim's ordering at this weight and
 length. Val WDL 0.4921 -> 0.4906 (more training on streamopen's data).
+
+#### Why simft barely moved, and try 2 (10/9/26)
+
+Gradient check (CPU, 1,024 positions and 64 groups): the ranking loss's
+trunk gradient was ~40x the WDL loss's at tau 2 (120x at tau 1), so it was
+not too weak; with grad clip 1.0 the steps were mostly ranking, scaled
+down. On the 531 held-out groups the ranking cross-entropy splits into the
+target's own entropy (2.606, irreducible) plus KL: KL fell 0.282 -> 0.157,
+so the net did move toward the sim's distribution, but at tau 2 that
+distribution is diffuse and matching it flattened the net (its probability
+on the sim's best fell 32.8% -> 28.1%) instead of sharpening its top pick.
+Label noise caps top-1 agreement too: the sim's best and runner-up are
+within 1 SE in 25% of positions and within 2 SE in 43%.
+
+Try 2 (`queue-simft2.sh`, after the simft match): the same 485k groups,
+`--rank-share 1` (new: the ranking weight is set so its trunk gradient
+equals the WDL head's, re-measured every 500 steps; about 0.025 at tau 1)
+and `--rank-tau 1` (sharper target). Deploys as macondo-nn-tf-simft2.

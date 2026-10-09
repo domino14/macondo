@@ -163,6 +163,18 @@ def rank_loss(pred, spans, wins, tau):
     return torch.stack(losses).mean(), float(np.mean(agree)), float(np.mean(regret))
 
 
+def rank_grad_norm(net, groups, idx, device, tau):
+    """L2 norm of d(ranking loss)/d(trunk params) on the given groups, fp32."""
+    trunk = [p for n, p in net.named_parameters() if not n.startswith("heads")]
+    was = net.training
+    net.eval()
+    board, scal, spans, wins = groups.batch(idx, device)
+    loss, _, _ = rank_loss(net(board, scal), spans, wins, tau)
+    g = torch.autograd.grad(loss, trunk, allow_unused=True)
+    net.train(was)
+    return float(torch.sqrt(sum((x.float() ** 2).sum() for x in g if x is not None)))
+
+
 @torch.no_grad()
 def validate_groups(net, groups, device, tau, amp_dtype, chunk=8):
     net.eval()
@@ -592,6 +604,13 @@ def parse_args(argv=None):
     p.add_argument("--groups-per-micro", type=int, default=2, help="sim groups added to each micro-batch")
     p.add_argument("--rank-weight", type=float, default=1.0, help="weight of the ranking loss")
     p.add_argument(
+        "--rank-share",
+        type=float,
+        default=0.0,
+        help="if > 0, set the ranking loss weight so its trunk gradient is this multiple of the WDL head's, "
+        "re-measured at every validation (overrides --rank-weight)",
+    )
+    p.add_argument(
         "--rank-tau",
         type=float,
         default=2.0,
@@ -937,6 +956,14 @@ def main():
         print(f"sim groups: {len(sim_groups):,} for training"
               + (f", {len(sim_val):,} held out" if sim_val else ""), file=sys.stderr)
     rank_rng = np.random.default_rng(1)
+    rank_diag = list(np.random.default_rng(7).integers(0, len(sim_groups), 16)) if sim_groups else None
+
+    def balance_rank(gn_wdl):
+        if not (sim_groups and args.rank_share > 0):
+            return
+        g = rank_grad_norm(raw_net, sim_groups, rank_diag, device, args.rank_tau)
+        args.rank_weight = args.rank_share * gn_wdl * args.weights["wdl"] / max(g, 1e-9)
+        print(f"         rank weight {args.rank_weight:.4g} (trunk grad: rank {g:.4g}, wdl {gn_wdl:.4g})", file=sys.stderr)
     rank_run = {"loss": 0.0, "agree": 0.0, "regret": 0.0, "n": 0}
     rank_csv = None
     if sim_groups or sim_val:
@@ -951,6 +978,8 @@ def main():
     # diagnostic use it. net is what the training/validation passes call,
     # the compiled wrapper when --compile is on (its parameters are shared).
     net = torch.compile(raw_net) if args.compile else raw_net
+    if sim_groups and args.rank_share > 0:
+        balance_rank(head_grad_norms(raw_net, *(t.to(device) for t in diag))["wdl"])
     if args.aux_share > 0:
         gn0 = head_grad_norms(raw_net, *(t.to(device) for t in diag))
         args.weights = balance_weights(
@@ -1079,6 +1108,7 @@ def main():
                             file=sys.stderr,
                         )
                     gn = head_grad_norms(raw_net, *(t.to(device) for t in diag))
+                    balance_rank(gn["wdl"])
                     if args.aux_share > 0:
                         args.weights = balance_weights(
                             args.weights, gn, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
