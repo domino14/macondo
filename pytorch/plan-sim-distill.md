@@ -163,3 +163,14 @@ by its iterations. Trainer changes: group batches, ranking loss, mixing.
   loss within a position mostly cancels it.
 - Volume: one labelled position is closer to one rich example than to 50
   independent ones; this can refine streamopen, not replace its 54M games.
+
+## Early test (queued 10/9 00:45)
+
+`pytorch/queue-simft.sh`: after the base-vs-table sim match, copy deb192's
+labels so far (~490k), build groups (open + open2; held out: the pilot's
+558), fine-tune streamopen 10,000 steps (batch 128 x 16, 2 groups per
+micro-batch = 32 groups per step, ~320k groups seen; LR 1e-4, warmup 500;
+~2 s per step, ~5.5 h), deploy the final weights as macondo-nn-tf-simft and
+play 100k pairs vs HastyBot. Ranking target now widens each candidate's
+temperature by its standard error (tau_i = sqrt(tau^2 + (100 SE_i)^2) on the
+gap to the sim's best). Batch 256 x 8 with groups runs out of GPU memory.

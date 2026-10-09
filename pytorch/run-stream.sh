@@ -41,7 +41,7 @@ if [ "$SMOKE" != 1 ]; then
     ./triton-models.sh unload-all
 fi
 
-VAL=val-$TAG.bin
+VAL=${VAL:-val-$TAG.bin}
 if [ ! -s "$VAL" ]; then
     log "scanning the held-out games of $VAL_LOG into $VAL"
     zcat "$VAL_LOG" | $PRODUCER -split val 2> "producer-$TAG-val.log" | \
@@ -93,7 +93,17 @@ PY
 fi
 GPU_MEM=${GPU_MEM:-4096}
 
-STEPS=$(python -c "print(max(100, $ROWS_PER_PASS * $PASSES // ($BATCH * $ACCUM) // 1000 * 1000))")
+STEPS=${STEPS:-$(python -c "print(max(100, $ROWS_PER_PASS * $PASSES // ($BATCH * $ACCUM) // 1000 * 1000))")}
+# Fine-tuning (e.g. pytorch/plan-sim-distill.md): LR/WARMUP override the
+# trainer's defaults, TRAIN_EXTRA adds trainer flags (--init-ckpt,
+# --sim-groups, ...), and DEPLOY_FINAL=1 deploys the last step's weights
+# instead of the best-validation checkpoint (a fine-tune's val WDL loss need
+# not improve while its ranking does).
+LR_ARGS=""
+[ -n "${LR:-}" ] && LR_ARGS="$LR_ARGS --lr $LR"
+[ -n "${WARMUP:-}" ] && LR_ARGS="$LR_ARGS --warmup $WARMUP"
+SNAP_EVERY=10000
+[ "${DEPLOY_FINAL:-0}" = 1 ] && SNAP_EVERY=$STEPS
 log "training $TAG: $PASSES passes over $LOGS, ~$ROWS_PER_PASS rows/pass, $STEPS steps, batch $BATCH x $ACCUM${COMPILE:+ $COMPILE}"
 rm -f best-tf-$TAG*.pt "producer-$TAG.log" "producer-$TAG-passes.log"
 
@@ -106,7 +116,7 @@ python training.py --arch transformer --ckpt "best-tf-$TAG.pt" --csv "loss_tf_$T
   --primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share "$SPATIAL_SHARE" \
   --transpose-prob "$TRANSPOSE" --batch-size "$BATCH" --accum "$ACCUM" $COMPILE --gpu-mem-mib "$GPU_MEM" \
   --epochs 1 --val-cache "$VAL" --val-size "$VAL_SIZE" --shuffle-buffer "$SHUFFLE" \
-  --total-steps "$STEPS" --snapshot-every 10000 --device "$DEVICE" < "$FIFO" 2>&1 | tee "train-tf-$TAG.log" > /dev/null &
+  --total-steps "$STEPS" --snapshot-every "$SNAP_EVERY" --device "$DEVICE" $LR_ARGS ${TRAIN_EXTRA:-} < "$FIFO" 2>&1 | tee "train-tf-$TAG.log" > /dev/null &
 TRAIN_PIPE=$!
 (
   set -o pipefail
@@ -141,5 +151,11 @@ if [ "$TRAIN_RC" != 0 ]; then
 fi
 
 [ "$SMOKE" = 1 ] && { log "smoke run done; not deploying"; exit 0; }
-MODEL=macondo-nn-tf-$TAG CKPT=best-tf-$TAG.pt CSV=loss_tf_$TAG.csv TRAIN_LOG=train-tf-$TAG.log \
+DEPLOY_CKPT=best-tf-$TAG.pt
+if [ "${DEPLOY_FINAL:-0}" = 1 ]; then
+    DEPLOY_CKPT=best-tf-$TAG-step$STEPS.pt
+    [ -f "$DEPLOY_CKPT" ] || { log "no final snapshot $DEPLOY_CKPT; not deploying"; exit 1; }
+    log "deploying the final weights ($DEPLOY_CKPT)"
+fi
+MODEL=macondo-nn-tf-$TAG CKPT=$DEPLOY_CKPT CSV=loss_tf_$TAG.csv TRAIN_LOG=train-tf-$TAG.log \
   EXP=tf-$TAG-v-hasty-pairs PRIMARY=wdl VAL_MAX=0.6 ./watch-tf-heads.sh

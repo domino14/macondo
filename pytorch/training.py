@@ -123,14 +123,14 @@ class SimGroups:
         f = lambda k: np.frombuffer(self.mm, np.float32, n, p + 4 * n * k)
         win, eq, se, iters = f(0), f(1), f(2), f(3)
         rows = np.asarray(self.mm[p + 16 * n : p + 16 * n + n * CACHE_ROW_BYTES]).reshape(n, CACHE_ROW_BYTES)
-        return win, rows
+        return win, se, rows
 
     def batch(self, idx, device):
-        """Groups idx -> (unpacked board, scalars on device, list of (start, n, win tensor))."""
+        """Groups idx -> (unpacked board, scalars on device, spans, [(win, win SE) tensors])."""
         wins, rows, spans, start = [], [], [], 0
         for i in idx:
-            w, r = self.get(i)
-            wins.append(torch.from_numpy(w.copy()))
+            w, se, r = self.get(i)
+            wins.append(torch.from_numpy(np.stack([w, se]).copy()))
             rows.append(r)
             spans.append((start, len(w)))
             start += len(w)
@@ -140,16 +140,22 @@ class SimGroups:
 
 def rank_loss(pred, spans, wins, tau):
     """Listwise ranking loss over each group's candidates: cross-entropy from
-    softmax(sim win % / tau) to softmax(net win % / tau), where the net's win
-    % is 50 (v + 1), v = P(win) - P(loss) from the WDL head. Also returns, per
-    group, whether the net's top candidate is the sim's, and the sim win
-    percentage the net's pick gives up."""
+    the sim's target distribution to softmax(net win % / tau), where the net's
+    win % is 50 (v + 1), v = P(win) - P(loss) from the WDL head.
+
+    The target weights candidate i by exp(-d_i / tau_i): d_i is its sim win %
+    below the sim's best, and tau_i = sqrt(tau^2 + (100 SE_i)^2) widens the
+    temperature by its standard error, so a gap the sim measured poorly (a
+    candidate pruned after a few hundred iterations) counts for less. Also
+    returns, per group, whether the net's top candidate is the sim's, and the
+    sim win percentage the net's pick gives up."""
     p = torch.softmax(pred["wdl"].float(), dim=1)
     v = p[:, 2] - p[:, 0]
     losses, agree, regret = [], [], []
-    for (s, n), w in zip(spans, wins):
+    for (s, n), ws in zip(spans, wins):
+        w, se = ws[0], ws[1]
         student = (50 * (v[s : s + n] + 1)) / tau
-        teacher = torch.softmax(100 * w / tau, dim=0)
+        teacher = torch.softmax(-(100 * (w.max() - w)) / torch.sqrt(tau**2 + (100 * se) ** 2), dim=0)
         losses.append(-(teacher * torch.log_softmax(student, dim=0)).sum())
         k = int(torch.argmax(v[s : s + n]))
         agree.append(float(k == int(torch.argmax(w))))
