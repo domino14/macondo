@@ -86,7 +86,7 @@ class Block(nn.Module):
 class ScrabbleTransformerNet(nn.Module):
     N_TOKENS = 1 + N_SQUARES + N_TILE_TYPES + 1  # 254
 
-    def __init__(self, d_model=192, layers=8, heads=6, ff_mult=4, dropout=0.0):
+    def __init__(self, d_model=192, layers=8, heads=6, ff_mult=4, dropout=0.0, n_spatial=N_SPATIAL):
         super().__init__()
         d = d_model
         self.d = d
@@ -111,7 +111,8 @@ class ScrabbleTransformerNet(nn.Module):
         self.heads = Heads(128)
         # Per-square spatial heads: one linear layer shared by the 225 square
         # tokens, read after the final norm. Never exported.
-        self.heads_spatial = nn.Linear(d, N_SPATIAL)
+        self.n_spatial = n_spatial
+        self.heads_spatial = nn.Linear(d, n_spatial)
 
     def set_export_mode(self, flag=True):
         for b in self.blocks:
@@ -142,7 +143,7 @@ class ScrabbleTransformerNet(nn.Module):
         h = F.relu(self.fc1(x[:, 0]))
         out = self.heads(h)
         sq = self.heads_spatial(x[:, 1 : 1 + N_SQUARES])  # (B, 225, N_SPATIAL)
-        out["spatial"] = sq.transpose(1, 2).reshape(-1, N_SPATIAL, H, W)
+        out["spatial"] = sq.transpose(1, 2).reshape(-1, self.n_spatial, H, W)
         return out
 
 

@@ -39,6 +39,12 @@ N_TARGETS = len(TARGETS)
 # mover's own next move land, and each conjoined with that player winning.
 # Training-only heads; the export never includes them.
 SPATIAL = ["opp_next", "self_next", "opp_win", "self_win"]
+# MACONDO_OWNERSHIP=1: two more planes (the producer's -ownership): the
+# squares empty in the position that the mover / the opponent covers before
+# the game ends. Frames, caches and checkpoints then have six planes.
+OWNERSHIP = os.environ.get("MACONDO_OWNERSHIP") == "1"
+if OWNERSHIP:
+    SPATIAL += ["self_own", "opp_own"]
 N_SPATIAL = len(SPATIAL)
 N_SPATIAL_FLOATS = N_SPATIAL * H * W  # 900
 ALL_HEADS = TARGETS + SPATIAL
@@ -67,6 +73,8 @@ DEFAULT_WEIGHTS = {
     "opp_win": 0.25,
     "self_win": 0.25,
 }
+if OWNERSHIP:
+    DEFAULT_WEIGHTS.update(self_own=0.25, opp_own=0.25)
 
 # Diagonal transpose: the one board symmetry that keeps words readable. It
 # swaps the horizontal cross-check planes (27..52) with the vertical ones
@@ -654,6 +662,8 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
+        if N_SPATIAL != 4:  # stored so export.py rebuilds the same heads
+            args.hparams["n_spatial"] = N_SPATIAL
     args.weights = {name: getattr(args, f"w_{name}") for name in ALL_HEADS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")

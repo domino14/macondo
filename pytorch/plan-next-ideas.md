@@ -10,6 +10,8 @@ generation, sim labelling) can run beside anything.
 
 ## Batch 1: sim distillation, top-k loss  (when deb192 finishes, ~10/13)
 
+Batch 2 runs first, in the GPU time before the labels are done.
+
 Tries 1 and 2 (listwise loss over all 50 candidates) lowered the ranking
 loss without raising top-pick agreement. With all 1.32M labels: a loss on
 the top of the list only (cross-entropy over the sim's top 3-5, or pairwise
@@ -30,6 +32,13 @@ In order, one at a time:
 1. Ownership: for every square empty now, who covers it by the end of the
    game (mover / opponent / nobody), 3-way per square. KataGo's ownership
    head is the analogue. Looks past the next move to the rest of the game.
+   Built 10/9: producer `-ownership` (two planes, self_own / opp_own, after
+   the four), trainer `MACONDO_OWNERSHIP=1` (checkpoint hparams record
+   n_spatial, so export needs no setting), run-stream `PRODUCER_EXTRA`.
+   Queued (`queue-own.sh`, TAG own): streamopen's recipe from scratch plus
+   the two heads, after the simft2 match; ~22 h training, result ~10/11.
+   Each spatial head gets its own share (0.1) of the primary's pull, so the
+   two new heads add auxiliary pull rather than diluting the old four.
 2. Big-score threats: squares covered by a move scoring 30+ or a bingo, per
    player, over the next move each.
 3. Longer horizon: squares covered within the next 2-4 moves.

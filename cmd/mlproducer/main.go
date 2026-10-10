@@ -103,6 +103,7 @@ func main() {
 	var sample float64
 	var labelsOut string
 	var perGame bool
+	var ownership bool
 	var pickMax, picks, endgamePlies int
 	var holdoutMod int
 	var split string
@@ -115,6 +116,8 @@ func main() {
 		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
 			"instead of every position; with -labeler rollout this replaces -sample")
 	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
+	flag.BoolVar(&ownership, "ownership", false,
+		"add two ownership planes after the four spatial targets: squares empty in the position that the mover / the opponent covers before the game ends")
 	flag.IntVar(&picks, "picks", 1, "with -per-game: distinct turns drawn per game (each emitted as its own position)")
 	flag.IntVar(&holdoutMod, "holdout-mod", 0,
 		"hold out the games whose ID hashes to 0 mod this (e.g. 20 = 5%); with -split, emit only one side (0 = no split)")
@@ -248,6 +251,7 @@ func main() {
 				assembler.picks = picks
 			}
 			assembler.endgamePlies = endgamePlies
+			assembler.ownership = ownership
 			assembler.endgameTimeout = endgameTimeout
 			assembler.kwg = gd
 			for turn := range jobChan {

@@ -30,7 +30,9 @@ ACCUM=${ACCUM:-16}
 VAL_SIZE=${VAL_SIZE:-150000}
 SHUFFLE=${SHUFFLE:-1024}
 DEVICE=${DEVICE:-auto}
-PRODUCER="../bin/mlproducer -labeler result -per-game -endgame-plies 2 -holdout-mod $HOLDOUT_MOD"
+# PRODUCER_EXTRA adds producer flags (e.g. -ownership, with MACONDO_OWNERSHIP=1
+# exported for the trainer).
+PRODUCER="../bin/mlproducer -labeler result -per-game -endgame-plies 2 -holdout-mod $HOLDOUT_MOD ${PRODUCER_EXTRA:-}"
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 # Training never shares the GPU with a match or with served models.

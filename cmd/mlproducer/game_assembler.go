@@ -71,9 +71,11 @@ type GameAssembler struct {
 	// picks is how many distinct turns per game are drawn in per-game mode
 	// (0 or 1 = one). Each is emitted like the single pick; the game's
 	// outcome labels are shared, the positions are not.
-	picks   int
-	sample  float64
-	labeled int64
+	picks int
+	// ownership adds the two ownership planes (SpatialSelfOwn, SpatialOppOwn).
+	ownership bool
+	sample    float64
+	labeled   int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ type ply struct {
 	move   *move.Move
 	state  *[]float32 // feature vector after the move; nil when not built
 	mover  int        // player index who moved
+	hist   int        // index of this move in gameWindow.history
 	spread float32    // raw spread after the move, from the mover's side
 	bag    int        // tiles unseen after the move (bag + opponent's rack)
 	label  *rolloutLabel
@@ -99,6 +102,7 @@ type gameWindow struct {
 	// turns-since-opponent-bingo counts back over this, and the bot at play
 	// time has the whole game, so the window alone would cap it at 3.
 	history []*move.Move
+	movers  []int // who played each move of history
 	game    turnplayer.BaseTurnPlayer
 	ai      *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
 	pick    int                              // the first drawn turn to emit, or 0 for all
@@ -182,6 +186,16 @@ const (
 	NumSpatialTargets
 )
 
+// With -ownership, two more planes follow the four: every square that is
+// empty in the position and that the mover (or the opponent) covers before
+// the game ends, KataGo's ownership head for this game. A square nobody
+// fills is 0 in both.
+const (
+	SpatialSelfOwn = NumSpatialTargets + iota // empty now, covered later by the mover
+	SpatialOppOwn                             // empty now, covered later by the opponent
+	NumSpatialWithOwnership
+)
+
 const SpatialCells = 15 * 15
 
 // NumPredictions is the length of outputVector.predictions: the scalar
@@ -194,9 +208,22 @@ func spatialPlane(preds []float32, k int) []float32 {
 	return preds[off : off+SpatialCells]
 }
 
+// numPredictions is the length of this assembler's prediction vectors.
+func (ga *GameAssembler) numPredictions() int {
+	if ga.ownership {
+		return NumTargets + NumSpatialWithOwnership*SpatialCells
+	}
+	return NumPredictions
+}
+
 // markPlacement sets to 1 every square that m places a tile on. Exchanges,
 // passes, and played-through tiles mark nothing.
 func markPlacement(plane []float32, m *move.Move) {
+	forEachPlaced(m, func(sq int) { plane[sq] = 1 })
+}
+
+// forEachPlaced calls f with every square m places a tile on.
+func forEachPlaced(m *move.Move, f func(sq int)) {
 	if m == nil || m.Action() != move.MoveTypePlay {
 		return
 	}
@@ -213,7 +240,7 @@ func markPlacement(plane []float32, m *move.Move) {
 		if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
 			log.Fatal().Msgf("placement out of bounds at (%d, %d) for %s", curR, curC, m.ShortDescription())
 		}
-		plane[curR*15+curC] = 1
+		f(curR*15 + curC)
 	}
 }
 
@@ -223,6 +250,7 @@ type outputVector struct {
 	gameID      string
 	turn        int
 	mover       int
+	hist        int           // index in the game's history of the move just played
 	spreadNow   float32       // raw spread at the position, mover's side
 	label       *rolloutLabel // set when rollout-labeled, for the labels file
 	solved      *rolloutLabel // set when endgame-search-labeled
@@ -240,8 +268,10 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 	p := ga.updateBoardAndExtractFeatures(gw, t)
 
 	// 2) Push into sliding window (and the full history).
+	p.hist = len(gw.history)
 	gw.plies = append(gw.plies, p)
 	gw.history = append(gw.history, p.move)
+	gw.movers = append(gw.movers, p.mover)
 
 	// 3) Emit when window deep enough.
 	if len(gw.plies) > ga.horizon {
@@ -369,6 +399,16 @@ func (gw *gameWindow) wants(turn int) bool {
 // side (and, with valueFromResult, makes that the value target) and hands
 // them all back. Only valid once the game is over.
 func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
+	// Ownership: which move (and player) first covered each square.
+	var filledAt, filledBy [SpatialCells]int
+	if ga.ownership {
+		for sq := range filledAt {
+			filledAt[sq] = -1
+		}
+		for j, m := range gw.history {
+			forEachPlaced(m, func(sq int) { filledAt[sq], filledBy[sq] = j, gw.movers[j] })
+		}
+	}
 	for i := range gw.pending {
 		vec := &gw.pending[i]
 		final := float32(gw.game.SpreadFor(vec.mover))
@@ -386,6 +426,18 @@ func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
 			copy(spatialPlane(vec.predictions, SpatialOppWin), spatialPlane(vec.predictions, SpatialOppNext))
 		} else if wdl > 0 {
 			copy(spatialPlane(vec.predictions, SpatialSelfWin), spatialPlane(vec.predictions, SpatialSelfNext))
+		}
+		if ga.ownership {
+			self, opp := spatialPlane(vec.predictions, SpatialSelfOwn), spatialPlane(vec.predictions, SpatialOppOwn)
+			for sq, at := range filledAt {
+				if at > vec.hist { // empty in the position, covered later
+					if filledBy[sq] == vec.mover {
+						self[sq] = 1
+					} else {
+						opp[sq] = 1
+					}
+				}
+			}
 		}
 		if vec.solved != nil {
 			vec.predictions[TargetValue] = vec.solved.value
@@ -619,10 +671,11 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	(*pNow.state)[len(*pNow.state)-1] = game.NormalizeSpreadForML(pNow.spread)
 	ov := outputVector{
 		features:    pNow.state,
-		predictions: make([]float32, NumPredictions),
+		predictions: make([]float32, ga.numPredictions()),
 		gameID:      pNow.turn.GameID,
 		turn:        pNow.turn.TurnNumber,
 		mover:       pNow.mover,
+		hist:        pNow.hist,
 		spreadNow:   pNow.spread,
 		label:       pNow.label,
 		solved:      pNow.solved,
