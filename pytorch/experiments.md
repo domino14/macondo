@@ -2191,3 +2191,15 @@ Try 2 first launch (11:19) died at step 0: the rank-gradient measurement
 on 16 groups at once ran out of GPU memory, and the trainer hung instead of
 exiting, so run-stream.sh waited 5.5 h. Now measured 2 groups at a time
 (rank weight ~0.014-0.018 at tau 1); relaunched 17:05.
+
+#### Result: simft2 (try 2: rank-share 1, tau 1) vs HastyBot (10/10/26 ~01:15)
+
+```
+FastMlBot(simft2): paired win rate 57.18% +/- 0.18 (95%; SE 0.09)   swept 24.5%  lost 10.3%  spread +8.4/game
+```
+
+streamopen 57.65: -0.47, ~3.6 SE of the difference: worse. Held-out
+agreement ended 70.4% (from 67.6%), sim win given up 0.53 (from 0.51).
+With try 1 (-0.17) this says the full-list ranking signal from these
+labels slightly hurts play. Next and last on this line: a top-k / pairwise
+loss on the full labels (plan-sim-distill.md); drop it if that is flat.
