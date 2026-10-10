@@ -84,6 +84,13 @@ Per-player fields (player1 / player2):
     leaveFile          Custom leave file (.klv2) inside data/strategy/<lexicon>/.
     pegFile            Pre-endgame adjustment file (.json) in the same dir.
     minSimPlies        Minimum Monte Carlo sim plies (default 2 for simming bots).
+                       Midgame only: with 2..7 tiles in the bag the bot sims
+                       `unseen` (9..14) plies whatever this says.
+    fixedSimPlies      If positive, every sim is exactly this many plies deep
+                       while tiles are left in the bag, late game included
+                       (a no-endgame bot then also sims with one tile in the
+                       bag instead of playing statically). For benchmarks
+                       where "N-ply" must mean N plies for the whole game.
     simThreads         Threads for the bot's internal sim (default: all CPUs).
     stochasticStaticEval  If true, uses stochastic equity evaluation.
     inferenceTau       Softmax temperature for rack inference (0 = use default 0.05).
@@ -117,6 +124,12 @@ Available override flags:
     -botcode2 CODE        Override player2 bot code
     -minsimplies1 N       Override player1 minimum sim plies
     -minsimplies2 N       Override player2 minimum sim plies
+    -fixedsimplies1 N     Override player1 fixed sim plies
+    -fixedsimplies2 N     Override player2 fixed sim plies
+    -tritonmodel1 NAME    Player 1's ML bot queries this Triton model (v1)
+    -tritonmodel2 NAME    Player 2's ML bot queries this Triton model (v1)
+    -simleafwin1 MODE     Player 1's sim scores line ends with table|base|energy
+    -simleafwin2 MODE     Player 2's sim scores line ends with table|base|energy
     -simthreads1 N        Override player1 sim threads
     -simthreads2 N        Override player2 sim threads
     -tau1 F               Override player1 inference tau

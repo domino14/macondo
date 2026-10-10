@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"time"
+	"unsafe"
 
 	grpc_client "github.com/domino14/macondo/triton/grpc-client"
 	"github.com/rs/zerolog/log"
@@ -14,6 +16,7 @@ import (
 // ModelOutputs contains the different outputs from the model
 type ModelOutputs struct {
 	Value     []float32 // win prediction value
+	Spread    []float32 // predicted spread change, tanh-scaled (see game.NormalizeSpreadForML)
 	Points    []float32 // predicted points
 	BingoProb []float32 // bingo probability
 	OppScore  []float32 // opponent score
@@ -24,7 +27,8 @@ type TritonClient struct {
 	client       *grpc_client.GRPCInferenceServiceClient
 	modelName    string
 	modelVersion string
-	debug        bool // Enable debug logging
+	outputs      []string // output tensors to request; default just "value"
+	debug        bool     // Enable debug logging
 }
 
 // NewTritonClient creates a new TritonClient.
@@ -41,8 +45,41 @@ func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, 
 		client:       &client,
 		modelName:    modelName,
 		modelVersion: modelVersion,
+		outputs:      []string{"value"},
 		debug:        false, // Set to true for detailed debugging
 	}, nil
+}
+
+// SetOutputs chooses which output tensors to request. Every name must be an
+// output of the served model; "value" is always available, "spread" only on
+// multi-head exports.
+func (c *TritonClient) SetOutputs(names []string) {
+	c.outputs = names
+}
+
+// Outputs is the list of output tensors the client requests.
+func (c *TritonClient) Outputs() []string { return c.outputs }
+
+// DetectOutputs asks the server which outputs the served model has and
+// requests "value" plus "spread" when the model exports it (the multi-head
+// nets do; the old CNN does not). The bot's decided-game ranking needs the
+// spread head, so this is called once when the game's client is created.
+func (c *TritonClient) DetectOutputs() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	md, err := (*c.client).ModelMetadata(ctx, &grpc_client.ModelMetadataRequest{
+		Name: c.modelName, Version: c.modelVersion})
+	if err != nil {
+		return err
+	}
+	outputs := []string{"value"}
+	for _, o := range md.Outputs {
+		if o.Name == "spread" {
+			outputs = append(outputs, "spread")
+		}
+	}
+	c.outputs = outputs
+	return nil
 }
 
 // SetDebug enables or disables debug logging
@@ -67,25 +104,16 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		Shape:    []int64{int64(numMoves), 72},
 	}
 
-	// Define output tensors to be requested
-	valueOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-		Name: "value",
+	requested := make([]*grpc_client.ModelInferRequest_InferRequestedOutputTensor, len(c.outputs))
+	for i, name := range c.outputs {
+		requested[i] = &grpc_client.ModelInferRequest_InferRequestedOutputTensor{Name: name}
 	}
-	// pointsOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "total_game_points",
-	// }
-	// bingoOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "opp_bingo_prob",
-	// }
-	// oppScoreOutput := &grpc_client.ModelInferRequest_InferRequestedOutputTensor{
-	// 	Name: "opp_score",
-	// }
 
 	inferRequest := &grpc_client.ModelInferRequest{
 		ModelName:    c.modelName,
 		ModelVersion: c.modelVersion,
 		Inputs:       []*grpc_client.ModelInferRequest_InferInputTensor{boardInput, scalarInput},
-		Outputs:      []*grpc_client.ModelInferRequest_InferRequestedOutputTensor{valueOutput}, //, pointsOutput, bingoOutput, oppScoreOutput},
+		Outputs:      requested,
 	}
 	inferRequest.RawInputContents = append(inferRequest.RawInputContents, float32ToByte(boardTensorData), float32ToByte(scalarTensorData))
 
@@ -105,48 +133,22 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		}
 	}
 
-	// Process all outputs
-	rawValues := byteToFloat32(inferResponse.RawOutputContents[0])
-	//
-	// // Check for NaN values in output
-	// hasNaN := false
-	// for i, v := range rawValues {
-	// 	if math.IsNaN(float64(v)) {
-	// 		if c.debug {
-	// 			log.Debug().Msgf("NaN detected at index %d", i)
-	// 		}
-	// 		hasNaN = true
-	// 		// Replace NaN with a default value of 0
-	// 		rawValues[i] = 0.0
-	// 	}
-	// }
-
-	// if hasNaN && c.debug {
-	// 	log.Warn().Msg("NaN values detected in model output and replaced with 0.0")
-	// }
-
-	// rawPoints := byteToFloat32(inferResponse.RawOutputContents[1])
-	// rawBingoProb := byteToFloat32(inferResponse.RawOutputContents[2])
-	// rawOppScore := byteToFloat32(inferResponse.RawOutputContents[3])
-
-	// Ensure opponent score is non-negative (like ReLU)
-	// oppScores := make([]float32, len(rawOppScore))
-	// for i, v := range rawOppScore {
-	// 	if v < 0 {
-	// 		if c.debug {
-	// 			log.Debug().Msgf("OppScore output %d negative: %f -> 0.0", i, v)
-	// 		}
-	// 		oppScores[i] = 0.0
-	// 	} else {
-	// 		oppScores[i] = v
-	// 	}
-	// }
-
-	outputs := &ModelOutputs{
-		Value: rawValues,
-		// Points:    rawPoints,
-		// BingoProb: sigmoid(rawBingoProb),
-		// OppScore:  oppScores,
+	// Outputs come back in the order requested, but map them by name anyway.
+	outputs := &ModelOutputs{}
+	for i, out := range inferResponse.Outputs {
+		if i >= len(inferResponse.RawOutputContents) {
+			return nil, fmt.Errorf("output %s has no raw contents", out.Name)
+		}
+		data := byteToFloat32(inferResponse.RawOutputContents[i])
+		switch out.Name {
+		case "value":
+			outputs.Value = data
+		case "spread":
+			outputs.Spread = data
+		}
+	}
+	if outputs.Value == nil {
+		return nil, fmt.Errorf("model %s returned no value output", c.modelName)
 	}
 
 	return outputs, nil
@@ -247,16 +249,14 @@ func analyzeFloatArray(data []float32) map[string]interface{} {
 	}
 }
 
+// float32ToByte views f as its little-endian bytes without copying (the
+// wire format Triton expects; every platform we build for is little-endian).
+// The result aliases f: callers must not change f until the request is sent.
 func float32ToByte(f []float32) []byte {
-	b := make([]byte, 4*len(f))
-	for i, v := range f {
-		u := math.Float32bits(v)
-		b[4*i+0] = byte(u)
-		b[4*i+1] = byte(u >> 8)
-		b[4*i+2] = byte(u >> 16)
-		b[4*i+3] = byte(u >> 24)
+	if len(f) == 0 {
+		return nil
 	}
-	return b
+	return unsafe.Slice((*byte)(unsafe.Pointer(&f[0])), 4*len(f))
 }
 
 func byteToFloat32(b []byte) []float32 {

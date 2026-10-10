@@ -1695,6 +1695,27 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 	applyPlayerOverrides(expCfg.Player1, options, "1")
 	applyPlayerOverrides(expCfg.Player2, options, "2")
+	if v, err := options.IntDefault("quickendgame", 0); err == nil && v > 0 {
+		margin, _ := options.IntDefault("quickendgamemargin", 60)
+		capMs, _ := options.IntDefault("quickendgamecap", 250)
+		for _, p := range []*pb.AutoplayPlayerConfig{expCfg.Player1, expCfg.Player2} {
+			p.QuickEndgamePlies = int32(v)
+			p.QuickEndgameMargin = int32(margin)
+			p.QuickEndgameCapMs = int32(capMs)
+		}
+	}
+	if v, err := options.Float("openingplies"); err == nil && v > 0 {
+		expCfg.OpeningPliesMean = v
+		expCfg.OpeningTemperature = 3
+		if t, err := options.Float("openingtemp"); err == nil && t > 0 {
+			expCfg.OpeningTemperature = t
+		}
+		topN, _ := options.IntDefault("openingtopn", 50)
+		expCfg.OpeningTopN = int32(topN)
+		if u, err := options.Float("openinguniform"); err == nil && u > 0 {
+			expCfg.OpeningUniformProb = u
+		}
+	}
 
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)
@@ -1721,6 +1742,15 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	}
 	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
 		p.MinSimPlies = int32(v)
+	}
+	if v, err := options.IntDefault("fixedsimplies"+suffix, -1); err == nil && v >= 0 {
+		p.FixedSimPlies = int32(v)
+	}
+	if v := options.String("tritonmodel" + suffix); v != "" {
+		p.TritonModel = v
+	}
+	if v := options.String("simleafwin" + suffix); v != "" {
+		p.SimLeafWin = v
 	}
 	if v, err := options.IntDefault("simthreads"+suffix, -1); err == nil && v >= 0 {
 		p.SimThreads = int32(v)

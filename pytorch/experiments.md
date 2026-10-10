@@ -877,3 +877,1329 @@ Keep the 96-channel model for now. Don't know if we can ever reproduce the 52.9%
 ### Better data
 
 Let's collect BestBot / simming data. If we collect multiple plays per position with bogowin pct data up to 5 plies we should have a better model. Hopefully it will win significantly more than this model. But it will take a bunch of time to collect this data.
+------
+
+### Transformer (9/18/26)
+
+Someone getting good results said they switched from a CNN to a transformer,
+the argument being that attention handles "global" state (unseen tiles, rack)
+much better than a conv stack, which only sees the scalars after global
+average pooling. Every CNN width above lands within ~0.15% of each other, so
+this is also a test of architecture vs. data ceiling.
+
+`transformer_model.py` consumes exactly the same inputs as the CNN (85 planes
++ 72 scalars) and tokenizes inside the model: 1 CLS + 225 square tokens +
+27 tile-type tokens (rack count, unseen prob) + 1 game-state token = 254
+tokens, 8 pre-norm blocks, d=192, 6 heads. ~3.66M params (CNN: ~1.7M).
+No Go changes; the ONNX/Triton interface is identical.
+
+Training (effective batch stays 2048 via accumulation; B=2048 in one shot
+needs ~29 GB of activations):
+
+```
+cat ~/data/autoplay-softmax-v-hasty-5.txt | ../bin/mlproducer | pv -br | \
+  python training.py --arch transformer --ckpt best-tf.pt --csv loss_tf.csv
+```
+
+Export + deploy next to the CNN, then select it from Go:
+
+```
+./copy_model.sh macondo-nn-tf best-tf.pt
+MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_MODEL_NAME=macondo-nn-tf ./bin/shell
+```
+
+Results:
+
+Smoke comparison (9/18/26): first 300 MB of `autoplay-softmax-v-hasty-5.txt`
+(~3.9M positions), 20k-position validation set from the same slice, val every
+100 steps, effective batch 2048 for both. Same random-ish slice, so the val
+losses are directly comparable (but it's a tiny run: CNN is still inside its
+2000-step warmup).
+
+```
+step   cnn_val  tf_val
+ 100   0.2754   0.2842
+ 400   0.2176   0.0963
+ 700   0.1305   0.0936
+1000   0.1088   0.0918
+1300   0.1005   0.0923
+1600   0.0977   0.0920
+1900   0.0965   0.0918
+```
+
+CNN (96ch/10 blocks): 5,322 pos/s, peak 4.61 GiB.
+Transformer (d=192, 8 layers): 2,170 pos/s, peak 3.69 GiB (micro-batch 256 x 8).
+Export chain verified: onnxruntime vs torch max diff 2e-7 (batch 1/7/50/128),
+TensorRT fp16 engine builds and passes polygraphy vs onnxruntime at 1e-2.
+
+Next: full run on the whole file, deploy as `macondo-nn-tf`, autoplay vs Hasty.
+
+#### Toolchain bump (9/18/26)
+
+venv is now Python 3.14 / torch 2.11 / TensorRT 11.2.1.2, paired with
+`tritonserver:26.08-py3` (ships TensorRT 11.2.1). TensorRT 11 only builds
+strongly typed networks (no FP16/INT8 builder flags, no INT8 calibrator), so
+`onnx-to-tensorrt.py --precision fp16` now converts the ONNX graph to fp16 in
+memory (fp32 I/O kept) before building. Engines are not portable across
+TensorRT versions: every `model.plan` must be rebuilt from its `model.onnx`
+when the container moves. Parity on the rebuilt engines vs fp32 onnxruntime:
+CNN v1 abs 2.1e-3, CNN v2 abs 2.3e-3, transformer 9.1e-4 (real frames).
+
+#### Result: transformer vs HastyBot (9/19/26)
+
+Full run on `autoplay-softmax-v-hasty-5.txt` (163M positions, 79k steps,
+~21 h). Best val loss 0.0913 at step 72,500 vs the CNN's 0.0917; the
+transformer was ahead by 0.0003-0.0005 at every checkpoint in the second
+half. Deployed as `macondo-nn-tf` v2 (TensorRT fp16, Triton 26.08).
+
+100,000 game pairs (each seed played from both seats), 12 threads,
+`games-tf-v-hasty-pairs.txt`:
+
+```
+games=200000  FastMlBot(transformer) win rate 52.33% +/- 0.18 (paired 95%)
+pairs swept 18.8%   pairs lost 14.2%   spread -6.4 pts/game
+```
+
+Same as the CNN's 52.5% within the interval. The loss edge did not turn
+into a win-rate edge. Two very different architectures (1.7M-param ResNet,
+3.7M-param transformer) landing on the same number, after a CNN width
+sweep that also all landed within 0.15%, says the ceiling is the training
+target, not the network: one real 5-ply continuation looked up in the
+bogowin table, half of whose plies are played by the softmax bot.
+
+Next: fix the labels. Plan in `plan-bootstrapped-training.md`: auxiliary
+spread + win/draw/loss heads first (KataGo §4.1), then averaged K-ply
+rollout labels with the net at the leaf, on a 25% sample of positions.
+
+### Auxiliary heads (9/19/26) — plan phase 1
+
+Frames now carry five targets (`cmd/mlproducer/game_assembler.go`,
+`training.TARGETS`): `value` (bogowin after 5 plies, as before), `spread`
+(spread change over those 5 plies, tanh/130), `wdl` (final game result for
+the mover, -1/0/1), `opp_bingo` (opponent bingos next turn), `opp_score`
+(opponent's next score / 300). `total_game_points` is gone: it is a
+function of the inputs. The producer holds a game's rows until the game
+ends so the result is known.
+
+Both trunks end in a shared `Heads` module off the 128-wide hidden layer.
+Losses: smooth-L1 for value/spread/opp_score, cross-entropy for wdl, BCE
+for opp_bingo, weights 1 / 0.5 / 0.25 / 0.1 / 0.1 (`--w-<head>` flags).
+The checkpoint is chosen on **value val loss only**, so the number stays
+comparable with the single-head runs. Export writes `value` and `spread`;
+Go still reads `value` by name. Multi-head models must go under a new
+Triton model name (config.pbtxt lists outputs per name, not per version;
+`copy_model.sh` now refuses a mismatch).
+
+Two label fixes came out of this: the end-of-game rack bonus never reached
+the labels (the replay throws racks in before every move, so the game saw
+an empty opponent rack when someone played out; the opponent now gets
+their real rack, reconstructed from the unseen pool, whenever the bag is
+empty), and `opp_bingo` fired on any play that emptied the rack, including
+play-outs, instead of on seven tiles played.
+
+Smoke run on 19k positions: all heads train, ONNX vs torch 3e-7, TensorRT
+fp16 vs torch 9e-4 on both outputs.
+
+The 0.0913 run's schedule was set for 250k steps and the file ran out at
+79.5k, so the learning rate never dropped below 78% of peak; 60% of the
+loss improvement came in the first 6% of the run and the last 0.0004 took
+11 hours. This run matches the cosine to its length instead (25k steps,
+51M positions, ~6.5 h) and snapshots every 5k steps so a pairs match can
+say whether the tail matters. The value val loss is therefore not
+like-for-like with 0.0913; the board is the comparison.
+
+```
+./train.sh --arch transformer --ckpt best-tf-heads.pt --csv loss_tf_heads.csv \
+  --total-steps 25000 --snapshot-every 5000
+```
+
+#### Result: five heads, 25k-step schedule (9/20/26)
+
+Run: transformer, `--total-steps 25000 --snapshot-every 5000`, 51M
+positions (a third of the file), 6.5 h. Best val_value 0.09176 at step
+24,500 (single-head run: 0.0913 at 72,500, and 0.0923 at step 25,000 of
+that run). Per-head val at the end: spread 0.040, wdl 0.470 (cross-entropy;
+0.47 is a decent 3-class result), opp_bingo 0.425, opp_score 0.0026.
+
+Deployed as `macondo-nn-tf-heads` v1. 100k game pairs vs HastyBot,
+`games-tf-heads-v-hasty-pairs.txt`:
+
+```
+paired win rate 51.76% +/- 0.18   swept 17.8%  lost 14.3%  spread -5.8/game
+```
+
+**Worse than the single-head transformer (52.33% +/- 0.18) by about half a
+point, and the intervals don't overlap.** Two variables changed at once
+(heads, and a schedule that saw a third of the positions), plus the
+end-of-game label fixes, so this does not isolate the heads. The value
+loss at equal step count was better than the old run's (0.0918 vs
+0.0923 at 25k), so by loss the short run looked fine; the board says
+otherwise. Working hypotheses, in order: (1) 51M positions is not enough
+and the old run's long tail mattered after all, (2) the auxiliary heads
+pull the trunk away from what the bot needs, (3) the wdl head on every
+position of a game carries the QANAT-style outcome correlation.
+
+Next: isolate the schedule by training the same 25k run with all
+auxiliary weights at 0 (`--w-spread 0 --w-wdl 0 --w-opp-bingo 0
+--w-opp-score 0`) and matching it. Snapshots best-tf-heads-step{5000..25000}.pt
+are kept for checkpoint-vs-checkpoint matches.
+
+#### Why the heads hurt: trunk gradient shares (9/20/26)
+
+`head_grads.py` measures, per head, the L2 norm of the gradient each head's
+(unweighted) loss puts on the trunk parameters, on 512 real positions.
+Multiplying by the head's weight gives its actual share of the trunk
+gradient relative to the value head. On last night's five-head checkpoint:
+
+```
+      head  grad norm  vs value  weight  weighted share
+     value    0.0773      1.00    1.00      1.00
+    spread    0.0336      0.43    0.50      0.22
+       wdl    0.3703      4.79    0.25      1.20
+ opp_bingo    0.3116      4.03    0.10      0.40
+ opp_score    0.0089      0.11    0.10      0.01
+```
+
+The wdl head, at a nominal weight of 0.25, pulled on the trunk harder than
+the value head did; the auxiliary heads together had 1.8x the value
+head's influence. Cross-entropy and BCE gradients are simply much larger
+than smooth-L1-on-tanh gradients, so "small" weights weren't. This is
+almost certainly the same thing that happened in the June 2025 attempt.
+The ratio also drifts during training (wdl went from 2.5x at step 5k to
+4.8x at the end as the value gradient shrank), so fixed weights are a
+moving target. The trainer now logs these norms (`gnorm_<head>` columns)
+at every validation.
+
+Weights for the next heads run, targeting each auxiliary head at ~0.15 of
+the value head's trunk gradient: spread 0.35, wdl 0.03, opp_bingo 0.03,
+opp_score 0.5 (total auxiliary share ~0.45). Or, better, balance them
+automatically from the measured norms each validation.
+
+#### Result: single head, 25k-step schedule (ablation, 9/20/26)
+
+Same run as the five-head one with all auxiliary weights at 0. Best
+val_value 0.0920 (five-head: 0.0918). 100k game pairs vs HastyBot,
+`games-tf-1head-v-hasty-pairs.txt`:
+
+```
+paired win rate 50.98% +/- 0.18   swept 17.0%  lost 15.0%  spread -9.3/game
+```
+
+Three runs side by side:
+
+| run                    | steps | positions | heads | val_value | vs HastyBot     |
+|------------------------|-------|-----------|-------|-----------|-----------------|
+| single head, long      | 79.5k | 163M      | no    | 0.0913    | 52.33% +/- 0.18 |
+| five heads, short      | 25k   | 51M       | yes   | 0.0918    | 51.76% +/- 0.18 |
+| single head, short     | 25k   | 51M       | no    | 0.0920    | 50.98% +/- 0.18 |
+
+So: the short schedule cost about 1.35 points, and on that schedule the
+heads *gained* about 0.8 points, even with the badly balanced weights
+above. The heads help; the "plateau" in the loss curve is not a plateau
+at the board. Win rate tracks the value loss in the third decimal place
+here (0.0920 -> 0.0918 -> 0.0913 is 50.98 -> 51.76 -> 52.33), which also
+means more data should keep paying: the 52.33% run saw one file once, and
+there are five.
+
+Next: heads with gradient-balanced weights on the full file (79.5k steps).
+
+### Phase 2: rollout labels (9/21/26)
+
+`mlproducer -labeler rollout -plies 2 -rollouts 16 -sample 0.25`: a
+sampled position is labeled by the mean of 16 two-ply rollouts (random
+draws for both sides, static best play, the net at the leaf from the leaf
+mover's side; real result if the game ends). See cmd/mlproducer/README.md.
+The test in rollout_test.go checks that rollouts leave every feature
+vector identical to the table-mode replay.
+
+On the sample game the rollout label agrees in sign with the table label
+from midgame on, and is near zero in the opening where the single-sample
+table label swings to +-0.6: the noise reduction we wanted. Over 1,400
+positions: value mean +0.01, sd 0.63, 22% beyond +-0.9.
+
+CPU cost ~9 ms per label (16 rollouts x 2 plies of movegen + 16 leaf
+vectors), so 16 cores could do ~1,800 labels/s; the GPU (16 leaf
+evaluations per label) will be the limit. Measured properly once the GPU
+is free.
+
+Known caveat: the heads2 spread head was trained on a 5-ply (odd,
+opponent-first) horizon, so the bootstrapped spread label = real 2-ply
+change + that prediction carries a ~30-point negative bias. The value
+label, which is what the bot ranks on, is horizon-free. Revisit the
+spread target's definition (spread to game end?) after gen 1.
+
+Trainer: `--epochs N --cache f` bit-packs every stdin frame (2.7 KB) and
+trains epochs 2..N from the cache; `--from-cache f` trains from an
+existing cache. `pack/unpack` round trip is exact.
+
+#### Generation 1 run (`run-gen1.sh`, launched 9/21/26 ~21:40)
+
+Waits for the heads2 match, then: first 40M lines of
+`autoplay-softmax-v-hasty-5.txt`, 25% sampled -> ~10M labels with
+`macondo-nn-tf-heads2` v1 at the leaf, streamed into epoch 1 and cached
+(`gen1-frames.bin`, ~27 GB; labels also in `gen1-labels.csv`), then 4 more
+epochs from the cache; 24k steps, aux-share 0.15, snapshots every 5k.
+Then deploy as `macondo-nn-tf-gen1` and 100k pairs vs HastyBot. The value
+val loss is on rollout labels and is not comparable with earlier runs;
+the match is the comparison (baseline: heads2's result).
+
+#### Result: five heads, gradient-balanced, full schedule (9/21/26)
+
+`--aux-share 0.15`, 79.5k steps (whole file once, cosine matched), best
+val_value 0.0910 at step 79,000, below the single-head run at every
+checkpoint from 25k on. Weights drifted to spread ~0.5, wdl ~0.02, bingo
+~0.02, opp_score ~1.4 by the end. Deployed as `macondo-nn-tf-heads2` v1.
+100k game pairs vs HastyBot, `games-tf-heads2-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.19% +/- 0.18   swept 19.4%  lost 13.1%  spread -2.7/game
+```
+
+**Best net so far: +0.86 over the single-head transformer (52.33%), and
+the spread deficit halved (-6.4 -> -2.7/game).** Same data, same schedule
+length; the difference is the four auxiliary heads at weights set from
+measured trunk gradients. Recipe for future runs: five heads,
+`--aux-share 0.15`, cosine matched to the run length.
+
+| run                                | vs HastyBot     | val_value |
+|------------------------------------|-----------------|-----------|
+| single head, 25k                   | 50.98% +/- 0.18 | 0.0920    |
+| five heads (bad weights), 25k      | 51.76% +/- 0.18 | 0.0918    |
+| single head, 79.5k                 | 52.33% +/- 0.18 | 0.0913    |
+| five heads (balanced), 79.5k       | 53.19% +/- 0.18 | 0.0910    |
+
+#### Rollout labeler bug found by tests (9/22/26, 00:40)
+
+Tests that check the recorded leaves against what a correct rollout must
+produce (leaf = legal position, board grows by exactly the two rollout
+moves, leave + tiles played = 7, sign flips between 1 and 2 plies, the
+two history planes never overlap) caught one: the move generator's
+top-play recorder reuses a single Move object, so both rollout plies
+aliased the last one and every 2-ply leaf's "opponent's last move" plane
+and scalars showed our own reply. Leaf racks, boards and the sign were
+right; that one input feature was wrong. Fixed by copying each move out
+of the generator. The first generation-1 run (1.76M labels in) was killed
+and restarted on the fixed labeler at 00:45.
+
+#### Collaborator's recipe queued: true result, one position per game (9/22/26)
+
+Three comments on the rollout labels: (1) a uniformly random opponent
+rack is optimistic for the mover, since real racks are managed leaves
+plus a draw; (2) the true result has no such bias, so use it as the
+target; (3) sample one position per game, not 25%, because every
+position of a game shares the outcome. Their >54% net was trained that
+way on a few million positions.
+
+`mlproducer -labeler result -per-game` implements exactly that on the
+existing logs (~6.8M games in file 5, ~5.4M positions after the 1..30
+turn draw, no rollouts, no GPU labeling). `run-result.sh` is queued
+behind generation 1: five epochs from the cache, wdl head off (it would
+be the value target again), then deploy as `macondo-nn-tf-result` and
+100k pairs vs HastyBot. Generation 1 (rollouts, 25%) finishes first as
+the test of the other approach; both compare against 53.19%.
+
+If rollouts survive, generation 2 should give the opponent their actual
+rack at ply 1 (the log knows it) or sample racks from the inference
+posterior, to remove the optimism.
+
+#### Endgame timing and the queued run (9/22/26)
+
+`QuickAndDirtySolve` (the PEG's endgame path: single thread, no iterative
+deepening, negascout, greedy playout leaves) on three logged endgames,
+table reset before every solve, machine busy with training: the full-rack
+first position costs 45-160 ms at 1-2 plies and 1-9 s at 3-4 plies; every
+later position of the endgame is 0-5 ms. First-win is just the (-1, 1)
+root window; with it the value is a bound, not the spread.
+
+Queued run now: `-labeler result -per-game -endgame-plies 2`. A sampled
+position whose bag was already empty (~11% of positions) gets its value
+and spread from the 2-ply search from the opponent's reply rather than
+from the greedy logged endgame; on the sample game that reproduces p2's
+RAIN play-out exactly (-13 for p1). Everything else keeps the real result.
+
+#### Endgame label checks (9/22/26, midday)
+
+Two more bugs found by tests before the queued run started, both in the
+endgame labeler: (1) the result was the sign of the search's spread
+*change*, not of the mover's final spread (a mover ahead by 50 giving
+back 13 was a "loss"); (2) the restore after the search reused the
+mover's rack object, which ThrowRacksIn had cleared in place, so the
+mover came out with an empty rack and their leave in the bag (harmless
+in the queued config only because the next turn resets racks from the
+log). Tests now check the arithmetic on hand cases, that the game state
+after a label is identical to table mode (a mutation check confirms the
+test catches the rack bug), and hand-computed labels on a second game's
+endgame (-10 and 0 for the last two positions).
+
+Quick solve vs 4-ply solve, 500 random logged endgame positions:
+outcome agreement 99.6%, spread change median/p90 error 0. At the START
+of endgames (full rack to move): 97.0% (15 flips, 13 in close games),
+spread MAE 5.1, quick solve ~5 points pessimistic; the logged greedy
+outcome on the same positions: 96.2% (19 flips), MAE 8.1, max 88. So the
+2-ply label is a modest gain on results and a clear gain on spread.
+
+#### Result: generation 1, rollout labels (9/22/26)
+
+9.56M labels (25% of the first 40M positions of file 5; 16 two-ply
+rollouts each, heads2 at the leaf), five epochs, ~23k steps, aux-share
+0.15. Deployed as `macondo-nn-tf-gen1`. 100k game pairs vs HastyBot,
+`games-tf-gen1-v-hasty-pairs.txt`:
+
+```
+paired win rate 52.03% +/- 0.18   swept 18.1%  lost 14.0%  spread -4.6/game
+```
+
+**Worse than the balanced-heads net (53.19%) by 1.2 points**, back at the
+old single-head level. The smoothed labels trained beautifully (value val
+loss 0.0054 on their own scale) and lost at the board. Consistent with
+the collaborator's critique: uniformly random opponent racks make the
+rollout value optimistic and blunt the defensive signal; plus 9.6M
+positions vs 163M. Rollouts are not dead, but they need the opponent's
+real rack (or an inferred one) at ply 1 and more positions before they
+get another run.
+
+#### Result: true result, one position per game, file 5 (9/22/26)
+
+`-labeler result -per-game -endgame-plies 2` on file 5: 7.46M games,
+5.46M positions (426k endgame-solved), five epochs, 12.5k steps, wdl head
+off. Value val loss 0.283 (a +-1 target sits near there; the watcher's
+0.095 ceiling refused it, now VAL_MAX). Deployed as
+`macondo-nn-tf-result`. 100k pairs vs HastyBot:
+
+```
+paired win rate 50.98% +/- 0.18   swept 17.2%  lost 15.3%  spread -10.7/game
+```
+
+Worse than everything before it and the worst spread yet: with 5.4M
+positions the true-result target underfits badly. Not a verdict on the
+target, which the collaborator runs at >54% with more games; a verdict on
+5.4M positions. The fresh-games run (27M games, ~20M positions, same
+labeler) is the fair test.
+
+#### Matching the collaborator's objective (9/23/26)
+
+He trains WDL as a 3-logit softmax with cross-entropy and ranks on it;
+our true-result run trained the *value* head, tanh + smooth-L1 on the +-1
+result, with the WDL head off. Smooth-L1 on a +-1 target is not a proper
+scoring rule (it pulls toward the median, overconfident, weaker gradient);
+cross-entropy is. The trainer now has `--primary wdl`: checkpoints and
+`--aux-share` follow the WDL head, and export derives the ONNX `value`
+output as P(win) - P(loss) so Go and the match are unchanged. A WDL
+cross-entropy near 0.47 is the outcome's own entropy, not a bad fit.
+
+Also per his practice: `-per-game` no longer draws endgame positions (the
+bot never consults the net with an empty bag). The fresh cache already
+has them (~8%, quick-search labeled), harmless.
+
+The fresh 27M-game run trains with `--primary wdl --w-wdl 1 --w-value 0
+--aux-share 0.15` (`train-fresh.sh`) once its cache finishes.
+
+#### Fresh games: exact parameters (generated 9/22 23:24 - 9/23 06:32)
+
+Recorded here because the autoplay config file (`~/data/fresh.config.json`)
+only names the bots.
+
+- `bin/shell autoplay -botcode1 RANDOM_BOT_WITH_TEMPERATURE -botcode2 HASTY_BOT
+  -numgames 27000000 -threads 16 -block true -experimentid fresh`, run
+  from `~/data`, binary v0.13.7-35 (branch claude/transformer-valuenet).
+- Player 1, the softmax bot (`ai/bot/bot_player.go`): top 50 moves by
+  static equity, sampled with softmax over equity at temperature 1.0
+  while the bag has more than 60 tiles, greedy (temperature 0) after.
+  Player 2: HastyBot, greedy static best play. Greedy endgames both sides.
+- **Lexicon NWL18**, English distribution: the shell's config
+  (`default-lexicon` in ~/.config/macondo) sets NWL18, so every autoplay
+  match and generation run from this box *this month* has used NWL18.
+  (Correction 9/24: the old logs, including file 5 that every transformer
+  run through heads2 trained on, were generated last year with NWL23.
+  Only this week's matches and the fresh 27M games are NWL18.) The
+  producer replays with NWL23 rules (hardcoded in game_assembler.go) for
+  cross-sets, leave values and the endgame search, so the fresh training
+  features are NWL23 cross-sets on NWL18 positions.
+- 27,000,000 games, 7 h 08 m, ~1,050 games/s; turn log 43 GB
+  (`~/data/fresh.txt`, gzipped after caching), summaries
+  `~/data/games-fresh.txt`, log `~/data/fresh.autoplay.log`.
+- Labeling: `mlproducer -labeler result -per-game -endgame-plies 2`
+  (one turn drawn from 1..30 per game; endgame draws still emitted in this
+  run, quick-search labeled; skipped from now on), cached by
+  `training.py --cache-only` into `fresh-frames.bin`.
+
+#### Lexicon (9/23/26)
+
+Every match this month and the fresh 27M-game generation used **NWL18**:
+the shell's `default-lexicon` was NWL18 and autoplay inherited it silently
+(the saved config had no lexicon field; it now records the resolved one).
+The old logs (file 5 etc.) were NWL23 games from last year, so heads2 and
+every earlier transformer run trained on NWL23 data; only their matches
+were NWL18. The producer has always replayed with NWL23 rules. Switched the shell default
+to NWL23, the deploy script's match passes `-lexicon NWL23`, and the
+generation script passes `-lexicon NWL23`. The 53.19% baseline
+(macondo-nn-tf-heads2) is queued for a re-run under NWL23
+(`rerun-baseline.sh`, experiment tf-heads2-nwl23-v-hasty-pairs) after the
+fresh model's match, so the two are compared under the same lexicon. The
+fresh 27M games are NWL18 and stay in this run as agreed.
+
+#### Result: fresh games, true result, WDL-primary (9/24/26)
+
+27M fresh softmax-vs-Hasty games (NWL18, greedy endgames), one position
+per game (19.79M positions, ~8% empty-bag, quick-search labeled),
+`--primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15`, five epochs,
+47k steps, 11.6 h. Best val_wdl 0.4675; opp_bingo 0.4226 (the 163M-
+position heads2 net: 0.4229). Deployed as `macondo-nn-tf-fresh` v1.
+100k game pairs vs HastyBot **under NWL23**:
+
+```
+paired win rate 53.10% +/- 0.18   swept 19.4%  lost 13.3%  spread -2.6/game
+```
+
+Level with heads2 (53.19% +/- 0.18, measured under NWL18) on an eighth
+of the position count, and every secondary number matches (swept 19.4 vs
+19.4, lost 13.3 vs 13.1, spread -2.6 vs -2.7). So the collaborator's
+recipe works here once it has enough positions; 5.4M was starved, 20M is
+not. The NWL23 re-run of heads2 (tf-heads2-nwl23-v-hasty-pairs) is the
+like-for-like comparison. Next lever: more games (NWL23, no endgame
+draws) and/or the board-shape explorer for diversity.
+
+#### Accurate endgames during generation (9/24/26)
+
+Greedy bots misplay close endgames, so a slice of the true-result labels
+is wrong. Study on 500 logged close endgames (|spread| <= 30 at bag
+empty), reference = 4-ply `Solve` every turn (2.3 s/game):
+
+| endgame play                              | result agrees w/ ref | s/game (mean, median, max) |
+|-------------------------------------------|---------------------:|---------------------------:|
+| greedy (as logged)                        | 87.8%                | 0                          |
+| QuickAndDirtySolve 2-ply, full window     | 95.2%                | 0.31 / 0.12 / 8.65         |
+| QDS 3-ply, first-win (-1,1), 2 s cap      | 94.6% (27 timeouts)  | 0.35                       |
+
+2-ply full window wins on both axes. Built into the bots as autoplay
+options `-quickendgame 2 -quickendgamemargin 20 -quickendgamecap 250`
+(commit 461b0f54): bag empty and |spread| <= 20 -> the move comes from a
+one-thread QDS with a 250 ms cap, otherwise the static player. Smoke,
+4,000 softmax-v-Hasty games on 4 threads (a 12-thread match running):
+340 games/s plain, 148 with the quick endgame, i.e. +15 ms per game.
+
+Queued (`run-nwl23.sh`, after the heads2 NWL23 baseline match): 54M
+NWL23 games in two halves of 27M with the quick endgame, one position
+per game into `nwl23-frames.bin` (~40M rows), three epochs WDL-primary,
+deploy `macondo-nn-tf-nwl23`, 100k-pair match. Expect ~12 h per half of
+generation at 16 threads.
+
+#### Choosing the quick-endgame margin (9/24/26)
+
+5,000 logged endgames with entering |spread| up to 120, each played out
+greedily and with the quick 2-ply search every turn; a "flip" is a
+different game result. Flip rate by entering |spread|: 0-19 12%, 20-39
+7%, 40-59 2.7%, 60-69 0.9%, 70+ 0.2% (stuck-tile cases out to 113).
+Weighted by the real entering-spread distribution of softmax-v-Hasty
+games (21% of endgames start 120+ apart), greedy gets 3.5% of all game
+results wrong; a margin of 20 leaves 1.6%, 40 leaves 0.5%, 60 leaves
+0.11%, 70 leaves 0.05%. Throughput on 4 threads under a 12-thread match:
+plain 340 games/s, margin 20 148, 40 103, 60 76, 70 69, ungated 43.
+A 1-ply quick search is no cheaper in practice (0.18 vs 0.25 s/game) and
+disagrees with 2-ply on 11% of endgames, worse than greedy's 4.4%.
+Chosen: 2-ply, margin 60 (per-band flip rate under 1% beyond it), cap
+250 ms. Expect ~230-300 games/s on 16 threads, i.e. ~1.3 days per 27M
+half.
+
+#### Result: heads2 re-measured under NWL23 (9/24/26)
+
+Same `macondo-nn-tf-heads2` v1 weights (file 5 = NWL23 games, table
+labels, 163M positions), 100k pairs vs HastyBot with `-lexicon NWL23`,
+`games-tf-heads2-nwl23-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.31% +/- 0.18   swept 19.8%  lost 13.2%  spread -2.8/game
+```
+
+vs 53.19% +/- 0.18 under NWL18: the lexicon moved it by a tenth of a
+point, within noise. Like-for-like ladder under NWL23: heads2 53.31%,
+fresh (20M true-result positions, NWL18 games) 53.10%. heads2 is still
+the best model. The NWL23 batch (54M games, quick endgames, margin 60)
+started generating 11:30.
+
+#### Tiny window for the quick endgame (9/24/26)
+
+500 close endgames (|spread| <= 30), every turn played by the search,
+4-ply `Solve` as reference: 2-ply full window and 2-ply first-win
+((-1, 1) root window) gave the *same game result in all 500 games*, both
+94.8% agreement with the reference (greedy 88.4%), at 0.024 s/game vs
+0.262 s/game. The bot now always uses the first-win window (9e66225d).
+Generation smoke on 4 threads under load: plain 176 games/s, margin 60
+tiny 81, ungated 48. Kept margin 60.
+
+Batch restarted 11:48 with the tiny window: **435 games/s on 16
+threads** (plain was ~1,050), so ~17 h per 27M half; both halves plus
+their scans ~40 h, three epochs on ~40M rows ~14 h, match ~3.5 h ->
+result expected late 9/26.
+
+#### Training vs inference vectors: checked (9/26/26)
+
+`TestInferenceVectorsMatchTraining` builds, for every turn of three logged
+games (incl. an exchange), the inference-side vector for the move actually
+played (`game.MLVectorsForMoves`, split out of `MLEvaluateMoves`) and
+compares it with the producer's training vector for that turn. All
+19,196 features agree byte for byte except one: `turnsSinceOppBingo`
+(scalar 67). The producer computed it over its 5-move sliding window, so
+training never saw a value above 3/25 = 0.12, while the bot counts over
+the whole game (up to ~0.5). Every model so far was trained with the
+capped version, including the one in tonight's match. The producer now
+keeps the full move history; the test passes. Small feature, but a real
+train/inference mismatch; future runs get the fixed vectors.
+
+#### Interim: the NWL23 batch at 50k of 100k pairs (9/26/26, 14:42)
+
+54M NWL23 games (halves a 19.3M, b 27M, c 7.7M; softmax-v-Hasty with the
+quick 2-ply endgame, margin 60, tiny window), producer `-labeler result
+-per-game -endgame-plies 2`, cache `nwl23-frames.bin` = 36.4M rows.
+Trained like `fresh`: WDL primary, value head off, aux-share 0.15, 3 epochs
+= 53,000 steps (13.1 h). 100k pairs vs HastyBot, NWL23,
+`games-tf-nwl23-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.04% +/- 0.25   swept 19.3%  lost 13.3%  spread -1.5/game
+```
+
+Final, 100k pairs (16:20):
+
+```
+paired win rate 53.13% +/- 0.18   swept 19.3%  lost 13.1%  spread -1.4/game
+```
+
+Ladder under NWL23: heads2 53.31%, nwl23 53.13%, fresh 53.10%. Doubling the
+true-result games (20M -> 36M positions) and fixing the endgames moved
+nothing. More games of this kind is not the lever.
+
+Note found while reading Scribblez (9/26): the producer already transposes
+half of all games (`shouldTranspose`, by game-ID hash), so every run above
+was transpose-augmented at game level; a per-position flip in the trainer
+would add little.
+
+#### Spatial heads + transpose augmentation on the NWL23 games (started 9/26/26)
+
+From reading Scribblez: four per-square training-only heads on the 225
+square tokens, BCE per square against planes the producer now emits (the
+squares of the opponent's next move, of the mover's next move, and each
+kept only when that player won), plus a per-batch diagonal transpose of
+half the positions (the producer's game-level transpose stays). Same 54M
+NWL23 games, rescanned into `nwl23s-frames.bin` (2,812-byte rows), same
+recipe as `nwl23` otherwise: WDL primary, aux-share 0.15, spatial share
+0.1, 3 epochs. Driver `run-spatial.sh`; match tf-nwl23s-v-hasty-pairs.
+Restarted 14:59 with the transpose OFF (`TRANSPOSE=0`) so the run reads
+the spatial heads alone; `queue-spatial-transpose.sh` then trains
+`nwl23st` (same cache, transpose 0.5) once the nwl23s match is done.
+The rescan took 1 h 40 min (36.4M rows, 2,812 B each, 102 GB). The first
+training attempt died at step ~500 with a cuBLAS internal error and no
+message (the trainer's os._exit(0) swallowed the traceback; fixed): the
+card had 3.70 GiB free against the run's 3.69 GiB peak, the desktop and
+eight loaded Triton models having grown. Unloaded the six finished
+experiment models from Triton (1.2 GB -> 0.5 GB), relaunched 20:35 at
+batch 128 x accum 16 (peak 3.2 GiB, ~5% slower, 2,150 pos/s). Gradient
+pulls at the start: each spatial head pulls 2-3% of the WDL head's trunk
+gradient unweighted, so the balancer sets their weights to ~4 (cap 10)
+for a 0.1 share.
+Baseline for this exact data: nwl23 53.04% +/- 0.25; best model heads2
+53.31%.
+
+#### Queued: sampled openings with clean labels (built 9/26/26)
+
+Why: the temperature bot's sampled moves sit in the future of every
+earlier position's label, so more sampling meant noisier labels; the
+collaborator's random openings put all the randomness before the first
+eligible position. Ours: HastyBot vs HastyBot (greedy, quick 2-ply
+endgames), each game's first K ~ round(Exp(2)) plies drawn from a softmax
+over equity (3 points, top 50), then greedy; the producer starts the
+eligible turns at K. Smoke on 2,000 games: K mean 2.02 (21% zero, max 16),
+sampled first moves average 2.3 equity points below the greedy choice,
+4.6% of sampled plies are exchanges. `run-openings.sh` (27M games, TAG
+open) with spatial heads, transpose off; `queue-openings.sh` generates once
+the nwl23s match is over and trains after the nwl23st match. Compare with
+fresh 53.10% (27M temperature games, no spatial heads) and nwl23s.
+
+#### RESULT: spatial heads, +4 points (9/27/26, interim at 64k pairs)
+
+`nwl23s` (spatial heads on, transpose off, same 36.4M rows and recipe as
+`nwl23`), match `games-tf-nwl23s-v-hasty-pairs.txt`:
+
+```
+64k of 100k pairs: paired win rate 57.17% +/- 0.22  swept 24.5%  lost 10.2%  spread +1.4/game
+```
+
+vs nwl23 53.13% +/- 0.18 on identical data. Best val_wdl 0.4993 vs 0.5004.
+HastyBot's own mean score fell 434.2 -> 426.7 and its bingo rate 2.018 ->
+1.968 per game: the bot got defensive, not luckier. Verified: match env
+names the model, Triton READY, parity passed, first-mover rate 0.556 as
+always, and HastyBot plays byte-identical seeded games under the rebuilt
+shell (600 games vs the 0986c24f binary). Archived with reproduction notes
+at ~/data/results/nwl23s-spatial-heads/ (REPRO.md, model, checkpoints,
+logs, MD5SUMS; REPRO.md to be committed when this batch of experiments
+is done); the run's code is commit 10710e5b. A
+replication match (fresh seed, seats reversed, 20k pairs) runs after the
+main one (`finalize-nwl23s.sh`); final numbers go to RESULTS.md there.
+
+Final (9/27): main match 57.17% +/- 0.18 over 100k pairs; replication
+(fresh seed 20260927, HastyBot in seat 1, 20k pairs) 57.13% +/- 0.40.
+
+![](loss_tf_nwl23s.png)
+
+The curves: validation WDL cross-entropy tracks nwl23 for the first 20k
+steps and then pulls ahead by 0.001; train and validation stay together
+(no memorization over 3 passes); the spatial heads plateau by 20k steps at
+0.063/0.074 per square for the next-move planes and 0.038/0.043 for the
+win conjunctions; their balanced weights fall from ~4 at the start to
+~1 as the trunk starts representing what they ask for.
+
+#### Where the net departs from equity, adjudicated by the 5-ply sim (9/27/26)
+
+`cmd/mlreads` replays a match log and records every FastMlBot turn whose
+play differs from HastyBot's top static-equity play (20,000 games of the
+nwl23s match: 165,593 disagreements, 36% of the net's turns). In contested
+positions (15-75 in the bag, |diff| <= 40) the net wins 64% of those games,
+70% when it deviates by 10+ equity points. `pytorch/reads_gallery.py`
+scores the candidates with the ONNX on the CPU, sims the two plays with
+`sim -plies 5 -stop 99` over the top 40, and builds the gallery
+(https://claude.ai/artifact/1dy3cwMCdmcMwdYU2N5mSD; files in the archive's
+reads/).
+
+Random sample of 38 contested disagreements (gap >= 2): head to head the
+sim ranks the net's play above the equity play 15 times, below 8, too close
+15; in 9 a third play beat both. The 35 largest-gap disagreements (gap 18-34):
+mostly declined bingos and big scores, and the sim sides with equity in
+~19, with the net in ~4. Two findings for the next model: (1) the net's
+boldest deviations, declining bingos in contested midgames, are usually
+wrong; (2) in decided games (|diff| ~200+) the value head saturates at
++/-0.999 for every candidate and its ranking is noise (it walked past a
+176-point VORTICES), which costs spread and could be fixed at play time by
+breaking near-saturated ties on the exported spread head.
+
+#### Decided-game ranking rule (9/27/26, queued match)
+
+Checked on the dumped positions: the logit margin (z_win - z_loss) ranks
+them the same as the saturated value, so the net's tail ordering is
+genuinely wrong, not a precision artifact. Its spread head still resolves
+them: ranking by post-move spread + 130*atanh(spread_out) picks the 176-
+and 167-point bingos and the 158-point one in all three dumped positions.
+`ai/bot/mlrank.go` (d1784d92): when the best candidate's |value| >= 0.97,
+the candidates within 0.01 of it are ranked by expected final spread;
+otherwise by value as before. The game's Triton client now requests the
+spread output whenever the model has it (it defaulted to value only, so
+the bot never saw the spread head). Validation: `queue-decided-match.sh`
+plays nwl23s with the rule, 100k pairs vs HastyBot, after the nwl23st
+match; compare with 57.17% +/- 0.18 and spread +1.2/game.
+
+#### Streamed training replaces the frame cache (9/27/26, queued)
+
+The cache only existed for multi-epoch reuse and shuffling; the producer
+streams ~6,000 rows/s against the GPU's ~2,150, so `run-stream.sh` pipes
+PASSES consecutive scans of the gzipped logs into one trainer instead. Each
+scan draws a fresh turn per game, so 6 passes = 6 distinct positions per
+game (~218M row-views, none repeated) at the K=2 cache's step count (106k)
+with no disk; validation is a held-out 5% of games (`-holdout-mod 20`) scanned
+once from nwl23c into `val-stream.bin`, so held-out games never reach
+training. Verified on a 17k-game slice: split 864/16,534 games, two passes
+gave 11,106 and 11,198 rows with 3.4% identical (the same turn drawn
+twice), and a streamed CPU run trained with validation from the file.
+`queue-stream.sh` runs TAG=stream (spatial heads, transpose off, 6 passes)
+after the openings run; compare with nwl23s 57.17% (3 passes over 36M
+cached rows). Producer `-picks K` also exists (9464dc88) but the cache it
+would need (205 GB for K=2) is why streaming won.
+
+#### Results: transpose, decided-game rule (9/28/26)
+
+Both 100k pairs vs HastyBot, NWL23, both played with the rebuilt shell
+(decided-game rule on):
+
+```
+nwl23st (spatial heads + transpose 0.5): 57.30% +/- 0.18  swept 24.7%  lost 10.2%  spread +9.1/game
+nwl23s  (spatial heads, decided rule):   57.00% +/- 0.18  swept 24.1%  lost 10.3%  spread +8.5/game
+nwl23s  (spatial heads, old bot, 9/27):  57.17% +/- 0.18  swept 24.4%  lost 10.2%  spread +1.2/game
+```
+
+The decided-game rule: win rate unchanged (-0.17 +/- 0.25), spread per
+game +7.3. It does what it was meant to: the dumps in decided games become
+the big plays. Per-batch transposition on top of the producer's game-level
+transpose: +0.30 +/- 0.25 over the same rule, not significant; val_wdl
+0.4992 vs 0.4993. Dropped from the recipe.
+
+#### Streamed run, first attempt failed (9/28/26)
+
+All three queues released together when the nwl23st match ended (the
+decided match had not started yet when the others polled), so the stream
+run, the decided match and the openings scan overlapped. The stream
+trainer then died at 11:45 at the a->b log boundary: the concatenated
+logs carry a header row per file, the producer parsed the second header
+as a turn ("rack" -> blank letters -> index 146 of 27) and panicked
+mid-frame, the trainer read a desynchronized stream and aborted, and its
+orphaned loader workers kept the pipe open so the remaining producers
+hung. The openings training ran alone on the GPU after 12:52. Fixes: the
+scanner skips header rows inside a stream, the trainer stops loudly on a
+bad frame length and terminates its loader workers on exit, run-stream.sh
+kills the trainer if a producer fails.
+
+#### Openings at full scale, streamed (queued 9/28/26 19:45)
+
+The `open` model trained on 17.9M positions (one per game from 27M
+openings games, eligible from the last sampled ply) for 25k steps, half
+the positions and steps of nwl23s, so its match is handicapped. For a
+single-variable test: `queue-stream-open.sh` generates a second 27M
+openings batch (`open2`, same parameters) on the CPU now, then after the
+`stream` run's match streams all 54M openings games for the same six
+passes / 106k steps as `stream`. `stream` vs `streamopen` then differ
+only in how the games were generated. Deleted the finished, rebuildable
+caches nwl23s-frames.bin (96 GB) and open-frames.bin (51 GB). The run
+ledger is `pytorch/RUNS.md`.
+
+#### Result: open (sampled openings, cached, 9/28/26 23:15)
+
+`open`: 17.9M positions from 27M sampled-openings games (eligible from the
+last sampled ply), 3 epochs = 25k steps, spatial heads, transpose off:
+
+```
+paired win rate 56.07% +/- 0.18   swept 22.9%  lost 10.9%  spread +7.2/game
+```
+
+About a point below the spatial models on the temperature games (57.0-57.3
+with the same bot), but on half the positions and half the steps, so not
+a verdict on the scheme; `streamopen` (54M openings games, 6 passes,
+106k steps) vs `stream` (54M temperature games, same) is the fair test.
+Its own validation loss is not comparable to nwl23s's: different held-out
+distributions.
+
+The stream run then sat idle from 23:15: its GPU guard waited for any
+`bin/shell autoplay`, and the open2 generation (HastyBot vs HastyBot, CPU
+only) matched it. Guards now wait only for matches (`autoplay.*FAST_ML_BOT`);
+the stalled launcher was killed and run-stream.sh relaunched at 23:50,
+concurrent with the open2 generation (8 threads, no GPU).
+
+#### Speed probe for the next streamed run (9/29/26 08:10)
+
+The 3070 Ti is the bottleneck of the stream run (100% busy, 263 W of 310,
+~1 step/s = 2,100 pos/s; the producer alone does ~6,000 rows/s). Peak GPU
+memory at batch 128 is 3.24 GiB and the old batch-256 runs (heads2) peaked
+at 3.69 GiB, so most of it is not activations; batch 256 x 8 fits now that
+no Triton models sit on the card (the earlier 256 crash was with them
+loaded). Added `--compile` (torch.compile of the model; checkpoints and the
+gradient diagnostic still use the plain module, verified on a CPU smoke)
+and a probe in run-stream.sh: 120 steps of each of 128x16, 256x8, 256x8
+--compile on the validation cache, steady rate from the second 60 steps
+(excludes compile time), fastest wins. Effective batch stays 2048, so the
+recipe is unchanged. First use: streamopen, after the stream match.
+
+#### Result: stream (streamed, 6 passes, 101k steps, 9/30/26 07:05)
+
+`stream`: the 54M NWL23 temperature games streamed six times with a fresh
+turn per game per pass, no cache, 101k steps (28.0 h at 2,054 pos/s),
+spatial heads, transpose off, decided-game rule in the bot:
+
+```
+paired win rate 57.55% +/- 0.18   swept 24.8%  lost 9.9%  spread +9.3/game
+```
+
+Best held-out WDL loss 0.50033 (step 98,500), still inching down at the end.
+Against the 53k-step cached models under the same bot: nwl23s + decided rule
+57.00 +/- 0.18 (+8.5), nwl23st 57.30 +/- 0.18 (+9.1). So +0.55 +/- 0.25 over
+the like-for-like nwl23s (2.2 SE), +0.4 +/- 0.2 over the two pooled: a small
+real-looking gain from twice the steps on fresh positions, and the best
+model so far. The streamed flow is validated: no cache, no loss.
+
+#### streamopen started (9/30/26 07:15); first use of the speed probe
+
+Held-out scan of open2: 892,650 frames (150k used). Probe on the 3070 Ti,
+steady rate over 60 steps:
+
+```
+batch 128 x 16             2,208 pos/s   peak 3.24 GiB
+batch 256 x 8              2,315 pos/s   peak 3.67 GiB
+batch 256 x 8 --compile    2,765 pos/s   peak 3.59 GiB   <- picked
+```
+
+In the run itself 2,566 pos/s including validations, 1.25x the stream
+run's 2,054: 101k steps in ~22.4 h instead of 28. Pass 1 scanned at 10:56.
+
+#### Would 100 candidates help? Rank histogram and a queued match (9/30/26)
+
+FastMlBot ranks HastyBot's top 50 plays. `bin/mlreads -ranks` (new) replays
+a match log and records the static-equity rank of every play the net chose
+with tiles in the bag. Whole `stream` match, 2,066,249 ML turns (10.3 per
+game):
+
+```
+rank 1      62.93%          rank 11-20  2.56%  (0.256% per rank)
+rank 2-5    27.89%          rank 21-30  0.95%  (0.095%)
+rank 6-10    4.77%          rank 31-40  0.53%  (0.053%)
+                            rank 41-50  0.36%  (0.036%; 0.031% at rank 50)
+```
+
+The tail is heavy (per-rank density falls roughly as rank^-1.6 past 20,
+not geometrically), so the cut at 50 does bind: extrapolating, the net
+would pick from ranks 51-100 in ~0.7-1.0% of turns, i.e. about one changed
+move per ten games. If such a move is worth 1-3 points of win probability,
+that is +0.1 to +0.3 in the match: at or under what one 100k-pair match
+resolves (the difference of two matches has SE 0.25).
+
+Cost: the match is GPU-bound (16.5 games/s = 8,500 positions/s through one
+TensorRT instance; HastyBot alone plays 340+ games/s), and at a cap of 100
+the bot sends 99.8 candidates per turn instead of 50.0, so a 100k-pair
+match takes ~6.7 h instead of 3.4. The engine takes batches up to 128, so
+100 still goes in one request.
+
+Code: `MACONDO_ML_TOPN` (default 50) sets the candidate count
+(ai/bot/mlrank.go); requests above 128 are split (game/mlhelper.go).
+Queued: `queue-top100.sh`, after the streamopen match, top 100 on whichever
+of stream/streamopen scored higher at 50.
+
+mlreads also leaked a whole replay per game (40 GB at 40k games: the kernel
+OOM-killed it at 11:41; the training run was not touched). Replays are now
+dropped when a half ends (265 MB flat); run analysis jobs under `ulimit -v`
+while a training is up.
+
+#### Result: streamopen (10/1/26 08:42); end of the batch
+
+`streamopen`: 54M sampled-openings games (open + open2), streamed six
+times, batch 256 x 8 with --compile (2,567 pos/s, 22.1 h; the six passes
+gave 34.0M rows each, so the run ended at ~99,600 of 101,000 steps with the
+learning rate at ~0):
+
+```
+paired win rate 57.65% +/- 0.18   swept 25.0%  lost 9.8%  spread +9.5/game
+```
+
+Against `stream` (57.55 +/- 0.18, +9.3) on the temperature games: +0.10 +/-
+0.25. The opening scheme makes no measurable difference at this scale;
+clean labels and noisy-but-diverse games end in the same place. Either set
+of games will do; the openings generation is a little cheaper (HastyBot on
+both sides) and keeps every label clean.
+
+The batch, same bot throughout (top 50, decided-game rule):
+
+```
+nwl23s      cached, 53k steps            57.00 +/- 0.18   +8.5
+nwl23st     + per-batch transpose        57.30 +/- 0.18   +9.1
+open        openings, half data, 25k     56.07 +/- 0.18   +7.2
+stream      streamed, 101k steps         57.55 +/- 0.18   +9.3
+streamopen  openings, streamed, 100k     57.65 +/- 0.18   +9.5
+```
+
+Reproduction notes committed: `pytorch/results/nwl23s-spatial-heads/` and
+`pytorch/results/streamed/`. Archive of stream/streamopen:
+`~/data/results/streamed-stream-streamopen`.
+
+The top-100 match started 08:44 on streamopen (the higher of the two);
+8.9 games/s against 16.5 at 50 candidates, i.e. 1.86x slower, ~6.3 h.
+
+#### Ising board-shape model: the fit (10/1/26)
+
+First step of the explorer idea (Witteveen & Bauer, arXiv 2605.00813:
+pairwise maximum-entropy model of board occupancy; spins = squares, +1 a
+tile; E = -sum W_ij s_i s_j - sum h_i s_i on connected patterns).
+`pytorch/ising_fit.py` fits it by pseudolikelihood restricted, as in the
+paper, to squares whose flip keeps the tiles connected (an empty square
+next to a tile, or a tile that is not an articulation point). Unlike the
+paper (final boards) the boards are mid-game positions from the held-out
+frame caches, fitted per band of tiles on the board: `temp` = 260k
+positions of the temperature games, `open` = 893k of the sampled-openings
+games; up to 50k boards per band, 10% held out. Parameters in
+`~/data/ising/{temp,open}.npz`, numbers in `summary.json`, log `fit.log`.
+
+Held-out log p per flippable square (temp; open is within 0.01 except the
+first band):
+
+```
+tiles    pairwise  independent      W horiz/vert   W diagonal / anti   W far (|.|)
+ 1-15    -0.195     -0.371          +0.4 / +0.33      -0.18 / -0.14       0.06
+16-30    -0.278     -0.456          +0.47 / +0.45     -0.20 / -0.13       0.07
+31-45    -0.323     -0.493          +0.43 / +0.43     -0.19 / -0.12       0.04
+46-60    -0.359     -0.523          +0.39 / +0.40     -0.17 / -0.10       0.03
+61-75    -0.387     -0.551          +0.35 / +0.37     -0.16 / -0.09       0.02
+76+      -0.412     -0.573          +0.32 / +0.34     -0.15 / -0.09       0.02
+```
+
+The fit is sane and matches the paper's picture: neighbours along a row or
+column attract, diagonal neighbours repel (parallel plays are hard), far
+squares barely interact; the fields rank TW > DW > TL > DL > plain late in
+the game. The train/held-out gap is ~0.01.
+
+The two generation schemes make the same boards. Shape statistics per band
+agree to the third digit from 16 tiles on (words, word length, perimeter
+and frontier per tile, radius of gyration), and each set's model explains
+the other's held-out boards as well as its own to within 0.001-0.003 nats
+per square. Only the first band differs: openings boards are more varied
+(-0.224 vs -0.195 under their own models; 3.27 vs 2.88 words at 9.5 vs 8.8
+tiles), the T=3 sampling of the first plies, and it has washed out by 30
+tiles. That is the shape-space version of the match result (57.65 vs 57.55):
+neither scheme moves the board-shape distribution, so an explorer that does
+is testing something new.
+
+Not done yet: sampling from the fitted model (constrained Metropolis) to
+check that it reproduces means, pair and triplet correlations and the
+shape statistics; an entropy estimate; a human-game comparison. The
+sampler belongs with the Go energy code the explorer bot needs anyway.
+
+#### Sim benchmark: where does the ML bot stand against Monte Carlo sims? (10/1/26)
+
+`pytorch/queue-simbench.sh`: SIMMING_BOT_NO_EG (100 candidates, Stop99,
+static play once the bag is empty; no pre-endgame or endgame solver) at 2
+and then 3 plies vs HastyBot, NWL23, 500 game pairs each, single-threaded
+sims (required for pairs), outputs in `~/data/simbench`. The bot sims
+`unseen` plies (9..14) when the bag holds 2..7 tiles at every setting;
+`-minsimplies` only sets the depth before that. Reference: FastMlBot
+streamopen 57.65% +/- 0.18 vs HastyBot. With 500 pairs the standard error
+is about 2.5 points, so this places the sims roughly, not to a point.
+
+Pilot, 2-ply, 20 pairs on 10 game threads: 40 games in 14 min 36 s wall,
+97 CPU-minutes, i.e. 146 CPU-seconds per game (~10 s per simmed move, 404
+sims of which 31 were the 9-14-ply late ones); ~4.5 h for 500 pairs at 2
+plies. Started 12:17 beside the top-100 match (CPU only).
+
+#### Correction: the "+/-" on every paired result is a 95% interval, not a standard error (10/1/26)
+
+`pairs-stats.py` prints 1.96 x SE. Entries above (and RUNS.md until today)
+called it the standard error and judged differences against it, which
+understated every significance by a factor of two. A 100k-pair match has
+SE 0.09, the difference of two such matches SE 0.13. Re-read:
+
+```
+stream     - nwl23s (decided rule)   +0.55   4.2 SE   real (was "2.2 SE")
+nwl23st    - nwl23s (decided rule)   +0.30   2.3 SE   p ~ 0.02 (was "not significant, dropped")
+streamopen - stream                  +0.10   0.8 SE   no difference (unchanged)
+decided rule on nwl23s               -0.17   1.3 SE   win-neutral (unchanged)
+```
+
+So per-batch transposition probably does help a little (+0.3), and the
+streamed runs, which had it off, could be rerun with it on. pairs-stats.py
+now says what its interval is, prints the SE, and pools several files.
+
+Sim benchmark, same day: the 2-ply match was extended from 500 to 1,250
+pairs (a second run of 750, pooled), then 3-ply at 1,250; expected 95%
+interval about +/- 1.6 points (SE 0.8).
+
+#### Sim benchmark restarted with N-ply meaning N plies throughout (10/1/26 12:52)
+
+The stock simming bot sims `unseen` plies (9..14) once the bag is down to
+2..7 tiles, and a no-endgame bot plays statically with one tile in the
+bag, so "2-ply" was 2-ply only in the midgame. New per-player autoplay
+option `fixedSimPlies` (`-fixedsimplies1/2`, proto field 16;
+`simPliesFor` in ai/bot/elite.go): when positive every sim is exactly that
+deep while tiles are in the bag, including the one-tile position for a
+bot without a pre-endgame solver. Empty bag: static play, as before.
+
+Pilot (6 pairs, fixed 2-ply): depth 2 at every stage (114 midgame sims, 8
+with 2-7 tiles in the bag, 2 with one tile; 18 static moves on an empty
+bag); 111 CPU-seconds per game against 146 with the deep late sims.
+
+The earlier variable-depth runs were stopped and moved to
+`~/data/simbench/variable-late/` (the 500-pair 2-ply match had played only
+a few pairs). Running: fixed 2-ply, 1,250 pairs, then fixed 3-ply, 1,250
+pairs (`queue-simbench.sh`).
+
+#### Result: top 100 candidates (10/1/26 15:14)
+
+streamopen ranking HastyBot's top 100 plays instead of 50, 100k pairs:
+
+```
+paired win rate 57.64% +/- 0.18 (95%)   swept 25.1%  lost 9.9%  spread +9.0/game
+```
+
+Against 57.65 / +9.5 at 50 candidates: no gain (-0.01, SE 0.13), in 6.5 h
+instead of 3.4. The cut at 50 costs nothing measurable; keep 50.
+
+#### Result: fixed 2-ply sim vs HastyBot (10/1/26 20:20)
+
+SIMMING_BOT_NO_EG, fixedSimPlies 2, 1,250 pairs, NWL23:
+
+```
+paired win rate 58.62% +/- 1.61 (95%; SE 0.82)   swept 27.0%  lost 9.7%  spread +9.5/game
+```
+
+FastMlBot (streamopen) against the same opponent: 57.65% +/- 0.18, spread
++9.5. Difference +0.97, SE 0.83 (1.2 SE): the net is level with a 2-ply
+sim of 100 candidates, at a few ms per move against ~8 s. 7.5 h on 10
+threads. Fixed 3-ply started 20:20 on 14 threads (1.6 pairs/min, ~09:20
+Oct 2).
+
+#### Result: fixed 3-ply sim vs HastyBot (10/2/26 08:31)
+
+```
+paired win rate 60.10% +/- 1.61 (95%; SE 0.82)   swept 28.8%  lost 8.7%  spread +11.1/game
+```
+
+Against HastyBot: ML bot 57.65, 2-ply 58.62, 3-ply 60.10. 3-ply is 2.45
+above the net (SE 0.83, 3 SE). 12.2 h on 14 threads. Head-to-head
+FastMlBot vs fixed 2-ply started 08:33.
+
+#### Result: FastMlBot vs fixed 2-ply sim, head to head (10/2/26 14:51)
+
+streamopen (top 50, decided-game rule) vs SIMMING_BOT_NO_EG fixedSimPlies 2,
+1,250 pairs, NWL23:
+
+```
+FastMlBot paired win rate 49.04% +/- 1.56 (95%; SE 0.80)   swept 14.9%  lost 16.6%  spread -0.8/game
+```
+
+Even (1.2 SE from 50%), consistent with the two being level against
+HastyBot (57.65 vs 58.62). Fixed 4-ply vs HastyBot started 14:52 (~60
+pairs/h on 14 threads, done ~12:00 Oct 3).
+
+#### Inference speed: model alone vs in a match (10/2/26)
+
+The served TensorRT engine (streamopen, fp16), timed alone on the idle
+3070 Ti, back-to-back batches, random inputs:
+
+```
+batch  50   3.81 ms   13,123 positions/s
+batch 100   6.98 ms   14,325 positions/s
+batch 128   8.65 ms   14,805 positions/s
+```
+
+In the 100k-pair matches the same engine delivered ~8,500 positions/s end
+to end (~5.8 ms per 50-candidate request, GPU ~80% busy). So ~2 ms per
+request goes to the serving path, not the model: building 50 feature
+vectors on the CPU, sending 77 KB of fp32 per position over gRPC to
+Triton, and the gaps between requests. An earlier note here called the
+match "GPU-bound"; it is serving-bound. A collaborator's Metal port on an
+M5 Max reports ~13,000/s, the same as this engine alone at batch 50.
+
+#### Serving path: zero-copy request bytes and reused feature buffers (10/2/26)
+
+triton/client.go sends the float slices as bytes without the per-request
+copy (was 1.94 ms and 3.8 MB per 50-candidate request); MLEvaluateMoves
+reuses per-game feature buffers instead of allocating 3.9 MB per request.
+Same seeded 1,500 pairs, old vs new shell: game results byte-identical;
+15.8 vs 16.2 games/s (+2.5%). With 24 game threads instead of 12 also
+16.3 games/s, the game process used 1.6 cores, and the GPU sat at 80-86%:
+the client was never the limit. The ceiling is inside Triton: at 84%
+busy the GPU delivers ~8,300 positions/s, i.e. ~9,900 at 100%, against
+13,100 for the engine alone, so each request costs ~1.2 ms more inside
+Triton (copying 3.8 MB of fp32 input to the card, launches, output copy)
+with one instance doing it serially. Next levers: smaller inputs (bytes
+or packed bits), two instances to overlap copy and compute, dynamic
+batching.
+
+#### The two Magpie handoff models head to head (10/3/26 08:02)
+
+New per-player option `tritonModel` (`-tritonmodel1/2`, proto field 17):
+a bot's ML evaluation queries its own Triton model, so two nets can play
+each other. Pilot (20 pairs): each model served its own side (430 and 428
+requests). Running: streamopen (57.65% vs Hasty) vs nwl23s (57.17%), 100k
+pairs, `queue-ml-v-ml.sh`, ~11 games/s, done ~13:00.
+
+#### Results: 4-ply sim, and streamopen vs nwl23s head to head (10/3/26)
+
+Fixed 4-ply SIMMING_BOT_NO_EG vs HastyBot, 1,250 pairs:
+
+```
+paired win rate 60.04% +/- 1.58 (95%; SE 0.81)   swept 28.1%  lost 8.2%  spread +10.3/game
+```
+
+Level with 3-ply (60.10): past 3 plies the sim gains nothing measurable
+against HastyBot. The ladder vs HastyBot: ML bot 57.65, 2-ply 58.62,
+3-ply 60.10, 4-ply 60.04.
+
+streamopen vs nwl23s, both FastMlBot (top 50, decided rule), 100k pairs:
+
+```
+streamopen paired win rate 50.56% +/- 0.16 (95%; SE 0.08)   swept 14.6%  lost 13.5%  spread +0.5/game
+```
+
+streamopen is stronger by 0.56 (7 SE), the same gap the two showed
+against HastyBot (57.65 vs 57.17); head to head and via a common opponent
+agree.
+
+#### Ising energy as a Bogowin feature (10/4/26)
+
+Collaborator feedback on the explorer: (1) parameters smooth in tiles on
+board instead of independent bands (agreed; they are not monotone, so a
+spline, not a monotone constraint); (2) energy is two-sided, sample both
+tails; (3) test whether energy improves a Bogowin-style win probability.
+
+(3), `pytorch/ising_bogowin.py` + a smooth logistic check, on the held-out
+caches (temp 259k, open 891k positions; board after the move, mover's
+true result). Energy is ranked within boards of the same tile count.
+
+- Energy predicts variance, not the mean: high-energy boards have a
+  flatter spread slope in every bag band, both data sets (e.g. 8-14
+  unseen: 4.84 low-E vs 4.48 high-E per 100 points; 71-93: 1.80 vs 1.65),
+  and less extreme tails (where the table says <15%: low-E 5.4% actual,
+  high-E 6.6%; >85%: 94.5% vs 93.8%). Mean shift by tercile < 0.3 pts.
+- Splitting the table cells by tercile makes held-out log loss worse
+  (+0.0015 / +0.0004): the split costs more estimation noise than the
+  signal is worth. As one smooth slope term in a logistic model it helps,
+  significantly but by little: -0.00008 (SE 0.00004) and -0.00010 (SE
+  0.00002). The effect is strongest near the end of the bag.
+
+So the collaborator's variance hypothesis holds, at about 0.5-1 point of
+win probability in the tails. Worth one slope term in a sim's leaf win%,
+not a table dimension; the net already sees the board.
+
+#### Null test for the energy effect (10/4/26)
+
+Collaborator's check: would random but smooth parameters give the same
+bump? `pytorch/ising_null.py` scores the real energy against 10 controls
+with the fitted values on randomly permuted squares (geometry destroyed)
+and 10 with random Gaussian fields and couplings of the same scale, the
+same in every tile band (smooth). Same ranking within tile count, same
+statistics, same held-out split (`~/data/ising/null.log`):
+
+```
+                      lower-tail gap    upper-tail gap    slope hi/lo - 1    log-loss change
+temp   real           +0.0159           +0.0119           -0.073             -0.000080
+       controls (20)  +0.000 sd 0.005   +0.000 sd 0.004   +0.000 sd 0.013    +0.00002 sd 0.00002
+open   real           +0.0152           +0.0070           -0.069             -0.000103
+       controls (20)  +0.000 sd 0.003   +0.000 sd 0.003   -0.003 sd 0.007    +0.00001 sd 0.00001
+```
+
+All 40 controls are less extreme than the real energy on every statistic;
+the real effect is 3-9 control SDs out. Random parameters add nothing (the
+log-loss change of the five extra terms is ~0 or slightly worse). The
+effect is the fitted board geometry, not extra parameters.
+
+#### Board energy in play: two tests (10/4/26)
+
+Collaborator's next steps: (1) energy in the sim's end-of-line win
+probability; (2) energy-chosen candidates for the net to evaluate (reading
+2: play-time candidates, no retraining).
+
+Code: `boardenergy` (Go Ising model, parity with Python; ΔE of a play;
+LeafWin model fitted by `pytorch/ising_leafwin.py` on our NWL23 games,
+on-turn convention, 8..93 unseen, table outside). Bot switches:
+`MACONDO_ML_ENERGY_EXTRA=k`; `MACONDO_SIM_LEAFWIN` / per player
+`-simleafwin1/2` = table | base | energy (proto field 18).
+
+(2) Pilot 300 pairs, k=10: same speed; the net picked an extra in 7 of
+6,187 moves (0.11%). 100k-pair match running since 18:16
+(`queue-ml-energy.sh`).
+
+(1) Pilot, same 12 seeded pairs, fixed 2-ply sim vs Hasty: a rerun with
+the table replays exactly (0 of 287 decisions differ); fitted model vs
+table changes 13 of 184 decisions; energy vs fitted model 10 of 193 (5%).
+No measurable cost. Queued: 2-ply energy vs 2-ply base head to head, 2,500
+pairs (`queue-leafwin.sh`), after the 5- and 6-ply benchmark.
+
+#### Result: energy-chosen extra candidates (10/4/26 22:59)
+
+streamopen, top 50 + 10 lowest-ΔE + 10 highest-ΔE plays from outside the
+top 50, 100k pairs vs HastyBot:
+
+```
+paired win rate 57.44% +/- 0.18 (95%; SE 0.09)   swept 24.8%  lost 10.0%  spread +9.2/game
+```
+
+-0.21 against top 50 alone (57.65; SE of the difference 0.13, 1.6 SE): no
+gain, perhaps a small loss. The extras have no equity floor and lean to
+long plays (ΔE grows with tiles placed); the net took one in ~0.1% of
+moves. A fairer version would draw the extremes from plausible plays only
+(top ~200 or within ~20 points of the best) ranked by ΔE per tile.
+
+#### Sim distillation: pilot (10/5/26)
+
+Plan and runbook: `pytorch/plan-sim-distill.md`; tools `cmd/simlabel`
+(select, sim, check, frames) and `training.py --init-ckpt --sim-groups`.
+Pilot: 558 held-out positions from the first 20k games of open2, fixed
+5-ply sim of the top 50 (Stop99, no inference): 1 h 21 min on 6 threads
+beside the 6-ply match, 54.5 CPU-seconds per position. 27 decided
+positions (sim win span < 0.5 pt). On the 531 contested ones:
+
+```
+                         pick = sim's pick    sim win% given up per move
+HastyBot (static eq)     64.2%                1.11
+streamopen (the net)     70.8%                0.46
+```
+
+The net is already much closer to the 5-ply sim than static equity is;
+what is left to distill is ~0.46 points of sim win% per move (part of it
+the sim's own noise). Positions for the big run: 1,320,078 training and
+68,932 held out (4% of open + open2), positions-train.jsonl.gz 128 MB.
+
+#### Result: fixed 6-ply sim vs HastyBot (10/6/26 21:47)
+
+```
+paired win rate 62.32% +/- 1.62 (95%; SE 0.83)   swept 32.3%  lost 7.8%  spread +11.1/game
+```
+
+The ladder vs HastyBot (1,250 pairs each, no endgame solver, N plies all
+game): 2-ply 58.62, 3-ply 60.10, 4-ply 60.04, 5-ply 62.80, 6-ply 62.32;
+FastMlBot (streamopen) 57.65 at a few ms a move. Gains come at 2->3 and
+4->5; 6 adds nothing over 5. The 2-ply energy vs base head to head
+started 21:48 (~80 pairs/h, ~31 h).
+
+#### Result: board energy at the end of sim lines (10/7/26 23:42)
+
+Fixed 2-ply SIMMING_BOT_NO_EG scoring line ends with the fitted logistic
+model plus the energy terms (player 1) vs the same model without them,
+2,500 pairs, NWL23:
+
+```
+energy side: paired win rate 49.85% +/- 0.88 (95%; SE 0.45)   swept 9.8%  lost 10.1%  spread -0.7/game
+```
+
+No effect: |difference| < ~0.9 points at 95%. The two bots chose
+differently somewhere in 1,895 of the 2,500 pairs (76%), so it was not for
+lack of different decisions: the energy terms move the sim's choices but
+not the results. The calibration gain at the tails is real (null test) but
+too small to change play. Closes (1) of the collaborator's list; (2),
+energy-chosen candidates for the net, was also flat (57.44 vs 57.65).
+
+#### Result: base (NWL23-fitted line-end model) vs table, 2-ply sim (10/9/26 02:41)
+
+```
+base side: paired win rate 50.79% +/- 0.84 (95%; SE 0.43)   swept 9.9%  lost 8.3%  spread +0.9/game
+```
+
++0.79 for the refit, 1.8 SE (p ~ 0.07): suggestive, not conclusive.
+
+#### Early sim-distillation fine-tune (simft, 10/9/26)
+
+506,399 labels copied from deb192 at 02:43 (all from the `open` half, which
+deb192 labels first); 485,217 contested groups (21,179 decided skipped),
+64 GB; held out: the 531 contested pilot groups. Fine-tune of streamopen,
+10,000 steps, 128 x 16, 2 groups per micro-batch (320k groups seen), LR
+1e-4, warmup 500, SE-aware teacher (tau 2): 4 h 51 min (1,182 pos/s).
+
+Held-out ranking barely moved: net pick = sim pick 67.6% at step 0 ->
+69.1% at the end (+/- ~2 on 531 positions), sim win given up 0.51 -> 0.56
+pts; ranking loss 2.894 -> 2.773. On training groups agreement went 67-69%
+-> 69-70%. The net hardly learned the sim's ordering at this weight and
+length. Val WDL 0.4921 -> 0.4906 (more training on streamopen's data).
+
+#### Why simft barely moved, and try 2 (10/9/26)
+
+Gradient check (CPU, 1,024 positions and 64 groups): the ranking loss's
+trunk gradient was ~40x the WDL loss's at tau 2 (120x at tau 1), so it was
+not too weak; with grad clip 1.0 the steps were mostly ranking, scaled
+down. On the 531 held-out groups the ranking cross-entropy splits into the
+target's own entropy (2.606, irreducible) plus KL: KL fell 0.282 -> 0.157,
+so the net did move toward the sim's distribution, but at tau 2 that
+distribution is diffuse and matching it flattened the net (its probability
+on the sim's best fell 32.8% -> 28.1%) instead of sharpening its top pick.
+Label noise caps top-1 agreement too: the sim's best and runner-up are
+within 1 SE in 25% of positions and within 2 SE in 43%.
+
+Try 2 (`queue-simft2.sh`, after the simft match): the same 485k groups,
+`--rank-share 1` (new: the ranking weight is set so its trunk gradient
+equals the WDL head's, re-measured every 500 steps; about 0.025 at tau 1)
+and `--rank-tau 1` (sharper target). Deploys as macondo-nn-tf-simft2.
+
+#### Result: simft (try 1) vs HastyBot (10/9/26 11:19)
+
+```
+FastMlBot(simft): paired win rate 57.48% +/- 0.18 (95%; SE 0.09)   swept 24.8%  lost 10.0%  spread +8.8/game
+```
+
+streamopen 57.65: -0.17, 1.3 SE of the difference; no gain (if anything
+slightly worse), as the flat held-out agreement predicted.
+
+Try 2 first launch (11:19) died at step 0: the rank-gradient measurement
+on 16 groups at once ran out of GPU memory, and the trainer hung instead of
+exiting, so run-stream.sh waited 5.5 h. Now measured 2 groups at a time
+(rank weight ~0.014-0.018 at tau 1); relaunched 17:05.
+
+#### Result: simft2 (try 2: rank-share 1, tau 1) vs HastyBot (10/10/26 ~01:15)
+
+```
+FastMlBot(simft2): paired win rate 57.18% +/- 0.18 (95%; SE 0.09)   swept 24.5%  lost 10.3%  spread +8.4/game
+```
+
+streamopen 57.65: -0.47, ~3.6 SE of the difference: worse. Held-out
+agreement ended 70.4% (from 67.6%), sim win given up 0.53 (from 0.51).
+With try 1 (-0.17) this says the full-list ranking signal from these
+labels slightly hurts play. Next and last on this line: a top-k / pairwise
+loss on the full labels (plan-sim-distill.md); drop it if that is flat.

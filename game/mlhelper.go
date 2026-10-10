@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -133,6 +134,13 @@ func (g *Game) MLEvaluateMove(m *move.Move, leaveCalc *equity.ExhaustiveLeaveCal
 // Their equities must already be set.
 func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
 	lastMoves []*move.Move) (*triton.ModelOutputs, error) {
+	return g.MLEvaluateMovesWith(nil, moves, leaveCalc, lastMoves)
+}
+
+// MLEvaluateMovesWith is MLEvaluateMoves against the given Triton client
+// (a bot's own model); nil means the game's client.
+func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Move,
+	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (*triton.ModelOutputs, error) {
 
 	if strings.ToLower(g.letterDistribution.Name) != "english" {
 		return nil, fmt.Errorf("machine learning evaluation is only supported for English lexica at this time, got %s", g.letterDistribution.Name)
@@ -148,13 +156,42 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	if len(moves) == 0 {
 		return nil, nil
 	}
+	allPlaneVectors, allScalarVectors, err := g.mlVectorsInto(g.mlPlanesBuf[:0], g.mlScalarsBuf[:0], moves, leaveCalc, lastMoves)
+	if err != nil {
+		return nil, err
+	}
+	// Keep the (possibly grown) buffers for the next request. The vectors
+	// are consumed before this returns: the inference call is synchronous.
+	g.mlPlanesBuf, g.mlScalarsBuf = allPlaneVectors, allScalarVectors
+	if g.config.GetBool(config.ConfigTritonUseTriton) {
+		return g.mlevaluateMovesTriton(client, len(moves), allPlaneVectors, allScalarVectors)
+	}
+	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+}
+
+// MLVectorsForMoves builds the feature vectors the net sees for each
+// candidate move, concatenated: the position right after the move, from
+// the mover's side, holding only the leave, with the opponent's rack put
+// back into the unseen pool and no tiles drawn. This is the inference-side
+// counterpart of the producer's training vectors (cmd/mlproducer), and
+// the two must agree; TestInferenceVectorsMatchTraining checks that.
+func (g *Game) MLVectorsForMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
+	lastMoves []*move.Move) (planes, scalars []float32, err error) {
+	return g.mlVectorsInto(nil, nil, moves, leaveCalc, lastMoves)
+}
+
+// mlVectorsInto is MLVectorsForMoves appending to the given buffers (pass
+// them with length 0 to reuse their capacity); it returns the filled slices.
+func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves []*move.Move,
+	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (planes, scalars []float32, err error) {
+
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
 
 	numMoves := len(moves)
-	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
-	allScalarVectors := make([]float32, 0, numMoves*NN_N_SCAL)
+	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*NN_N_PLANES)
+	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*NN_N_SCAL)
 	for _, m := range moves {
 		g.backupState()
 		switch m.Action() {
@@ -200,13 +237,8 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMoves)
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
-			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
+			return nil, nil, fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
-
-		// Compute SHA256 hash of the vector for debugging or deduplication
-		// Import "crypto/sha256" at the top if not already imported
-		// hash := sha256.Sum256(unsafe.Slice((*byte)(unsafe.Pointer(&(*vec)[0])), len(*vec)*4))
-		// fmt.Printf("ML vector SHA256: %x, move %s\n", hash, m.ShortDescription())
 
 		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
 		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
@@ -214,38 +246,55 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		g.onturn = 1 - g.onturn // switch turn back to the original player
 		g.UnplayLastMove()
 	}
-
-	// write the vector to a test file for debugging. I think this only works
-	// for one single position.
-	// testFile, err := os.Create("/tmp/test-vec-infer.bin")
-	// if err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to create test file")
-	// }
-
-	// testOut := bufio.NewWriterSize(testFile, 50000)
-	// if err := BinaryWriteMLVector(testOut, append(allPlaneVectors, allScalarVectors...)); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
-	// }
-	// if err := testOut.Flush(); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
-	// }
-	// testFile.Close()
-
-	if g.config.GetBool(config.ConfigTritonUseTriton) {
-		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
-	}
-	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+	return allPlaneVectors, allScalarVectors, nil
 }
 
-func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
-
-	if g.tritonClient == nil {
+func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
+	if client == nil {
+		client = g.tritonClient
+	}
+	if client == nil {
 		return nil, errors.New("triton client is not initialized")
 	}
 	log.Debug().Int("num_moves", nmoves).
 		Msg("evaluating moves with Triton")
-	// Ensure the input vectors are of the correct size
-	return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
+	if nmoves <= MLMaxBatch {
+		return client.Infer(planeVectors, scalarVectors, nmoves)
+	}
+	// More candidates than the engine's largest batch: several requests,
+	// outputs concatenated in order.
+	all := &triton.ModelOutputs{}
+	for _, r := range mlBatchRanges(nmoves, MLMaxBatch) {
+		out, err := client.Infer(planeVectors[r[0]*NN_N_PLANES:r[1]*NN_N_PLANES],
+			scalarVectors[r[0]*NN_N_SCAL:r[1]*NN_N_SCAL], r[1]-r[0])
+		if err != nil {
+			return nil, err
+		}
+		all.Value = append(all.Value, out.Value...)
+		all.Spread = append(all.Spread, out.Spread...)
+		all.Points = append(all.Points, out.Points...)
+		all.BingoProb = append(all.BingoProb, out.BingoProb...)
+		all.OppScore = append(all.OppScore, out.OppScore...)
+	}
+	return all, nil
+}
+
+// MLMaxBatch is the largest batch the served TensorRT engines accept
+// (pytorch/onnx-to-tensorrt.py builds them for batch 1..128).
+const MLMaxBatch = 128
+
+// mlBatchRanges splits n items into consecutive [from, to) ranges of at
+// most max items.
+func mlBatchRanges(n, max int) [][2]int {
+	var out [][2]int
+	for from := 0; from < n; from += max {
+		to := from + max
+		if to > n {
+			to = n
+		}
+		out = append(out, [2]int{from, to})
+	}
+	return out
 }
 
 func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
@@ -304,8 +353,12 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 	return mo, nil
 }
 
+// MLSpreadScale is the tanh scale of the net's spread input and spread
+// output: NormalizeSpreadForML(x) = tanh(x / MLSpreadScale).
+const MLSpreadScale = 130.0
+
 func NormalizeSpreadForML(spread float32) float32 {
-	return ScaleScoreWithTanh(spread, 0.0, 130.0)
+	return ScaleScoreWithTanh(spread, 0.0, MLSpreadScale)
 }
 
 func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) float32 {
@@ -447,8 +500,10 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
 	for i := 0; i < 27; i++ {
-		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
-		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		rackVector[i] = float32(rack.LetArr[i]) / 7 // Rack tiles
+		if tr > 0 {
+			unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		}
 		// power tiles seem very redundant since this info is already in the bag
 		// vector. However, it's not scaled there the same. Let's try it anyway.
 		switch i {
