@@ -42,6 +42,9 @@ The producer replays half of all games transposed.
 | **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 (SE 0.13) vs stream: the opening scheme makes no measurable difference |
 | streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | 57.64 ± 0.18 | +9.0 | no gain over 50 candidates (57.65), at 1.9x the match time; keep 50 |
 | streamopen + energy extras | 10/4 | same model | top 50 + 10 lowest/10 highest ΔE plays outside it (`MACONDO_ML_ENERGY_EXTRA=10`) | | 57.44 ± 0.18 | +9.2 | no gain (-0.21, 1.6 SE); extras unfloored |
+| simft | 10/9 | streamopen + 485k sim-label groups | fine-tune 10k steps, listwise rank loss (SE-aware teacher, tau 2, weight 1) | 10k | 57.48 ± 0.18 | +8.8 | -0.17 vs streamopen; no gain |
+| simft2 | 10/10 | same | rank-share 1 (gradient-balanced), tau 1 | 10k | 57.18 ± 0.18 | +8.4 | -0.47 (3.6 SE): full-list ranking hurts |
+| own | 10/10-11 | open+open2 54M, streamed | streamopen recipe from scratch + 2 ownership heads (self_own/opp_own, `-ownership`, `MACONDO_OWNERSHIP=1`) | 101k | 57.65 ± 0.18 | +9.3 | identical to streamopen (57.65): ownership adds nothing |
 
 ## Bot changes that affect matches
 

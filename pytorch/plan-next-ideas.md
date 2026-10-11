@@ -39,6 +39,8 @@ In order, one at a time:
    the two heads, after the simft2 match; ~22 h training, result ~10/11.
    Each spatial head gets its own share (0.1) of the primary's pull, so the
    two new heads add auxiliary pull rather than diluting the old four.
+   Result 10/11: 57.65% ± 0.18, identical to streamopen. No gain; items 2
+   and 3 move behind batch 3 (same kind of signal).
 2. Big-score threats: squares covered by a move scoring 30+ or a bingo, per
    player, over the next move each.
 3. Longer horizon: squares covered within the next 2-4 moves.

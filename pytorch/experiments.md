@@ -2203,3 +2203,16 @@ agreement ended 70.4% (from 67.6%), sim win given up 0.53 (from 0.51).
 With try 1 (-0.17) this says the full-list ranking signal from these
 labels slightly hurts play. Next and last on this line: a top-k / pairwise
 loss on the full labels (plan-sim-distill.md); drop it if that is flat.
+
+#### Result: own (ownership heads) vs HastyBot (10/11/26 02:50)
+
+```
+FastMlBot(own): paired win rate 57.65% +/- 0.18 (95%; SE 0.09)   swept 25.1%  lost 9.9%  spread +9.3/game
+```
+
+streamopen 57.65 (+9.5): identical. Training ran 101k steps (22.3 h) without
+trouble; the two ownership heads learned (val self_own 0.266, opp_own 0.277)
+but the extra end-of-game signal does not change play. The four next-move
+placement heads seem to already carry what per-square targets can give;
+the remaining spatial ideas (big-score threats, 2-4 move horizon) are
+variations on the same signal and drop in priority behind net-vs-net games.
