@@ -61,7 +61,16 @@ day on deb192), too slow; the net costs GPU time instead.
    sets, turn logs in the producer's format. Measure throughput first;
    batching many games' evaluations together is the lever (engine 13k
    pos/s, ~2,500 evaluations per game: ~300-400k games/day if batched).
-2. Generate ~3M games (~10 days of GPU). Meanwhile, on the CPU, 3M fresh
+   Done 10/11: no new code needed. autoplay FAST_ML_BOT vs FAST_ML_BOT
+   with the open sets' opening flags; the opening sampler serves both seats
+   whatever the bot, FAST_ML_BOT honours the quick endgame, and the turn
+   log has the same columns as open.txt (the producer reads it as is).
+   Smoke test: 2,000 games in 222 s (12 threads, 3070 Ti), ~32k games an
+   hour, ~780k a day: 3M games ~4 days, not 10. `pytorch/gen-nvn.sh`
+   generates 12 chunks of 250k (~8 h each) into ~/data/nvn/nvn-NNN.txt.gz,
+   skips finished chunks, stops between chunks on ~/data/nvn/STOP (for the
+   GPU swap). Started 10/11 15:01 with streamopen.
+2. Generate ~3M games (~4 days of GPU on the 3070 Ti). Meanwhile, on the CPU, 3M fresh
    Hasty games as the control.
 3. Fine-tune the same starting net on each set, same steps and settings,
    mixing in old data so self-play does not narrow the net. Match both.
