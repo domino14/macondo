@@ -400,7 +400,7 @@ func TestTauSchedule(t *testing.T) {
 	if r.Tau() != SoftmaxTemperature {
 		t.Fatalf("the schedule is off by default: %v", r.Tau())
 	}
-	r.SetTauSchedule(true)
+	r.SetTauSchedule(TauSteps)
 	r.scheduleTau(3)
 	if r.Tau() != 0.3 {
 		t.Fatalf("schedule: %v", r.Tau())
@@ -410,9 +410,36 @@ func TestTauSchedule(t *testing.T) {
 		t.Fatalf("pinned value must win over the schedule: %v", r.Tau())
 	}
 	r.SetTau(0)
-	r.SetTauSchedule(false)
+	r.SetTauSchedule(TauFixed)
 	r.scheduleTau(3)
 	if r.Tau() != SoftmaxTemperature {
 		t.Fatalf("schedule off again: %v", r.Tau())
+	}
+}
+
+// The fitted curve hits its knots, interpolates between them in log tau,
+// falls as the bag fills, and holds its end values outside them.
+func TestTauFitted(t *testing.T) {
+	for _, k := range fittedTauKnots {
+		if got := tauFittedForBag(k.bag); math.Abs(got-k.tau) > 1e-12 {
+			t.Fatalf("bag %d: tau %v, want knot %v", k.bag, got, k.tau)
+		}
+	}
+	if got, want := tauFittedForBag(25), math.Sqrt(0.075*0.047); math.Abs(got-want) > 1e-12 {
+		t.Fatalf("bag 25: %v, want geometric midpoint %v", got, want)
+	}
+	for bag := 2; bag < 86; bag++ {
+		if tauFittedForBag(bag+1) >= tauFittedForBag(bag) {
+			t.Fatalf("not falling at bag %d", bag)
+		}
+	}
+	if tauFittedForBag(1) != 2.5 || tauFittedForBag(100) != 0.021 {
+		t.Fatalf("ends: %v %v", tauFittedForBag(1), tauFittedForBag(100))
+	}
+	r := &RangeFinder{}
+	r.SetTauSchedule(TauFitted)
+	r.scheduleTau(14)
+	if r.Tau() != 0.14 {
+		t.Fatalf("fitted schedule: %v", r.Tau())
 	}
 }

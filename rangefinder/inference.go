@@ -41,7 +41,7 @@ const (
 	// SoftmaxTemperature controls how "rational" we assume the opponent to be
 	// when computing P(play | leave). Lower values assume near-optimal play;
 	// higher values allow more weight for sub-optimal plays. This is the
-	// early-game value; tauForBag raises it as the bag empties.
+	// early-game value; a TauSchedule can raise it as the bag empties.
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
@@ -222,10 +222,10 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
-	// tauSchedule turns on the bag-size temperature schedule (tauForBag) for
-	// positions where tau was not pinned. Off by default: the engine runs at a
-	// fixed SoftmaxTemperature until the schedule is tuned as a whole.
-	tauSchedule bool
+	// tauSchedule picks a bag-size temperature schedule for positions where
+	// tau was not pinned. Off by default: the engine runs at a fixed
+	// SoftmaxTemperature until a schedule is validated as a whole.
+	tauSchedule TauSchedule
 	// phaseTau is the schedule's temperature for the current position, set
 	// by PrepareFinder when tauSchedule is on and tau was not pinned.
 	phaseTau float64
@@ -330,18 +330,33 @@ func (r *RangeFinder) Tau() float64 {
 	return SoftmaxTemperature
 }
 
-// SetTauSchedule turns the bag-size temperature schedule on or off. A pinned
-// tau wins over the schedule either way.
-func (r *RangeFinder) SetTauSchedule(on bool) {
-	r.tauSchedule = on
+// TauSchedule says how the temperature follows the bag when tau is not pinned.
+type TauSchedule int
+
+const (
+	// TauFixed keeps SoftmaxTemperature at every bag size.
+	TauFixed TauSchedule = iota
+	// TauSteps is the hand-cut three-phase schedule, tauForBag.
+	TauSteps
+	// TauFitted is the curve fitted to real games, tauFittedForBag.
+	TauFitted
+)
+
+// SetTauSchedule picks the bag-size temperature schedule. A pinned tau wins
+// over the schedule either way.
+func (r *RangeFinder) SetTauSchedule(s TauSchedule) {
+	r.tauSchedule = s
 }
 
 // scheduleTau sets the schedule's temperature for a position with this many
-// tiles left in the bag: tauForBag when the schedule is on, nothing otherwise.
+// tiles left in the bag, or nothing when the schedule is TauFixed.
 func (r *RangeFinder) scheduleTau(bag int) {
 	r.phaseTau = 0
-	if r.tauSchedule {
+	switch r.tauSchedule {
+	case TauSteps:
 		r.phaseTau = tauForBag(bag)
+	case TauFitted:
+		r.phaseTau = tauFittedForBag(bag)
 	}
 }
 
@@ -367,6 +382,42 @@ func tauForBag(bag int) float64 {
 		return 0.1
 	}
 	return SoftmaxTemperature
+}
+
+// fittedTauKnots is the maximum-likelihood temperature at each knot of the
+// bag, fitted with cmd/taufit on 16,550 BestBot turns from 2,000 NWL23 games
+// on woogles, with log tau piecewise linear in the bag between knots. The
+// curve is tight (95% game-bootstrap intervals within about 10%) except at
+// 2 in the bag, where it is [1.9, 3.4]. Folds held out by game: 0.67 nats
+// per position better than one constant, 0.05 better than the best three
+// fitted steps and 0.17 better than tauForBag.
+//
+// It deliberately leaves out how many tiles the play used. Fitted on its own
+// that looks strong -- one-tile plays want twenty times the temperature of
+// six-tile ones -- but one-tile plays crowd the end of the game, and with
+// the bag in the model a full bag-by-tiles-played table gains less than a
+// thousandth of a nat per position held out.
+var fittedTauKnots = []struct {
+	bag int
+	tau float64
+}{
+	{2, 2.5}, {7, 0.45}, {14, 0.14}, {20, 0.075}, {30, 0.047}, {45, 0.034}, {60, 0.029}, {86, 0.021},
+}
+
+// tauFittedForBag interpolates fittedTauKnots in log tau, holding the end
+// values outside them.
+func tauFittedForBag(bag int) float64 {
+	k := fittedTauKnots
+	if bag <= k[0].bag {
+		return k[0].tau
+	}
+	for i := 1; i < len(k); i++ {
+		if bag <= k[i].bag {
+			w := float64(bag-k[i-1].bag) / float64(k[i].bag-k[i-1].bag)
+			return math.Exp((1-w)*math.Log(k[i-1].tau) + w*math.Log(k[i].tau))
+		}
+	}
+	return k[len(k)-1].tau
 }
 
 // SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
