@@ -229,6 +229,8 @@ type RangeFinder struct {
 	// phaseTau is the schedule's temperature for the current position, set
 	// by PrepareFinder when tauSchedule is on and tau was not pinned.
 	phaseTau float64
+	// tauScale multiplies whatever temperature is in use; 0 means 1.
+	tauScale float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -321,13 +323,23 @@ func (r *RangeFinder) SetTau(tau float64) {
 // Tau is the softmax temperature in use: the value SetTau pinned, or else
 // the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
+	scale := 1.0
+	if r.tauScale != 0 {
+		scale = r.tauScale
+	}
 	if r.tau != 0 {
-		return r.tau
+		return scale * r.tau
 	}
 	if r.phaseTau != 0 {
-		return r.phaseTau
+		return scale * r.phaseTau
 	}
-	return SoftmaxTemperature
+	return scale * SoftmaxTemperature
+}
+
+// SetTauScale multiplies the temperature in use, pinned or scheduled, for
+// experiments that vary it by something other than the bag. 0 or 1 is off.
+func (r *RangeFinder) SetTauScale(s float64) {
+	r.tauScale = s
 }
 
 // TauSchedule says how the temperature follows the bag when tau is not pinned.
