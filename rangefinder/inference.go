@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/rand"
 	"runtime"
 	"slices"
 	"sort"
@@ -231,6 +232,10 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
+	// exchangePosterior sends exchanges through the measured-and-imputed
+	// posterior that tile placements use; see SetExchangePosterior.
+	exchangePosterior bool
+	measuredPriorPin  float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -307,6 +312,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
 	r.maxRounds = DefaultMaxRefineRounds
+	r.measuredPriorPin = -1
 }
 
 func (r *RangeFinder) SetThreads(t int) {
@@ -340,6 +346,65 @@ func (r *RangeFinder) Tau() float64 {
 // experiments that vary it by something other than the bag. 0 or 1 is off.
 func (r *RangeFinder) SetTauScale(s float64) {
 	r.tauScale = s
+}
+
+// SetExchangePosterior chooses how an exchange is read. Off, the old sampler
+// draws whole racks and keeps the leaves of whatever exchanges the mini-sim
+// happened to rank, so the true leave gets weight only if both chances land.
+// On, an exchange is read like a tile placement: the unknown is the kept
+// leave, each measurement draws the thrown tiles at random and forces that
+// exchange into the mini-sim, and leaves never measured are imputed.
+func (r *RangeFinder) SetExchangePosterior(on bool) {
+	r.exchangePosterior = on
+}
+
+// exchangeMeasuredPrior is how many measurements' worth of trust the model's
+// imputed likelihood gets beside an exchange leave's own measurements.
+const exchangeMeasuredPrior = 3.0
+
+// SetMeasuredPrior pins the pseudo-count that blends a measured leave with
+// the model (see imputationTuning.measuredPrior); negative restores the
+// default, which is exchangeMeasuredPrior for an exchange read through the
+// posterior and nothing otherwise.
+func (r *RangeFinder) SetMeasuredPrior(m float64) {
+	r.measuredPriorPin = m
+}
+
+// exchangeByPosterior says whether this inference reads an exchange through
+// the posterior.
+func (r *RangeFinder) exchangeByPosterior() bool {
+	return r.exchangePosterior && r.lastOppMove != nil &&
+		r.lastOppMove.Action() == move.MoveTypeExchange
+}
+
+// measureExchange is one measurement of a kept leave: draw the thrown tiles
+// at random from what is unseen, and score the exchange of exactly those
+// tiles in a mini-sim of the whole rack. Averaged over draws this is P(an
+// exchange of this many tiles keeping leave | leave), the same quantity a
+// placement's measurement is.
+func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleSimmer,
+	leave []tilemapping.MachineLetter) (float64, error) {
+
+	opp := g.PlayerOnTurn()
+	drawn, err := g.SetRandomRack(opp, leave)
+	if err != nil {
+		return 0, err
+	}
+	if len(leave)+len(drawn) != game.RackTileLimit {
+		return 0, nil
+	}
+	thrown := make(tilemapping.MachineWord, len(drawn))
+	copy(thrown, drawn)
+	kept := make(tilemapping.MachineWord, len(leave))
+	copy(kept, leave)
+	exch := move.NewExchangeMove(thrown, kept, g.Alphabet())
+
+	if _, err := simmer.GenAndSim(context.Background(), 10, exch); err != nil {
+		return 0, err
+	}
+	r.simCount.Add(1)
+	likelihood, _ := softmaxLikelihood(simmer.BestPlays().PlaysNoLock(), exch, g.Board(), r.Tau())
+	return likelihood, nil
 }
 
 // TauSchedule says how the temperature follows the bag when tau is not pinned.
@@ -630,6 +695,13 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.lastOppMove.TilesPlayed() == game.RackTileLimit {
 		return ErrNoInformation
 	}
+	r.tuning.measuredPrior = 0
+	if r.exchangeByPosterior() {
+		r.tuning.measuredPrior = exchangeMeasuredPrior
+	}
+	if r.measuredPriorPin >= 0 {
+		r.tuning.measuredPrior = r.measuredPriorPin
+	}
 	r.lastOppMoveRackTiles = []tilemapping.MachineLetter{}
 	for _, t := range r.lastOppMove.Tiles() {
 		if t == 0 {
@@ -820,7 +892,8 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// (prior × likelihood) rather than importance sampling.
 	// Exchange moves are excluded because their "leave" semantics differ.
 	isExchange := r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
-	if !isExchange && r.inference.RackLength >= 1 {
+	byPosterior := !isExchange || r.exchangeByPosterior()
+	if byPosterior && r.inference.RackLength >= 1 {
 		maxLeaves := r.enumerationLimit()
 		m := countMultisets(r.inferenceBagMap, r.inference.RackLength)
 		if m <= maxLeaves {
@@ -832,7 +905,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 			Msg("leaf-space-too-large-using-sampling")
 	}
 
-	if !isExchange && r.inference.RackLength >= 1 {
+	if byPosterior && r.inference.RackLength >= 1 {
 		// Monte Carlo sampling path for tile placements: every sampled leave
 		// (whatever its likelihood) feeds the marginal-lift accumulator so a
 		// complete posterior can be imputed after sampling ends.
@@ -1002,8 +1075,28 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	isExchange := r.lastOppMove.Action() == move.MoveTypeExchange
 	// otherwise, it's a tile placement play.
 
-	if isExchange {
+	if isExchange && !r.exchangePosterior {
 		return r.inferSingleExchange(thread, iterNum, logChan)
+	}
+	if isExchange {
+		// Draw the kept leave from the prior: a random rack, and a random
+		// choice of which of its tiles were kept.
+		if _, err := g.SetRandomRack(opp, nil); err != nil {
+			return nil, err
+		}
+		rack := g.RackFor(opp).TilesOn()
+		if len(rack) < r.inference.RackLength {
+			return nil, nil
+		}
+		rng := rand.New(rand.NewSource(r.refineSeed() ^ int64(iterNum)*0x5DEECE66D))
+		rng.Shuffle(len(rack), func(i, j int) { rack[i], rack[j] = rack[j], rack[i] })
+		leave := make([]tilemapping.MachineLetter, r.inference.RackLength)
+		copy(leave, rack[:r.inference.RackLength])
+		likelihood, err := r.measureExchange(g, r.aiplayers[thread].(*simplesimmer.SimpleSimmer), leave)
+		if err != nil {
+			return nil, err
+		}
+		return []montecarlo.InferredRack{{Leave: leave, Weight: likelihood}}, nil
 	}
 
 	extraDrawn, err = g.SetRandomRack(opp, r.lastOppMoveRackTiles)

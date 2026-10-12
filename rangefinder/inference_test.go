@@ -443,3 +443,62 @@ func TestTauFitted(t *testing.T) {
 		t.Fatalf("fitted schedule: %v", r.Tau())
 	}
 }
+
+// Read through the posterior, an exchange gets what a placement gets: a
+// complete posterior over kept leaves of the right size, in which the leave
+// actually kept has weight, measured leaves blended with the model.
+func TestInferExchangePosterior(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AENSTUU", g.Alphabet()))
+	uu, err := tilemapping.ToMachineLetters("UU", g.Alphabet())
+	is.NoErr(err)
+	aenst, err := tilemapping.ToMachineLetters("AENST", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(move.NewExchangeMove(uu, aenst, g.Alphabet()), true, 0))
+
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	rf.SetThreads(2)
+	rf.SetBudget(40)
+	rf.SetExchangePosterior(true)
+	aelnoqt, err := tilemapping.ToMachineLetters("AELNOQT", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(rf.PrepareFinder(aelnoqt))
+	is.Equal(rf.inference.RackLength, 5)
+	is.Equal(rf.tuning.measuredPrior, exchangeMeasuredPrior)
+	is.NoErr(rf.Infer(context.Background()))
+
+	is.True(rf.inference.Complete)
+	is.True(len(rf.measured) > 0)
+	is.True(rf.SimCount() <= 40)
+	for _, ir := range rf.inference.InferredRacks {
+		is.Equal(len(ir.Leave), 5)
+	}
+	is.True(rf.ScoreLeave(aenst).InPosterior)
+}
+
+// The old sampler stays the default for exchanges.
+func TestExchangePosteriorIsOptIn(t *testing.T) {
+	r := &RangeFinder{}
+	r.Init(nil, nil, nil)
+	r.lastOppMove = move.NewExchangeMove(nil, nil, nil)
+	if r.exchangeByPosterior() {
+		t.Fatal("exchanges must keep the old sampler unless asked")
+	}
+	r.SetExchangePosterior(true)
+	if !r.exchangeByPosterior() {
+		t.Fatal("asked for the posterior")
+	}
+}
