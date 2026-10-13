@@ -2216,3 +2216,23 @@ but the extra end-of-game signal does not change play. The four next-move
 placement heads seem to already carry what per-square targets can give;
 the remaining spatial ideas (big-score threats, 2-4 move horizon) are
 variations on the same signal and drop in priority behind net-vs-net games.
+
+#### Opening moves: streamopen vs the 5-ply sim (10/13/26)
+
+User asked whether the net places opening plays well, given few opening
+positions in training. `simlabel check` on all 15,067 labelled turn-1
+positions plus a 1-in-40 sample of the rest (open + open2, in-sample games;
+decided positions skipped), against HastyBot's static equity pick:
+
+| phase | n | net = sim best | static = sim best | within 2 SE: net / static | win% given up: net / static |
+|---|---|---|---|---|---|
+| opening move | 15,067 | 76.2% | 65.2% | 97.1% / 83.2% | 0.09 / 0.36 |
+| early (66+ unseen) | 8,110 | 79.7% | 70.9% | 92.9% / 83.3% | 0.15 / 0.37 |
+| middle (30-65) | 14,886 | 73.8% | 66.4% | 88.1% / 79.0% | 0.24 / 0.50 |
+| late (9-29) | 8,412 | 54.4% | 43.5% | 71.5% / 56.0% | 1.32 / 2.90 |
+
+Openings are the net's best phase (within 2 SE of the sim's best 97% of
+the time, 0.09 win points given up). The weak spot is late (bag under ~20):
+1.32 win points given up per move, 10x the opening's; that is where better
+labels or a deeper search would pay. (The first attempt died: every replayed
+game opened its own Triton connection; fixed in b0ad90e9.)
