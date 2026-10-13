@@ -14,9 +14,11 @@ import torch
 from training import build_model, load_state_dict_compat, C, H, W, N_SCAL
 
 # Heads exported, in output order. `value` is what the bot ranks on; `spread`
-# is the predicted spread change, for the simmer's equity stat. The other
-# heads are training-only regularizers.
-EXPORTED_HEADS = ["value", "spread"]
+# is the predicted spread change (decided-game ranking, the simmer's equity
+# stat); `opp_bingo_prob` (P(opponent bingos next turn)) and `opp_score`
+# (opponent's next score, points) are for display (mleval). The other heads
+# (spatial, ownership) are training-only regularizers.
+EXPORTED_HEADS = ["value", "spread", "opp_bingo_prob", "opp_score"]
 
 
 # Wrap the model to return a tuple instead of a dictionary for ONNX export
@@ -35,6 +37,9 @@ class ModelWrapper(torch.nn.Module):
         if self.primary == "wdl":
             p = torch.softmax(outputs["wdl"], dim=1)
             outputs = dict(outputs, value=p[:, 2] - p[:, 0])
+        # Trained as a logit and as score / 300 (training.py).
+        outputs = dict(outputs, opp_bingo_prob=torch.sigmoid(outputs["opp_bingo"]),
+                       opp_score=300 * outputs["opp_score"])
         # Return individual tensors in a definite order
         return tuple(outputs[h] for h in EXPORTED_HEADS)
 

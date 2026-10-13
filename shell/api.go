@@ -1975,9 +1975,10 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 }
 
 // mlevalDescription formats the net's outputs for candidate i: the value
-// (P(win) - P(loss)), as a win percentage counting draws as half, and, when
-// the model has a spread head, the mover's expected final spread (spread
-// now, plus the play's score, plus the predicted change to the end).
+// (P(win) - P(loss)), as a win percentage counting draws as half; when the
+// model exports them, the mover's expected final spread (spread now, plus
+// the play's score, plus the predicted change to the end), the chance the
+// opponent bingos next turn and the opponent's predicted next score.
 func (sc *ShellController) mlevalDescription(m *move.Move, out *triton.ModelOutputs, i int) string {
 	v := out.Value[i]
 	desc := fmt.Sprintf("value %+.4f, win %.1f%%", v, 50*(1+v))
@@ -1986,6 +1987,12 @@ func (sc *ShellController) mlevalDescription(m *move.Move, out *triton.ModelOutp
 		final := float64(sc.game.SpreadFor(sc.game.PlayerOnTurn())) + float64(m.Score()) +
 			float64(game.MLSpreadScale)*math.Atanh(x)
 		desc += fmt.Sprintf(", final spread %+.1f", final)
+	}
+	if i < len(out.BingoProb) {
+		desc += fmt.Sprintf(", opp bingo %.0f%%", 100*out.BingoProb[i])
+	}
+	if i < len(out.OppScore) {
+		desc += fmt.Sprintf(", opp next score %.1f", out.OppScore[i])
 	}
 	return desc
 }

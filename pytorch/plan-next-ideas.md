@@ -76,6 +76,15 @@ day on deb192), too slow; the net costs GPU time instead.
    mixing in old data so self-play does not narrow the net. Match both.
 4. If net-vs-net wins: iterate (new net plays the next generation).
 
+## Small things to test after the GPU swap
+
+- fp32 value tail: the TensorRT engines are fp16, and value = P(win) -
+  P(loss) with both near 0.5 is computed in fp16, so differences under
+  ~0.001 are rounded away (an opening's 8F/8G/8H JEU: 0.0176 each on the
+  GPU, 0.0211/0.0196/0.0186 in fp32). Keep the wdl softmax and subtraction
+  in fp32, rebuild, match against the fp16 engine. Pilot (558 positions):
+  fp16 vs fp32 pick the same move 530 times, sim agreement 68.8 vs 67.9.
+
 ## Not repeating
 
 - Opening scheme (open vs nwl23): no difference (57.65 vs 57.55).

@@ -19,8 +19,8 @@ type ModelOutputs struct {
 	Value     []float32 // win prediction value
 	Spread    []float32 // predicted spread change, tanh-scaled (see game.NormalizeSpreadForML)
 	Points    []float32 // predicted points
-	BingoProb []float32 // bingo probability
-	OppScore  []float32 // opponent score
+	BingoProb []float32 // P(opponent bingos on the next turn)
+	OppScore  []float32 // opponent's predicted next-turn score, points
 }
 
 // TritonClient is a client for the Triton Inference Server.
@@ -118,8 +118,9 @@ func (c *TritonClient) DetectOutputs() error {
 	}
 	outputs := []string{"value"}
 	for _, o := range md.Outputs {
-		if o.Name == "spread" {
-			outputs = append(outputs, "spread")
+		switch o.Name {
+		case "spread", "opp_bingo_prob", "opp_score":
+			outputs = append(outputs, o.Name)
 		}
 	}
 	c.outputs = outputs
@@ -192,6 +193,10 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 			outputs.Value = data
 		case "spread":
 			outputs.Spread = data
+		case "opp_bingo_prob":
+			outputs.BingoProb = data
+		case "opp_score":
+			outputs.OppScore = data
 		}
 	}
 	if outputs.Value == nil {

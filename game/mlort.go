@@ -88,7 +88,8 @@ func (g *Game) ortModelFor() (*ortModel, error) {
 	m := &ortModel{}
 	inNames := []string{ins[0].Name, ins[1].Name}
 	for _, o := range outs {
-		if o.Name == "value" || o.Name == "spread" {
+		switch o.Name {
+		case "value", "spread", "opp_bingo_prob", "opp_score":
 			m.outputs = append(m.outputs, o.Name)
 		}
 	}
@@ -142,9 +143,14 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 		}
 		v := append([]float32(nil), t.GetData()...)
 		t.Destroy()
-		if name == "spread" {
+		switch name {
+		case "spread":
 			mo.Spread = v
-		} else {
+		case "opp_bingo_prob":
+			mo.BingoProb = v
+		case "opp_score":
+			mo.OppScore = v
+		default:
 			mo.Value = v
 		}
 	}
