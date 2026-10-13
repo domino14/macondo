@@ -3,25 +3,18 @@ package game
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/owulveryck/onnx-go"
-	"github.com/owulveryck/onnx-go/backend/x/gorgonnx"
 	"github.com/rs/zerolog/log"
-	"gorgonia.org/tensor"
 
-	"github.com/domino14/word-golib/cache"
-	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/triton"
@@ -54,69 +47,6 @@ var MLVectorPool = sync.Pool{
 		v := make([]float32, NN_RowLen)
 		return &v
 	},
-}
-
-type MLModel struct {
-	backend *gorgonnx.Graph
-	model   *onnx.Model
-}
-
-// MLModelTemplate holds the raw ONNX model data.
-type MLModelTemplate struct {
-	data []byte
-}
-
-// NewInstance creates a new MLModel from the template.
-func (t *MLModelTemplate) NewInstance() (*MLModel, error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start).Milliseconds()
-		log.Debug().Int64("onnx_model_init_ms", elapsed).Msg("onnx model instance created")
-	}()
-	backend := gorgonnx.NewGraph()
-	model := onnx.NewModel(backend)
-	err := model.UnmarshalBinary(t.data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ONNX model: %w", err)
-	}
-	return &MLModel{
-		backend: backend,
-		model:   model,
-	}, nil
-}
-
-func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
-	fields := strings.Split(key, ":")
-	if fields[0] != "onnx" {
-		return nil, errors.New("mlloadfunc - bad cache key: " + key)
-	}
-	if len(fields) != 2 {
-		return nil, errors.New("cache key missing fields")
-	}
-	reader, err := dataloaders.StratFileForLexicon(
-		dataloaders.StrategyParamsPath(cfg), "models/macondo-nn/1/model.onnx", fields[1])
-	if err != nil {
-		return nil, fmt.Errorf("failed to load ONNX model: %w", err)
-	}
-	bytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ONNX model file: %w", err)
-	}
-	err = reader.Close()
-	if err != nil {
-		return nil, fmt.Errorf("failed to close ONNX model file: %w", err)
-	}
-
-	log.Debug().Str("lexiconName", fields[1]).
-		Int("model-size", len(bytes)).
-		Msg("loaded-onnx-model")
-
-	// Return the model template.
-	modelTemplate := &MLModelTemplate{
-		data: bytes,
-	}
-
-	return modelTemplate, nil
 }
 
 // MLEvaluateMove evaluates a single move using the machine learning model.
@@ -295,62 +225,6 @@ func mlBatchRanges(n, max int) [][2]int {
 		out = append(out, [2]int{from, to})
 	}
 	return out
-}
-
-func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
-
-	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
-	if err != nil {
-		log.Err(err).Msg("loading-ml-model")
-		return nil, err
-	}
-	modelTemplate, ok := net.(*MLModelTemplate)
-	if !ok {
-		return nil, errors.New("failed to type-assert ONNX model template")
-	}
-	model, err := modelTemplate.NewInstance()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new ONNX model instance: %w", err)
-	}
-
-	boardTensor := tensor.New(tensor.WithShape(nmoves, NN_C, NN_H, NN_W),
-		tensor.WithBacking(planeVectors))
-	scalTensor := tensor.New(tensor.WithShape(nmoves, NN_N_SCAL),
-		tensor.WithBacking(scalarVectors))
-
-	model.model.SetInput(0, boardTensor)
-	model.model.SetInput(1, scalTensor)
-
-	log.Debug().Int("num_moves", nmoves).
-		Msg("evaluating moves with local ONNX model")
-
-	if err := model.backend.Run(); err != nil {
-		return nil, fmt.Errorf("failed to run ONNX model: %w", err)
-	}
-
-	// XXX: FIX ME
-
-	output, err := model.model.GetOutputTensors()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get output tensors: %w", err)
-	}
-
-	var evals []float32
-
-	// fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
-	switch v := output[0].Data().(type) {
-	case []float32:
-		evals = v
-	case float32:
-		evals = []float32{v}
-	default:
-		return nil, fmt.Errorf("unexpected output type: %T", v)
-	}
-	mo := &triton.ModelOutputs{
-		Value: evals,
-	}
-
-	return mo, nil
 }
 
 // MLSpreadScale is the tanh scale of the net's spread input and spread

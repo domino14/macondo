@@ -53,6 +53,31 @@ You may need to install the NVIDIA Container Toolkit to use your GPU for inferen
 
 Then you can run Macondo with the `MACONDO_TRITON_USE_TRITON` environment variable set to `true`.
 
+The model is chosen with `triton-model-name` and `triton-model-version` in
+the config (or `MACONDO_TRITON_MODEL_NAME` / `MACONDO_TRITON_MODEL_VERSION`).
+With `--model-control-mode=explicit`, Triton must also be told to load it
+(`--load-model=<name>` or `pytorch/triton-models.sh load <name>`).
+
+# Running the neural network without a GPU
+
+Without Triton (`triton-use-triton` false), macondo runs the same model's
+`model.onnx` on the CPU with [ONNX Runtime](https://github.com/microsoft/onnxruntime).
+Slower than a GPU, but enough for `mleval` and the occasional game.
+
+1. Download ONNX Runtime 1.29 for your platform from its
+   [releases page](https://github.com/microsoft/onnxruntime/releases/tag/v1.29.0)
+   (e.g. `onnxruntime-linux-x64-1.29.0.tgz`) and unpack it anywhere. On
+   macOS, `brew install onnxruntime` also works if it is 1.29.
+2. Point macondo at the library, in the config or the environment:
+   `onnxruntime-lib: /path/to/onnxruntime-linux-x64-1.29.0/lib/libonnxruntime.so`
+   (`MACONDO_ONNXRUNTIME_LIB`). Optional: `onnx-threads` (`MACONDO_ONNX_THREADS`),
+   threads per evaluation; ONNX Runtime picks one per core by default.
+3. Pick the model as above (`triton-model-name`); macondo loads
+   `data/strategy/default/models/<name>/<version, default 1>/model.onnx`.
+
+This needs a cgo build (the default when building from source on the
+target machine).
+
 ### Attributions
 
 Wolges-awsm is Copyright (C) 2020-2022 Andy Kurnia and released under the MIT license. It can be found at https://github.com/andy-k/wolges-awsm/. Macondo interfaces with it as a server.

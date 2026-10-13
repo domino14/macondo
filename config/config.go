@@ -31,6 +31,8 @@ const (
 	ConfigTritonURL                        = "triton-url"
 	ConfigTritonModelName                  = "triton-model-name"
 	ConfigTritonModelVersion               = "triton-model-version"
+	ConfigOnnxRuntimeLib                   = "onnxruntime-lib"
+	ConfigOnnxThreads                      = "onnx-threads"
 	ConfigMagpieDataPath                   = "magpie-data-path"
 	ConfigGenaiProvider                    = "genai-provider"
 	ConfigGeminiModel                      = "gemini-model"
@@ -110,6 +112,8 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigTritonURL)
 	c.BindEnv(ConfigTritonModelName)
 	c.BindEnv(ConfigTritonModelVersion)
+	c.BindEnv(ConfigOnnxRuntimeLib)
+	c.BindEnv(ConfigOnnxThreads)
 	c.BindEnv(ConfigMagpieDataPath)
 	c.BindEnv(ConfigGenaiProvider)
 	c.BindEnv(ConfigGeminiModel)
