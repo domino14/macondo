@@ -159,6 +159,28 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# -------------------------------------------------------------------- boost
+# CPU boost off before the run. On the 192-thread machine, boost transitions
+# under a sudden full load are the suspected cause of the hard crashes during
+# the sim-distill labelling. Not persistent across reboots, so it is applied
+# here every time. ALLOW_BOOST=1 skips it.
+if [ "${ALLOW_BOOST:-0}" != "1" ]; then
+  say "Turning CPU boost off"
+  if [ -e /sys/devices/system/cpu/cpufreq/boost ]; then
+    BOOSTFILE=/sys/devices/system/cpu/cpufreq/boost; OFF=0
+  elif [ -e /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+    BOOSTFILE=/sys/devices/system/cpu/intel_pstate/no_turbo; OFF=1
+  else
+    die "no boost control found under /sys/devices/system/cpu; rerun with ALLOW_BOOST=1 to skip"
+  fi
+  if [ "$(cat "$BOOSTFILE")" != "$OFF" ] && [ "$DRY_RUN" != "1" ]; then
+    echo "$OFF" | sudo -n tee "$BOOSTFILE" >/dev/null || die "could not write $BOOSTFILE without a password.
+  Run:  echo $OFF | sudo tee $BOOSTFILE
+  then rerun this script (or ALLOW_BOOST=1 to run with boost on)."
+  fi
+  echo "  $BOOSTFILE = $(cat "$BOOSTFILE")"
+fi
+
 # --------------------------------------------------------------------- run
 # nohup, because this runs for days and a dropped ssh session should not take it
 # down. Overrides go on the command line so the config file stays as written.
