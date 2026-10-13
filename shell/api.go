@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
+	"github.com/domino14/macondo/triton"
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
@@ -1939,37 +1941,22 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 
-		// Create a slice of move-evaluation pairs
 		type moveEval struct {
-			move         *move.Move
-			eval         float32
-			oppBingoProb float32
-			totalPts     float32
-			oppNextScore float32
-			idx          int
+			move *move.Move
+			eval float32
+			idx  int
 		}
 
 		pairs := make([]moveEval, len(sc.curPlayList))
 		for i, m := range sc.curPlayList {
-			pairs[i] = moveEval{
-				move: m,
-				eval: evals.Value[i],
-				// oppBingoProb: evals.BingoProb[i],
-				// totalPts:     evals.Points[i],
-				// oppNextScore: evals.OppScore[i],
-				idx: i + 1, // Store original index for reference
-			}
+			pairs[i] = moveEval{move: m, eval: evals.Value[i], idx: i}
 		}
-
-		// Sort by evaluation in descending order
-		sort.Slice(pairs, func(i, j int) bool {
+		sort.SliceStable(pairs, func(i, j int) bool {
 			return pairs[i].eval > pairs[j].eval
 		})
-
-		// Display sorted moves
 		for i, p := range pairs {
-			sc.showMessage(fmt.Sprintf("%d) %s: %.6f (was #%d) (opp-bingo-prob %.3f, total-pts %.3f, opp-next-score %.3f)",
-				i+1, p.move.ShortDescription(), p.eval, p.idx, p.oppBingoProb, p.totalPts, p.oppNextScore))
+			sc.showMessage(fmt.Sprintf("%d) %s: %s (was #%d)",
+				i+1, p.move.ShortDescription(), sc.mlevalDescription(p.move, evals, p.idx), p.idx+1))
 		}
 
 		return msg("MLEval for all moves completed."), nil
@@ -1982,9 +1969,25 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		return msg(fmt.Sprintf("MLEval for %s: %.3f",
-			m.ShortDescription(), eval.Value[0])), nil
+		return msg(fmt.Sprintf("MLEval for %s: %s",
+			m.ShortDescription(), sc.mlevalDescription(m, eval, 0))), nil
 	}
+}
+
+// mlevalDescription formats the net's outputs for candidate i: the value
+// (P(win) - P(loss)), as a win percentage counting draws as half, and, when
+// the model has a spread head, the mover's expected final spread (spread
+// now, plus the play's score, plus the predicted change to the end).
+func (sc *ShellController) mlevalDescription(m *move.Move, out *triton.ModelOutputs, i int) string {
+	v := out.Value[i]
+	desc := fmt.Sprintf("value %+.4f, win %.1f%%", v, 50*(1+v))
+	if i < len(out.Spread) {
+		x := math.Max(-0.999999, math.Min(0.999999, float64(out.Spread[i])))
+		final := float64(sc.game.SpreadFor(sc.game.PlayerOnTurn())) + float64(m.Score()) +
+			float64(game.MLSpreadScale)*math.Atanh(x)
+		desc += fmt.Sprintf(", final spread %+.1f", final)
+	}
+	return desc
 }
 
 // defaultExplainInferSeconds is how long `explain -infer` spends reading the
