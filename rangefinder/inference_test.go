@@ -396,9 +396,9 @@ func TestTauSchedule(t *testing.T) {
 	if r.Tau() != SoftmaxTemperature {
 		t.Fatalf("nothing set: %v", r.Tau())
 	}
-	r.scheduleTau(3)
-	if r.Tau() != SoftmaxTemperature {
-		t.Fatalf("the schedule is off by default: %v", r.Tau())
+	r.scheduleTau(14)
+	if r.Tau() != 0.14 {
+		t.Fatalf("the fitted curve is the default: %v", r.Tau())
 	}
 	r.SetTauSchedule(TauSteps)
 	r.scheduleTau(3)
@@ -489,18 +489,62 @@ func TestInferExchangePosterior(t *testing.T) {
 	is.True(rf.ScoreLeave(aenst).InPosterior)
 }
 
-// The old sampler stays the default for exchanges.
-func TestExchangePosteriorIsOptIn(t *testing.T) {
+// Exchanges are read by leave value unless another reading is asked for.
+func TestExchangeModeDefault(t *testing.T) {
 	r := &RangeFinder{}
 	r.Init(nil, nil, nil)
 	r.lastOppMove = move.NewExchangeMove(nil, nil, nil)
-	if r.exchangeByPosterior() {
-		t.Fatal("exchanges must keep the old sampler unless asked")
+	if r.exchangeMode != ExchangeValue || r.exchangeByPosterior() {
+		t.Fatal("exchanges are read by leave value by default")
 	}
 	r.SetExchangePosterior(true)
 	if !r.exchangeByPosterior() {
-		t.Fatal("asked for the posterior")
+		t.Fatal("asked for the sim posterior")
 	}
+	r.SetExchangePosterior(false)
+	if r.exchangeMode != ExchangeSampler {
+		t.Fatal("asked for the old sampler")
+	}
+}
+
+// A one-tile play early in the game doubles the scheduled temperature; a
+// pinned tau or scale turns that off.
+func TestOneTileTauScale(t *testing.T) {
+	is := is.New(t)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AEINRST", g.Alphabet()))
+	// Two plays so the one being read is a single tile hooked onto the first.
+	m, err := g.CreateAndScorePlacementMove("8D", "STAINER", "AEINRST", false)
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(m, true, 0))
+	g.SetRackFor(1, tilemapping.RackFromString("ADEILRS", g.Alphabet()))
+	m, err = g.CreateAndScorePlacementMove("8D", ".......S", "ADEILRS", false)
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(m, true, 0))
+
+	bag := g.Bag().TilesRemaining()
+	is.True(bag >= oneTileTauMinBag)
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	is.NoErr(rf.PrepareFinder(g.RackFor(g.PlayerOnTurn()).TilesOn()))
+	is.Equal(rf.inference.RackLength, 6)
+	is.Equal(rf.Tau(), oneTileTauScale*tauFittedForBag(bag))
+
+	rf.SetTau(0.05)
+	is.Equal(rf.Tau(), 0.05)
+	rf.SetTau(0)
+	rf.SetTauScale(1)
+	is.Equal(rf.Tau(), tauFittedForBag(bag))
 }
 
 // Read by value, an exchange gets a complete posterior over kept leaves with

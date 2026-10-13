@@ -112,7 +112,9 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 	if len(leave) == 0 {
 		return 0
 	}
-	leaveCounts := map[tilemapping.MachineLetter]int{}
+	// Counted in an array, not a map, so the sum below runs in tile order and
+	// the same leave gets the same float every time.
+	var leaveCounts [256]int
 	for _, t := range leave {
 		leaveCounts[t]++
 	}
@@ -120,8 +122,13 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 	N := 0
 	for i, c := range bagMap {
 		N += int(c)
-		if leaveCounts[tilemapping.MachineLetter(i)] > int(c) {
+		if leaveCounts[i] > int(c) {
 			return 0 // impossible leave
+		}
+	}
+	for t := len(bagMap); t < len(leaveCounts); t++ {
+		if leaveCounts[t] > 0 {
+			return 0
 		}
 	}
 	if N == 0 {
@@ -131,8 +138,10 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 
 	// logP = Σ logC(bagMap[t], leaveCount[t]) - logC(N, k)
 	logP := -logBinomial(N, k)
-	for t, lc := range leaveCounts {
-		logP += logBinomial(int(bagMap[t]), lc)
+	for t, lc := range leaveCounts[:len(bagMap)] {
+		if lc > 0 {
+			logP += logBinomial(int(bagMap[t]), lc)
+		}
 	}
 	return math.Exp(logP)
 }
@@ -232,6 +241,10 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
+	// oneTileScale is the default scale PrepareFinder picked for this
+	// position (oneTileTauScale on an early one-tile play, else 1). It
+	// applies only when neither tau nor tauScale was pinned.
+	oneTileScale float64
 	// exchangeMode picks how an exchange is read; see ExchangeMode.
 	exchangeMode     ExchangeMode
 	measuredPriorPin float64
@@ -331,6 +344,8 @@ func (r *RangeFinder) Tau() float64 {
 	scale := 1.0
 	if r.tauScale != 0 {
 		scale = r.tauScale
+	} else if r.tau == 0 && r.oneTileScale != 0 {
+		scale = r.oneTileScale
 	}
 	if r.tau != 0 {
 		return scale * r.tau
@@ -351,11 +366,18 @@ func (r *RangeFinder) SetTauScale(s float64) {
 type ExchangeMode int
 
 const (
+	// ExchangeValue weighs every possible kept leave by its prior times
+	// exp(ExchangeValueBeta x its static leave value). A player who exchanges
+	// keeps the best leave they can, and the leave table already knows which
+	// leaves are good. No sims; the posterior is exact and complete. It is the
+	// default: on 300 replayed exchanges the true kept leave gets +0.43 bits
+	// over ignoring the exchange, where the old sampler got -1.71.
+	ExchangeValue ExchangeMode = iota
 	// ExchangeSampler is the old reading: draw whole racks and keep the
 	// leaves of whatever exchanges the mini-sim happened to rank, so the true
 	// leave gets weight only if both chances land. It ruled out the kept
 	// leave in 63% of the exchanges of the 5,000-pair run.
-	ExchangeSampler ExchangeMode = iota
+	ExchangeSampler
 	// ExchangeSim reads an exchange like a tile placement: the unknown is the
 	// kept leave, each measurement draws the thrown tiles at random and
 	// forces that exchange into the mini-sim, and leaves never measured are
@@ -363,11 +385,6 @@ const (
 	// them, not the leave, and on replayed exchanges it scored below ignoring
 	// the exchange altogether.
 	ExchangeSim
-	// ExchangeValue weighs every possible kept leave by its prior times
-	// exp(ExchangeValueBeta x its static leave value). A player who exchanges
-	// keeps the best leave they can, and the leave table already knows which
-	// leaves are good. No sims; the posterior is exact and complete.
-	ExchangeValue
 )
 
 // ExchangeValueBeta is how strongly leave value predicts the leave kept on an
@@ -448,16 +465,30 @@ func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleS
 type TauSchedule int
 
 const (
+	// TauFitted is the curve fitted to real games, tauFittedForBag. It is the
+	// default: replayed over the 5,000-pair run it gains 3.1 bits on the true
+	// leave with 2 to 7 in the bag and 0.9 with 8 to 20 over a fixed 0.05,
+	// and nothing either way earlier.
+	TauFitted TauSchedule = iota
 	// TauFixed keeps SoftmaxTemperature at every bag size.
-	TauFixed TauSchedule = iota
+	TauFixed
 	// TauSteps is the hand-cut three-phase schedule, tauForBag.
 	TauSteps
-	// TauFitted is the curve fitted to real games, tauFittedForBag.
-	TauFitted
+)
+
+// oneTileTauScale multiplies the scheduled temperature on a one-tile play
+// (a six-tile leave) with at least oneTileTauMinBag tiles in the bag. The mini-sim's verdict on a six-tile
+// leave is the noisiest there is, and early in the game a sharp temperature
+// trusts it too far: replayed, doubling gains 2.9 bits with 21 to 45 in the
+// bag and 2.5 with 46 or more, while later it costs a little (-0.3 at 2-7,
+// -0.1 at 8-20). Four times gains no more than twice.
+const (
+	oneTileTauScale  = 2.0
+	oneTileTauMinBag = 21
 )
 
 // SetTauSchedule picks the bag-size temperature schedule. A pinned tau wins
-// over the schedule either way.
+// over the schedule either way. The default is TauFitted.
 func (r *RangeFinder) SetTauSchedule(s TauSchedule) {
 	r.tauSchedule = s
 }
@@ -749,6 +780,11 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
 	}
 	r.inference.RackLength = game.RackTileLimit - len(r.lastOppMoveRackTiles)
+	r.oneTileScale = 1
+	if r.inference.RackLength == game.RackTileLimit-1 && !r.isExchange() &&
+		r.origGame.Bag().TilesRemaining() >= oneTileTauMinBag {
+		r.oneTileScale = oneTileTauScale
+	}
 	log.Info().Int("inference-rack-length", r.inference.RackLength).Msg("preparing inference")
 
 	// Sort to make it easy to compare to other plays:

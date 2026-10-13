@@ -14,9 +14,9 @@
 #
 set -euo pipefail
 
-BRANCH="${BRANCH:-claude/game-pair-autoplay-seed-wy2n1b}"
+BRANCH="${BRANCH:-claude/tau-table}"
 MACONDO_DIR="${MACONDO_DIR:-$HOME/macondo}"
-CONFIG="${CONFIG:-infer-v-sim-5000.json}"
+CONFIG="${CONFIG:-infer-v-sim-12500.json}"
 THREADS="${THREADS:-}"          # default: every logical CPU
 PAIRS=""                        # override numGames, for a smoke test
 DRY_RUN=0
@@ -99,22 +99,21 @@ if [ ! -f "$CONFIG" ]; then
   say "Writing $CONFIG (was not present)"
   cat > "$CONFIG" <<'JSON'
 {
-  "description": "Inference (tau 0.05) vs no inference, 5-ply sims both sides, 5000 game pairs",
-  "experimentId": "infer-v-sim-5000",
+  "description": "Inference (claude/tau-table defaults: fitted tau curve, one-tile x2 above 20 in the bag, exchanges by leave value) vs no inference, 5-ply sims both sides, 12500 game pairs",
+  "experimentId": "infer-v-sim-12500",
   "lexicon": "NWL23",
   "letterDistribution": "English",
-  "numGames": 5000,
-  "threads": 128,
+  "numGames": 12500,
+  "threads": 192,
   "outputDir": "./experiments",
   "block": true,
   "gamePairs": true,
-  "seed": 20260911,
+  "seed": 20261012,
 
   "player1": {
     "botCode": "SIMMING_INFER_BOT_NO_EG",
     "minSimPlies": 5,
     "simThreads": 1,
-    "inferenceTau": 0.05,
     "inferenceBudget": 200
   },
   "player2": {

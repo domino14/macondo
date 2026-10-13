@@ -1,4 +1,5 @@
-// exfit tabulates, for every logged exchange that was inferred, the static
+// exfit tabulates, for every logged exchange (or, with -kind placement, tile
+// placement) that was inferred, the static
 // leave value of each leave the exchanger could have kept against its
 // hypergeometric prior. It is the data for fitting a model of the form
 //
@@ -45,6 +46,7 @@ type record struct {
 	TrueLogPri float64         `json:"trueLogPrior"`
 	Leaves     int             `json:"leaves"`
 	Hist       map[int]float64 `json:"hist"` // value bin -> prior mass
+	LoggedLift *float64        `json:"loggedLift,omitempty"`
 	Err        string          `json:"err,omitempty"`
 }
 
@@ -54,6 +56,7 @@ func main() {
 	out := flag.String("out", "exfit.jsonl", "output")
 	limit := flag.Int("positions", 0, "cap on positions (0 = all)")
 	parallel := flag.Int("parallel", runtime.NumCPU(), "positions at once")
+	kind := flag.String("kind", "exchange", "exchange or placement")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
@@ -65,12 +68,13 @@ func main() {
 	cfg.Set(config.ConfigDefaultLetterDistribution, "english")
 
 	corpus, skipped, err := automatic.LoadCorpusVerbose(cfg, *turnlog, *lexicon, "english", "",
-		automatic.CorpusFilter{Exchanges: true, AllLifts: true, Limit: *limit})
+		automatic.CorpusFilter{Exchanges: *kind == "exchange", Placements: *kind == "placement",
+			AllLifts: true, Limit: *limit})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "%d exchanges (%d games skipped)\n", len(corpus), skipped)
+	fmt.Fprintf(os.Stderr, "%d positions (%d games skipped)\n", len(corpus), skipped)
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -111,6 +115,10 @@ func tabulate(pos *automatic.CorpusPosition, calc *equity.CombinedStaticCalculat
 
 	rec := record{GameID: pos.GameID, Half: pos.Half, Turn: pos.Turn, Play: pos.OppPlay,
 		TrueLeave: pos.TrueLeave, Kept: pos.LeaveLen, Bag: pos.TilesRemaining}
+	if pos.HasLoggedResult {
+		l := pos.LoggedLiftBits
+		rec.LoggedLift = &l
+	}
 	g := pos.Game
 	rf := &rangefinder.RangeFinder{}
 	rf.Init(g, []equity.EquityCalculator{calc}, cfg)
