@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -40,7 +41,9 @@ const (
 //	n rows of the frame cache layout (the candidates' net inputs).
 //
 // Positions where the sim's win probabilities span less than -min-win-span
-// (decided games: every candidate ~0 or ~1) are skipped.
+// (decided games: every candidate ~0 or ~1) are skipped. With -top K only
+// the sim's K best candidates (by win probability, then equity) are kept,
+// best first.
 func framesMain(args []string) {
 	fs := flag.NewFlagSet("frames", flag.ExitOnError)
 	var turnsPath, tag, posPath, labPath, lexicon, outPath string
@@ -51,6 +54,8 @@ func framesMain(args []string) {
 	fs.StringVar(&labPath, "labels", "", "labels file")
 	fs.StringVar(&lexicon, "lexicon", "NWL23", "lexicon")
 	fs.StringVar(&outPath, "out", "-", "output (- = stdout)")
+	var top int
+	fs.IntVar(&top, "top", 0, "keep only the sim's best K candidates per position (0 = all)")
 	fs.Float64Var(&minSpan, "min-win-span", 0.005, "skip positions whose candidates' sim win probabilities span less than this")
 	fs.Parse(args)
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
@@ -96,6 +101,25 @@ func framesMain(args []string) {
 			return
 		}
 		moves, idx := parseCands(tp, onturn, l)
+		if top > 0 && len(moves) > top {
+			order := make([]int, len(moves))
+			for k := range order {
+				order[k] = k
+			}
+			sort.SliceStable(order, func(a, b int) bool {
+				ca, cb := l.Cands[idx[order[a]]], l.Cands[idx[order[b]]]
+				if ca.Win != cb.Win {
+					return ca.Win > cb.Win
+				}
+				return ca.Eq > cb.Eq
+			})
+			keptM := make([]*move.Move, top)
+			keptI := make([]int, top)
+			for k := 0; k < top; k++ {
+				keptM[k], keptI[k] = moves[order[k]], idx[order[k]]
+			}
+			moves, idx = keptM, keptI
+		}
 		if len(moves) < 2 {
 			return
 		}
