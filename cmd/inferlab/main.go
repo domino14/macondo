@@ -146,7 +146,7 @@ func main() {
 		// How to infer.
 		tau         = flag.Float64("tau", 0, "softmax temperature (0 = engine default)")
 		tauSchedule = flag.String("tau-schedule", "off", "bag-size tau schedule: off (the fixed default), steps (0.1 at 8-20 in the bag, 0.3 at 7 or fewer) or fitted (the curve fitted to real games)")
-		exchange    = flag.String("exchange", "old", "how exchanges are read: old (the rack sampler) or posterior (measured kept leaves, imputed like placements)")
+		exchange    = flag.String("exchange", "old", "how exchanges are read: old (the rack sampler), posterior (measured kept leaves, imputed like placements) or value (prior x exp(beta x leave value), no sims)")
 		measPrior   = flag.Float64("measured-prior", -1, "pseudo-count blending a measured leave with the model's imputed value (-1 = engine default: 3 for posterior exchanges, 0 otherwise)")
 		tauScale1   = flag.Float64("tau-scale-one-tile", 1, "multiply the temperature by this on one-tile plays (six-tile leaves)")
 		budget      = flag.Int("budget", 200, "leaves to measure")
@@ -250,8 +250,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "-kind wants all, exchange or placement, not %q\n", *kind)
 		os.Exit(2)
 	}
-	if *exchange != "old" && *exchange != "posterior" {
-		fmt.Fprintf(os.Stderr, "-exchange wants old or posterior, not %q\n", *exchange)
+	exchangeMode, ok := map[string]rangefinder.ExchangeMode{
+		"old": rangefinder.ExchangeSampler, "posterior": rangefinder.ExchangeSim,
+		"value": rangefinder.ExchangeValue}[*exchange]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "-exchange wants old, posterior or value, not %q\n", *exchange)
 		os.Exit(2)
 	}
 	var tauSched rangefinder.TauSchedule
@@ -312,7 +315,7 @@ func main() {
 			for pos := range work {
 				for rep := 0; rep < max(1, *repeat); rep++ {
 					rec := replay(pos, calcs, cfg, *variant, replayOpts{
-						tau: *tau, tauSchedule: tauSched, tauScale1: *tauScale1, exchangePosterior: *exchange == "posterior", measuredPrior: *measPrior, budget: *budget, rounds: *rounds, simIters: *simIters,
+						tau: *tau, tauSchedule: tauSched, tauScale1: *tauScale1, exchangeMode: exchangeMode, measuredPrior: *measPrior, budget: *budget, rounds: *rounds, simIters: *simIters,
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
@@ -350,7 +353,7 @@ type replayOpts struct {
 	tau                                          float64
 	tauSchedule                                  rangefinder.TauSchedule
 	tauScale1                                    float64
-	exchangePosterior                            bool
+	exchangeMode                                 rangefinder.ExchangeMode
 	measuredPrior                                float64
 	budget, rounds, simIters, maxLeaves, threads int
 	trace                                        bool
@@ -456,7 +459,7 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 		rf.SetTauScale(o.tauScale1)
 	}
 	rf.SetTauSchedule(o.tauSchedule)
-	rf.SetExchangePosterior(o.exchangePosterior)
+	rf.SetExchangeMode(o.exchangeMode)
 	rf.SetMeasuredPrior(o.measuredPrior)
 	rf.SetBudget(o.budget)
 	rf.SetMaxRounds(o.rounds)

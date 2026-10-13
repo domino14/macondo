@@ -232,10 +232,9 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
-	// exchangePosterior sends exchanges through the measured-and-imputed
-	// posterior that tile placements use; see SetExchangePosterior.
-	exchangePosterior bool
-	measuredPriorPin  float64
+	// exchangeMode picks how an exchange is read; see ExchangeMode.
+	exchangeMode     ExchangeMode
+	measuredPriorPin float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -348,14 +347,48 @@ func (r *RangeFinder) SetTauScale(s float64) {
 	r.tauScale = s
 }
 
-// SetExchangePosterior chooses how an exchange is read. Off, the old sampler
-// draws whole racks and keeps the leaves of whatever exchanges the mini-sim
-// happened to rank, so the true leave gets weight only if both chances land.
-// On, an exchange is read like a tile placement: the unknown is the kept
-// leave, each measurement draws the thrown tiles at random and forces that
-// exchange into the mini-sim, and leaves never measured are imputed.
+// ExchangeMode is how an exchange is read.
+type ExchangeMode int
+
+const (
+	// ExchangeSampler is the old reading: draw whole racks and keep the
+	// leaves of whatever exchanges the mini-sim happened to rank, so the true
+	// leave gets weight only if both chances land. It ruled out the kept
+	// leave in 63% of the exchanges of the 5,000-pair run.
+	ExchangeSampler ExchangeMode = iota
+	// ExchangeSim reads an exchange like a tile placement: the unknown is the
+	// kept leave, each measurement draws the thrown tiles at random and
+	// forces that exchange into the mini-sim, and leaves never measured are
+	// imputed. The random thrown tiles make each measurement mostly about
+	// them, not the leave, and on replayed exchanges it scored below ignoring
+	// the exchange altogether.
+	ExchangeSim
+	// ExchangeValue weighs every possible kept leave by its prior times
+	// exp(ExchangeValueBeta x its static leave value). A player who exchanges
+	// keeps the best leave they can, and the leave table already knows which
+	// leaves are good. No sims; the posterior is exact and complete.
+	ExchangeValue
+)
+
+// ExchangeValueBeta is how strongly leave value predicts the leave kept on an
+// exchange, per point: a leave worth 10 more is about twice as likely. Fitted
+// by maximum likelihood to the 2,970 exchanges of the 5,000-pair run with a
+// known kept leave; it comes out the same (0.055 to 0.076) at every kept size.
+const ExchangeValueBeta = 0.072
+
+// SetExchangeMode chooses how an exchange is read; see ExchangeMode.
+func (r *RangeFinder) SetExchangeMode(m ExchangeMode) {
+	r.exchangeMode = m
+}
+
+// SetExchangePosterior is SetExchangeMode(ExchangeSim) when on and
+// SetExchangeMode(ExchangeSampler) when off.
 func (r *RangeFinder) SetExchangePosterior(on bool) {
-	r.exchangePosterior = on
+	if on {
+		r.exchangeMode = ExchangeSim
+	} else {
+		r.exchangeMode = ExchangeSampler
+	}
 }
 
 // exchangeMeasuredPrior is how many measurements' worth of trust the model's
@@ -373,8 +406,12 @@ func (r *RangeFinder) SetMeasuredPrior(m float64) {
 // exchangeByPosterior says whether this inference reads an exchange through
 // the posterior.
 func (r *RangeFinder) exchangeByPosterior() bool {
-	return r.exchangePosterior && r.lastOppMove != nil &&
-		r.lastOppMove.Action() == move.MoveTypeExchange
+	return r.exchangeMode == ExchangeSim && r.isExchange()
+}
+
+// isExchange says whether the play being read is an exchange.
+func (r *RangeFinder) isExchange() bool {
+	return r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
 }
 
 // measureExchange is one measurement of a kept leave: draw the thrown tiles
@@ -891,7 +928,10 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// distinct leave exactly once and apply full Bayesian weighting
 	// (prior × likelihood) rather than importance sampling.
 	// Exchange moves are excluded because their "leave" semantics differ.
-	isExchange := r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
+	isExchange := r.isExchange()
+	if isExchange && r.exchangeMode == ExchangeValue {
+		return r.inferExchangeByValue()
+	}
 	byPosterior := !isExchange || r.exchangeByPosterior()
 	if byPosterior && r.inference.RackLength >= 1 {
 		maxLeaves := r.enumerationLimit()
@@ -1075,7 +1115,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	isExchange := r.lastOppMove.Action() == move.MoveTypeExchange
 	// otherwise, it's a tile placement play.
 
-	if isExchange && !r.exchangePosterior {
+	if isExchange && r.exchangeMode == ExchangeSampler {
 		return r.inferSingleExchange(thread, iterNum, logChan)
 	}
 	if isExchange {

@@ -502,3 +502,45 @@ func TestExchangePosteriorIsOptIn(t *testing.T) {
 		t.Fatal("asked for the posterior")
 	}
 }
+
+// Read by value, an exchange gets a complete posterior over kept leaves with
+// no sims, and a strong kept leave is lifted above its prior while a weak one
+// falls below.
+func TestInferExchangeByValue(t *testing.T) {
+	is := is.New(t)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AENSTUU", g.Alphabet()))
+	uu, err := tilemapping.ToMachineLetters("UU", g.Alphabet())
+	is.NoErr(err)
+	aenst, err := tilemapping.ToMachineLetters("AENST", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(move.NewExchangeMove(uu, aenst, g.Alphabet()), true, 0))
+
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	rf.SetThreads(2)
+	rf.SetExchangeMode(ExchangeValue)
+	aelnoqt, err := tilemapping.ToMachineLetters("AELNOQT", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(rf.PrepareFinder(aelnoqt))
+	is.NoErr(rf.Infer(context.Background()))
+
+	is.True(rf.inference.Complete)
+	is.Equal(rf.SimCount(), uint64(0))
+	is.Equal(len(rf.inference.InferredRacks), countMultisets(rf.inferenceBagMap, 5))
+	strong := rf.ScoreLeave(aenst)
+	is.True(strong.LiftBits > 1)
+	iiuuv, err := tilemapping.ToMachineLetters("IIUUV", g.Alphabet())
+	is.NoErr(err)
+	is.True(rf.ScoreLeave(iiuuv).LiftBits < 0)
+}
