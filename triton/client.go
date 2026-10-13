@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -25,16 +26,50 @@ type ModelOutputs struct {
 // TritonClient is a client for the Triton Inference Server.
 type TritonClient struct {
 	client       *grpc_client.GRPCInferenceServiceClient
+	serverURL    string
 	modelName    string
 	modelVersion string
 	outputs      []string // output tensors to request; default just "value"
 	debug        bool     // Enable debug logging
 }
 
-// NewTritonClient creates a new TritonClient.
+// connsPerServer bounds the gRPC connections a process opens to one
+// server. Games used to open a connection each and never close it, so a
+// long replay (one game per position) ran Triton out of file descriptors;
+// connections are now shared, a few per server so parallel bots are not
+// all multiplexed onto one.
+const connsPerServer = 16
+
+var (
+	connMu   sync.Mutex
+	conns    = map[string][]*grpc.ClientConn{}
+	connNext = map[string]int{}
+	// Detected model outputs by url/model/version, so each game does not
+	// ask the server again.
+	outputsByModel = map[string][]string{}
+)
+
+func sharedConn(serverURL string) (*grpc.ClientConn, error) {
+	connMu.Lock()
+	defer connMu.Unlock()
+	if len(conns[serverURL]) < connsPerServer {
+		conn, err := grpc.NewClient(serverURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, err
+		}
+		conns[serverURL] = append(conns[serverURL], conn)
+		return conn, nil
+	}
+	i := connNext[serverURL] % connsPerServer
+	connNext[serverURL] = i + 1
+	return conns[serverURL][i], nil
+}
+
+// NewTritonClient creates a new TritonClient. Clients share a small pool
+// of connections per server (see connsPerServer).
 func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, error) {
 	log.Debug().Msgf("Connecting to Triton server at %s for model %s version %s", serverURL, modelName, modelVersion)
-	conn, err := grpc.NewClient(serverURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := sharedConn(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to triton server: %w", err)
 	}
@@ -43,6 +78,7 @@ func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, 
 
 	return &TritonClient{
 		client:       &client,
+		serverURL:    serverURL,
 		modelName:    modelName,
 		modelVersion: modelVersion,
 		outputs:      []string{"value"},
@@ -65,6 +101,14 @@ func (c *TritonClient) Outputs() []string { return c.outputs }
 // nets do; the old CNN does not). The bot's decided-game ranking needs the
 // spread head, so this is called once when the game's client is created.
 func (c *TritonClient) DetectOutputs() error {
+	key := c.serverURL + "/" + c.modelName + "/" + c.modelVersion
+	connMu.Lock()
+	known, ok := outputsByModel[key]
+	connMu.Unlock()
+	if ok {
+		c.outputs = known
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	md, err := (*c.client).ModelMetadata(ctx, &grpc_client.ModelMetadataRequest{
@@ -79,6 +123,9 @@ func (c *TritonClient) DetectOutputs() error {
 		}
 	}
 	c.outputs = outputs
+	connMu.Lock()
+	outputsByModel[key] = outputs
+	connMu.Unlock()
 	return nil
 }
 
