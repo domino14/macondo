@@ -1,8 +1,6 @@
-everything: all wasm
-
 all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker
 
-.PHONY: wasm magpie
+.PHONY: magpie
 
 # MAGPIE's static libraries (third_party/magpie, a submodule), which the
 # magpie/ cgo package links. MAGPIE_MARCH=x86-64-v2 (or similar) for a
@@ -10,8 +8,12 @@ all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker
 magpie:
 	scripts/build_magpie.sh
 
+# Macondo links MAGPIE through cgo. The Lambda runs on Amazon Linux 2, so the
+# binary is linked statically (build it with `sam build --use-container` so
+# it is compiled there), with MAGPIE for a portable instruction set.
 build-MacondoLambdaFunction:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap cmd/lambda/main.go
+	MAGPIE_MARCH=x86-64-v2 scripts/build_magpie.sh
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags netgo,osusergo -ldflags '-linkmode external -extldflags "-static"' -o bootstrap cmd/lambda/main.go
 	cp ./bootstrap $(ARTIFACTS_DIR)/.
 
 proto:
@@ -37,9 +39,6 @@ inferdiag: magpie
 
 taufit: magpie
 	go build -trimpath -o bin/taufit cmd/taufit/main.go
-
-# wasm:
-# 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 
 clean:
 	rm -f bin/*

@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
       # America is the one word graph the tests need that isn't published
       # alongside the others, so it comes from the private repo; everything
       # else is fetched below. Publish America and this step, the checkout
@@ -51,14 +53,13 @@ jobs:
       - name: Install lexicon data
         run: cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
 
+      # MAGPIE's static libraries, which every Go build links (see
+      # scripts/build_magpie.sh). Word maps are built and saved on first use.
       - name: Build
         run: make
 
-      - name: Build CSW24 WMP for tests
-        run: go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/CSW24.kwg -out /opt/data/lexica/CSW24.wmp
-
       - name: Run tests
-        run: go test $(go list ./... | grep -v wasm)
+        run: go test ./...
 
       - name: Discord notification
         env:
@@ -74,6 +75,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Log in to the container registry
         uses: docker/login-action@v3
