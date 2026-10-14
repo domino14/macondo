@@ -615,3 +615,116 @@ func (p *Position) RackCounts() (r0, r1 []uint8, bag int) {
 	}
 	return r0, r1, int(cbag)
 }
+
+// SmallMove is an endgame move: TM is Macondo's tinymove.TinyMove encoding
+// (0 for a pass). Laid out like the C mg_small_move.
+type SmallMove struct {
+	TM          uint64
+	Score       int16
+	TilesPlayed uint8
+	PlayLength  uint8
+}
+
+func init() {
+	if unsafe.Sizeof(SmallMove{}) != unsafe.Sizeof(C.mg_small_move{}) {
+		panic("magpie.SmallMove does not match mg_small_move")
+	}
+}
+
+// GenerateSmall generates every play for the player on turn as small moves
+// (a pass too if pass is set), into buf, using the override word graph if
+// one is set. It returns the moves, which alias buf; buf's length is the
+// most it can hold.
+func (p *Position) GenerateSmall(pass bool, buf []SmallMove) []SmallMove {
+	if len(buf) == 0 {
+		return buf
+	}
+	gp := C.int(0)
+	if pass {
+		gp = 1
+	}
+	out := (*C.mg_small_move)(unsafe.Pointer(&buf[0]))
+	var n C.int
+	if p.data.dim == 15 {
+		n = C.mgs15_gen_small(p.ptr, gp, out, C.int(len(buf)))
+	} else {
+		n = C.mgs21_gen_small(p.ptr, gp, out, C.int(len(buf)))
+	}
+	return buf[:n]
+}
+
+// PlaySmall plays a small move worth score points with an incremental undo
+// (the bag must be empty). The move's letters, played-through ones included,
+// go into strip; it returns how many.
+func (p *Position) PlaySmall(tm uint64, score int, strip []tilemapping.MachineLetter) (int, error) {
+	sp := (*C.uint8_t)(unsafe.Pointer(&strip[0]))
+	var n C.int
+	if p.data.dim == 15 {
+		n = C.mgs15_play_small(p.ptr, C.uint64_t(tm), C.int(score), sp)
+	} else {
+		n = C.mgs21_play_small(p.ptr, C.uint64_t(tm), C.int(score), sp)
+	}
+	if n < 0 {
+		return 0, errors.New("magpie: small move does not fit the board")
+	}
+	return int(n), nil
+}
+
+// UnplaySmall undoes the last PlaySmall.
+func (p *Position) UnplaySmall() error {
+	var rc C.int
+	if p.data.dim == 15 {
+		rc = C.mgs15_unplay_small(p.ptr)
+	} else {
+		rc = C.mgs21_unplay_small(p.ptr)
+	}
+	if rc != 0 {
+		return ErrNoBackup
+	}
+	return nil
+}
+
+// KWG is a word graph MAGPIE built, such as an endgame's pruned one.
+type KWG struct {
+	ptr *C.mg_kwg
+	dim int
+}
+
+// PrunedKWG builds a word graph of every word playable from this position,
+// for an endgame. Close it when done.
+func (p *Position) PrunedKWG() *KWG {
+	k := &KWG{dim: p.data.dim}
+	if k.dim == 15 {
+		k.ptr = C.mgs15_pos_pruned_kwg(p.ptr)
+	} else {
+		k.ptr = C.mgs21_pos_pruned_kwg(p.ptr)
+	}
+	return k
+}
+
+// Close frees the word graph.
+func (k *KWG) Close() {
+	if k == nil || k.ptr == nil {
+		return
+	}
+	if k.dim == 15 {
+		C.mgs15_kwg_destroy(k.ptr)
+	} else {
+		C.mgs21_kwg_destroy(k.ptr)
+	}
+	k.ptr = nil
+}
+
+// SetOverrideKWG makes the position generate (and build cross-sets) from k
+// rather than the full word graph; nil goes back to the full one.
+func (p *Position) SetOverrideKWG(k *KWG) {
+	var kp *C.mg_kwg
+	if k != nil {
+		kp = k.ptr
+	}
+	if p.data.dim == 15 {
+		C.mgs15_pos_set_override_kwg(p.ptr, kp)
+	} else {
+		C.mgs21_pos_set_override_kwg(p.ptr, kp)
+	}
+}

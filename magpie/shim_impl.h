@@ -16,6 +16,8 @@
 #include "ent/kwg.h"
 #include "ent/letter_distribution.h"
 #include "ent/move.h"
+#include "ent/move_undo.h"
+#include "ent/dictionary_word.h"
 #include "ent/player.h"
 #include "ent/players_data.h"
 #include "ent/rack.h"
@@ -23,6 +25,8 @@
 #include "ent/wmp.h"
 #include "impl/gameplay.h"
 #include "impl/move_gen.h"
+#include "impl/kwg_maker.h"
+#include "impl/word_prune.h"
 #include "impl/rack_info_table_maker.h"
 #include "impl/wmp_maker.h"
 #include "util/io_util.h"
@@ -60,6 +64,13 @@ struct mg_pos {
   mg_data *data;
   Game *game;
   MoveList *move_list;
+  // Endgame: the small-move list, the override word graph and the stack of
+  // incremental undos.
+  MoveList *small_list;
+  const KWG *override_kwg;
+  MoveUndo **undos;
+  int undo_depth;
+  int undo_cap;
   int backup_mode;
   int backup_depth;
   int backup_cap;
@@ -310,6 +321,13 @@ void MGS(pos_destroy)(mg_pos *p) {
     return;
   }
   mgs_free_backups(p);
+  if (p->small_list) {
+    small_move_list_destroy(p->small_list);
+  }
+  for (int i = 0; i < p->undo_cap; i++) {
+    free(p->undos[i]);
+  }
+  free(p->undos);
   move_list_destroy(p->move_list);
   game_destroy(p->game);
   free(p);
@@ -613,4 +631,202 @@ void MGS(pos_read_racks)(const mg_pos *p, uint8_t *counts0, uint8_t *counts1,
   if (bag_count) {
     *bag_count = bag_get_letters(game_get_bag(p->game));
   }
+}
+
+// --- Endgame ---
+
+// Encodes a placement in Macondo's TinyMove layout: the placed tiles (not the
+// played-through ones), 6 bits each from bit 20, a blank flag per tile from
+// bit 12 (with the tile unblanked), the row from bit 6, the column from bit 1
+// and the direction (1 = vertical) in bit 0.
+static uint64_t mgs_macondo_tiny_move(const Move *m) {
+  uint64_t code = 0;
+  int tidx = 0;
+  uint64_t blanks = 0;
+  for (int i = 0; i < move_get_tiles_length(m); i++) {
+    MachineLetter t = move_get_tile(m, i);
+    if (t == PLAYED_THROUGH_MARKER) {
+      continue;
+    }
+    if (get_is_blanked(t)) {
+      blanks |= (uint64_t)1 << tidx;
+      t = get_unblanked_machine_letter(t);
+    }
+    code |= (uint64_t)t << (20 + 6 * tidx);
+    tidx++;
+  }
+  if (move_get_dir(m) == BOARD_VERTICAL_DIRECTION) {
+    code |= 1;
+  }
+  code |= (uint64_t)move_get_col_start(m) << 1;
+  code |= (uint64_t)move_get_row_start(m) << 6;
+  code |= blanks << 12;
+  return code;
+}
+
+int MGS(gen_small)(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap) {
+  if (!p->small_list || move_list_get_capacity(p->small_list) < out_cap) {
+    if (p->small_list) {
+      small_move_list_destroy(p->small_list);
+    }
+    p->small_list = move_list_create_small(out_cap);
+  }
+  MoveList *ml = p->small_list;
+  const MoveGenArgs args = {
+      .game = p->game,
+      .move_list = ml,
+      .move_record_type = MOVE_RECORD_ALL_SMALL,
+      .move_sort_type = MOVE_SORT_SCORE,
+      .override_kwg = p->override_kwg,
+      .eq_margin_movegen = 0,
+      .target_equity = EQUITY_MAX_VALUE,
+      .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
+  };
+  generate_moves(&args);
+  const Board *board = game_get_board(p->game);
+  int n = 0;
+  bool have_pass = false;
+  Move m;
+  for (int i = 0; i < ml->count && n < out_cap; i++) {
+    const SmallMove *sm = ml->small_moves[i];
+    if (small_move_is_pass(sm)) {
+      if (!gen_pass || have_pass) {
+        continue;
+      }
+      have_pass = true;
+      out[n++] = (mg_small_move){0, 0, 0, 0};
+      continue;
+    }
+    small_move_to_move(&m, sm, board);
+    out[n].tm = mgs_macondo_tiny_move(&m);
+    out[n].score = (int16_t)equity_to_int(move_get_score(&m));
+    out[n].tiles_played = (uint8_t)move_get_tiles_played(&m);
+    out[n].play_length = (uint8_t)move_get_tiles_length(&m);
+    n++;
+  }
+  if (gen_pass && !have_pass && n < out_cap) {
+    out[n++] = (mg_small_move){0, 0, 0, 0};
+  }
+  return n;
+}
+
+// Decodes a Macondo TinyMove against the board into a Move: placed tiles go
+// on empty squares in order, occupied squares are played through. Returns
+// false if the tiles run off the board.
+static bool mgs_move_from_tiny(const Board *board, uint64_t tm, Move *m) {
+  if (tm == 0) {
+    move_set_as_pass(m);
+    return true;
+  }
+  const int vertical = (int)(tm & 1);
+  const int col = (int)((tm >> 1) & 31);
+  const int row = (int)((tm >> 6) & 31);
+  const uint64_t blanks = (tm >> 12) & 127;
+  MachineLetter placed[RACK_SIZE];
+  int num_placed = 0;
+  for (int i = 0; i < RACK_SIZE; i++) {
+    MachineLetter t = (MachineLetter)((tm >> (20 + 6 * i)) & 63);
+    if (t == 0) {
+      break;
+    }
+    if (blanks & ((uint64_t)1 << i)) {
+      t = get_blanked_machine_letter(t);
+    }
+    placed[num_placed++] = t;
+  }
+  move_set_type(m, GAME_EVENT_TILE_PLACEMENT_MOVE);
+  move_set_row_start(m, row);
+  move_set_col_start(m, col);
+  move_set_dir(m, vertical ? BOARD_VERTICAL_DIRECTION : BOARD_HORIZONTAL_DIRECTION);
+  int r = row, c = col, len = 0, used = 0;
+  while (r < BOARD_DIM && c < BOARD_DIM) {
+    const MachineLetter on_board = board_get_letter(board, r, c);
+    if (on_board != ALPHABET_EMPTY_SQUARE_MARKER) {
+      move_set_tile(m, PLAYED_THROUGH_MARKER, len++);
+    } else if (used < num_placed) {
+      move_set_tile(m, placed[used++], len++);
+    } else {
+      break;
+    }
+    if (vertical) {
+      r++;
+    } else {
+      c++;
+    }
+  }
+  if (used < num_placed) {
+    return false;
+  }
+  move_set_tiles_played(m, num_placed);
+  move_set_tiles_length(m, len);
+  return true;
+}
+
+int MGS(play_small)(mg_pos *p, uint64_t tm, int score, uint8_t *strip) {
+  Game *game = p->game;
+  const Board *board = game_get_board(game);
+  Move m;
+  if (!mgs_move_from_tiny(board, tm, &m)) {
+    return -1;
+  }
+  int len = 0;
+  if (tm != 0) {
+    // The strip, with played-through squares filled in from the board.
+    const int row = move_get_row_start(&m), col = move_get_col_start(&m);
+    const bool vertical = move_get_dir(&m) == BOARD_VERTICAL_DIRECTION;
+    len = move_get_tiles_length(&m);
+    for (int i = 0; i < len; i++) {
+      const MachineLetter t = move_get_tile(&m, i);
+      strip[i] = t != PLAYED_THROUGH_MARKER
+                     ? t
+                     : board_get_letter(board, vertical ? row + i : row,
+                                        vertical ? col : col + i);
+    }
+    move_set_score(&m, int_to_equity(score));
+  }
+  if (p->undo_depth == p->undo_cap) {
+    const int cap = p->undo_cap ? 2 * p->undo_cap : 16;
+    p->undos = realloc_or_die(p->undos, cap * sizeof(MoveUndo *));
+    for (int i = p->undo_cap; i < cap; i++) {
+      p->undos[i] = malloc_or_die(sizeof(MoveUndo));
+    }
+    p->undo_cap = cap;
+  }
+  play_move_incremental(&m, game, p->undos[p->undo_depth++]);
+  return len;
+}
+
+int MGS(unplay_small)(mg_pos *p) {
+  if (p->undo_depth == 0) {
+    return -1;
+  }
+  unplay_move_incremental(p->game, p->undos[--p->undo_depth]);
+  return 0;
+}
+
+mg_kwg *MGS(pos_pruned_kwg)(const mg_pos *p) {
+  DictionaryWordList *words = dictionary_word_list_create();
+  const KWG *full = player_get_kwg(game_get_player(p->game, 0));
+  if (game_get_variant(p->game) == GAME_VARIANT_CLASSIC) {
+    generate_possible_words_with_cross_checks(p->game, full, words);
+  } else {
+    generate_possible_words(p->game, full, words);
+  }
+  KWG *k = make_kwg_from_words_small(words, KWG_MAKER_OUTPUT_GADDAG,
+                                     KWG_MAKER_MERGE_EXACT);
+  dictionary_word_list_destroy(words);
+  return (mg_kwg *)k;
+}
+
+void MGS(kwg_destroy)(mg_kwg *k) { kwg_destroy((KWG *)k); }
+
+void MGS(pos_set_override_kwg)(mg_pos *p, const mg_kwg *k) {
+  p->override_kwg = (const KWG *)k;
+  if (k) {
+    game_set_override_kwgs(p->game, (const KWG *)k, (const KWG *)k,
+                           DUAL_LEXICON_MODE_IGNORANT);
+  } else {
+    game_clear_override_kwgs(p->game);
+  }
+  game_gen_all_cross_sets(p->game);
 }
