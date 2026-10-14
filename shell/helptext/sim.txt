@@ -76,12 +76,24 @@ Options:
 
     -stop 95
 
-    You can use 95, 98, or 99 for this option. This makes the sim stop when it is
-    X percent sure that the top move is the winning move.
+    You can use 90, 95, 98, 99 or 999 (99.9) for this option. This makes the sim
+    stop when it is X percent sure that the top move is the winning move. The
+    sim decides which plays to sample as it goes (best-arm identification, the
+    top-two rule from MAGPIE): it spends its rollouts on the leader and the play
+    most likely to overtake it, and every play is dealt the same opponent rack
+    at the same sample number. Plays that use the same tiles from the same
+    square count as one play for stopping. In a decided game (the leader's win
+    chance near 0% or 100%) it goes on to rank the plays by equity.
 
-    Note: using this option will stop the simulation after a fixed number of
-    plies (usually 5000). It's possible to get to 5000 plies without having
-    a clear winner, but this usually means the winning plays are pretty similar.
+    Note: using this option also caps the simulation at a fixed number of
+    iterations (2000 + 625 per ply, an iteration being one rollout per play).
+    It's possible to reach the cap without a clear winner; this usually means
+    the top plays are about equally good.
+
+    -minsamples 32
+
+    How many rollouts every play gets before the sim prefers any of them or
+    may stop. The default is 32.
 
     -opprack AENST
 
@@ -121,6 +133,7 @@ Options:
 
     -avoid-prune "F5 FOO"
 
-    If you are cutting off plays, any plays you specify with potentially repeated
-    `-avoid-prune` options never get cut off. This is good for comparing plays you
-    made to the top plays.
+    Plays you specify with potentially repeated `-avoid-prune` options are added
+    to the sim if they aren't in it, and are never treated as the same play as
+    another: the sim only stops once each has been beaten on its own. This is
+    good for comparing plays you made to the top plays.

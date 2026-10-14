@@ -56,7 +56,7 @@ func TestSimWordSmog(t *testing.T) {
 	calcs, leaves := defaultSimCalculators("CSW21")
 	simmer.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.PrepareSim(plies, plays)
-	simmer.simSingleIteration(context.Background(), plies, 0, 1, nil)
+	simmer.sampleEveryPlay(context.Background(), 0, 1)
 
 	is.True(simmer.gameCopies[0].Board().IsEmpty())
 	is.Equal(simmer.gameCopies[0].RackFor(0).String(), "AAADERW")

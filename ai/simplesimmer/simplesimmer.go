@@ -13,7 +13,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
@@ -93,18 +92,7 @@ func (p *SimpleSimmer) SetMaxIters(n int) {
 }
 
 func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
-	curRack := p.RackFor(p.PlayerOnTurn())
-	oppRack := p.RackFor(p.NextPlayer())
-	gen := p.MoveGenerator()
-	// in case we don't have full rack info:
-	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
-	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-	gen.GenAll(curRack, exchAllowed)
-	plays := gen.(*movegen.GordonGenerator).Plays()
-
-	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	return p.TopPlays(plays, numPlays)
+	return p.AIStaticTurnPlayer.GenerateMoves(numPlays)
 }
 
 func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
@@ -114,7 +102,6 @@ func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	p.simmer.SetThreads(1)
 	// 2 plies for this simple simmer. can maybe configure later.
 	p.simmer.PrepareSim(p.numPlies, moves)
-	p.simmer.SetAutostopCheckInterval(64)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
 	wp := p.simmer.WinningPlay()
@@ -142,7 +129,6 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 	p.resolveWMP()
 	p.simmer.SetThreads(1)
 	p.simmer.PrepareSim(p.numPlies, moves)
-	p.simmer.SetAutostopCheckInterval(64)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	var logfile *os.File
 	var err error

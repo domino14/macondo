@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -1507,4 +1508,30 @@ func (g *Game) ToCGP(formatForBot bool) string {
 	}
 
 	return cgp
+}
+
+// DealRandomRackSeeded throws playerIdx's rack back in the bag and deals a
+// full rack from it -- knownRack plus random tiles -- as SetRandomRack does,
+// but with the deal a function of rng alone: the bag is put in a canonical
+// order and shuffled with rng first, and rng becomes the bag's source. A sim
+// that seeds rng by sample number deals every play the same rack at the same
+// sample, which is what lets it compare plays on common random numbers.
+func (g *Game) DealRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG) error {
+	g.players[playerIdx].throwRackIn(g.bag)
+	tiles := g.bag.Tiles()
+	slices.Sort(tiles)
+	g.bag.SetRNG(rng)
+	if len(knownRack) > 0 {
+		if err := g.bag.RemoveTiles(knownRack); err != nil {
+			return err
+		}
+		// RemoveTiles rebuilds the bag, so canonicalize again.
+		slices.Sort(g.bag.Tiles())
+	}
+	g.bag.Shuffle()
+	ph := g.players[1-playerIdx].placeholderRack
+	n := copy(ph, knownRack)
+	n += g.bag.DrawAtMost(RackTileLimit-n, ph[n:])
+	g.players[playerIdx].setRackTiles(ph[:n], g.alph)
+	return nil
 }

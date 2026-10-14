@@ -177,7 +177,7 @@ func init() {
 			{Name: "fixedsimiters", Type: OptInt},
 			{Name: "fixedsimplies", Type: OptInt},
 			{Name: "fixedsimcount", Type: OptInt},
-			{Name: "autostopcheckinterval", Type: OptInt},
+			{Name: "minsamples", Type: OptInt},
 			{Name: "stop-ppscaling", Type: OptInt},
 			{Name: "stop-itercutoff", Type: OptInt},
 			{Name: "avoid-prune", Type: OptStringArray},

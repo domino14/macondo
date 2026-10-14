@@ -15,12 +15,22 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
 
 // seededSimmer builds the same position every time: a seeded bag means the deal
 // and every rack the sim draws come out of one reproducible stream.
 func seededSimmer(t *testing.T, seedByte byte, plies, threads int) *Simmer {
+	return seededSimmerWith(t, seedByte, plies, threads, func(plays []*move.Move) []*move.Move {
+		return plays[:10]
+	})
+}
+
+// seededSimmerWith is seededSimmer simming the plays pick chooses from the
+// position's plays, best-scoring first.
+func seededSimmerWith(t *testing.T, seedByte byte, plies, threads int,
+	pick func([]*move.Move) []*move.Move) *Simmer {
 	t.Helper()
 	is := is.New(t)
 
@@ -50,7 +60,7 @@ func seededSimmer(t *testing.T, seedByte byte, plies, threads int) *Simmer {
 	s := &Simmer{}
 	s.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	s.SetThreads(threads)
-	is.NoErr(s.PrepareSim(plies, gen.Plays()[:10]))
+	is.NoErr(s.PrepareSim(plies, pick(gen.Plays())))
 	return s
 }
 
@@ -79,19 +89,21 @@ func TestInlineSimIsReproducible(t *testing.T) {
 	is.True(iters1 > 0)
 }
 
-// The loop leaves on the very iteration the stopping condition trips, so the
-// count always lands on a check boundary. The threaded loop cannot promise this:
-// its workers only find out through the context.
-func TestInlineSimStopsOnACheckBoundary(t *testing.T) {
+// A clear-cut position stops on the stopping rule, well short of the cap.
+func TestInlineSimStopsOnTheThreshold(t *testing.T) {
 	is := is.New(t)
 
-	s := seededSimmer(t, 7, 2, 1)
+	// The best-scoring play against the five worst.
+	s := seededSimmerWith(t, 7, 2, 1, func(plays []*move.Move) []*move.Move {
+		return append([]*move.Move{plays[0]}, plays[len(plays)-5:]...)
+	})
 	s.SetStoppingCondition(Stop99)
 	is.NoErr(s.Simulate(context.Background()))
 
-	interval := s.autostopper.stopConditionCheckInterval
-	is.True(interval > 0)
-	is.Equal(uint64(s.Iterations())%interval, uint64(0))
+	cap := s.autostopper.iterationsCutoff + 2*s.autostopper.perPlyStopScaling
+	is.True(s.Iterations() > 0)
+	is.True(s.Iterations() < cap/10)
+	is.Equal(s.WinningPlay().Move(), s.arms[0].Move())
 }
 
 // liveGoroutines returns the id of every goroutine that exists right now.
@@ -157,7 +169,6 @@ func TestInlineSimHonorsContext(t *testing.T) {
 	cancel()
 
 	is.NoErr(s.Simulate(ctx))
-	// One iteration runs before the context is consulted; the point is that it
-	// stops immediately rather than simming forever.
-	is.Equal(s.Iterations(), 1)
+	// The context is consulted before every round, so nothing runs.
+	is.Equal(s.Iterations(), 0)
 }
