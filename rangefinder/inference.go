@@ -251,6 +251,11 @@ type RangeFinder struct {
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
+	// miniSimMoves is how many static plays a mini-sim sims besides the
+	// opponent's (0 means 10), and miniSimEqual gives each the same rollouts
+	// with no early stop (experiments).
+	miniSimMoves int
+	miniSimEqual bool
 	// maxEnumeratedLeaves is the threshold for switching from Monte Carlo sampling
 	// to exhaustive enumeration. When the number of distinct leaves drawable from
 	// the bag (countMultisets) is ≤ this value, inferEnumerated is used instead of
@@ -453,7 +458,7 @@ func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleS
 	copy(kept, leave)
 	exch := move.NewExchangeMove(thrown, kept, g.Alphabet())
 
-	if _, err := simmer.GenAndSim(context.Background(), 10, exch); err != nil {
+	if _, err := simmer.GenAndSim(context.Background(), r.miniSimPlays(), exch); err != nil {
 		return 0, err
 	}
 	r.simCount.Add(1)
@@ -576,6 +581,21 @@ func (r *RangeFinder) MaxRounds() int { return max(0, r.maxRounds) }
 
 func (r *RangeFinder) SetSimIters(n int) {
 	r.simIters = n
+}
+
+// SetMiniSimMoves sets how many static plays each mini-sim sims besides the
+// opponent's (0 = 10).
+func (r *RangeFinder) SetMiniSimMoves(n int) { r.miniSimMoves = n }
+
+// SetMiniSimEqual makes each mini-sim give every play SimIters rollouts, with
+// no stopping rule or top-two allocation.
+func (r *RangeFinder) SetMiniSimEqual(on bool) { r.miniSimEqual = on }
+
+func (r *RangeFinder) miniSimPlays() int {
+	if r.miniSimMoves > 0 {
+		return r.miniSimMoves
+	}
+	return 10
 }
 
 func (r *RangeFinder) SimIters() int {
@@ -863,6 +883,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		if r.simIters > 0 {
 			simmer.SetMaxIters(r.simIters)
 		}
+		simmer.SetEqualAllocation(r.miniSimEqual)
 		r.aiplayers = append(r.aiplayers, simmer)
 	}
 
@@ -1191,7 +1212,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	}
 
 	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
-		context.Background(), 10, lastOppMove)
+		context.Background(), r.miniSimPlays(), lastOppMove)
 	if err != nil {
 		return nil, err
 	}

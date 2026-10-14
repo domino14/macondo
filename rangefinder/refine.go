@@ -112,7 +112,7 @@ func (r *RangeFinder) evaluateLeaves(ctx context.Context, leaves [][]tilemapping
 				lastOppMove.CopyFrom(r.lastOppMove)
 				lastOppMove.SetLeave(leave)
 
-				if _, err := simmer.GenAndSim(context.Background(), 10, lastOppMove); err != nil {
+				if _, err := simmer.GenAndSim(context.Background(), r.miniSimPlays(), lastOppMove); err != nil {
 					return err
 				}
 				r.simCount.Add(1)

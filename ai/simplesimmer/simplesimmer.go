@@ -24,6 +24,15 @@ type SimpleSimmer struct {
 	numPlies    int
 	maxIters    int
 	logging     bool
+	// equalAlloc gives every play exactly maxIters rollouts, with no
+	// stopping rule and no top-two allocation (an experiment).
+	equalAlloc bool
+}
+
+// SetEqualAllocation makes GenAndSim give every play the same maxIters
+// rollouts instead of stopping at 99% with top-two sampling.
+func (p *SimpleSimmer) SetEqualAllocation(on bool) {
+	p.equalAlloc = on
 }
 
 // miniSimMinSamples is how many rollouts every play gets before a mini-sim
@@ -113,6 +122,10 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
 	p.simmer.SetBagCycle(false)
+	if p.equalAlloc {
+		p.simmer.SetStoppingCondition(montecarlo.StopNone)
+		p.simmer.SetMinSamplesPerPlay(p.maxIters)
+	}
 	var logfile *os.File
 	var err error
 	var filename string
