@@ -333,6 +333,9 @@ type Simmer struct {
 	minSamplesPerPlay int
 	// noBagCycle turns off MAGPIE's bag cycling (see SetBagCycle).
 	noBagCycle bool
+	// rotations is how many rollouts a sample averages: 1 without bag
+	// cycling. Fixed when the sim starts.
+	rotations int
 	// logMu serializes log writes from several sample workers.
 	logMu sync.Mutex
 }
@@ -968,7 +971,9 @@ func (s *Simmer) SetMinSamplesPerPlay(n int) {
 // in MAGPIE). With it on, one sample is the mean of ceil(unseen/7) rollouts
 // that deal the opponent successive racks of one shuffled bag, so every
 // unseen tile starts on the opponent's rack once: a less noisy sample that
-// costs as many rollouts as there are rotations.
+// costs as many rollouts as there are rotations. The minimum samples per
+// play and the iteration cap still count rollouts, as in MAGPIE, so a cycled
+// sim does about as many rollouts as a plain one.
 func (s *Simmer) SetBagCycle(on bool) {
 	s.noBagCycle = !on
 }

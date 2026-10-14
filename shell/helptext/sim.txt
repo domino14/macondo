@@ -87,22 +87,23 @@ Options:
     win chance within 0.005% of 0% or 100%) the sim stops.
 
     Note: using this option also caps the simulation at a fixed number of
-    iterations (2000 + 625 per ply, an iteration being one sample per play).
+    iterations (2000 + 625 per ply, an iteration being one rollout per play).
     It's possible to reach the cap without a clear winner; this usually means
     the top plays are about equally good.
 
     -minsamples 500
 
-    How many samples every play gets before the sim prefers any of them or
+    How many rollouts every play gets before the sim prefers any of them or
     may stop. The default is 500, as in MAGPIE.
 
     -bagcycle false
 
     Bag cycling is on by default, as in MAGPIE: one sample deals the opponent
     successive racks of one shuffled bag until every unseen tile has started
-    on their rack once (ceil(unseen/7) rollouts), and averages them. Samples
-    are much less noisy but cost that many rollouts each. Turn it off to make
-    a sample a single rollout.
+    on their rack once (ceil(unseen/7) rollouts), and averages them. The
+    minimum and the cap above still count rollouts, so a sim does about as
+    many rollouts either way, in fewer, less noisy samples. Turn it off to
+    make a sample a single rollout.
 
     -opprack AENST
 

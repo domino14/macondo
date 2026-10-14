@@ -164,6 +164,8 @@ func TestSimSingleThreadCountsWhatItRan(t *testing.T) {
 
 	s := seededSimmer(t, 11, 2, 1)
 	s.SetStoppingCondition(StopNone)
+	// Bag cycling counts in whole cycles of rollouts.
+	s.SetBagCycle(false)
 
 	s.SimSingleThread(50, 2)
 	is.Equal(s.Iterations(), 50)
