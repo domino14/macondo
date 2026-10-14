@@ -44,10 +44,26 @@ struct mg_data {
   int bingo_bonus;
 };
 
+// What a play changes, saved for unplay. MAGPIE's own game backups are
+// capped at MAX_SEARCH_DEPTH; Macondo's stack has no fixed depth.
+typedef struct mgs_backup {
+  Board *board;
+  Bag *bag;
+  Rack racks[2];
+  Equity scores[2];
+  int on_turn;
+  int scoreless_turns;
+  game_end_reason_t end_reason;
+} mgs_backup;
+
 struct mg_pos {
   mg_data *data;
   Game *game;
   MoveList *move_list;
+  int backup_mode;
+  int backup_depth;
+  int backup_cap;
+  mgs_backup *backups;
 };
 
 static void mgs_set_err(char *err, int err_len, const char *msg) {
@@ -68,7 +84,66 @@ static bool mgs_take_error(ErrorStack *es, char *err, int err_len) {
   return true;
 }
 
-mg_data *MGS(data_create)(const char *kwg_path, const char *klv_path,
+// Reads n little-endian uint32 KWG nodes from buf.
+static void mgs_read_nodes(KWG *kwg, const uint8_t *buf, size_t n) {
+  kwg_allocate_nodes(kwg, n);
+  memcpy(kwg->nodes, buf, n * sizeof(uint32_t));
+  for (size_t i = 0; i < n; i++) {
+    kwg->nodes[i] = le32toh(kwg->nodes[i]);
+  }
+}
+
+static KWG *mgs_kwg_from_bytes(const uint8_t *buf, int64_t len) {
+  KWG *kwg = calloc_or_die(1, sizeof(KWG));
+  kwg->name = string_duplicate("macondo");
+  mgs_read_nodes(kwg, buf, (size_t)len / sizeof(uint32_t));
+  return kwg;
+}
+
+// Parses a .klv2: a u32 node count, the KWG nodes, a u32 leave count and
+// that many float32 leave values. As klv_load, but from memory.
+static KLV *mgs_klv_from_bytes(const uint8_t *buf, int64_t len, char *err,
+                               int err_len) {
+  uint32_t kwg_size, number_of_leaves;
+  if (len < 4) {
+    goto truncated;
+  }
+  memcpy(&kwg_size, buf, 4);
+  kwg_size = le32toh(kwg_size);
+  const int64_t leaves_at = 4 + (int64_t)kwg_size * 4;
+  if (len < leaves_at + 4) {
+    goto truncated;
+  }
+  memcpy(&number_of_leaves, buf + leaves_at, 4);
+  number_of_leaves = le32toh(number_of_leaves);
+  if (len < leaves_at + 4 + (int64_t)number_of_leaves * 4) {
+    goto truncated;
+  }
+  KLV *klv = calloc_or_die(1, sizeof(KLV));
+  klv->name = string_duplicate("macondo");
+  klv->kwg = kwg_create_empty();
+  mgs_read_nodes(klv->kwg, buf + 4, kwg_size);
+  klv->number_of_leaves = number_of_leaves;
+  klv->leave_values = malloc_or_die(number_of_leaves * sizeof(Equity));
+  const uint8_t *leaves = buf + leaves_at + 4;
+  for (uint32_t i = 0; i < number_of_leaves; i++) {
+    uint32_t bits;
+    memcpy(&bits, leaves + 4 * (size_t)i, 4);
+    bits = le32toh(bits);
+    float f;
+    memcpy(&f, &bits, 4);
+    klv->leave_values[i] = double_to_equity((double)f);
+  }
+  klv->word_counts = calloc_or_die(kwg_size, sizeof(uint32_t));
+  klv_count_words(klv, kwg_size);
+  return klv;
+truncated:
+  mgs_set_err(err, err_len, "leave file is truncated");
+  return NULL;
+}
+
+mg_data *MGS(data_create)(const uint8_t *kwg_buf, int64_t kwg_len,
+                          const uint8_t *klv_buf, int64_t klv_len,
                           const char *wmp_path, int build_wmp,
                           const char *rit_path, const char *ld_csv,
                           const char *layout, int variant, int bingo_bonus,
@@ -96,27 +171,18 @@ mg_data *MGS(data_create)(const char *kwg_path, const char *klv_path,
 
   d->players_data = players_data_create(wmp_path != NULL || build_wmp);
 
-  KWG *kwg = calloc_or_die(1, sizeof(KWG));
-  load_kwg(kwg_path, kwg_path, kwg, es);
-  if (mgs_take_error(es, err, err_len)) {
-    kwg_destroy(kwg);
-    goto fail;
-  }
+  KWG *kwg = mgs_kwg_from_bytes(kwg_buf, kwg_len);
   players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KWG, 0, kwg);
   players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KWG, 1, kwg);
   players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_KWG, true);
 
-  if (klv_path) {
-    KLV *klv = calloc_or_die(1, sizeof(KLV));
-    klv_load(klv_path, klv_path, klv, es);
-    if (mgs_take_error(es, err, err_len)) {
-      klv_destroy(klv);
-      goto fail;
-    }
-    players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KLV, 0, klv);
-    players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KLV, 1, klv);
-    players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_KLV, true);
+  KLV *klv = mgs_klv_from_bytes(klv_buf, klv_len, err, err_len);
+  if (!klv) {
+    goto fail;
   }
+  players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KLV, 0, klv);
+  players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KLV, 1, klv);
+  players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_KLV, true);
 
   WMP *wmp = NULL;
   if (wmp_path) {
@@ -228,10 +294,22 @@ mg_pos *MGS(pos_create)(mg_data *d, int move_capacity, uint64_t seed) {
   return p;
 }
 
+static void mgs_free_backups(mg_pos *p) {
+  for (int i = 0; i < p->backup_cap; i++) {
+    board_destroy(p->backups[i].board);
+    bag_destroy(p->backups[i].bag);
+  }
+  free(p->backups);
+  p->backups = NULL;
+  p->backup_cap = 0;
+  p->backup_depth = 0;
+}
+
 void MGS(pos_destroy)(mg_pos *p) {
   if (!p) {
     return;
   }
+  mgs_free_backups(p);
   move_list_destroy(p->move_list);
   game_destroy(p->game);
   free(p);
@@ -239,7 +317,45 @@ void MGS(pos_destroy)(mg_pos *p) {
 
 void MGS(pos_copy)(mg_pos *dst, const mg_pos *src) {
   game_copy(dst->game, src->game);
+  dst->backup_depth = 0;
 }
+
+static void mgs_backup_state(mg_pos *p) {
+  if (p->backup_mode == MG_BACKUP_OFF) {
+    return;
+  }
+  if (p->backup_mode == MG_BACKUP_SINGLE) {
+    p->backup_depth = 0;
+  }
+  if (p->backup_depth == p->backup_cap) {
+    const int cap = p->backup_cap ? 2 * p->backup_cap : 8;
+    p->backups = realloc_or_die(p->backups, cap * sizeof(mgs_backup));
+    for (int i = p->backup_cap; i < cap; i++) {
+      p->backups[i].board = board_duplicate(game_get_board(p->game));
+      p->backups[i].bag = bag_create(p->data->ld, 0);
+    }
+    p->backup_cap = cap;
+  }
+  mgs_backup *b = &p->backups[p->backup_depth++];
+  const Game *game = p->game;
+  board_copy(b->board, game_get_board(game));
+  bag_copy(b->bag, game_get_bag(game));
+  for (int i = 0; i < 2; i++) {
+    const Player *player = game_get_player(game, i);
+    rack_copy(&b->racks[i], player_get_rack(player));
+    b->scores[i] = player_get_score(player);
+  }
+  b->on_turn = game_get_player_on_turn_index(game);
+  b->scoreless_turns = game_get_consecutive_scoreless_turns(game);
+  b->end_reason = game_get_game_end_reason(game);
+}
+
+void MGS(pos_set_backup_mode)(mg_pos *p, int mode) {
+  p->backup_mode = mode;
+  p->backup_depth = 0;
+}
+
+int MGS(pos_backup_depth)(const mg_pos *p) { return p->backup_depth; }
 
 static void mgs_fill_rack(Rack *rack, const uint8_t *tiles, int n) {
   rack_reset(rack);
@@ -257,7 +373,6 @@ int MGS(pos_set)(mg_pos *p, const uint8_t *squares, const uint8_t *rack0,
                  int nbag, int on_turn, int32_t score0, int32_t score1,
                  int scoreless_turns, char *err, int err_len) {
   Game *game = p->game;
-  const backup_mode_t mode = game_get_backup_mode(game);
   game_reset(game);
   Board *board = game_get_board(game);
   for (int row = 0; row < BOARD_DIM; row++) {
@@ -284,7 +399,7 @@ int MGS(pos_set)(mg_pos *p, const uint8_t *squares, const uint8_t *rack0,
   game_set_consecutive_scoreless_turns(game, scoreless_turns);
   game_gen_all_cross_sets(game);
   board_update_all_anchors(board);
-  game_set_backup_mode(game, mode);
+  p->backup_depth = 0;
   return 0;
 }
 
@@ -299,10 +414,6 @@ void MGS(pos_set_racks_and_bag)(mg_pos *p, const uint8_t *rack0, int n0,
 
 void MGS(pos_set_on_turn)(mg_pos *p, int on_turn) {
   game_set_player_on_turn_index(p->game, on_turn);
-}
-
-void MGS(pos_set_backups)(mg_pos *p, int on) {
-  game_set_backup_mode(p->game, on ? BACKUP_MODE_SIMULATION : BACKUP_MODE_OFF);
 }
 
 static void mgs_move_out(const Move *m, mg_move *out) {
@@ -381,9 +492,9 @@ static int mgs_draw(Game *game, int player_index, const uint8_t *drawn,
 int MGS(play)(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn) {
   Game *game = p->game;
   const int player_index = game_get_player_on_turn_index(game);
+  mgs_backup_state(p);
   if (m->type == MG_MOVE_EXCHANGE) {
     // MAGPIE's exchange draws from its own bag; Macondo picks the draw.
-    game_backup(game);
     Rack *rack = player_get_rack(game_get_player(game, player_index));
     for (int i = 0; i < m->tiles_played; i++) {
       rack_take_letter(rack, m->tiles[i]);
@@ -402,8 +513,8 @@ int MGS(play)(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn) {
   }
   Move move;
   mgs_move_in(m, &move);
-  // Backs up, places the tiles (taking them off the rack), updates cross-sets,
-  // scores and passes the turn.
+  // Places the tiles (taking them off the rack), updates cross-sets, scores
+  // and passes the turn. MAGPIE's own backups are off; the shim's are above.
   play_move_without_drawing_tiles(&move, game);
   if (m->type == MG_MOVE_PLACEMENT) {
     return mgs_draw(game, player_index, drawn, ndrawn);
@@ -411,7 +522,24 @@ int MGS(play)(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn) {
   return 0;
 }
 
-void MGS(unplay)(mg_pos *p) { game_unplay_last_move(p->game); }
+int MGS(unplay)(mg_pos *p) {
+  if (p->backup_depth == 0) {
+    return -1;
+  }
+  const mgs_backup *b = &p->backups[--p->backup_depth];
+  Game *game = p->game;
+  board_copy(game_get_board(game), b->board);
+  bag_copy(game_get_bag(game), b->bag);
+  for (int i = 0; i < 2; i++) {
+    Player *player = game_get_player(game, i);
+    rack_copy(player_get_rack(player), &b->racks[i]);
+    player_set_score(player, b->scores[i]);
+  }
+  game_set_player_on_turn_index(game, b->on_turn);
+  game_set_consecutive_scoreless_turns(game, b->scoreless_turns);
+  game_set_game_end_reason(game, b->end_reason);
+  return 0;
+}
 
 void MGS(pos_read_board)(const mg_pos *p, uint8_t *letters,
                          uint64_t *cross_sets, int32_t *cross_scores,

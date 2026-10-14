@@ -71,6 +71,21 @@ func toMagpieMove(m *move.Move) magpie.Move {
 	return mm
 }
 
+func boardsEqual(a, b *magpie.Board) bool {
+	for i := range a.Letters {
+		if a.Letters[i] != b.Letters[i] {
+			return false
+		}
+	}
+	for i := range a.CrossSets {
+		if a.CrossSets[i] != b.CrossSets[i] || a.CrossScores[i] != b.CrossScores[i] ||
+			a.Anchors[i] != b.Anchors[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func runAgreement(t *testing.T, tc agreementCase, games int, seed uint64) {
 	dataPath := defaultConfig.GetString(config.ConfigDataPath)
 	kwgPath := filepath.Join(dataPath, "lexica", "gaddag", tc.lexicon+".kwg")
@@ -97,7 +112,8 @@ func runAgreement(t *testing.T, tc agreementCase, games int, seed uint64) {
 	defer d.Close()
 	pos := magpie.NewPosition(d, 200000, seed)
 	defer pos.Close()
-	mb := d.NewBoard()
+	pos.SetBackupMode(magpie.BackupStack)
+	mb, before, after := d.NewBoard(), d.NewBoard(), d.NewBoard()
 	dim := len(tc.layout)
 	rng := rand.New(rand.NewPCG(seed, 0))
 
@@ -238,8 +254,29 @@ func runAgreement(t *testing.T, tc agreementCase, games int, seed uint64) {
 				scoreless++
 			}
 			mm := toMagpieMove(chosen)
+			pos.ReadBoard(before)
+			_, _, bagBefore := pos.RackCounts()
 			if err := pos.Play(&mm, drawn); err != nil {
 				t.Fatalf("game %d turn %d: %v", g, turn, err)
+			}
+			if rng.IntN(4) == 0 {
+				// Unplay must restore the position exactly; then replay.
+				pos.ReadBoard(after)
+				if err := pos.Unplay(); err != nil {
+					t.Fatal(err)
+				}
+				pos.ReadBoard(mb)
+				_, _, bagNow := pos.RackCounts()
+				if !boardsEqual(mb, before) || bagNow != bagBefore {
+					t.Fatalf("game %d turn %d: unplay did not restore the position", g, turn)
+				}
+				if err := pos.Play(&mm, drawn); err != nil {
+					t.Fatal(err)
+				}
+				pos.ReadBoard(mb)
+				if !boardsEqual(mb, after) {
+					t.Fatalf("game %d turn %d: replay differs from the first play", g, turn)
+				}
 			}
 			racks[onturn] = append(leave, drawn...)
 			onturn = 1 - onturn

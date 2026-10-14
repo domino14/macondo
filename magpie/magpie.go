@@ -19,6 +19,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"unsafe"
 
@@ -94,9 +95,13 @@ func (m *Move) Word() tilemapping.MachineWord {
 
 // DataOptions describes the lexicon data to load.
 type DataOptions struct {
+	// KWG is a .kwg file's contents (a .kad for WordSmog), or KWGPath names
+	// the file.
+	KWG     []byte
 	KWGPath string
-	// KLVPath is a .klv2 leave file. MAGPIE's generator always reads leaves,
-	// so it is required.
+	// KLV is a .klv2 leave file's contents, or KLVPath names the file.
+	// MAGPIE's generator always reads leaves, so one is required.
+	KLV     []byte
 	KLVPath string
 	// WMPPath is a .wmp word map; empty to build one in memory when BuildWMP
 	// is set, or run without one.
@@ -150,8 +155,23 @@ func distCSV(ld *tilemapping.LetterDistribution) string {
 
 // NewData loads lexicon data.
 func NewData(opts DataOptions) (*Data, error) {
-	if opts.KLVPath == "" {
-		return nil, errors.New("magpie: a leave file (KLVPath) is required")
+	kwgBytes, klvBytes := opts.KWG, opts.KLV
+	var err error
+	if kwgBytes == nil {
+		if kwgBytes, err = os.ReadFile(opts.KWGPath); err != nil {
+			return nil, fmt.Errorf("magpie: %w", err)
+		}
+	}
+	if klvBytes == nil {
+		if opts.KLVPath == "" {
+			return nil, errors.New("magpie: leaves (KLV or KLVPath) are required")
+		}
+		if klvBytes, err = os.ReadFile(opts.KLVPath); err != nil {
+			return nil, fmt.Errorf("magpie: %w", err)
+		}
+	}
+	if len(kwgBytes) < 4 || len(klvBytes) < 4 {
+		return nil, errors.New("magpie: empty word graph or leave file")
 	}
 	dim := len(opts.Layout)
 	if dim != 15 && dim != 21 {
@@ -172,11 +192,14 @@ func NewData(opts DataOptions) (*Data, error) {
 		}
 		return C.CString(s)
 	}
-	kwg, klv, wmp := cstr(opts.KWGPath), cstr(opts.KLVPath), cstr(opts.WMPPath)
-	rit := cstr(opts.RITPath)
+	wmp, rit := cstr(opts.WMPPath), cstr(opts.RITPath)
 	ld, lay := C.CString(distCSV(opts.Dist)), C.CString(layout.String())
+	// The shim copies the graphs out of these buffers before returning.
+	kwg := (*C.uint8_t)(unsafe.Pointer(&kwgBytes[0]))
+	klv := (*C.uint8_t)(unsafe.Pointer(&klvBytes[0]))
+	kwgLen, klvLen := C.int64_t(len(kwgBytes)), C.int64_t(len(klvBytes))
 	defer func() {
-		for _, p := range []*C.char{kwg, klv, wmp, rit, ld, lay} {
+		for _, p := range []*C.char{wmp, rit, ld, lay} {
 			C.free(unsafe.Pointer(p))
 		}
 	}()
@@ -188,10 +211,10 @@ func NewData(opts DataOptions) (*Data, error) {
 	var ptr *C.mg_data
 	switch dim {
 	case 15:
-		ptr = C.mgs15_data_create(kwg, klv, wmp, buildWMP, rit, ld, lay,
+		ptr = C.mgs15_data_create(kwg, kwgLen, klv, klvLen, wmp, buildWMP, rit, ld, lay,
 			C.int(opts.Variant), C.int(opts.BingoBonus), &errbuf[0], C.int(len(errbuf)))
 	case 21:
-		ptr = C.mgs21_data_create(kwg, klv, wmp, buildWMP, rit, ld, lay,
+		ptr = C.mgs21_data_create(kwg, kwgLen, klv, klvLen, wmp, buildWMP, rit, ld, lay,
 			C.int(opts.Variant), C.int(opts.BingoBonus), &errbuf[0], C.int(len(errbuf)))
 	}
 	if ptr == nil {
@@ -292,8 +315,7 @@ func (p *Position) Close() {
 	p.ptr = nil
 }
 
-// CopyFrom makes p the same position as src (backups are not copied, and are
-// turned off).
+// CopyFrom makes p the same position as src. Saved plays are not copied.
 func (p *Position) CopyFrom(src *Position) {
 	if p.data.dim == 15 {
 		C.mgs15_pos_copy(p.ptr, src.ptr)
@@ -367,17 +389,33 @@ func (p *Position) SetOnTurn(player int) {
 	}
 }
 
-// SetBackups turns the backup stack, which Unplay pops, on or off.
-func (p *Position) SetBackups(on bool) {
-	v := C.int(0)
-	if on {
-		v = 1
-	}
+// BackupMode is what Play saves for Unplay.
+type BackupMode int
+
+const (
+	// BackupOff saves nothing.
+	BackupOff BackupMode = C.MG_BACKUP_OFF
+	// BackupStack saves every play, to any depth.
+	BackupStack BackupMode = C.MG_BACKUP_STACK
+	// BackupSingle saves only the last play.
+	BackupSingle BackupMode = C.MG_BACKUP_SINGLE
+)
+
+// SetBackupMode sets what Play saves for Unplay, dropping saved plays.
+func (p *Position) SetBackupMode(m BackupMode) {
 	if p.data.dim == 15 {
-		C.mgs15_pos_set_backups(p.ptr, v)
+		C.mgs15_pos_set_backup_mode(p.ptr, C.int(m))
 	} else {
-		C.mgs21_pos_set_backups(p.ptr, v)
+		C.mgs21_pos_set_backup_mode(p.ptr, C.int(m))
 	}
+}
+
+// BackupDepth is the number of plays Unplay can undo.
+func (p *Position) BackupDepth() int {
+	if p.data.dim == 15 {
+		return int(C.mgs15_pos_backup_depth(p.ptr))
+	}
+	return int(C.mgs21_pos_backup_depth(p.ptr))
 }
 
 // Generate generates moves for the player on turn, best first. margin (in
@@ -411,13 +449,21 @@ func (p *Position) Play(m *Move, drawn tilemapping.MachineWord) error {
 	return nil
 }
 
-// Unplay undoes the last Play (backups must be on).
-func (p *Position) Unplay() {
+// ErrNoBackup is Unplay's error when no play is saved.
+var ErrNoBackup = errors.New("magpie: no play to undo")
+
+// Unplay undoes the last saved Play.
+func (p *Position) Unplay() error {
+	var rc C.int
 	if p.data.dim == 15 {
-		C.mgs15_unplay(p.ptr)
+		rc = C.mgs15_unplay(p.ptr)
 	} else {
-		C.mgs21_unplay(p.ptr)
+		rc = C.mgs21_unplay(p.ptr)
 	}
+	if rc != 0 {
+		return ErrNoBackup
+	}
+	return nil
 }
 
 // Board is a copy of a position's board.

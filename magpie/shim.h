@@ -26,6 +26,10 @@
 #define MG_SORT_EQUITY 0
 #define MG_SORT_SCORE 1
 
+#define MG_BACKUP_OFF 0
+#define MG_BACKUP_STACK 1
+#define MG_BACKUP_SINGLE 2
+
 #define MG_VARIANT_CLASSIC 1
 #define MG_VARIANT_WORDSMOG 2
 
@@ -49,13 +53,15 @@ typedef struct mg_data mg_data;
 typedef struct mg_pos mg_pos;
 
 #define MG_DECLARE_API(P)                                                      \
-  /* Lexicon data shared read-only by every position made from it.           \
+  /* Lexicon data shared read-only by every position made from it. kwg and  \
+   * klv are the contents of a .kwg (or WordSmog .kad) and a .klv2 file.      \
    * ld_csv is a MAGPIE-format distribution (letter,lower,count,score,vowel   \
    * per line) and layout a MAGPIE layout file's contents. wmp_path may be    \
    * NULL; build_wmp then builds the word map in memory (classic only).       \
    * rit_path, a rack info table (needs a word map), may be NULL; it is       \
    * memory-mapped. On failure returns NULL with a message in err. */         \
-  mg_data *P##data_create(const char *kwg_path, const char *klv_path,          \
+  mg_data *P##data_create(const uint8_t *kwg, int64_t kwg_len,                 \
+                          const uint8_t *klv, int64_t klv_len,                 \
                           const char *wmp_path, int build_wmp,                 \
                           const char *rit_path, const char *ld_csv,            \
                           const char *layout, int variant, int bingo_bonus,    \
@@ -86,8 +92,11 @@ typedef struct mg_pos mg_pos;
                                 const uint8_t *rack1, int n1,                  \
                                 const uint8_t *bag, int nbag);                 \
   void P##pos_set_on_turn(mg_pos *p, int on_turn);                             \
-  /* Turns the backup stack (for unplay) on or off. */                        \
-  void P##pos_set_backups(mg_pos *p, int on);                                  \
+  /* What play backs up for unplay: MG_BACKUP_OFF, MG_BACKUP_STACK (every    \
+   * play, any depth) or MG_BACKUP_SINGLE (only the last play). Changing the  \
+   * mode drops the backups held. */                                          \
+  void P##pos_set_backup_mode(mg_pos *p, int mode);                            \
+  int P##pos_backup_depth(const mg_pos *p);                                    \
                                                                                \
   /* Generates moves for the player on turn into out (at most out_cap).       \
    * Returns the number written. margin is the equity window for              \
@@ -100,7 +109,8 @@ typedef struct mg_pos mg_pos;
    * the bag. An exchange's tiles go back into the bag. Backs up first when   \
    * backups are on. Returns 0, or -1 if a drawn tile isn't in the bag. */    \
   int P##play(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn);  \
-  void P##unplay(mg_pos *p);                                                   \
+  /* Undoes the last backed-up play. Returns 0, or -1 with no backup. */      \
+  int P##unplay(mg_pos *p);                                                    \
                                                                                \
   /* Copies out the board: letters (dim*dim), and per direction (0 = across   \
    * plays, 1 = down plays) cross-sets and cross-scores (2*dim*dim each,      \
