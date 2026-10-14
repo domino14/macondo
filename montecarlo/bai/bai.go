@@ -354,11 +354,43 @@ func (s *state) scheduleTopTwo(n int, out []slot) []slot {
 	return out
 }
 
+// Runner is a best-arm identification run that can be continued: each Run
+// call picks up the statistics, schedule and ordinals where the last left off.
+type Runner struct {
+	s           *state
+	numArms     int
+	nextInitial int
+	status      Status
+	// pending is the rest of a round a call's sample limit cut short; the
+	// next call draws it first, so rounds are laid out the same however a
+	// run is split into calls.
+	pending []slot
+}
+
+// NewRunner starts a run over numArms arms. Options.Similar and
+// Options.Paired are fixed for the run; the rest are read on each Run call.
+func NewRunner(numArms int, opts Options) *Runner {
+	return &Runner{s: newState(numArms, opts), numArms: numArms}
+}
+
+// Samples is how many samples have been folded so far.
+func (r *Runner) Samples() int { return int(r.s.total) }
+
 // Run finds the best of numArms arms.
 func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result, error) {
 	if numArms < 1 {
 		return Result{}, errors.New("bai: no arms")
 	}
+	return NewRunner(numArms, opts).Run(ctx, opts, sample)
+}
+
+// Run samples until a stop condition, continuing from earlier calls.
+// opts.SampleLimit counts every sample of the run, earlier calls' included.
+// With one thread the samples are drawn on the calling goroutine.
+func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result, error) {
+	numArms := r.numArms
+	s := r.s
+	opts.Similar, opts.Paired = s.opts.Similar, s.opts.Paired
 	if opts.Threads < 1 {
 		opts.Threads = 1
 	}
@@ -368,43 +400,67 @@ func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result
 	if opts.SampleMinimum < 1 {
 		opts.SampleMinimum = 1
 	}
-	s := newState(numArms, opts)
+	s.opts = opts
 	var deadline time.Time
 	if opts.TimeLimit > 0 {
 		deadline = time.Now().Add(opts.TimeLimit)
 	}
 	initialLimit := numArms * opts.SampleMinimum
-	workers := newPool(ctx, opts.Threads, sample)
-	defer workers.close()
+	var workers *pool
+	if opts.Threads > 1 {
+		workers = newPool(ctx, opts.Threads, sample)
+		defer workers.close()
+	}
 	status := StatusNone
 	var round []slot
-	// The initial phase lays out every arm's first SampleMinimum samples
-	// iteration-major: consecutive slots are the same ordinal across arms.
-	nextInitial := 0
 	for status == StatusNone {
 		round = round[:0]
 		budget := opts.RoundSize
 		if opts.SampleLimit > 0 {
-			budget = min(budget, opts.SampleLimit-int(s.total))
+			budget = opts.SampleLimit - int(s.total)
 		}
 		if budget <= 0 {
 			status = StatusSampleLimit
 			break
 		}
-		for nextInitial < initialLimit && len(round) < budget {
-			arm := nextInitial % numArms
-			round = append(round, slot{arm: arm, ordinal: s.arms[arm].numScheduled})
-			s.arms[arm].numScheduled++
-			nextInitial++
+		if ctx.Err() != nil {
+			status = StatusCanceled
+			break
 		}
-		if len(round) == 0 {
-			if numArms == 1 {
-				status = StatusThreshold
-				break
+		if len(r.pending) > 0 {
+			round = append(round, r.pending...)
+			r.pending = r.pending[:0]
+		} else {
+			// The initial phase lays out every arm's first SampleMinimum
+			// samples iteration-major: consecutive slots are the same ordinal
+			// across arms.
+			for r.nextInitial < initialLimit && len(round) < opts.RoundSize {
+				arm := r.nextInitial % numArms
+				round = append(round, slot{arm: arm, ordinal: s.arms[arm].numScheduled})
+				s.arms[arm].numScheduled++
+				r.nextInitial++
 			}
-			round = s.scheduleTopTwo(budget, round)
+			if len(round) == 0 {
+				if numArms == 1 {
+					status = StatusThreshold
+					break
+				}
+				round = s.scheduleTopTwo(opts.RoundSize, round)
+			}
 		}
-		if err := workers.run(ctx, round); err != nil {
+		if len(round) > budget {
+			r.pending = append(r.pending, round[budget:]...)
+			round = round[:budget]
+		}
+		var err error
+		if workers != nil {
+			err = workers.run(ctx, round)
+		} else {
+			err = runInline(ctx, round, sample)
+		}
+		if err != nil {
+			// The round is drawn again next call.
+			r.pending = append(append([]slot(nil), round...), r.pending...)
 			if ctx.Err() != nil {
 				status = StatusCanceled
 				break
@@ -428,11 +484,6 @@ func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result
 		case !deadline.IsZero() && time.Now().After(deadline):
 			status = StatusTimeout
 		case int(s.total) < initialLimit:
-		case opts.SampleLimit > 0 && opts.SampleLimit <= initialLimit:
-			// The initial phase alone spends the budget.
-			if int(s.total) >= opts.SampleLimit {
-				status = StatusSampleLimit
-			}
 		case opts.Cutoff > 0 && (best <= opts.Cutoff || best >= 1-opts.Cutoff):
 			status = StatusCutoff
 		case s.thresholdReached():
@@ -441,6 +492,7 @@ func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result
 			status = StatusSampleLimit
 		}
 	}
+	r.status = status
 	res := Result{Status: status, Best: s.astar, Samples: int(s.total),
 		Means: make([]float64, numArms), Counts: make([]int, numArms)}
 	for i := range s.arms {
@@ -451,6 +503,21 @@ func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result
 		res.Best = 0
 	}
 	return res, nil
+}
+
+// runInline draws a round's samples on the calling goroutine.
+func runInline(ctx context.Context, round []slot, sample Sampler) error {
+	for i := range round {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		v, err := sample(0, round[i].arm, round[i].ordinal)
+		if err != nil {
+			return err
+		}
+		round[i].value = v
+	}
+	return nil
 }
 
 // pool runs rounds' samples on persistent workers, each locked to its OS
