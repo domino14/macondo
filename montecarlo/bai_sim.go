@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
-	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
@@ -16,41 +15,49 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/bai"
+	"github.com/domino14/macondo/move"
 )
 
-// A sim is a best-arm identification problem: every candidate play is an
-// arm, and a sample of an arm is one rollout of that play. Samples are drawn
-// on common random numbers: an arm's n-th sample deals the opponent the rack,
-// and the bag the order, that every other arm's n-th sample gets, so the
-// stopping rule can use how the plays' results covary.
-//
-// The reward is the rollout's win probability. When the best play's win
-// probability is at an extreme (the game is decided) the sim carries on in a
-// second phase whose reward is the rollout's equity, which is how Macondo
-// has always ranked plays in decided games.
+// A sim is a best-arm identification problem, set up as MAGPIE sets up its
+// sims: every candidate play is an arm, and a sample of an arm is one rollout
+// of that play. Samples are drawn on common random numbers: an arm's n-th
+// sample deals the opponent the rack, and the bag the order, that every other
+// arm's n-th sample gets, so the stopping rule can use how the plays' results
+// covary. The reward is MAGPIE's utility, a blend of the rollout's win
+// probability and its final spread, whose spread term also ranks the plays of
+// a decided game.
 
 const (
 	// DefaultMinSamplesPerPlay is how many rollouts every play gets before
-	// any is preferred or the sim may stop.
-	DefaultMinSamplesPerPlay = 32
-	// decidedWinProb is how close to 0 or 1 the best play's win probability
-	// must be for the game to count as decided.
-	decidedWinProb = defaultMinReasonableWProb
-	// equityPhaseOrdinals offsets the equity phase's sample numbers so its
-	// rollouts are fresh draws, not replays of the win phase's.
-	equityPhaseOrdinals = uint64(1) << 40
+	// any is preferred or the sim may stop (MAGPIE's -minplayiterations).
+	DefaultMinSamplesPerPlay = 500
+	// utilityCutoff stops the sim once the best play's utility is within it
+	// of 0 or 1 (MAGPIE's default cutoff, 0.005%).
+	utilityCutoff = 0.005 / 100
+	// MAGPIE's default utility: weights for win probability and for the
+	// spread term, and the spread the sigmoid is scaled by.
+	utilityWinWeight    = 1.0
+	utilitySpreadWeight = 0.5
+	utilitySpreadScale  = 100.0
 )
 
-// baiPhase is which reward the sim is sampling.
-type baiPhase int
+// simUtility is MAGPIE's sim_utility_blend: win probability blended with a
+// sigmoid of the rollout's final spread.
+func simUtility(winProb float64, spread int) float64 {
+	x := float64(spread) / utilitySpreadScale
+	var sig float64
+	if x >= 0 {
+		sig = 1 / (1 + math.Exp(-x))
+	} else {
+		e := math.Exp(x)
+		sig = e / (1 + e)
+	}
+	total := utilityWinWeight + utilitySpreadWeight
+	return utilityWinWeight/total*winProb + utilitySpreadWeight/total*sig
+}
 
-const (
-	phaseWinProb baiPhase = iota
-	phaseEquity
-)
-
-// deltaFor is the error probability a stopping condition allows; 0 means no
-// stopping threshold.
+// deltaFor is the error probability a stopping condition allows (1 - its
+// confidence, as MAGPIE takes it); 0 means no stopping threshold.
 func deltaFor(sc StoppingCondition) float64 {
 	switch sc {
 	case Stop90:
@@ -75,6 +82,10 @@ func (s *Simmer) startBAI() {
 	s.arms = append(s.arms[:0], s.simmedPlays.plays...)
 	s.simmedPlays.RUnlock()
 	n := len(s.arms)
+	keys := make([]similarityKey, n)
+	for i, a := range s.arms {
+		keys[i] = similarityKeyFor(a.play)
+	}
 	similar := make([]bool, n*n)
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
@@ -82,18 +93,15 @@ func (s *Simmer) startBAI() {
 			if s.arms[i].unignorable || s.arms[j].unignorable {
 				continue
 			}
-			if playsMateriallySimilar(s.arms[i], s.arms[j]) {
+			if keys[i] == keys[j] {
 				similar[i*n+j], similar[j*n+i] = true, true
 			}
 		}
 	}
-	opts := bai.Options{
+	s.baiRunner = bai.NewRunner(n, bai.Options{
 		Similar: func(a, b int) bool { return similar[a*n+b] },
 		Paired:  true,
-	}
-	s.baiRunner = bai.NewRunner(n, opts)
-	s.baiEquityRunner = bai.NewRunner(n, opts)
-	s.baiPhase = phaseWinProb
+	})
 
 	seed := s.origGame.Seed()
 	if seed == ([32]byte{}) {
@@ -134,65 +142,35 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	opts := bai.Options{
 		Delta:         deltaFor(sc),
 		SampleMinimum: s.minSamplesPerPlay,
+		Cutoff:        utilityCutoff,
 		Threads:       threads,
 	}
 	if opts.SampleMinimum <= 0 {
 		opts.SampleMinimum = DefaultMinSamplesPerPlay
 	}
-	// The budget counts samples over both phases; an iteration is one sample
-	// of every play.
-	done := s.baiRunner.Samples() + s.baiEquityRunner.Samples()
-	limit := 0
+	// The budget counts samples; an iteration is one sample of every play.
 	switch {
 	case run.maxIters > 0:
-		limit = done + run.maxIters*numArms
+		opts.SampleLimit = s.baiRunner.Samples() + run.maxIters*numArms
 	case sc != StopNone:
-		limit = (s.autostopper.iterationsCutoff + s.maxPlies*s.autostopper.perPlyStopScaling) * numArms
+		opts.SampleLimit = (s.autostopper.iterationsCutoff + s.maxPlies*s.autostopper.perPlyStopScaling) * numArms
 	}
-
-	for {
-		runner, offset := s.baiRunner, uint64(0)
-		if s.baiPhase == phaseEquity {
-			runner, offset = s.baiEquityRunner, equityPhaseOrdinals
-			opts.Cutoff = 0
-		} else if sc != StopNone {
-			opts.Cutoff = decidedWinProb
-		}
-		opts.SampleLimit = 0
-		if limit > 0 {
-			opts.SampleLimit = limit - (s.baiRunner.Samples() + s.baiEquityRunner.Samples()) + runner.Samples()
-			if opts.SampleLimit <= runner.Samples() {
-				break
-			}
-		}
-		phase := s.baiPhase
-		res, err := runner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
-			winProb, eq, err := s.sample(ctx, worker, s.arms[arm], ordinal+offset)
-			if phase == phaseEquity {
-				return eq, err
-			}
-			return winProb, err
-		})
-		s.iterationCount.Store(uint64((s.baiRunner.Samples() + s.baiEquityRunner.Samples()) / numArms))
-		if err != nil {
-			logger.Err(err).Msg("error simming; stopping")
-			return
-		}
-		s.event(logger, run.quiet).Str("status", res.Status.String()).Int("samples", res.Samples).
-			Int("phase", int(phase)).Msg("sim-stopped")
-		if res.Status == bai.StatusCutoff && s.baiPhase == phaseWinProb {
-			// The game is decided; rank by equity from here.
-			s.baiPhase = phaseEquity
-			continue
-		}
+	res, err := s.baiRunner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
+		return s.sample(ctx, worker, s.arms[arm], ordinal)
+	})
+	s.iterationCount.Store(uint64(s.baiRunner.Samples() / numArms))
+	if err != nil {
+		logger.Err(err).Msg("error simming; stopping")
 		return
 	}
+	s.event(logger, run.quiet).Str("status", res.Status.String()).Int("samples", res.Samples).
+		Msg("sim-stopped")
 }
 
 // sample draws one rollout of play: deals the opponent the sample's rack,
 // plays play and then the sim's plies, records the stats, and puts the game
-// back. It returns the rollout's win probability and equity.
-func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordinal uint64) (float64, float64, error) {
+// back. It returns the rollout's utility.
+func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordinal uint64) (float64, error) {
 	g := s.gameCopies[thread]
 	rng := s.rngFor(ordinal)
 	s.rngs[thread] = rng
@@ -200,10 +178,10 @@ func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordin
 
 	rackToSet, err := s.oppRackFor(thread)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	if err := g.DealRandomRackSeeded(opp, rackToSet, rng); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	var logIter *LogIteration
 	if s.logStream != nil {
@@ -212,13 +190,13 @@ func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordin
 			logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
 		}
 	}
-	winProb, eq := s.rollout(g, thread, play, logIter)
+	utility := s.rollout(g, thread, play, logIter)
 	if logIter != nil {
 		if err := s.writeIteration(ctx, logIter); err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 	}
-	return winProb, eq, nil
+	return utility, nil
 }
 
 // oppRackFor picks the tiles the opponent is known or inferred to hold for
@@ -255,8 +233,8 @@ func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
 }
 
 // rollout plays play and then the sim's plies on g, records the play's
-// stats, and resets g. It returns the rollout's win probability and equity.
-func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIter *LogIteration) (float64, float64) {
+// stats, and resets g. It returns the rollout's utility.
+func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIter *LogIteration) float64 {
 	var logPlay LogPlay
 	if logIter != nil {
 		logPlay = LogPlay{
@@ -315,7 +293,7 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 		simmedPlay.addScoreStat(bestPlay, ply)
 	}
 	spread := g.SpreadFor(s.initialPlayer)
-	eq := simmedPlay.addEquityStat(s.initialSpread, spread, leftover)
+	simmedPlay.addEquityStat(s.initialSpread, spread, leftover)
 	winProb := simmedPlay.addWinPctStat(
 		spread,
 		leftover,
@@ -326,11 +304,13 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 		plies%2 == 0,
 	)
 	g.ResetToFirstState()
+	utility := simUtility(winProb, spread)
+	simmedPlay.addUtilityStat(utility)
 	if logIter != nil {
 		logPlay.WinRatio = winProb
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
-	return winProb, eq
+	return utility
 }
 
 // writeIteration writes one sample's log entry: JSON lines for a heat map
@@ -358,27 +338,31 @@ func (s *Simmer) writeIteration(ctx context.Context, logIter *LogIteration) erro
 	return err
 }
 
-// playsMateriallySimilar reports whether two plays use the same tiles from
-// the same square in the same direction: the same play in all that matters.
-func playsMateriallySimilar(p1, p2 *SimmedPlay) bool {
-	r1, c1, v1 := p1.play.CoordsAndVertical()
-	r2, c2, v2 := p2.play.CoordsAndVertical()
-	if r1 != r2 || c1 != c2 || v1 != v2 {
-		return false
+// similarityKey identifies plays MAGPIE counts as the same for stopping
+// (move_get_similarity_key): same kind, square, direction and length, the same
+// rack tiles used (a blank whatever it stands for), and the same score.
+type similarityKey struct {
+	action           move.MoveType
+	row, col, length int
+	vertical         bool
+	score            int
+	tiles            [tilemapping.MaxAlphabetSize]uint8
+}
+
+func similarityKeyFor(m *move.Move) similarityKey {
+	k := similarityKey{action: m.Action(), length: len(m.Tiles()), score: m.Score()}
+	if m.Action() == move.MoveTypePlay {
+		k.row, k.col, k.vertical = m.CoordsAndVertical()
 	}
-	if p1.play.TilesPlayed() != p2.play.TilesPlayed() || len(p1.play.Tiles()) != len(p2.play.Tiles()) {
-		return false
-	}
-	a1 := append([]tilemapping.MachineLetter(nil), p1.play.Tiles()...)
-	a2 := append([]tilemapping.MachineLetter(nil), p2.play.Tiles()...)
-	sort.Slice(a1, func(i, j int) bool { return a1[i] < a1[j] })
-	sort.Slice(a2, func(i, j int) bool { return a2[i] < a2[j] })
-	for i := range a1 {
-		if a1[i] != a2[i] {
-			return false
+	if m.Action() == move.MoveTypePlay || m.Action() == move.MoveTypeExchange {
+		for _, t := range m.Tiles() {
+			if t == 0 && m.Action() == move.MoveTypePlay {
+				continue // played through
+			}
+			k.tiles[t.IntrinsicTileIdx()]++
 		}
 	}
-	return true
+	return k
 }
 
 // sampleEveryPlay draws one sample of every play at sample number ordinal,
@@ -392,7 +376,7 @@ func (s *Simmer) sampleEveryPlay(ctx context.Context, thread int, ordinal uint64
 		s.rngs = append(s.rngs, make([]*frand.RNG, thread+1-len(s.rngs))...)
 	}
 	for _, arm := range s.arms {
-		if _, _, err := s.sample(ctx, thread, arm, ordinal); err != nil {
+		if _, err := s.sample(ctx, thread, arm, ordinal); err != nil {
 			return err
 		}
 	}

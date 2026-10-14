@@ -114,8 +114,9 @@ func TestInlineSimStopsOnTheThreshold(t *testing.T) {
 	is.NoErr(s.Simulate(context.Background()))
 
 	cap := s.autostopper.iterationsCutoff + 2*s.autostopper.perPlyStopScaling
-	is.True(s.Iterations() > 0)
-	is.True(s.Iterations() < cap/10)
+	t.Logf("stopped after %d iterations (cap %d)", s.Iterations(), cap)
+	is.True(s.Iterations() >= DefaultMinSamplesPerPlay)
+	is.True(s.Iterations() < cap/2)
 	is.Equal(s.WinningPlay().Move(), s.arms[0].Move())
 }
 

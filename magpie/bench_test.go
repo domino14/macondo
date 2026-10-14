@@ -3,7 +3,6 @@ package magpie_test
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -96,8 +95,6 @@ func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, fun
 func BenchmarkGenAllMagpie(b *testing.B) {
 	ps, done := benchPositions(b, false)
 	defer done()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps[i%len(ps)].pos.Generate(magpie.RecordAll, magpie.SortScore, 0)
@@ -107,8 +104,6 @@ func BenchmarkGenAllMagpie(b *testing.B) {
 func BenchmarkBestMagpie(b *testing.B) {
 	ps, done := benchPositions(b, false)
 	defer done()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps[i%len(ps)].pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)
@@ -118,8 +113,6 @@ func BenchmarkBestMagpie(b *testing.B) {
 func BenchmarkBestMagpieWMP(b *testing.B) {
 	ps, done := benchPositions(b, true)
 	defer done()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps[i%len(ps)].pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)
@@ -140,8 +133,6 @@ func BenchmarkCgoCall(b *testing.B) {
 func BenchmarkBestMagpieSamePosition(b *testing.B) {
 	ps, done := benchPositions(b, false)
 	defer done()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps[0].pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)
@@ -156,8 +147,6 @@ func BenchmarkBestMagpieRIT(b *testing.B) {
 	}
 	ps, done := benchPositionsRIT(b, true, rit)
 	defer done()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps[i%len(ps)].pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)
@@ -228,8 +217,6 @@ func benchPlayFull(b *testing.B, wmp bool, rit string) {
 	defer d.Close()
 	pos := magpie.NewPosition(d, 1, 1)
 	defer pos.Close()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	turns := 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

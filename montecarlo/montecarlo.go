@@ -145,8 +145,11 @@ type SimmedPlay struct {
 	leftoverStats stats.Statistic
 	// Actually this is win probability (0 to 1), not percent:
 	winPctStats stats.Statistic
-	ignore      atomic.Bool
-	unignorable bool
+	// utilityStats is the sim's reward: MAGPIE's blend of the rollout's win
+	// probability and final spread (see simUtility).
+	utilityStats stats.Statistic
+	ignore       atomic.Bool
+	unignorable  bool
 }
 
 func (sp *SimmedPlay) String() string {
@@ -236,6 +239,17 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 	defer sp.Unlock()
 	sp.winPctStats.Push(winPct)
 	return winPct
+}
+
+func (sp *SimmedPlay) addUtilityStat(u float64) {
+	sp.Lock()
+	defer sp.Unlock()
+	sp.utilityStats.Push(u)
+}
+
+// Utility is the play's mean reward: win probability blended with spread.
+func (s *SimmedPlay) Utility() float64 {
+	return s.utilityStats.Mean()
 }
 
 func (s *SimmedPlay) Move() *move.Move {
@@ -343,8 +357,6 @@ type Simmer struct {
 	// display does not change.
 	arms              []*SimmedPlay
 	baiRunner         *bai.Runner
-	baiEquityRunner   *bai.Runner
-	baiPhase          baiPhase
 	simSeed           [32]byte
 	minSamplesPerPlay int
 	// logMu serializes log writes from several sample workers.
@@ -825,10 +837,18 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	sp.Lock()
 	defer sp.Unlock()
 
-	// helper to sort any slice of plays by win% (desc) then equity (desc)
+	// Plays rank by mean utility, the quantity the sim maximizes (as MAGPIE
+	// ranks them); plays without utility samples by win% then equity.
 	sortByMetrics := func(plays []*SimmedPlay) {
 		sort.Slice(plays, func(i, j int) bool {
 			a, b := plays[i], plays[j]
+			if a.utilityStats.Iterations() > 0 && b.utilityStats.Iterations() > 0 {
+				ui, uj := a.utilityStats.Mean(), b.utilityStats.Mean()
+				if ui != uj {
+					return ui > uj
+				}
+				return a.equityStats.Mean() > b.equityStats.Mean()
+			}
 			wi, wj := a.winPctStats.Mean(), b.winPctStats.Mean()
 			if !winProbsIndistinguishable(wi, wj) {
 				return wi > wj
