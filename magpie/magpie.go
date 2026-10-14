@@ -95,7 +95,8 @@ func (m *Move) Word() tilemapping.MachineWord {
 // DataOptions describes the lexicon data to load.
 type DataOptions struct {
 	KWGPath string
-	// KLVPath is a .klv2 leave file; empty for no leaves.
+	// KLVPath is a .klv2 leave file. MAGPIE's generator always reads leaves,
+	// so it is required.
 	KLVPath string
 	// WMPPath is a .wmp word map; empty to build one in memory when BuildWMP
 	// is set, or run without one.
@@ -145,6 +146,9 @@ func distCSV(ld *tilemapping.LetterDistribution) string {
 
 // NewData loads lexicon data.
 func NewData(opts DataOptions) (*Data, error) {
+	if opts.KLVPath == "" {
+		return nil, errors.New("magpie: a leave file (KLVPath) is required")
+	}
 	dim := len(opts.Layout)
 	if dim != 15 && dim != 21 {
 		return nil, fmt.Errorf("magpie: unsupported board size %d", dim)
