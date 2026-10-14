@@ -52,13 +52,18 @@ typedef struct mg_pos mg_pos;
   /* Lexicon data shared read-only by every position made from it.           \
    * ld_csv is a MAGPIE-format distribution (letter,lower,count,score,vowel   \
    * per line) and layout a MAGPIE layout file's contents. wmp_path may be    \
-   * NULL; build_wmp then builds the word map in memory (classic only). On    \
-   * failure returns NULL with a message in err. */                           \
+   * NULL; build_wmp then builds the word map in memory (classic only).       \
+   * rit_path, a rack info table (needs a word map), may be NULL; it is       \
+   * memory-mapped. On failure returns NULL with a message in err. */         \
   mg_data *P##data_create(const char *kwg_path, const char *klv_path,          \
                           const char *wmp_path, int build_wmp,                 \
-                          const char *ld_csv, const char *layout,              \
-                          int variant, int bingo_bonus, char *err,             \
-                          int err_len);                                        \
+                          const char *rit_path, const char *ld_csv,            \
+                          const char *layout, int variant, int bingo_bonus,    \
+                          char *err, int err_len);                             \
+  /* Builds the data's rack info table and writes it to path. Returns 0, or   \
+   * -1 with a message in err. */                                             \
+  int P##data_write_rit(const mg_data *d, const char *path, int threads,       \
+                        char *err, int err_len);                               \
   void P##data_destroy(mg_data *d);                                            \
   int P##data_has_wmp(const mg_data *d);                                       \
   /* Leave value of the multiset, in millipoints (0 with no leaves). */      \
