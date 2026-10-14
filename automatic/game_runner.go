@@ -20,7 +20,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 var MaxTimePerTurn = 30 * time.Second
@@ -143,7 +142,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		if err != nil {
 			return err
 		}
-		btp.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
 		r.aiplayers[idx] = btp
 
 	}

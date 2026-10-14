@@ -7,6 +7,19 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
+const (
+	// wordSmogMinPool is the smallest number of plays a WordSmog generation
+	// asks for. Callers that want a single move (the bots) still need a
+	// handful of candidates to filter over.
+	wordSmogMinPool = 20
+	// wordSmogMaxPool caps it. The top-N recorder deep-copies its way through
+	// the whole array on every insertion, which is fine at 20 and ruinous at
+	// scale: the two-blank opening rack takes 2.5s with a pool of 20 and over
+	// five minutes with a pool of 20000. Callers asking for "everything"
+	// (evalSingleMove passes 100000) get the best 100.
+	wordSmogMaxPool = 100
+)
+
 // maxAllMoves caps how many moves a request for "all of them" keeps: MAGPIE
 // keeps the best n in a heap sized up front, and callers asking for
 // everything pass numbers like 1e6.
