@@ -102,6 +102,10 @@ type DataOptions struct {
 	// is set, or run without one.
 	WMPPath  string
 	BuildWMP bool
+	// RITPath is a rack info table (see WriteRIT), memory-mapped. It needs a
+	// word map. Empty for none; the generator then computes each rack's
+	// leaves on first sight.
+	RITPath string
 	// Dist and Layout are Macondo's: the layout's rows use the bonus
 	// characters MAGPIE does.
 	Dist       *tilemapping.LetterDistribution
@@ -169,9 +173,10 @@ func NewData(opts DataOptions) (*Data, error) {
 		return C.CString(s)
 	}
 	kwg, klv, wmp := cstr(opts.KWGPath), cstr(opts.KLVPath), cstr(opts.WMPPath)
+	rit := cstr(opts.RITPath)
 	ld, lay := C.CString(distCSV(opts.Dist)), C.CString(layout.String())
 	defer func() {
-		for _, p := range []*C.char{kwg, klv, wmp, ld, lay} {
+		for _, p := range []*C.char{kwg, klv, wmp, rit, ld, lay} {
 			C.free(unsafe.Pointer(p))
 		}
 	}()
@@ -183,10 +188,10 @@ func NewData(opts DataOptions) (*Data, error) {
 	var ptr *C.mg_data
 	switch dim {
 	case 15:
-		ptr = C.mgs15_data_create(kwg, klv, wmp, buildWMP, ld, lay,
+		ptr = C.mgs15_data_create(kwg, klv, wmp, buildWMP, rit, ld, lay,
 			C.int(opts.Variant), C.int(opts.BingoBonus), &errbuf[0], C.int(len(errbuf)))
 	case 21:
-		ptr = C.mgs21_data_create(kwg, klv, wmp, buildWMP, ld, lay,
+		ptr = C.mgs21_data_create(kwg, klv, wmp, buildWMP, rit, ld, lay,
 			C.int(opts.Variant), C.int(opts.BingoBonus), &errbuf[0], C.int(len(errbuf)))
 	}
 	if ptr == nil {
@@ -206,6 +211,24 @@ func (d *Data) Close() {
 		C.mgs21_data_destroy(d.ptr)
 	}
 	d.ptr = nil
+}
+
+// WriteRIT builds the rack info table for this data's leaves and word map
+// and writes it to path. It takes minutes and gigabytes for English.
+func (d *Data) WriteRIT(path string, threads int) error {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	var errbuf [512]C.char
+	var rc C.int
+	if d.dim == 15 {
+		rc = C.mgs15_data_write_rit(d.ptr, cpath, C.int(threads), &errbuf[0], C.int(len(errbuf)))
+	} else {
+		rc = C.mgs21_data_write_rit(d.ptr, cpath, C.int(threads), &errbuf[0], C.int(len(errbuf)))
+	}
+	if rc != 0 {
+		return errors.New("magpie: " + C.GoString(&errbuf[0]))
+	}
+	return nil
 }
 
 // Dim is the board size.

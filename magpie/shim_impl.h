@@ -19,9 +19,11 @@
 #include "ent/player.h"
 #include "ent/players_data.h"
 #include "ent/rack.h"
+#include "ent/rack_info_table.h"
 #include "ent/wmp.h"
 #include "impl/gameplay.h"
 #include "impl/move_gen.h"
+#include "impl/rack_info_table_maker.h"
 #include "impl/wmp_maker.h"
 #include "util/io_util.h"
 #include "util/string_util.h"
@@ -68,8 +70,9 @@ static bool mgs_take_error(ErrorStack *es, char *err, int err_len) {
 
 mg_data *MGS(data_create)(const char *kwg_path, const char *klv_path,
                           const char *wmp_path, int build_wmp,
-                          const char *ld_csv, const char *layout, int variant,
-                          int bingo_bonus, char *err, int err_len) {
+                          const char *rit_path, const char *ld_csv,
+                          const char *layout, int variant, int bingo_bonus,
+                          char *err, int err_len) {
   ErrorStack *es = error_stack_create();
   mg_data *d = calloc_or_die(1, sizeof(mg_data));
   d->variant = variant;
@@ -132,6 +135,23 @@ mg_data *MGS(data_create)(const char *kwg_path, const char *klv_path,
     players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_WMP, true);
   }
 
+  if (rit_path) {
+    if (!wmp) {
+      mgs_set_err(err, err_len, "a rack info table needs a word map");
+      goto fail;
+    }
+    RackInfoTable *rit = calloc_or_die(1, sizeof(RackInfoTable));
+    rit->instance_id = rack_info_table_next_instance_id();
+    rack_info_table_load_mmap(rit, rit_path, rit_path, es);
+    if (mgs_take_error(es, err, err_len)) {
+      rack_info_table_destroy(rit);
+      goto fail;
+    }
+    players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_RIT, 0, rit);
+    players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_RIT, 1, rit);
+    players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_RIT, true);
+  }
+
   error_stack_destroy(es);
   return d;
 
@@ -154,6 +174,24 @@ void MGS(data_destroy)(mg_data *d) {
     free(d->ld);
   }
   free(d);
+}
+
+int MGS(data_write_rit)(const mg_data *d, const char *path, int threads,
+                        char *err, int err_len) {
+  const KLV *klv = players_data_get_klv(d->players_data, 0);
+  const WMP *wmp = players_data_get_wmp(d->players_data, 0);
+  if (!klv || !wmp) {
+    mgs_set_err(err, err_len, "a rack info table needs leaves and a word map");
+    return -1;
+  }
+  // Coverage [1, RACK_SIZE], as MAGPIE's own convert command builds it.
+  RackInfoTable *rit = make_rack_info_table(klv, wmp, d->ld, threads, 1);
+  ErrorStack *es = error_stack_create();
+  rack_info_table_write_to_file(rit, path, es);
+  rack_info_table_destroy(rit);
+  const bool failed = mgs_take_error(es, err, err_len);
+  error_stack_destroy(es);
+  return failed ? -1 : 0;
 }
 
 int MGS(data_has_wmp)(const mg_data *d) {
