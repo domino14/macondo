@@ -14,18 +14,15 @@ import (
 // generation keeps.
 const maxSmallPlays = 200000
 
-// enterMagpie readies the solver's game for a solve: in C-board mode, with
-// MAGPIE generating from a word graph pruned to the words playable in this
-// endgame (when that optimization is on). The returned function undoes it.
+// enterMagpie readies the solver's game for a solve: MAGPIE generates from
+// a word graph pruned to the words playable in this endgame (when that
+// optimization is on). The returned function undoes it.
 func (s *Solver) enterMagpie() (func(), error) {
 	if s.externalKWG != nil {
 		// The caller set the game up (see SetPrunedKWG) and keeps it so.
 		return func() {}, s.magpieGame(s.game)
 	}
 	if s.prunedKWGOptim {
-		if err := s.game.SetMagpieBoard(true); err != nil {
-			return nil, err
-		}
 		pos, err := s.game.MagpiePosition()
 		if err != nil {
 			return nil, err
@@ -39,21 +36,16 @@ func (s *Solver) enterMagpie() (func(), error) {
 	}
 	return func() {
 		if pos, err := s.game.MagpiePosition(); err == nil {
-			// Back to full cross-sets before the Go board is refreshed.
 			pos.SetOverrideKWG(nil)
 		}
-		s.game.SetMagpieBoard(false)
 		s.prunedKWG.Close()
 		s.prunedKWG = nil
 	}, nil
 }
 
-// magpieGame puts g, the solver's game or a thread's copy of it, in C-board
-// mode generating from the pruned word graph.
+// magpieGame makes g, the solver's game or a thread's copy of it, generate
+// from the pruned word graph.
 func (s *Solver) magpieGame(g *game.Game) error {
-	if err := g.SetMagpieBoard(true); err != nil {
-		return err
-	}
 	pos, err := g.MagpiePosition()
 	if err != nil {
 		return err
@@ -66,11 +58,10 @@ func (s *Solver) magpieGame(g *game.Game) error {
 	return nil
 }
 
-// SetPrunedKWG gives the solver a pruned word graph built by its caller,
-// which also keeps the solver's game in C-board mode generating from it: the
-// pre-endgame builds one graph for all its endgames. Solves then neither
-// build one nor take the game out of C-board mode. nil goes back to the
-// solver building its own.
+// SetPrunedKWG gives the solver a pruned word graph built by its caller:
+// the pre-endgame builds one graph for all its endgames. Solves then neither
+// build one nor take it off the game. nil goes back to the solver building
+// its own.
 func (s *Solver) SetPrunedKWG(k *magpie.KWG) {
 	s.externalKWG = k
 }

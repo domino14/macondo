@@ -45,7 +45,6 @@ import (
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 const (
@@ -421,12 +420,6 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 					"leave values for "+lexName)
 				fetchLeaves(sc.config.WGLConfig(), "super-"+lexName,
 					"SuperCrosswordGame leave values for "+lexName)
-				// Build WMP if not already on disk (build-on-miss is intentional
-				// here since the user is doing an interactive lexicon switch).
-				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
-					log.Info().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
-						Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
-				}
 			}
 			_, ret = sc.options.Show("lexicon")
 		}
@@ -1005,10 +998,6 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig()); err != nil {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
 	}
-	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
-		log.Info().Err(wmpErr).Str("lexicon", lexicon).
-			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
-	}
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
 	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
@@ -1161,10 +1150,6 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	}
 	if err := turnplayer.EnsureKWG(lex, sc.config.WGLConfig()); err != nil {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lex, err)
-	}
-	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lex); wmpErr != nil {
-		log.Info().Err(wmpErr).Str("lexicon", lex).
-			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 	}
 	g, err := cgp.ParseCGP(sc.config, cgpstr)
 	if err != nil {

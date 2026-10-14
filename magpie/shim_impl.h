@@ -583,6 +583,30 @@ static void mgs_restore(mg_pos *p, const mgs_backup *b) {
   game_set_game_end_reason(game, b->end_reason);
 }
 
+void MGS(play_board)(mg_pos *p, const mg_move *m) {
+  Game *game = p->game;
+  mgs_backup_state(p);
+  if (m->type != MG_MOVE_PLACEMENT) {
+    // A pass or exchange leaves the board alone.
+    game_start_next_player_turn(game);
+    return;
+  }
+  // play_move_on_board takes the tiles off the rack, so give it exactly
+  // those; the caller sets the real racks afterwards.
+  Rack *rack =
+      player_get_rack(game_get_player(game, game_get_player_on_turn_index(game)));
+  rack_reset(rack);
+  for (int i = 0; i < m->tiles_length; i++) {
+    const MachineLetter t = m->tiles[i];
+    if (t != PLAYED_THROUGH_MARKER) {
+      rack_add_letter(rack, get_is_blanked(t) ? BLANK_MACHINE_LETTER : t);
+    }
+  }
+  Move move;
+  mgs_move_in(m, &move);
+  play_move_without_drawing_tiles(&move, game);
+}
+
 int MGS(unplay)(mg_pos *p) {
   if (p->backup_depth == 0) {
     return -1;

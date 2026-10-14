@@ -142,6 +142,8 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	var pv PVLine
 	v1 := s.greedyPlayout(g, &pv, 0, 0)
 
+	// Board() brings the board up to date with MAGPIE's after moves.
+	bd = g.Board()
 	is.Equal(bd.SquaresSlice(), squares)
 	is.Equal(bd.CrossSetsForDir(board.HorizontalDirection), hCross)
 	is.Equal(bd.CrossSetsForDir(board.VerticalDirection), vCross)

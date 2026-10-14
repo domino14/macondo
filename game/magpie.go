@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -145,13 +146,23 @@ func loadMagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Le
 	return d, nil
 }
 
-// MagpiePosition returns MAGPIE's copy of this game's position, for move
-// generation: board, cross-sets, both racks and the bag, with the player on
-// turn. It is made the first time it is asked for, and from then on kept in
-// step with the game as moves are played and unplayed. Each call brings the
-// racks and bag up to date, so callers should ask for it again rather than
-// hold it across changes they make to the game.
+// The board of a game lives in MAGPIE: its position (board, cross-sets,
+// anchors, racks and bag) is where moves are played and unplayed and where
+// moves are generated. The Go board is a copy of it, refreshed when Board()
+// is asked for after a move (viewStale), which code that only reads the board
+// -- validation, scoring by hand, display, NN features -- uses. Code that
+// changes the Go board directly (setting up a position, replaying a history
+// from scratch) marks MAGPIE's copy stale (posStale), and it is rebuilt from
+// the Go board on next use. Racks and the bag are Go's and are copied to
+// MAGPIE whenever it is about to use them.
+
+// MagpiePosition returns this game's MAGPIE position, for move generation,
+// with the racks, bag and player on turn brought up to date. Callers should
+// ask for it again rather than hold it across changes they make to the game.
 func (g *Game) MagpiePosition() (*magpie.Position, error) {
+	if g.goBoard {
+		return nil, errNoMagpie
+	}
 	if g.pos == nil {
 		d, err := g.rules.MagpieData()
 		if err != nil {
@@ -167,6 +178,10 @@ func (g *Game) MagpiePosition() (*magpie.Position, error) {
 	return g.pos, nil
 }
 
+// errNoMagpie is MagpiePosition's error for a game without a lexicon, whose
+// board is kept on the Go side (see Game.goBoard).
+var errNoMagpie = errors.New("a game without a lexicon has no MAGPIE position")
+
 func posBackupMode(m BackupMode) magpie.BackupMode {
 	switch m {
 	case SimulationMode:
@@ -177,20 +192,14 @@ func posBackupMode(m BackupMode) magpie.BackupMode {
 	return magpie.BackupOff
 }
 
-// markPosStale says the Go board changed in a way MAGPIE's copy did not
-// follow, so the next MagpiePosition call rebuilds it.
+// markPosStale says the Go board was changed directly, so MAGPIE's position
+// is rebuilt from it on next use. Callers change the board they got from
+// Board(), which is up to date.
 func (g *Game) markPosStale() {
-	if g.magpieBoard {
-		panic("MAGPIE's board fell out of step in C-board mode")
-	}
 	if g.pos != nil {
 		g.posStale = true
 	}
-}
-
-// posLive reports whether MAGPIE's copy is following moves.
-func (g *Game) posLive() bool {
-	return g.pos != nil && !g.posStale
+	g.viewStale = false
 }
 
 // pushRacks copies both racks, the bag and the player on turn to MAGPIE.
@@ -227,19 +236,30 @@ func (g *Game) syncPos() error {
 		return err
 	}
 	g.posStale = false
+	// The tiles agree; the cross-sets come from MAGPIE.
+	g.viewStale = true
 	// Set drops MAGPIE's saved plays, so no backup taken so far has one.
 	for _, st := range g.stateStack {
-		st.posPlayed = false
+		st.posPlayed, st.posSmall = false, false
 	}
 	return nil
 }
 
-// posPlay plays m in MAGPIE's copy, if it is following moves, with the tiles
-// the player drew. Called after the Go side has played it.
-func (g *Game) posPlay(m *move.Move, drawn []tilemapping.MachineLetter) {
-	if !g.posLive() {
+// refreshView brings the Go board up to date with MAGPIE's.
+func (g *Game) refreshView() {
+	if !g.viewStale || g.pos == nil {
 		return
 	}
+	if g.mboard == nil {
+		g.mboard = g.pos.Data().NewBoard()
+	}
+	g.pos.ReadBoard(g.mboard)
+	g.board.SetFromMagpie(g.mboard.Letters, g.mboard.CrossSets, g.mboard.CrossScores)
+	g.viewStale = false
+}
+
+// toMagpieMove converts a move for MAGPIE.
+func toMagpieMove(m *move.Move) magpie.Move {
 	var mm magpie.Move
 	switch m.Action() {
 	case move.MoveTypePlay:
@@ -259,41 +279,69 @@ func (g *Game) posPlay(m *move.Move, drawn []tilemapping.MachineLetter) {
 	default:
 		mm.Type = magpie.MovePass
 	}
-	if err := g.pos.Play(&mm, drawn); err != nil {
-		// The copies disagree; rebuild MAGPIE's from the Go side.
-		log.Warn().Err(err).Msg("magpie-position-out-of-step")
-		g.markPosStale()
-		return
+	return mm
+}
+
+// posPlay plays m on the board in MAGPIE's position, saved for unplay as the
+// backup mode says, or on the Go board in a game without MAGPIE. The racks
+// and bag are Go's; MAGPIE gets them the next time it is asked for.
+func (g *Game) posPlay(m *move.Move) error {
+	if g.goBoard {
+		if m.Action() == move.MoveTypePlay {
+			g.board.PlayMove(m)
+			g.crossScores.UpdateForMove(g.board, m)
+		}
+		return nil
 	}
-	g.viewStale = g.magpieBoard
+	mm := toMagpieMove(m)
+	g.pos.PlayBoard(&mm)
+	g.viewStale = true
 	if g.backupMode != NoBackup {
 		st := g.stateStack[max(g.stackPtr-1, 0)]
 		st.posPlayed, st.posSmall = true, false
 	}
+	return nil
 }
 
-// posUnplay undoes MAGPIE's copy of the play the backup st undid.
-func (g *Game) posUnplay(st *stateBackup) {
-	if g.pos == nil {
-		return
+// posPlaySmall plays a small move in MAGPIE's position, filling
+// g.stripBackup. With drawn non-nil (a pre-endgame) it is a backed-up play
+// that draws them; otherwise an incremental one (the endgame).
+func (g *Game) posPlaySmall(m *tinymove.SmallMove, drawn []tilemapping.MachineLetter) {
+	var err error
+	if drawn != nil {
+		_, err = g.pos.PlaySmallDrawing(uint64(m.TinyMove()), m.Score(), drawn, g.stripBackup[:])
+	} else {
+		_, err = g.pos.PlaySmall(uint64(m.TinyMove()), m.Score(), g.stripBackup[:])
 	}
+	if err != nil {
+		panic(fmt.Sprintf("playing %v: %v", m.ShortDescription(), err))
+	}
+	g.viewStale = true
+	if g.backupMode != NoBackup {
+		st := g.stateStack[max(g.stackPtr-1, 0)]
+		st.posPlayed = drawn != nil
+		st.posSmall = drawn == nil
+	}
+}
+
+// posUnplay undoes in MAGPIE's position what the backup st was taken for.
+// A backup whose move did not touch the board (a pass replayed from a
+// history, say) has nothing there to undo.
+func (g *Game) posUnplay(st *stateBackup) {
 	var err error
 	switch {
-	case g.posStale:
-		return
+	case g.pos == nil || g.posStale:
 	case st.posSmall:
 		err = g.pos.UnplaySmall()
+		g.viewStale = true
 	case st.posPlayed:
 		err = g.pos.Unplay()
-	default:
-		err = magpie.ErrNoBackup
+		g.viewStale = true
 	}
 	st.posPlayed, st.posSmall = false, false
 	if err != nil {
-		g.markPosStale()
-		return
+		panic(fmt.Sprintf("MAGPIE's position has no backup to unplay: %v", err))
 	}
-	g.viewStale = g.magpieBoard
 }
 
 // MoveFromMagpie converts a move MAGPIE generated for the player on turn
@@ -326,82 +374,7 @@ func (g *Game) MoveFromMagpie(m *magpie.Move) *move.Move {
 	return mv
 }
 
-// SetMagpieBoard puts the game in (or out of) C-board mode. In C-board mode
-// MAGPIE's copy of the position is the board: moves, small moves included,
-// are played and unplayed there only, and the Go board is a copy refreshed
-// from it when Board() is asked for. It is for searches that generate all
-// their moves through MAGPIE (the endgame and pre-endgame solvers), which
-// otherwise pay for keeping the Go board's cross-sets on every node. Code
-// that changes the Go board directly takes the game out of C-board mode
-// first.
-func (g *Game) SetMagpieBoard(on bool) error {
-	if on == g.magpieBoard {
-		return nil
-	}
-	if !on {
-		g.refreshView()
-		g.magpieBoard = false
-		return nil
-	}
-	if _, err := g.MagpiePosition(); err != nil {
-		return err
-	}
-	g.magpieBoard = true
-	g.viewStale = false
-	return nil
-}
-
-// MagpieBoard reports whether the game is in C-board mode.
-func (g *Game) MagpieBoard() bool {
-	return g.magpieBoard
-}
-
-// refreshView brings the Go board up to date with MAGPIE's, in C-board mode.
-func (g *Game) refreshView() {
-	if !g.magpieBoard || !g.viewStale {
-		return
-	}
-	if g.mboard == nil {
-		g.mboard = g.pos.Data().NewBoard()
-	}
-	g.pos.ReadBoard(g.mboard)
-	g.board.SetFromMagpie(g.mboard.Letters, g.mboard.CrossSets, g.mboard.CrossScores)
-	g.viewStale = false
-}
-
-// leaveMagpieBoard is for code about to change the Go board directly: the Go
-// board becomes the real one again, and MAGPIE's copy is rebuilt from it on
-// next use.
-func (g *Game) leaveMagpieBoard() {
-	if g.magpieBoard {
-		g.refreshView()
-		g.magpieBoard = false
-	}
-}
-
-// posPlaySmall plays a small move in MAGPIE's copy, filling g.stripBackup,
-// in C-board mode. With drawn non-nil (a pre-endgame) it is a backed-up play
-// that draws them; otherwise an incremental one.
-func (g *Game) posPlaySmall(m *tinymove.SmallMove, drawn []tilemapping.MachineLetter) {
-	var err error
-	if drawn != nil {
-		_, err = g.pos.PlaySmallDrawing(uint64(m.TinyMove()), m.Score(), drawn, g.stripBackup[:])
-	} else {
-		_, err = g.pos.PlaySmall(uint64(m.TinyMove()), m.Score(), g.stripBackup[:])
-	}
-	if err != nil {
-		panic(fmt.Sprintf("C-board play of %v failed: %v", m.ShortDescription(), err))
-	}
-	g.viewStale = true
-	if g.backupMode != NoBackup {
-		st := g.stateStack[max(g.stackPtr-1, 0)]
-		st.posPlayed = drawn != nil
-		st.posSmall = drawn == nil
-	}
-}
-
-// takeSmallMoveTiles takes a small move's placed tiles off the player's rack,
-// which board.PlaySmallMove does outside C-board mode.
+// takeSmallMoveTiles takes a small move's placed tiles off the player's rack.
 func takeSmallMoveTiles(m *tinymove.SmallMove, rack *tilemapping.Rack) {
 	tm := m.TinyMove()
 	blanks := uint64(tm) >> 12 & 127
@@ -450,4 +423,25 @@ func bitRackCompatible(dist *tilemapping.LetterDistribution, dim int) bool {
 		}
 	}
 	return true
+}
+
+// MagpieMoves generates up to n moves for the player on turn, best first by
+// sort (MAGPIE's static equity, or score), as Macondo moves. It is for tests
+// and tools; players generate through ai/turnplayer.
+func (g *Game) MagpieMoves(n int, sort magpie.Sort) ([]*move.Move, error) {
+	pos, err := g.MagpiePosition()
+	if err != nil {
+		return nil, err
+	}
+	var gen []magpie.Move
+	if n == 1 {
+		gen = pos.Generate(magpie.RecordBest, sort, 0)
+	} else {
+		gen = pos.GenerateN(magpie.RecordAll, sort, 0, n)
+	}
+	moves := make([]*move.Move, len(gen))
+	for i := range gen {
+		moves[i] = g.MoveFromMagpie(&gen[i])
+	}
+	return moves, nil
 }

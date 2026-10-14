@@ -6,39 +6,31 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/magpie"
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
-// benchPosition is a mid-game position: a Macondo board and a MAGPIE
-// position holding the same tiles, with the rack on turn.
+// benchPosition is a mid-game position, with the rack on turn.
 type benchPosition struct {
-	bd   *board.GameBoard
-	rack *tilemapping.Rack
-	pos  *magpie.Position
+	pos *magpie.Position
 }
 
-// benchPositions plays greedy (top-score) games and keeps every position
-// with 30 to 60 tiles on the board.
-func benchPositions(b *testing.B, wmp bool) ([]benchPosition, *movegen.GordonGenerator, func()) {
+func benchPositions(b *testing.B, wmp bool) ([]benchPosition, func()) {
 	return benchPositionsRIT(b, wmp, "")
 }
 
-func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, *movegen.GordonGenerator, func()) {
+// benchPositionsRIT plays greedy (top-score) games and keeps every position
+// with 30 to 60 tiles on the board, each in its own Position.
+func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, func()) {
 	dataPath := defaultConfig.GetString(config.ConfigDataPath)
 	kwgPath := filepath.Join(dataPath, "lexica", "gaddag", "NWL23.kwg")
 	klvPath := filepath.Join(dataPath, "lexica", "gaddag", "NWL23.klv2")
 	if _, err := os.Stat(klvPath); err != nil {
 		b.Skip("NWL23 not available")
 	}
-	gd, _ := kwg.GetKWG(defaultConfig.WGLConfig(), "NWL23")
 	ld, _ := tilemapping.GetDistribution(defaultConfig.WGLConfig(), "english")
 	d, err := magpie.NewData(magpie.DataOptions{KWGPath: kwgPath, KLVPath: klvPath,
 		BuildWMP: wmp, RITPath: rit, Dist: ld, Layout: board.CrosswordGameBoard,
@@ -46,63 +38,54 @@ func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, *mo
 	if err != nil {
 		b.Fatal(err)
 	}
+	player := magpie.NewPosition(d, 1, 1)
+	defer player.Close()
+	mb := d.NewBoard()
 	var out []benchPosition
-	var gen *movegen.GordonGenerator
+	drawn := make([]tilemapping.MachineLetter, 7)
 	for g := 0; len(out) < 200; g++ {
-		bd := board.MakeBoard(board.CrosswordGameBoard)
-		csgen := &cross_set.GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
-		csgen.GenerateAll(bd)
-		bd.UpdateAllAnchors()
-		gen = movegen.NewGordonGenerator(gd, bd, ld)
 		bag := ld.MakeBag()
 		bag.Shuffle()
 		racks := [2][]tilemapping.MachineLetter{make([]tilemapping.MachineLetter, 7), make([]tilemapping.MachineLetter, 7)}
 		bag.Draw(7, racks[0])
 		bag.Draw(7, racks[1])
+		if err := player.Set(magpie.State{Squares: make([]tilemapping.MachineLetter, 225),
+			Racks: [2]tilemapping.MachineWord{racks[0], racks[1]}, Bag: bag.Peek()}); err != nil {
+			b.Fatal(err)
+		}
 		onturn, tiles := 0, 0
 		for tiles < 60 && bag.TilesRemaining() > 7 {
-			rack := tilemapping.NewRack(ld.TileMapping())
-			rack.Set(racks[onturn])
 			if tiles >= 30 {
+				player.ReadBoard(mb)
 				pos := magpie.NewPosition(d, 100000, 1)
-				squares := make([]tilemapping.MachineLetter, 225)
-				for r := 0; r < 15; r++ {
-					for c := 0; c < 15; c++ {
-						squares[r*15+c] = bd.GetLetter(r, c)
-					}
-				}
-				var mr [2]tilemapping.MachineWord
-				mr[onturn] = racks[onturn]
-				mr[1-onturn] = racks[1-onturn]
-				if err := pos.Set(magpie.State{Squares: squares, Racks: mr, Bag: bag.Peek(), OnTurn: onturn}); err != nil {
+				var st magpie.State
+				st.Squares = append([]tilemapping.MachineLetter(nil), mb.Letters...)
+				st.Racks[0], st.Racks[1] = racks[0], racks[1]
+				st.Bag, st.OnTurn = bag.Peek(), onturn
+				if err := pos.Set(st); err != nil {
 					b.Fatal(err)
 				}
-				out = append(out, benchPosition{bd: bd.Copy(), rack: rack, pos: pos})
+				out = append(out, benchPosition{pos: pos})
 			}
-			plays := gen.GenAll(rack, false)
-			var best *move.Move
-			for _, m := range plays {
-				if m.Action() == move.MoveTypePlay && (best == nil || m.Score() > best.Score()) {
-					best = m
-				}
-			}
-			if best == nil {
+			m := &player.Generate(magpie.RecordBest, magpie.SortScore, 0)[0]
+			if m.Type != magpie.MovePlacement {
 				break
 			}
-			bd.PlayMove(best)
-			csgen.UpdateForMove(bd, best)
-			tiles += best.TilesPlayed()
-			leave, err := tilemapping.Leave(racks[onturn], best.Tiles(), true)
+			leave, err := tilemapping.Leave(racks[onturn], m.Word(), true)
 			if err != nil {
 				b.Fatal(err)
 			}
-			drawn := make([]tilemapping.MachineLetter, 7-len(leave))
-			bag.Draw(len(drawn), drawn)
-			racks[onturn] = append(leave, drawn...)
+			n := min(int(m.TilesPlayed), bag.TilesRemaining())
+			bag.Draw(n, drawn)
+			if err := player.Play(m, drawn[:n]); err != nil {
+				b.Fatal(err)
+			}
+			tiles += int(m.TilesPlayed)
+			racks[onturn] = append(leave, drawn[:n]...)
 			onturn = 1 - onturn
 		}
 	}
-	return out, gen, func() {
+	return out, func() {
 		for _, p := range out {
 			p.pos.Close()
 		}
@@ -110,25 +93,8 @@ func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, *mo
 	}
 }
 
-func BenchmarkGenAllGordon(b *testing.B) {
-	ps, _, done := benchPositions(b, false)
-	defer done()
-	gd, _ := kwg.GetKWG(defaultConfig.WGLConfig(), "NWL23")
-	ld, _ := tilemapping.GetDistribution(defaultConfig.WGLConfig(), "english")
-	gens := make([]*movegen.GordonGenerator, len(ps))
-	for i, p := range ps {
-		gens[i] = movegen.NewGordonGenerator(gd, p.bd, ld)
-		gens[i].SetSortingParameter(movegen.SortByNone)
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		j := i % len(ps)
-		gens[j].GenAll(ps[j].rack, false)
-	}
-}
-
 func BenchmarkGenAllMagpie(b *testing.B) {
-	ps, _, done := benchPositions(b, false)
+	ps, done := benchPositions(b, false)
 	defer done()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -139,7 +105,7 @@ func BenchmarkGenAllMagpie(b *testing.B) {
 }
 
 func BenchmarkBestMagpie(b *testing.B) {
-	ps, _, done := benchPositions(b, false)
+	ps, done := benchPositions(b, false)
 	defer done()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -150,7 +116,7 @@ func BenchmarkBestMagpie(b *testing.B) {
 }
 
 func BenchmarkBestMagpieWMP(b *testing.B) {
-	ps, _, done := benchPositions(b, true)
+	ps, done := benchPositions(b, true)
 	defer done()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -162,7 +128,7 @@ func BenchmarkBestMagpieWMP(b *testing.B) {
 
 // BenchmarkCgoCall is the cost of one trivial call into the shim.
 func BenchmarkCgoCall(b *testing.B) {
-	ps, _, done := benchPositions(b, false)
+	ps, done := benchPositions(b, false)
 	defer done()
 	p := ps[0].pos
 	b.ResetTimer()
@@ -172,7 +138,7 @@ func BenchmarkCgoCall(b *testing.B) {
 }
 
 func BenchmarkBestMagpieSamePosition(b *testing.B) {
-	ps, _, done := benchPositions(b, false)
+	ps, done := benchPositions(b, false)
 	defer done()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -188,7 +154,7 @@ func BenchmarkBestMagpieRIT(b *testing.B) {
 	if rit == "" {
 		b.Skip("set MAGPIE_RIT")
 	}
-	ps, _, done := benchPositionsRIT(b, true, rit)
+	ps, done := benchPositionsRIT(b, true, rit)
 	defer done()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()

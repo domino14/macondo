@@ -5,6 +5,7 @@ import (
 
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,6 +26,7 @@ const (
 
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
+	// board is only kept for games without MAGPIE (Game.goBoard).
 	board          *board.GameBoard
 	bag            *tilemapping.Bag
 	playing        pb.PlayState
@@ -52,10 +54,10 @@ func (g *Game) backupState() {
 	}
 	st := g.stateStack[g.stackPtr]
 	st.posPlayed, st.posSmall = false, false
-
-	if !g.magpieBoard {
+	if g.goBoard {
 		st.board.CopyFrom(g.board)
 	}
+
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
@@ -107,8 +109,12 @@ func (g *Game) SetStateStackLength(length int) {
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
+		var bd *board.GameBoard
+		if g.goBoard {
+			bd = g.board.Copy()
+		}
 		g.stateStack[idx] = &stateBackup{
-			board:          g.board.Copy(),
+			board:          bd,
 			bag:            g.bag.Copy(),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
@@ -143,7 +149,7 @@ func (g *Game) UnplayLastMove() {
 		// because we typically use this when a word is challenged off, or similar.
 		b = g.stateStack[0]
 	}
-	if !g.magpieBoard {
+	if g.goBoard {
 		g.board.CopyFrom(b.board)
 	}
 	g.bag.CopyFrom(b.bag)
@@ -157,27 +163,28 @@ func (g *Game) UnplayLastMove() {
 func (g *Game) ResetToFirstState() {
 	// This is like a fast-backward -- it unplays all of the moves on the
 	// stack.
-	if g.magpieBoard {
-		// MAGPIE undoes small moves one at a time.
-		for g.stackPtr > 0 {
-			g.UnplayLastMove()
-		}
-		return
-	}
-
 	b := g.stateStack[0]
+	if g.pos != nil && !g.posStale {
+		// Endgame small moves come off one at a time; then the oldest saved
+		// play takes the board back past anything played since unsaved.
+		for g.pos.UnplaySmall() == nil {
+		}
+		if b.posPlayed {
+			if err := g.pos.ResetToFirst(); err != nil {
+				panic(err)
+			}
+		}
+		g.viewStale = true
+	}
+	for _, st := range g.stateStack {
+		st.posPlayed, st.posSmall = false, false
+	}
+	if g.goBoard {
+		g.board.CopyFrom(b.board)
+	}
 	g.onturn = b.onturn
 	g.turnnum = b.turnnum
 	g.stackPtr = 0
-	if g.posLive() && b.posPlayed && g.pos.ResetToFirst() == nil {
-		for _, st := range g.stateStack {
-			st.posPlayed = false
-		}
-	} else {
-		g.markPosStale()
-	}
-
-	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
@@ -189,15 +196,13 @@ func (g *Game) ResetToFirstState() {
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
 func (g *Game) Copy() *Game {
-	g.refreshView()
 	copy := &Game{
 		config:            g.config,
 		onturn:            g.onturn,
 		turnnum:           g.turnnum,
-		board:             g.board.Copy(),
+		board:             g.Board().Copy(),
 		bag:               g.bag.Copy(),
 		lexicon:           g.lexicon,
-		crossSetGen:       g.crossSetGen,
 		alph:              g.alph,
 		playing:           g.playing,
 		scorelessTurns:    g.scorelessTurns,
@@ -205,6 +210,8 @@ func (g *Game) Copy() *Game {
 		exchangeLimit:     g.exchangeLimit,
 		players:           copyPlayers(g.players),
 		rules:             g.rules,
+		goBoard:           g.goBoard,
+		crossScores:       g.crossScores,
 		seed:              g.seed,
 		startingPlayerIdx: g.startingPlayerIdx,
 		// stackPtr only changes during a sim, etc. This Copy should
@@ -216,6 +223,12 @@ func (g *Game) Copy() *Game {
 	// come out of here still locked into the original's fixed tile order.
 	if g.pairedBag {
 		copy.bag.SetFixedOrder(false)
+	}
+	// MAGPIE's position comes along as it is; otherwise the copy builds one
+	// from its board when it needs it.
+	if g.pos != nil && !g.posStale {
+		copy.pos = magpie.NewPosition(g.pos.Data(), magpie.DefaultMoveCapacity, 0)
+		copy.pos.CopyFrom(g.pos)
 	}
 	// Also set the copy's stack.
 	copy.SetStateStackLength(len(g.stateStack))

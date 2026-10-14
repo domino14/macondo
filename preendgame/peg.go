@@ -796,12 +796,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			if err := es.Init(g); err != nil {
 				return nil, err
 			}
-			// Every endgame generates from the pruned graph built above, on a
-			// game kept in C-board mode for the whole solve.
+			// Every endgame generates from the pruned graph built above.
 			es.SetPrunedKWG(prunedKWG)
-			if err := g.SetMagpieBoard(true); err != nil {
-				return nil, err
-			}
 			gpos, err := g.MagpiePosition()
 			if err != nil {
 				return nil, err

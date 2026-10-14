@@ -13,101 +13,106 @@ import (
 	"github.com/domino14/macondo/tinymove"
 )
 
-// checkPosMatches checks MAGPIE's copy of the position against the Go board,
-// racks and bag, without letting MagpiePosition rebuild it.
-func checkPosMatches(t *testing.T, g *Game, where string) {
+// snapshot is everything about a game's position a move changes.
+type snapshot struct {
+	board  *board.GameBoard
+	racks  [2]string
+	points [2]int
+	bag    int
+	onturn int
+}
+
+func takeSnapshot(g *Game) snapshot {
+	return snapshot{board: g.Board().Copy(), racks: [2]string{g.RackLettersFor(0), g.RackLettersFor(1)},
+		points: [2]int{g.PointsFor(0), g.PointsFor(1)}, bag: g.Bag().TilesRemaining(), onturn: g.PlayerOnTurn()}
+}
+
+func checkSnapshot(t *testing.T, g *Game, want snapshot, where string) {
 	t.Helper()
-	if g.posStale {
-		t.Fatalf("%s: MAGPIE's copy fell out of step", where)
-	}
-	g.pushRacks()
-	d, _ := g.rules.MagpieData()
-	mb := d.NewBoard()
-	g.pos.ReadBoard(mb)
-	dim := g.board.Dim()
-	letters := uint64(1)<<len(g.letterDistribution.Distribution()) - 2
+	got := takeSnapshot(g)
+	dim := want.board.Dim()
 	for r := 0; r < dim; r++ {
 		for c := 0; c < dim; c++ {
-			i := r*dim + c
-			if mb.Letters[i] != g.board.GetLetter(r, c) {
+			if got.board.GetLetter(r, c) != want.board.GetLetter(r, c) {
 				t.Fatalf("%s: square %d,%d differs", where, r, c)
 			}
-			if g.board.GetLetter(r, c) != 0 {
-				continue
-			}
-			for dir, md := range []board.BoardDirection{board.VerticalDirection, board.HorizontalDirection} {
-				if uint64(g.board.GetCrossSet(r, c, md))&letters != mb.CrossSets[dir*dim*dim+i]&letters {
-					t.Fatalf("%s: cross-set %d,%d dir %d differs", where, r, c, dir)
+			for _, d := range []board.BoardDirection{board.HorizontalDirection, board.VerticalDirection} {
+				if got.board.GetCrossSet(r, c, d) != want.board.GetCrossSet(r, c, d) ||
+					got.board.GetCrossScore(r, c, d) != want.board.GetCrossScore(r, c, d) {
+					t.Fatalf("%s: cross-set or cross-score at %d,%d differs", where, r, c)
 				}
 			}
 		}
 	}
-	r0, r1, nbag := g.pos.RackCounts()
-	for i := range r0 {
-		if int(r0[i]) != g.players[0].rack.LetArr[i] || int(r1[i]) != g.players[1].rack.LetArr[i] {
-			t.Fatalf("%s: racks differ", where)
-		}
-	}
-	if nbag != g.bag.TilesRemaining() {
-		t.Fatalf("%s: bag has %d in MAGPIE, %d in Macondo", where, nbag, g.bag.TilesRemaining())
+	if got.racks != want.racks || got.points != want.points || got.bag != want.bag || got.onturn != want.onturn {
+		t.Fatalf("%s: racks/points/bag/turn %+v, want %+v", where, got, want)
 	}
 }
 
-// MAGPIE's copy follows a game played through the Game API -- moves picked
-// from MAGPIE's own generation, simulation-mode backups and unplays -- without
-// ever having to be rebuilt.
-func TestMagpiePositionFollowsGame(t *testing.T) {
-	is := is.New(t)
+func nwl23Rules(t *testing.T) *GameRules {
 	rules, err := NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
 		"english", CrossScoreAndSet, VarClassic)
-	is.NoErr(err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rules
+}
+
+func bestMove(t *testing.T, g *Game) *move.Move {
+	pos, err := g.MagpiePosition()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
+}
+
+// Unplaying a move puts the board, racks, bag and scores back exactly, in
+// simulation mode, through random games of MAGPIE's own moves.
+func TestUnplayRestores(t *testing.T) {
+	is := is.New(t)
+	rules := nwl23Rules(t)
 	rng := rand.New(rand.NewPCG(1, 2))
-	for gi := 0; gi < 30; gi++ {
+	for gi := 0; gi < 20; gi++ {
 		g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
 		is.NoErr(err)
 		g.StartGame()
 		g.SetStateStackLength(40)
 		g.SetBackupMode(SimulationMode)
-		_, err = g.MagpiePosition()
-		is.NoErr(err)
-		checkPosMatches(t, g, "start")
-		played := 0
-		for g.Playing() == pb.PlayState_PLAYING && played < 38 {
+		var history []snapshot
+		for g.Playing() == pb.PlayState_PLAYING && len(history) < 38 {
+			before := takeSnapshot(g)
 			pos, err := g.MagpiePosition()
 			is.NoErr(err)
 			moves := pos.GenerateN(magpie.RecordAll, magpie.SortEquity, 0, 5)
 			m := g.MoveFromMagpie(&moves[rng.IntN(len(moves))])
 			is.NoErr(g.PlayMove(m, false, 0))
-			played++
-			checkPosMatches(t, g, "after play")
-			if played > 1 && rng.IntN(3) == 0 {
+			history = append(history, before)
+			if len(history) > 1 && rng.IntN(3) == 0 {
 				g.UnplayLastMove()
-				played--
-				checkPosMatches(t, g, "after unplay")
+				checkSnapshot(t, g, history[len(history)-1], "after unplay")
+				history = history[:len(history)-1]
 			}
+		}
+		// Unwind the whole game.
+		for i := len(history) - 1; i >= 0; i-- {
+			g.UnplayLastMove()
+			checkSnapshot(t, g, history[i], "unwinding")
 		}
 	}
 }
 
 // The simmer's pattern: back up the candidate, play further plies without
-// backups, then reset to the first state. MAGPIE's copy must follow without
-// a rebuild.
-func TestMagpiePositionFollowsSimPattern(t *testing.T) {
+// backups, then reset to the first state.
+func TestResetToFirstStateRestores(t *testing.T) {
 	is := is.New(t)
-	rules, err := NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
-		"english", CrossScoreAndSet, VarClassic)
-	is.NoErr(err)
+	rules := nwl23Rules(t)
 	rng := rand.New(rand.NewPCG(3, 4))
 	g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
 	is.NoErr(err)
 	g.StartGame()
 	g.SetStateStackLength(1)
-	// Get a few moves in first.
 	for i := 0; i < 6; i++ {
-		pos, err := g.MagpiePosition()
-		is.NoErr(err)
-		m := g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
-		is.NoErr(g.PlayMove(m, false, 0))
+		is.NoErr(g.PlayMove(bestMove(t, g), false, 0))
 	}
 	pos, err := g.MagpiePosition()
 	is.NoErr(err)
@@ -116,108 +121,59 @@ func TestMagpiePositionFollowsSimPattern(t *testing.T) {
 	for i := range candidates {
 		plays[i] = g.MoveFromMagpie(&candidates[i])
 	}
-	checkPosMatches(t, g, "before sim")
+	start := takeSnapshot(g)
 	for iter := 0; iter < 50; iter++ {
 		for _, c := range plays {
 			g.SetBackupMode(SimulationMode)
 			is.NoErr(g.PlayMove(c, false, 0))
 			g.SetBackupMode(NoBackup)
 			for ply := 0; ply < 2+rng.IntN(3) && g.Playing() == pb.PlayState_PLAYING; ply++ {
-				pos, err := g.MagpiePosition()
-				is.NoErr(err)
-				m := g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
-				is.NoErr(g.PlayMove(m, false, 0))
+				is.NoErr(g.PlayMove(bestMove(t, g), false, 0))
 			}
 			g.ResetToFirstState()
-			checkPosMatches(t, g, "after reset")
+			checkSnapshot(t, g, start, "after reset")
 		}
 	}
 }
 
-// boardsMatch compares two Go boards' tiles, cross-sets and cross-scores.
-func boardsMatch(t *testing.T, a, b *board.GameBoard, where string) {
-	t.Helper()
-	dim := a.Dim()
-	for r := 0; r < dim; r++ {
-		for c := 0; c < dim; c++ {
-			if a.GetLetter(r, c) != b.GetLetter(r, c) {
-				t.Fatalf("%s: square %d,%d differs", where, r, c)
-			}
-			if a.GetLetter(r, c) != 0 {
-				continue
-			}
-			for _, d := range []board.BoardDirection{board.HorizontalDirection, board.VerticalDirection} {
-				if a.GetCrossSet(r, c, d) != b.GetCrossSet(r, c, d) {
-					t.Fatalf("%s: cross-set %d,%d dir %d: %b vs %b", where, r, c, d,
-						a.GetCrossSet(r, c, d), b.GetCrossSet(r, c, d))
-				}
-				if a.GetCrossScore(r, c, d) != b.GetCrossScore(r, c, d) {
-					t.Fatalf("%s: cross-score %d,%d dir %d differs", where, r, c, d)
-				}
-			}
-		}
-	}
-}
-
-// A game in C-board mode plays endgame small moves exactly as one with the
-// Go board: same board, scores and racks after every play and unplay.
-func TestMagpieBoardModeSmallMoves(t *testing.T) {
+// Endgame small moves play and unplay cleanly, trees a few plies deep.
+func TestSmallMovesUnplay(t *testing.T) {
 	is := is.New(t)
-	rules, err := NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
-		"english", CrossScoreAndSet, VarClassic)
-	is.NoErr(err)
+	rules := nwl23Rules(t)
 	buf := make([]magpie.SmallMove, 50000)
 	for gi := 0; gi < 10; gi++ {
 		g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
 		is.NoErr(err)
 		g.StartGame()
 		for g.Bag().TilesRemaining() > 0 && g.Playing() == pb.PlayState_PLAYING {
-			pos, err := g.MagpiePosition()
-			is.NoErr(err)
-			m := g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
-			is.NoErr(g.PlayMove(m, false, 0))
+			is.NoErr(g.PlayMove(bestMove(t, g), false, 0))
 		}
 		if g.Playing() != pb.PlayState_PLAYING {
 			continue
 		}
-		goGame, cGame := g.Copy(), g.Copy()
-		for _, x := range []*Game{goGame, cGame} {
-			x.SetStateStackLength(10)
-			x.SetBackupMode(SimulationMode)
-			x.SetEndgameMode(true)
-		}
-		is.NoErr(cGame.SetMagpieBoard(true))
+		g.SetStateStackLength(10)
+		g.SetBackupMode(SimulationMode)
+		g.SetEndgameMode(true)
 		var walk func(depth int)
 		walk = func(depth int) {
-			if depth == 0 || cGame.Playing() != pb.PlayState_PLAYING {
+			if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
 				return
 			}
-			pos, err := cGame.MagpiePosition()
+			pos, err := g.MagpiePosition()
 			is.NoErr(err)
 			moves := append([]magpie.SmallMove(nil), pos.GenerateSmall(true, buf)...)
 			for i := 0; i < len(moves); i += 1 + len(moves)/6 {
-				sm := tinymove.TilePlayMove(tinymove.TinyMove(moves[i].TM), moves[i].Score,
-					moves[i].TilesPlayed, moves[i].PlayLength)
-				if moves[i].TM == 0 {
-					sm = tinymove.PassMove()
+				sm := tinymove.PassMove()
+				if moves[i].TM != 0 {
+					sm = tinymove.TilePlayMove(tinymove.TinyMove(moves[i].TM), moves[i].Score,
+						moves[i].TilesPlayed, moves[i].PlayLength)
 				}
-				s1, err := goGame.PlaySmallMove(&sm)
+				before := takeSnapshot(g)
+				_, err := g.PlaySmallMove(&sm)
 				is.NoErr(err)
-				s2, err := cGame.PlaySmallMove(&sm)
-				is.NoErr(err)
-				if !sm.IsPass() {
-					is.Equal(s1[:sm.PlayLength()], s2[:sm.PlayLength()])
-				}
-				boardsMatch(t, goGame.Board(), cGame.Board(), "after play")
-				is.Equal(goGame.PointsFor(0), cGame.PointsFor(0))
-				is.Equal(goGame.PointsFor(1), cGame.PointsFor(1))
-				is.Equal(goGame.RackLettersFor(0), cGame.RackLettersFor(0))
-				is.Equal(goGame.Playing(), cGame.Playing())
 				walk(depth - 1)
-				goGame.UnplayLastMove()
-				cGame.UnplayLastMove()
-				boardsMatch(t, goGame.Board(), cGame.Board(), "after unplay")
-				is.Equal(goGame.RackLettersFor(1), cGame.RackLettersFor(1))
+				g.UnplayLastMove()
+				checkSnapshot(t, g, before, "after small unplay")
 			}
 		}
 		walk(3)

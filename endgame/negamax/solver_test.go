@@ -12,13 +12,10 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -52,14 +49,6 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), lex)
-	if err != nil {
-		panic(err)
-	}
-
-	dist := rules.LetterDistribution()
-	gen := movegen.NewGordonGenerator(gd, g.Board(), dist)
-	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -67,7 +56,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	if err != nil {
 		panic(err)
 	}
-	cross_set.GenAllCrossSets(g.Board(), gd, dist)
+	g.RecalculateBoard()
 
 	g.SetRacksForBoth([]*tilemapping.Rack{
 		tilemapping.RackFromString(rack1, alph),
