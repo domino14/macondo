@@ -178,53 +178,45 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) float64 {
-	eq := float64(spread-initialSpread) + leftover
+// addSampleStats records one sample: its equity (spread change plus
+// leftover), leftover, win probability and utility. A bag-cycled sample
+// passes its rotations' means.
+func (sp *SimmedPlay) addSampleStats(equity, leftover, winProb, utility float64) {
 	sp.Lock()
 	defer sp.Unlock()
-	sp.equityStats.Push(eq)
+	sp.equityStats.Push(equity)
 	sp.leftoverStats.Push(leftover)
-	return eq
+	sp.winPctStats.Push(winProb)
+	sp.utilityStats.Push(utility)
 }
 
-// addWinPctStat records the rollout's win probability: the result if the
-// game ended, else the table's, looked up for the player on turn at the
-// rollout's end as MAGPIE does. bag and the rack sizes are the end state's,
-// onTurnRack being the rack of the player on turn then.
-func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, table *winpct.Table,
+// winProbability is a rollout's win probability: the result if the game
+// ended, else the table's, looked up for the player on turn at the rollout's
+// end as MAGPIE does. bag and the rack sizes are the end state's, onTurnRack
+// being the rack of the player on turn then.
+func winProbability(spread int, leftover float64, gameover bool, table *winpct.Table,
 	bag, onTurnRack, offTurnRack int, pliesAreEven bool) float64 {
-	winPct := float64(0.0)
-
 	if gameover {
-		if spread == 0 {
-			winPct = 0.5
-		} else if spread > 0 {
-			winPct = 1.0
+		switch {
+		case spread == 0:
+			return 0.5
+		case spread > 0:
+			return 1
 		}
-	} else {
-		// for an even-ply sim, it is our opponent's turn at the end of the sim.
-		// the table is calculated from the on-turn player's perspective, so
-		// flip the spread, look it up, and flip the win % back.
-		spreadPlusLeftover := spread + int(math.Round(leftover))
-		if pliesAreEven {
-			spreadPlusLeftover = -spreadPlusLeftover
-		}
-		pct := table.WinPct(spreadPlusLeftover, bag, onTurnRack, offTurnRack)
-		if pliesAreEven {
-			pct = 1 - pct
-		}
-		winPct = float64(pct)
+		return 0
 	}
-	sp.Lock()
-	defer sp.Unlock()
-	sp.winPctStats.Push(winPct)
-	return winPct
-}
-
-func (sp *SimmedPlay) addUtilityStat(u float64) {
-	sp.Lock()
-	defer sp.Unlock()
-	sp.utilityStats.Push(u)
+	// for an even-ply sim, it is our opponent's turn at the end of the sim.
+	// the table is calculated from the on-turn player's perspective, so flip
+	// the spread, look it up, and flip the win % back.
+	spreadPlusLeftover := spread + int(math.Round(leftover))
+	if pliesAreEven {
+		spreadPlusLeftover = -spreadPlusLeftover
+	}
+	pct := table.WinPct(spreadPlusLeftover, bag, onTurnRack, offTurnRack)
+	if pliesAreEven {
+		pct = 1 - pct
+	}
+	return float64(pct)
 }
 
 // Utility is the play's mean reward: win probability blended with spread.
@@ -339,6 +331,8 @@ type Simmer struct {
 	baiRunner         *bai.Runner
 	simSeed           [32]byte
 	minSamplesPerPlay int
+	// noBagCycle turns off MAGPIE's bag cycling (see SetBagCycle).
+	noBagCycle bool
 	// logMu serializes log writes from several sample workers.
 	logMu sync.Mutex
 }
@@ -968,6 +962,15 @@ func (s *Simmer) SetAutostopIterationsCutoff(i int) {
 // prefers any or may stop (DefaultMinSamplesPerPlay if 0).
 func (s *Simmer) SetMinSamplesPerPlay(n int) {
 	s.minSamplesPerPlay = n
+}
+
+// SetBagCycle turns MAGPIE's bag cycling on or off (it is on by default, as
+// in MAGPIE). With it on, one sample is the mean of ceil(unseen/7) rollouts
+// that deal the opponent successive racks of one shuffled bag, so every
+// unseen tile starts on the opponent's rack once: a less noisy sample that
+// costs as many rollouts as there are rotations.
+func (s *Simmer) SetBagCycle(on bool) {
+	s.noBagCycle = !on
 }
 
 // PlaysByWinProb returns the simmedplays structure sorted by win probability.

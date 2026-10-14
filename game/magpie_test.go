@@ -4,7 +4,9 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
+	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -178,4 +180,49 @@ func TestSmallMovesUnplay(t *testing.T) {
 		}
 		walk(3)
 	}
+}
+
+// Bag cycling: rotations of one seed deal successive racks of one shuffle, so
+// together they put every unseen tile on the rack, each once (twice for the
+// tiles of a short last rack's wrap).
+func TestDealRotations(t *testing.T) {
+	is := is.New(t)
+	rules := nwl23Rules(t)
+	g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
+	is.NoErr(err)
+	g.StartGame()
+	for i := 0; i < 8; i++ {
+		is.NoErr(g.PlayMove(bestMove(t, g), false, 0))
+	}
+	opp := 1 - g.PlayerOnTurn()
+	unseen := g.Bag().TilesRemaining() + int(g.RackFor(opp).NumTiles())
+	rotations := (unseen + RackTileLimit - 1) / RackTileLimit
+	seen := map[tilemapping.MachineLetter]int{}
+	for _, t := range append(g.Bag().Peek(), g.RackFor(opp).TilesOn()...) {
+		seen[t]--
+	}
+	var seed [32]byte
+	seed[0] = 9
+	for r := 0; r < rotations; r++ {
+		is.NoErr(g.DealRandomRackSeeded(opp, nil, frand.NewCustom(seed[:], 0, 0), r))
+		for _, t := range g.RackFor(opp).TilesOn() {
+			seen[t]++
+		}
+	}
+	// Every unseen tile was dealt at least once; only the wrap repeats any.
+	extra := 0
+	for tile, c := range seen {
+		if c < 0 {
+			t.Fatalf("tile %v dealt %d times fewer than unseen", tile, -c)
+		}
+		extra += c
+	}
+	if extra != rotations*RackTileLimit-unseen {
+		t.Fatalf("%d tiles dealt twice, want %d", extra, rotations*RackTileLimit-unseen)
+	}
+	// The same rotation of the same seed deals the same rack.
+	is.NoErr(g.DealRandomRackSeeded(opp, nil, frand.NewCustom(seed[:], 0, 0), 2))
+	a := g.RackLettersFor(opp)
+	is.NoErr(g.DealRandomRackSeeded(opp, nil, frand.NewCustom(seed[:], 0, 0), 2))
+	is.Equal(g.RackLettersFor(opp), a)
 }

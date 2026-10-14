@@ -49,6 +49,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, minSamples int
+	noBagCycle := false
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
 	avoidTrimMoves := []*move.Move{}
 
@@ -153,6 +154,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 			default:
 				return nil, errors.New("that inference mode is not supported")
 			}
+		case "bagcycle":
+			noBagCycle = !options.Bool(opt)
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -194,6 +197,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		autostopPPScaling:  stopPPscaling,
 		autostopIterCutoff: stopitercutoff,
 		minSamplesPerPlay:  minSamples,
+		noBagCycle:         noBagCycle,
 		knownOppRack:       kr,
 		inferMode:          inferMode,
 		avoidTrimMoves:     avoidTrimMoves,
@@ -273,9 +277,11 @@ type simParams struct {
 	autostopPPScaling  int
 	autostopIterCutoff int
 	minSamplesPerPlay  int
-	knownOppRack       []tilemapping.MachineLetter
-	inferMode          montecarlo.InferenceMode
-	avoidTrimMoves     []*move.Move
+	// noBagCycle turns off MAGPIE's bag cycling, which is on by default.
+	noBagCycle     bool
+	knownOppRack   []tilemapping.MachineLetter
+	inferMode      montecarlo.InferenceMode
+	avoidTrimMoves []*move.Move
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -300,6 +306,7 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	if params.minSamplesPerPlay > 0 {
 		simmer.SetMinSamplesPerPlay(params.minSamplesPerPlay)
 	}
+	simmer.SetBagCycle(!params.noBagCycle)
 
 	if params.inferMode != montecarlo.InferenceOff {
 		inferences := sc.rangefinder.Inferences()

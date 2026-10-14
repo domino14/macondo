@@ -178,6 +178,7 @@ func init() {
 			{Name: "fixedsimplies", Type: OptInt},
 			{Name: "fixedsimcount", Type: OptInt},
 			{Name: "minsamples", Type: OptInt},
+			{Name: "bagcycle", Type: OptBool, Values: boolValues},
 			{Name: "stop-ppscaling", Type: OptInt},
 			{Name: "stop-itercutoff", Type: OptInt},
 			{Name: "avoid-prune", Type: OptStringArray},
