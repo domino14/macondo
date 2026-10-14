@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/magpie"
+	"github.com/domino14/macondo/move"
 )
 
 // checkPosMatches checks MAGPIE's copy of the position against the Go board,
@@ -83,6 +84,51 @@ func TestMagpiePositionFollowsGame(t *testing.T) {
 				played--
 				checkPosMatches(t, g, "after unplay")
 			}
+		}
+	}
+}
+
+// The simmer's pattern: back up the candidate, play further plies without
+// backups, then reset to the first state. MAGPIE's copy must follow without
+// a rebuild.
+func TestMagpiePositionFollowsSimPattern(t *testing.T) {
+	is := is.New(t)
+	rules, err := NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
+		"english", CrossScoreAndSet, VarClassic)
+	is.NoErr(err)
+	rng := rand.New(rand.NewPCG(3, 4))
+	g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
+	is.NoErr(err)
+	g.StartGame()
+	g.SetStateStackLength(1)
+	// Get a few moves in first.
+	for i := 0; i < 6; i++ {
+		pos, err := g.MagpiePosition()
+		is.NoErr(err)
+		m := g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
+		is.NoErr(g.PlayMove(m, false, 0))
+	}
+	pos, err := g.MagpiePosition()
+	is.NoErr(err)
+	candidates := pos.GenerateN(magpie.RecordAll, magpie.SortEquity, 0, 10)
+	plays := make([]*move.Move, len(candidates))
+	for i := range candidates {
+		plays[i] = g.MoveFromMagpie(&candidates[i])
+	}
+	checkPosMatches(t, g, "before sim")
+	for iter := 0; iter < 50; iter++ {
+		for _, c := range plays {
+			g.SetBackupMode(SimulationMode)
+			is.NoErr(g.PlayMove(c, false, 0))
+			g.SetBackupMode(NoBackup)
+			for ply := 0; ply < 2+rng.IntN(3) && g.Playing() == pb.PlayState_PLAYING; ply++ {
+				pos, err := g.MagpiePosition()
+				is.NoErr(err)
+				m := g.MoveFromMagpie(&pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0])
+				is.NoErr(g.PlayMove(m, false, 0))
+			}
+			g.ResetToFirstState()
+			checkPosMatches(t, g, "after reset")
 		}
 	}
 }

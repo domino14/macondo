@@ -41,9 +41,6 @@ func (g *Game) SetBackupMode(m BackupMode) {
 	g.backupMode = m
 	if g.pos != nil {
 		g.pos.SetBackupMode(posBackupMode(m))
-		for _, st := range g.stateStack {
-			st.posPlayed = false
-		}
 	}
 }
 
@@ -159,7 +156,13 @@ func (g *Game) ResetToFirstState() {
 	g.onturn = b.onturn
 	g.turnnum = b.turnnum
 	g.stackPtr = 0
-	g.markPosStale()
+	if g.posLive() && b.posPlayed && g.pos.ResetToFirst() == nil {
+		for _, st := range g.stateStack {
+			st.posPlayed = false
+		}
+	} else {
+		g.markPosStale()
+	}
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
