@@ -31,6 +31,9 @@ const (
 	// DefaultMinSamplesPerPlay is how many rollouts every play gets before
 	// any is preferred or the sim may stop (MAGPIE's -minplayiterations).
 	DefaultMinSamplesPerPlay = 500
+	// minCycledSamplesPerPlay is the fewest bag-cycled samples a play gets
+	// (MAGPIE's SIM_BAG_CYCLE_MIN_CYCLES).
+	minCycledSamplesPerPlay = 2
 	// utilityCutoff stops the sim once the best play's utility is within it
 	// of 0 or 1 (MAGPIE's default cutoff, 0.005%).
 	utilityCutoff = 0.005 / 100
@@ -102,6 +105,16 @@ func (s *Simmer) startBAI() {
 		Similar: func(a, b int) bool { return similar[a*n+b] },
 		Paired:  true,
 	})
+	// With bag cycling a sample averages one rollout per rack's worth of
+	// unseen tiles (MAGPIE's rv_sim_bag_cycle_rotations).
+	s.rotations = 1
+	if !s.noBagCycle {
+		g := s.origGame
+		opp := (g.PlayerOnTurn() + 1) % g.NumPlayers()
+		if unseen := g.Bag().TilesRemaining() + int(g.RackFor(opp).NumTiles()); unseen > game.RackTileLimit {
+			s.rotations = (unseen + game.RackTileLimit - 1) / game.RackTileLimit
+		}
+	}
 
 	seed := s.origGame.Seed()
 	if seed == ([32]byte{}) {
@@ -139,26 +152,39 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		s.rngs = make([]*frand.RNG, threads)
 	}
 	sc := s.autostopper.stoppingCondition
+	// The minimum and the budget count rollouts, as MAGPIE's do; with bag
+	// cycling a sample is s.rotations of them, so they become samples here,
+	// rounded up, with at least two samples a play so that no play's
+	// variance comes from one sample. Rounds stay DefaultRoundSize samples:
+	// MAGPIE shrinks them to about as many rollouts, but its threads run
+	// ahead into later rounds, and ours wait for each round, so rounds of a
+	// few cycled samples would leave most threads idle.
+	rot := s.rotations
+	toSamples := func(rollouts int) int { return (rollouts + rot - 1) / rot }
+	minimum := s.minSamplesPerPlay
+	if minimum <= 0 {
+		minimum = DefaultMinSamplesPerPlay
+	}
 	opts := bai.Options{
 		Delta:         deltaFor(sc),
-		SampleMinimum: s.minSamplesPerPlay,
+		SampleMinimum: minimum,
 		Cutoff:        utilityCutoff,
 		Threads:       threads,
 	}
-	if opts.SampleMinimum <= 0 {
-		opts.SampleMinimum = DefaultMinSamplesPerPlay
+	if rot > 1 {
+		opts.SampleMinimum = max(toSamples(minimum), minCycledSamplesPerPlay)
 	}
-	// The budget counts samples; an iteration is one sample of every play.
+	// An iteration is one rollout of every play.
 	switch {
 	case run.maxIters > 0:
-		opts.SampleLimit = s.baiRunner.Samples() + run.maxIters*numArms
+		opts.SampleLimit = s.baiRunner.Samples() + toSamples(run.maxIters*numArms)
 	case sc != StopNone:
-		opts.SampleLimit = (s.autostopper.iterationsCutoff + s.maxPlies*s.autostopper.perPlyStopScaling) * numArms
+		opts.SampleLimit = toSamples((s.autostopper.iterationsCutoff + s.maxPlies*s.autostopper.perPlyStopScaling) * numArms)
 	}
 	res, err := s.baiRunner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
 		return s.sample(ctx, worker, s.arms[arm], ordinal)
 	})
-	s.iterationCount.Store(uint64(s.baiRunner.Samples() / numArms))
+	s.iterationCount.Store(uint64(s.baiRunner.Samples() * rot / numArms))
 	if err != nil {
 		logger.Err(err).Msg("error simming; stopping")
 		return
@@ -175,12 +201,9 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordinal uint64) (float64, error) {
 	g := s.gameCopies[thread]
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	rotations, rotation := 1, -1
+	rotations, rotation := s.rotations, -1
 	if !s.noBagCycle {
 		rotation = 0
-		if unseen := g.Bag().TilesRemaining() + int(g.RackFor(opp).NumTiles()); unseen > game.RackTileLimit {
-			rotations = (unseen + game.RackTileLimit - 1) / game.RackTileLimit
-		}
 	}
 	var logIter *LogIteration
 	var sum rolloutResult
