@@ -477,7 +477,7 @@ const (
 	BackupSingle BackupMode = C.MG_BACKUP_SINGLE
 )
 
-// SetBackupMode sets what Play saves for Unplay, dropping saved plays.
+// SetBackupMode sets what Play saves for Unplay. Plays already saved stay.
 func (p *Position) SetBackupMode(m BackupMode) {
 	if p.data.dim == 15 {
 		C.mgs15_pos_set_backup_mode(p.ptr, C.int(m))
@@ -548,6 +548,21 @@ func (p *Position) Unplay() error {
 		rc = C.mgs15_unplay(p.ptr)
 	} else {
 		rc = C.mgs21_unplay(p.ptr)
+	}
+	if rc != 0 {
+		return ErrNoBackup
+	}
+	return nil
+}
+
+// ResetToFirst undoes every saved play, back to the oldest, along with any
+// played since without saving.
+func (p *Position) ResetToFirst() error {
+	var rc C.int
+	if p.data.dim == 15 {
+		rc = C.mgs15_reset_to_first(p.ptr)
+	} else {
+		rc = C.mgs21_reset_to_first(p.ptr)
 	}
 	if rc != 0 {
 		return ErrNoBackup

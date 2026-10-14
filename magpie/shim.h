@@ -97,8 +97,8 @@ typedef struct mg_pos mg_pos;
    * the old data must outlive the position. */                               \
   void P##pos_set_data(mg_pos *p, mg_data *d);                                 \
   /* What play backs up for unplay: MG_BACKUP_OFF, MG_BACKUP_STACK (every    \
-   * play, any depth) or MG_BACKUP_SINGLE (only the last play). Changing the  \
-   * mode drops the backups held. */                                          \
+   * play, any depth) or MG_BACKUP_SINGLE (only the last play). Backups       \
+   * already held are kept. */                                                \
   void P##pos_set_backup_mode(mg_pos *p, int mode);                            \
   int P##pos_backup_depth(const mg_pos *p);                                    \
                                                                                \
@@ -116,6 +116,9 @@ typedef struct mg_pos mg_pos;
   int P##play(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn);  \
   /* Undoes the last backed-up play. Returns 0, or -1 with no backup. */      \
   int P##unplay(mg_pos *p);                                                    \
+  /* Undoes every backed-up play, back to the oldest backup, and anything     \
+   * played since without one. Returns 0, or -1 with no backup. */            \
+  int P##reset_to_first(mg_pos *p);                                            \
                                                                                \
   /* Copies out the board: letters (dim*dim), and per direction (0 = across   \
    * plays, 1 = down plays) cross-sets and cross-scores (2*dim*dim each,      \

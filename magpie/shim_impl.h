@@ -350,10 +350,7 @@ static void mgs_backup_state(mg_pos *p) {
   b->end_reason = game_get_game_end_reason(game);
 }
 
-void MGS(pos_set_backup_mode)(mg_pos *p, int mode) {
-  p->backup_mode = mode;
-  p->backup_depth = 0;
-}
+void MGS(pos_set_backup_mode)(mg_pos *p, int mode) { p->backup_mode = mode; }
 
 int MGS(pos_backup_depth)(const mg_pos *p) { return p->backup_depth; }
 
@@ -540,11 +537,7 @@ int MGS(play)(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn) {
   return 0;
 }
 
-int MGS(unplay)(mg_pos *p) {
-  if (p->backup_depth == 0) {
-    return -1;
-  }
-  const mgs_backup *b = &p->backups[--p->backup_depth];
+static void mgs_restore(mg_pos *p, const mgs_backup *b) {
   Game *game = p->game;
   board_copy(game_get_board(game), b->board);
   bag_copy(game_get_bag(game), b->bag);
@@ -556,6 +549,22 @@ int MGS(unplay)(mg_pos *p) {
   game_set_player_on_turn_index(game, b->on_turn);
   game_set_consecutive_scoreless_turns(game, b->scoreless_turns);
   game_set_game_end_reason(game, b->end_reason);
+}
+
+int MGS(unplay)(mg_pos *p) {
+  if (p->backup_depth == 0) {
+    return -1;
+  }
+  mgs_restore(p, &p->backups[--p->backup_depth]);
+  return 0;
+}
+
+int MGS(reset_to_first)(mg_pos *p) {
+  if (p->backup_depth == 0) {
+    return -1;
+  }
+  mgs_restore(p, &p->backups[0]);
+  p->backup_depth = 0;
   return 0;
 }
 
