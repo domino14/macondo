@@ -2,8 +2,8 @@ package magpie_test
 
 import (
 	"os"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/domino14/word-golib/kwg"
