@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/cross_set"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/triton"
@@ -89,6 +90,12 @@ type Game struct {
 	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
 
 	tritonClient *triton.TritonClient
+
+	// pos is MAGPIE's copy of the position, made on first use (see
+	// MagpiePosition). posStale means the Go board changed without it.
+	pos        *magpie.Position
+	posStale   bool
+	posScratch [2][board.MaxBoardDim]tilemapping.MachineLetter
 }
 
 func (g *Game) Config() *config.Config {
@@ -335,6 +342,7 @@ func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
+	g.markPosStale()
 	if g.customRNG != nil {
 		// When using a custom RNG, create bag without initial shuffle
 		// to avoid using the unseeded global RNG
@@ -583,6 +591,10 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		return err
 	}
 
+	if g.posLive() {
+		// MAGPIE's copy plays this move too, from the same racks and bag.
+		g.pushRacks()
+	}
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -616,6 +628,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		drew := g.drawAtMostFor(g.onturn, m.TilesPlayed(), g.players[g.onturn].placeholderRack)
 		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
+		g.posPlay(m, g.players[g.onturn].placeholderRack[:drew])
 
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -650,6 +663,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		if g.playing == pb.PlayState_GAME_OVER {
 			log.Warn().Msg("adding a pass when game is already over")
 		}
+		g.posPlay(m, nil)
 		// Add the pass first so it comes before the end rack bonus
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -681,6 +695,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		}
 		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
+		g.posPlay(m, g.players[g.onturn].placeholderRack[:len(m.Tiles())])
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
@@ -729,6 +744,7 @@ func (g *Game) PlaySmallMoveNoCrossSet(m *tinymove.SmallMove) (
 func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
+	g.markPosStale()
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -787,6 +803,7 @@ func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
+	g.markPosStale()
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -990,6 +1007,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	}
 
 	g.board.Clear()
+	g.markPosStale()
 	g.bag.Refill()
 	g.players.resetScore()
 	g.players.resetRacks()
@@ -1098,6 +1116,7 @@ func (g *Game) PlayTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
+	g.markPosStale()
 	g.onturn = int(evt.PlayerIndex)
 	m, err := MoveFromEvent(evt, g.alph, g.board)
 	if err != nil {
@@ -1362,6 +1381,7 @@ func (g *Game) Board() *board.GameBoard {
 
 func (g *Game) SetBoard(b *board.GameBoard) {
 	g.board = b
+	g.markPosStale()
 }
 
 func (g *Game) Turn() int {
@@ -1428,6 +1448,7 @@ func (g *Game) RecalculateBoard() {
 	// Recalculate cross-sets and anchors for move generator
 	g.crossSetGen.GenerateAll(g.board)
 	g.board.UpdateAllAnchors()
+	g.markPosStale()
 }
 
 func (g *Game) ScorelessTurns() int {

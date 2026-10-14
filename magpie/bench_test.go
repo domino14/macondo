@@ -92,7 +92,10 @@ func benchPositionsRIT(b *testing.B, wmp bool, rit string) ([]benchPosition, *mo
 			bd.PlayMove(best)
 			csgen.UpdateForMove(bd, best)
 			tiles += best.TilesPlayed()
-			leave, _ := tilemapping.Leave(racks[onturn], best.Tiles(), false)
+			leave, err := tilemapping.Leave(racks[onturn], best.Tiles(), true)
+			if err != nil {
+				b.Fatal(err)
+			}
 			drawn := make([]tilemapping.MachineLetter, 7-len(leave))
 			bag.Draw(len(drawn), drawn)
 			racks[onturn] = append(leave, drawn...)
@@ -215,19 +218,23 @@ func playFullGame(b *testing.B, pos *magpie.Position, ld *tilemapping.LetterDist
 		turns++
 		m := &pos.Generate(magpie.RecordBest, magpie.SortEquity, 0)[0]
 		var n int
+		var err error
 		switch m.Type {
 		case magpie.MovePlacement:
-			racks[onturn], _ = tilemapping.Leave(racks[onturn], m.Word(), false)
+			racks[onturn], err = tilemapping.Leave(racks[onturn], m.Word(), true)
 			n = min(int(m.TilesPlayed), bag.TilesRemaining())
 			bag.Draw(n, drawn)
 			scoreless = 0
 		case magpie.MoveExchange:
-			racks[onturn], _ = tilemapping.Leave(racks[onturn], m.Word(), true)
+			racks[onturn], err = tilemapping.Leave(racks[onturn], m.Word(), false)
 			n = int(m.TilesPlayed)
 			bag.Exchange(m.Word(), drawn[:n])
 			scoreless++
 		default:
 			scoreless++
+		}
+		if err != nil {
+			b.Fatal(err)
 		}
 		if err := pos.Play(m, drawn[:n]); err != nil {
 			b.Fatal(err)

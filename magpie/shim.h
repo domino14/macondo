@@ -98,9 +98,10 @@ typedef struct mg_pos mg_pos;
   void P##pos_set_backup_mode(mg_pos *p, int mode);                            \
   int P##pos_backup_depth(const mg_pos *p);                                    \
                                                                                \
-  /* Generates moves for the player on turn into out (at most out_cap).       \
-   * Returns the number written. margin is the equity window for              \
-   * MG_RECORD_WITHIN_X, in millipoints. */                                   \
+  /* Generates moves for the player on turn into out (at most out_cap, which  \
+   * is also how many MG_RECORD_ALL keeps: the best out_cap). Returns the     \
+   * number written. margin is the equity window for MG_RECORD_WITHIN_X, in   \
+   * millipoints. */                                                          \
   int P##gen(mg_pos *p, int record, int sort, int32_t margin, mg_move *out,    \
              int out_cap);                                                     \
                                                                                \

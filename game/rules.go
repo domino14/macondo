@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/magpie"
 )
 
 type Variant string
@@ -53,6 +54,18 @@ type GameRules struct {
 	boardname     string
 	distname      string
 	exchangeLimit int
+	layout        []string
+	lexiconName   string
+}
+
+// MagpieData is MAGPIE's data for these rules' lexicon, distribution and
+// board, loaded the first time it is asked for.
+func (g GameRules) MagpieData() (*magpie.Data, error) {
+	if g.lexiconName == "" {
+		return nil, errors.New("rules have no lexicon to generate moves from")
+	}
+	return MagpieData(g.cfg, g.lexiconName, g.dist, g.distname, g.layout,
+		IsWordSmog(g.variant), "")
 }
 
 // AlphaDawg returns the alpha dawg backing a WordSmog game, or nil for classic
@@ -189,6 +202,8 @@ func NewBasicGameRules(cfg *config.Config,
 		variant:       variant,
 		alphaDawg:     kad,
 		exchangeLimit: exchLimit,
+		layout:        bd,
+		lexiconName:   lexiconName,
 	}
 	return rules, nil
 }
