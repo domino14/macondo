@@ -13,7 +13,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -520,9 +519,7 @@ func runInline(ctx context.Context, round []slot, sample Sampler) error {
 	return nil
 }
 
-// pool runs rounds' samples on persistent workers, each locked to its OS
-// thread for the run so that per-thread caches (MAGPIE's move generator's)
-// stay warm.
+// pool runs rounds' samples on persistent workers.
 type pool struct {
 	work chan []slot
 	done sync.WaitGroup
@@ -535,8 +532,6 @@ func newPool(ctx context.Context, threads int, sample Sampler) *pool {
 	p := &pool{work: make(chan []slot), quit: make(chan struct{}), errs: make([]error, threads)}
 	for w := 0; w < threads; w++ {
 		go func(worker int) {
-			runtime.LockOSThread()
-			defer runtime.UnlockOSThread()
 			for {
 				select {
 				case <-p.quit:
