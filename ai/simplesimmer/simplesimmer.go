@@ -81,6 +81,9 @@ func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
+	// No bag cycling: each of a mini-sim's 200 iterations would cost up to 14
+	// rollouts, and inference runs one mini-sim per candidate rack.
+	p.simmer.SetBagCycle(false)
 	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
 	wp := p.simmer.WinningPlay()
 	return wp.Move(), nil
@@ -108,6 +111,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
+	p.simmer.SetBagCycle(false)
 	var logfile *os.File
 	var err error
 	var filename string

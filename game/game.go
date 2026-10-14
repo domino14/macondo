@@ -1538,7 +1538,12 @@ func (g *Game) ToCGP(formatForBot bool) string {
 // order and shuffled with rng first, and rng becomes the bag's source. A sim
 // that seeds rng by sample number deals every play the same rack at the same
 // sample, which is what lets it compare plays on common random numbers.
-func (g *Game) DealRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG) error {
+//
+// A rotation of 0 or more is MAGPIE's bag cycling: the bag is then drawn in
+// its shuffled order, rotated by rotation racks first, so rotations 0, 1, 2...
+// of one shuffle deal the player successive, disjoint racks of the bag's
+// tiles. A negative rotation draws tiles at random.
+func (g *Game) DealRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG, rotation int) error {
 	g.players[playerIdx].throwRackIn(g.bag)
 	tiles := g.bag.Tiles()
 	slices.Sort(tiles)
@@ -1551,6 +1556,19 @@ func (g *Game) DealRandomRackSeeded(playerIdx int, knownRack []tilemapping.Machi
 		slices.Sort(g.bag.Tiles())
 	}
 	g.bag.Shuffle()
+	if rotation >= 0 {
+		g.bag.SetFixedOrder(true)
+		// Rotate left by rotation racks, as MAGPIE's bag_rotate: draws come
+		// off the end, so each rotation brings the next rack's worth there.
+		tiles := g.bag.Tiles()
+		if n := len(tiles); n > 1 {
+			if k := rotation * RackTileLimit % n; k > 0 {
+				slices.Reverse(tiles[:k])
+				slices.Reverse(tiles[k:])
+				slices.Reverse(tiles)
+			}
+		}
+	}
 	ph := g.players[1-playerIdx].placeholderRack
 	n := copy(ph, knownRack)
 	n += g.bag.DrawAtMost(RackTileLimit-n, ph[n:])

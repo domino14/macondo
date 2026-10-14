@@ -167,35 +167,60 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		Msg("sim-stopped")
 }
 
-// sample draws one rollout of play: deals the opponent the sample's rack,
-// plays play and then the sim's plies, records the stats, and puts the game
-// back. It returns the rollout's utility.
+// sample draws one sample of play and returns its utility. A sample is one
+// rollout: deal the opponent the sample's rack, play play and then the sim's
+// plies, and put the game back. With bag cycling it is the mean of one
+// rollout per rotation of the sample's shuffled bag (see SetBagCycle), the
+// per-ply stats and the log taken from the first rotation, as MAGPIE does.
 func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordinal uint64) (float64, error) {
 	g := s.gameCopies[thread]
-	rng := s.rngFor(ordinal)
-	s.rngs[thread] = rng
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-
-	rackToSet, err := s.oppRackFor(thread)
-	if err != nil {
-		return 0, err
-	}
-	if err := g.DealRandomRackSeeded(opp, rackToSet, rng); err != nil {
-		return 0, err
+	rotations, rotation := 1, -1
+	if !s.noBagCycle {
+		rotation = 0
+		if unseen := g.Bag().TilesRemaining() + int(g.RackFor(opp).NumTiles()); unseen > game.RackTileLimit {
+			rotations = (unseen + game.RackTileLimit - 1) / game.RackTileLimit
+		}
 	}
 	var logIter *LogIteration
-	if s.logStream != nil {
-		logIter = &LogIteration{Iteration: int(ordinal), Thread: thread}
-		if len(rackToSet) > 0 {
-			logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
-		}
-	}
-	utility := s.rollout(g, thread, play, logIter)
-	if logIter != nil {
-		if err := s.writeIteration(ctx, logIter); err != nil {
+	var sum rolloutResult
+	for r := 0; r < rotations; r++ {
+		// Every rotation starts from the same seed, so it picks the same
+		// known or inferred rack and the same shuffle; only the rotation
+		// differs.
+		rng := s.rngFor(ordinal)
+		s.rngs[thread] = rng
+		rackToSet, err := s.oppRackFor(thread)
+		if err != nil {
 			return 0, err
 		}
+		if rotation >= 0 {
+			rotation = r
+		}
+		if err := g.DealRandomRackSeeded(opp, rackToSet, rng, rotation); err != nil {
+			return 0, err
+		}
+		if r == 0 && s.logStream != nil {
+			logIter = &LogIteration{Iteration: int(ordinal), Thread: thread}
+			if len(rackToSet) > 0 {
+				logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
+			}
+		}
+		res := s.rollout(g, thread, play, logIter, r == 0)
+		logIter = nil
+		sum.equity += res.equity
+		sum.leftover += res.leftover
+		sum.winProb += res.winProb
+		sum.utility += res.utility
+		if r == 0 && res.log != nil {
+			if err := s.writeIteration(ctx, res.log); err != nil {
+				return 0, err
+			}
+		}
 	}
+	inv := 1 / float64(rotations)
+	utility := sum.utility * inv
+	play.addSampleStats(sum.equity*inv, sum.leftover*inv, sum.winProb*inv, utility)
 	return utility, nil
 }
 
@@ -232,9 +257,18 @@ func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
 	return s.weightedInferredDrawRacks(thread)
 }
 
-// rollout plays play and then the sim's plies on g, records the play's
-// stats, and resets g. It returns the rollout's utility.
-func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIter *LogIteration) float64 {
+// rolloutResult is one rollout's outcome.
+type rolloutResult struct {
+	equity, leftover, winProb, utility float64
+	// log is the iteration's log entry, if one was asked for.
+	log *LogIteration
+}
+
+// rollout plays play and then the sim's plies on g and resets g. It records
+// the per-ply score stats if recordPlies, and returns the rest for the
+// caller to record.
+func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIter *LogIteration,
+	recordPlies bool) rolloutResult {
 	var logPlay LogPlay
 	if logIter != nil {
 		logPlay = LogPlay{
@@ -290,12 +324,13 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 		if logIter != nil {
 			logPlay.Plies = append(logPlay.Plies, plyChild)
 		}
-		simmedPlay.addScoreStat(bestPlay, ply)
+		if recordPlies {
+			simmedPlay.addScoreStat(bestPlay, ply)
+		}
 	}
 	spread := g.SpreadFor(s.initialPlayer)
-	simmedPlay.addEquityStat(s.initialSpread, spread, leftover)
 	onTurn := g.PlayerOnTurn()
-	winProb := simmedPlay.addWinPctStat(
+	winProb := winProbability(
 		spread,
 		leftover,
 		g.Playing() == pb.PlayState_GAME_OVER,
@@ -306,13 +341,18 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 		plies%2 == 0,
 	)
 	g.ResetToFirstState()
-	utility := simUtility(winProb, spread)
-	simmedPlay.addUtilityStat(utility)
+	res := rolloutResult{
+		equity:   float64(spread-s.initialSpread) + leftover,
+		leftover: leftover,
+		winProb:  winProb,
+		utility:  simUtility(winProb, spread),
+	}
 	if logIter != nil {
 		logPlay.WinRatio = winProb
 		logIter.Plays = append(logIter.Plays, logPlay)
+		res.log = logIter
 	}
-	return utility
+	return res
 }
 
 // writeIteration writes one sample's log entry: JSON lines for a heat map
