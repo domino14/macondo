@@ -44,6 +44,13 @@ build() {
 
 build 15 ""
 
+# Mach-O prefixes every C symbol with an underscore; the #defines below need
+# the C names.
+UNDERSCORE=""
+if [ "$(uname -s)" = "Darwin" ]; then
+	UNDERSCORE="_"
+fi
+
 # Every global symbol the b15 library defines, as a #define to its mg21_ name.
 RENAME="$OUT/mg21_rename.h"
 {
@@ -51,8 +58,8 @@ RENAME="$OUT/mg21_rename.h"
 	echo "#ifndef MG21_RENAME_H"
 	echo "#define MG21_RENAME_H"
 	nm --defined-only -g "$OUT/libmagpie_b15.a" 2>/dev/null |
-		awk 'NF == 3 && $2 ~ /^[TDBRCVW]$/ { print $3 }' | sort -u |
-		awk '{ printf "#define %s mg21_%s\n", $1, $1 }'
+		awk -v u="$UNDERSCORE" 'NF == 3 && $2 ~ /^[TDBRCVWS]$/ { s = $3; if (u != "" && substr(s, 1, 1) == u) s = substr(s, 2); print s }' |
+		sort -u | awk '{ printf "#define %s mg21_%s\n", $1, $1 }'
 	echo "#endif"
 } >"$RENAME.tmp"
 mv "$RENAME.tmp" "$RENAME"
@@ -62,7 +69,7 @@ build 21 "-include $RENAME"
 # The b21 library must define no unprefixed symbol, or the link would pick one
 # copy of it for both board sizes.
 leaked="$(nm --defined-only -g "$OUT/libmagpie_b21.a" |
-	awk 'NF == 3 && $2 ~ /^[TDBRCVW]$/ && $3 !~ /^mg21_/ { print $3 }' | sort -u)"
+	awk -v u="$UNDERSCORE" 'NF == 3 && $2 ~ /^[TDBRCVWS]$/ { s = $3; if (u != "" && substr(s, 1, 1) == u) s = substr(s, 2); if (s !~ /^mg21_/) print s }' | sort -u)"
 if [ -n "$leaked" ]; then
 	echo "libmagpie_b21.a defines unprefixed symbols:" >&2
 	echo "$leaked" >&2

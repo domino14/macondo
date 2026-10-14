@@ -1,6 +1,6 @@
 FROM golang:alpine
 
-RUN apk add --update make
+RUN apk add --update bash build-base make
 ENV GOPATH=/go
 ADD . /go/src/github.com/domino14/macondo
 WORKDIR /go/src/github.com/domino14/macondo

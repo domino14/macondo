@@ -8,13 +8,33 @@ on:
     tags:
       - "v*.*.*"
 
+# Macondo links MAGPIE (C) through cgo, so every platform builds natively on
+# its own runner; a last job joins the two macOS builds into a universal
+# binary and makes the release.
 jobs:
   build:
-    runs-on: macos-latest
-
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            nickname: linux-x86_64
+            march: x86-64-v2
+          - runner: ubuntu-24.04-arm
+            nickname: linux-arm64
+            march: armv8-a
+          - runner: macos-latest
+            nickname: osx-arm64
+            march: armv8-a
+          - runner: macos-13
+            nickname: osx-x86_64
+            march: x86-64-v2
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -34,8 +54,33 @@ jobs:
       - name: Create gaddag directory
         run: mkdir -p data/lexica/gaddag
 
-      - name: Run build script
-        run: inv build
+      - name: Build
+        env:
+          MAGPIE_MARCH: ${{ matrix.march }}
+        run: inv build --nickname ${{ matrix.nickname }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.nickname }}
+          path: macondo-*.zip
+
+  release:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Make the universal macOS build
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          mkdir arm64 x86_64
+          unzip -q "macondo-${tag}-osx-arm64.zip" -d arm64
+          unzip -q "macondo-${tag}-osx-x86_64.zip" -d x86_64
+          lipo -create -output arm64/macondo arm64/macondo x86_64/macondo
+          (cd arm64 && zip -qr "../macondo-${tag}-osx-universal.zip" .)
+          rm "macondo-${tag}-osx-arm64.zip" "macondo-${tag}-osx-x86_64.zip"
 
       - name: Release
         uses: softprops/action-gh-release@v2

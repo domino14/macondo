@@ -4,13 +4,17 @@ RUN mkdir /opt/program
 WORKDIR /opt/program
 
 RUN apk update
-RUN apk add build-base ca-certificates git
+RUN apk add bash build-base ca-certificates git
 
 COPY go.mod .
 COPY go.sum .
 RUN go mod download
 
 COPY . .
+
+# MAGPIE (third_party/magpie, a submodule: check out with submodules), which
+# the bot links through cgo, built for a portable instruction set.
+RUN MAGPIE_MARCH=x86-64-v2 scripts/build_magpie.sh
 
 WORKDIR /opt/program/cmd/bot
 RUN go build
