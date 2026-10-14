@@ -33,6 +33,16 @@ type magpieDataEntry struct {
 	err  error
 }
 
+// noLeavesKLV is a .klv2 with an empty word graph and a single leave worth
+// 0, which every leave lookup lands on.
+var noLeavesKLV = []byte{
+	2, 0, 0, 0, // two word graph nodes, both empty
+	0, 0, 0, 0,
+	0, 0, 0, 0,
+	1, 0, 0, 0, // one leave value: 0.0
+	0, 0, 0, 0,
+}
+
 // magpieDataCache holds the MAGPIE data loaded in this process, which is
 // shared read-only by every game and never freed.
 var magpieDataCache sync.Map
@@ -89,14 +99,18 @@ func loadMagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Le
 	if err != nil {
 		return nil, fmt.Errorf("word graph for %s: %w", lexiconName, err)
 	}
+	var klvBytes []byte
 	lf, err := dataloaders.LeavesFileForLexicon(wcfg, leavefile, lexiconName)
-	if err != nil {
-		return nil, fmt.Errorf("leaves for %s: %w", lexiconName, err)
+	if err == nil {
+		klvBytes, err = io.ReadAll(lf)
+		lf.Close()
 	}
-	klvBytes, err := io.ReadAll(lf)
-	lf.Close()
 	if err != nil {
-		return nil, fmt.Errorf("leaves for %s: %w", lexiconName, err)
+		// Some lexica (test ones, experiments) have no leaves. MAGPIE always
+		// wants some, so give it leaves that are all worth nothing, as
+		// Macondo's equity calculators do in this case.
+		log.Warn().Err(err).Str("lexicon", lexiconName).Msg("no leaves; generating with none")
+		klvBytes = noLeavesKLV
 	}
 
 	opts := magpie.DataOptions{KWG: kwgBytes, KLV: klvBytes, Dist: dist, Layout: layout,
@@ -104,7 +118,7 @@ func loadMagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Le
 	// A word map, as Macondo's policy says: read from disk if there, else
 	// built in memory. They are only made for 15x15 classic boards.
 	pol := wmp.CurrentPolicy()
-	if pol.Enabled && !wordSmog && len(layout) == 15 {
+	if pol.Enabled && !wordSmog && len(layout) == 15 && bitRackCompatible(dist, len(layout)) {
 		wmpPath := filepath.Join(wcfg.DataPath, "lexica", lexiconName+".wmp")
 		if fi, err := os.Stat(wmpPath); err == nil && (pol.MaxBytes == 0 || fi.Size() <= pol.MaxBytes) {
 			opts.WMPPath = wmpPath
@@ -120,6 +134,11 @@ func loadMagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Le
 	d, err := magpie.NewData(opts)
 	if err != nil {
 		return nil, err
+	}
+	if opts.BuildWMP && d.HasWMP() {
+		// Building one can take tens of seconds for a big lexicon; keep it
+		// for next time, as Macondo's own word map policy does.
+		saveWMP(d, filepath.Join(wcfg.DataPath, "lexica", lexiconName+".wmp"))
 	}
 	log.Info().Str("lexicon", lexiconName).Int("dim", len(layout)).Bool("wordsmog", wordSmog).
 		Bool("wmp", d.HasWMP()).Bool("rit", opts.RITPath != "").Msg("loaded-magpie-data")
@@ -393,4 +412,42 @@ func takeSmallMoveTiles(m *tinymove.SmallMove, rack *tilemapping.Rack) {
 		}
 		rack.Take(t)
 	}
+}
+
+// saveWMP writes a word map MAGPIE built to path, if the directory is
+// writable. A failure only costs the next process another build.
+func saveWMP(d *magpie.Data, path string) {
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
+	if err := d.WriteWMP(tmp); err != nil {
+		os.Remove(tmp)
+		log.Info().Err(err).Str("path", path).Msg("could not save word map")
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		log.Info().Err(err).Str("path", path).Msg("could not save word map")
+		return
+	}
+	log.Info().Str("path", path).Msg("saved word map")
+}
+
+// bitRackCompatible reports whether MAGPIE can key word maps and rack info
+// tables on this distribution's racks: at most 32 tiles (blank included),
+// and no letter that could appear more than 15 times counting blanks (as
+// MAGPIE's bit_rack_is_compatible_with_ld decides). Polish, with 33, can't.
+func bitRackCompatible(dist *tilemapping.LetterDistribution, dim int) bool {
+	counts := dist.Distribution()
+	if len(counts) > 32 {
+		return false
+	}
+	for ml, n := range counts {
+		c := int(n)
+		if ml != 0 {
+			c += int(counts[0])
+		}
+		if min(c, dim) > 15 {
+			return false
+		}
+	}
+	return true
 }

@@ -237,6 +237,23 @@ func (d *Data) Close() {
 	d.ptr = nil
 }
 
+// WriteWMP writes the data's word map to path.
+func (d *Data) WriteWMP(path string) error {
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	var errbuf [512]C.char
+	var rc C.int
+	if d.dim == 15 {
+		rc = C.mgs15_data_write_wmp(d.ptr, cpath, &errbuf[0], C.int(len(errbuf)))
+	} else {
+		rc = C.mgs21_data_write_wmp(d.ptr, cpath, &errbuf[0], C.int(len(errbuf)))
+	}
+	if rc != 0 {
+		return errors.New("magpie: " + C.GoString(&errbuf[0]))
+	}
+	return nil
+}
+
 // WriteRIT builds the rack info table for this data's leaves and word map
 // and writes it to path. It takes minutes and gigabytes for English.
 func (d *Data) WriteRIT(path string, threads int) error {
@@ -372,30 +389,21 @@ func (p *Position) Set(s State) error {
 	if len(s.Squares) != dim*dim {
 		return fmt.Errorf("magpie: %d squares for a %dx%d board", len(s.Squares), dim, dim)
 	}
-	// MAGPIE aborts on a tile count the distribution can't hold, so check
-	// here.
+	// MAGPIE aborts on a bag bigger than the distribution, so check here.
+	// (Racks and the board may hold more of a tile than exist: some tests
+	// set up such positions, and MAGPIE does not mind.)
 	dist := p.data.dist.Distribution()
-	counts := make([]int, len(dist))
-	count := func(t tilemapping.MachineLetter) error {
-		if t.IsBlanked() {
-			t = 0
-		}
-		if int(t) >= len(dist) {
-			return fmt.Errorf("magpie: tile %d is outside the distribution", t)
-		}
-		counts[t]++
-		if counts[t] > int(dist[t]) {
-			return fmt.Errorf("magpie: more of tile %d than the distribution has", t)
-		}
-		return nil
+	total := 0
+	for _, n := range dist {
+		total += int(n)
+	}
+	if len(s.Bag) > total {
+		return fmt.Errorf("magpie: a bag of %d tiles, more than the distribution's %d", len(s.Bag), total)
 	}
 	for _, w := range [][]tilemapping.MachineLetter{s.Squares, s.Racks[0], s.Racks[1], s.Bag} {
 		for _, t := range w {
-			if t == 0 && &w[0] == &s.Squares[0] {
-				continue // an empty square
-			}
-			if err := count(t); err != nil {
-				return err
+			if int(t.Unblank()) >= len(dist) {
+				return fmt.Errorf("magpie: tile %d is outside the distribution", t)
 			}
 		}
 	}
@@ -636,6 +644,12 @@ func init() {
 // one is set. It returns the moves, which alias buf; buf's length is the
 // most it can hold.
 func (p *Position) GenerateSmall(pass bool, buf []SmallMove) []SmallMove {
+	return p.GenerateSmallFor(-1, pass, buf)
+}
+
+// GenerateSmallFor is GenerateSmall for the given player, on turn or not
+// (-1 for the player on turn).
+func (p *Position) GenerateSmallFor(player int, pass bool, buf []SmallMove) []SmallMove {
 	if len(buf) == 0 {
 		return buf
 	}
@@ -646,11 +660,21 @@ func (p *Position) GenerateSmall(pass bool, buf []SmallMove) []SmallMove {
 	out := (*C.mg_small_move)(unsafe.Pointer(&buf[0]))
 	var n C.int
 	if p.data.dim == 15 {
-		n = C.mgs15_gen_small(p.ptr, gp, out, C.int(len(buf)))
+		n = C.mgs15_gen_small(p.ptr, C.int(player), gp, out, C.int(len(buf)))
 	} else {
-		n = C.mgs21_gen_small(p.ptr, gp, out, C.int(len(buf)))
+		n = C.mgs21_gen_small(p.ptr, C.int(player), gp, out, C.int(len(buf)))
 	}
 	return buf[:n]
+}
+
+// TilesPlayed is the set of tiles player can play somewhere (a bit per
+// machine letter), ORed into known. It stops looking once every tile on the
+// player's rack is known playable.
+func (p *Position) TilesPlayed(player int, known uint64) uint64 {
+	if p.data.dim == 15 {
+		return uint64(C.mgs15_tiles_played(p.ptr, C.int(player), C.uint64_t(known)))
+	}
+	return uint64(C.mgs21_tiles_played(p.ptr, C.int(player), C.uint64_t(known)))
 }
 
 // PlaySmall plays a small move worth score points with an incremental undo
