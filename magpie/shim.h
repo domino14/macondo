@@ -128,6 +128,10 @@ typedef struct mg_kwg mg_kwg;
    * the bag. An exchange's tiles go back into the bag. Backs up first when   \
    * backups are on. Returns 0, or -1 if a drawn tile isn't in the bag. */    \
   int P##play(mg_pos *p, const mg_move *m, const uint8_t *drawn, int ndrawn);  \
+  /* Plays m on the board only -- tiles, cross-sets, anchors and the turn --  \
+   * leaving the racks and bag to the caller to set. Backs up first as the    \
+   * backup mode says. */                                                     \
+  void P##play_board(mg_pos *p, const mg_move *m);                             \
   /* Undoes the last backed-up play. Returns 0, or -1 with no backup. */      \
   int P##unplay(mg_pos *p);                                                    \
   /* Undoes every backed-up play, back to the oldest backup, and anything     \

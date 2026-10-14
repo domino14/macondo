@@ -10,10 +10,11 @@ import (
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testhelpers"
 )
 
@@ -21,6 +22,46 @@ var DefaultConfig = config.DefaultConfig()
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 	return kwg.GetKWG(DefaultConfig.WGLConfig(), lex)
+}
+
+// allPlays is every tile placement rackStr can make on bd, from MAGPIE.
+func allPlays(t *testing.T, lex string, bd *board.GameBoard, ld *tilemapping.LetterDistribution,
+	rackStr string) []*move.Move {
+	t.Helper()
+	d, err := game.MagpieData(DefaultConfig, lex, ld, "english", board.CrosswordGameBoard, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alph := ld.TileMapping()
+	rack, err := tilemapping.ToMachineWord(rackStr, alph)
+	if err != nil {
+		t.Fatal(err)
+	}
+	squares := make([]tilemapping.MachineLetter, 225)
+	for r := 0; r < 15; r++ {
+		for c := 0; c < 15; c++ {
+			squares[r*15+c] = bd.GetLetter(r, c)
+		}
+	}
+	pos := magpie.NewPosition(d, 1, 1)
+	defer pos.Close()
+	if err := pos.Set(magpie.State{Squares: squares, Racks: [2]tilemapping.MachineWord{rack, nil}}); err != nil {
+		t.Fatal(err)
+	}
+	var plays []*move.Move
+	for _, m := range pos.GenerateN(magpie.RecordAll, magpie.SortScore, 0, 100000) {
+		if m.Type != magpie.MovePlacement {
+			continue
+		}
+		tiles := append(tilemapping.MachineWord(nil), m.Word()...)
+		leave, err := tilemapping.Leave(rack, tiles, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plays = append(plays, move.NewScoringMove(int(m.Score/magpie.EquityResolution), tiles, leave,
+			m.Vertical == 1, int(m.TilesPlayed), alph, int(m.Row), int(m.Col)))
+	}
+	return plays
 }
 
 func TestLeaveValues(t *testing.T) {
@@ -87,10 +128,8 @@ func TestEndgameTiming(t *testing.T) {
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
-	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(tilemapping.RackFromString("AEEORS?", alph), false)
+	plays := allPlays(t, "NWL18", bd, ld, "AEEORS?")
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", DefaultConfig, "")
 	assert.Nil(t, err)
@@ -105,7 +144,6 @@ func TestEndgameTiming(t *testing.T) {
 	ml := make([]tilemapping.MachineLetter, 100)
 	err = bag.Draw(100, ml)
 	assert.Nil(t, err)
-	plays := generator.Plays()
 
 	for _, m := range plays {
 		m.SetEquity(els.Equity(m, bd, bag, oppRack) + eac.Equity(m, bd, bag, oppRack))
@@ -131,10 +169,8 @@ func TestPreendgameTiming(t *testing.T) {
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
-	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(tilemapping.RackFromString("OXPBAZE", alph), false)
+	plays := allPlays(t, "NWL23", bd, ld, "OXPBAZE")
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", DefaultConfig, "")
 	assert.Nil(t, err)
@@ -144,8 +180,6 @@ func TestPreendgameTiming(t *testing.T) {
 	bag.RemoveTiles(tilesInPlay.OnBoard)
 	bag.RemoveTiles(tilesInPlay.Rack1)
 	bag.RemoveTiles(tilesInPlay.Rack2)
-
-	plays := generator.Plays()
 
 	for _, m := range plays {
 		// OppRack can be nil because that branch of code that checks it
@@ -170,13 +204,10 @@ func TestOpeningPlayHeuristic(t *testing.T) {
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
-	generator := movegen.NewGordonGenerator(gd, bd, ld)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(tilemapping.RackFromString("AEFLR", alph), false)
+	plays := allPlays(t, "NWL23", bd, ld, "AEFLR")
 	els, err := equity.NewCombinedStaticCalculator(
 		"NWL20", DefaultConfig, "", "")
 	assert.Nil(t, err)
-	plays := generator.Plays()
 	bag := tilemapping.NewBag(ld, alph)
 	for _, m := range plays {
 		// OppRack can be nil because that branch of code that checks it

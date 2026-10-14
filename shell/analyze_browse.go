@@ -155,4 +155,3 @@ func formatBrowseTable(rows []storedRow) string {
 
 	return sb.String()
 }
-

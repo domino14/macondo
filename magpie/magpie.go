@@ -546,6 +546,19 @@ func (p *Position) Play(m *Move, drawn tilemapping.MachineWord) error {
 	return nil
 }
 
+// PlayBoard plays m on the board only -- tiles, cross-sets, anchors and the
+// turn -- for a caller that keeps the racks and bag itself and sets them
+// afterwards (SetRacksAndBag). It saves the position first, as the backup
+// mode says.
+func (p *Position) PlayBoard(m *Move) {
+	cm := (*C.mg_move)(unsafe.Pointer(m))
+	if p.data.dim == 15 {
+		C.mgs15_play_board(p.ptr, cm)
+	} else {
+		C.mgs21_play_board(p.ptr, cm)
+	}
+}
+
 // ErrNoBackup is Unplay's error when no play is saved.
 var ErrNoBackup = errors.New("magpie: no play to undo")
 

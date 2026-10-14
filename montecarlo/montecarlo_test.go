@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -21,7 +20,6 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -49,19 +47,13 @@ func TestSimSingleIteration(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
-	is.NoErr(err)
-
-	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
-
 	// This will deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	game.SetRackFor(0, tilemapping.RackFromString("AAADERW", game.Alphabet()))
-	generator.GenAll(game.RackFor(0), false)
 	oldOppRack := game.RackFor(1).String()
-	plays := generator.Plays()[:10]
+	plays := placementsByScore(t, game)[:10]
 	simmer := &Simmer{}
 	calcs, leaves := defaultSimCalculators("NWL18")
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
@@ -94,13 +86,7 @@ func BenchmarkSim(b *testing.B) {
 	game.RecalculateBoard()
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
-	is.NoErr(err)
-
-	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
-
-	generator.GenAll(game.RackFor(0), false)
-	plays := generator.Plays()[:10]
+	plays := placementsByScore(b, game.Game)[:10]
 	simmer := &Simmer{}
 	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.SetThreads(1)
@@ -143,10 +129,6 @@ func TestLongerSim(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
-	is.NoErr(err)
-
-	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
@@ -169,10 +151,7 @@ func TestLongerSim(t *testing.T) {
 
 	is.NoErr(err)
 
-	generator.GenAll(game.RackFor(0), false)
-	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
-		game.RackFor(1))
-	plays := aiplayer.TopPlays(generator.Plays(), 10)
+	plays := aiplayer.GenerateMovesFor(game, 10)
 	simmer := &Simmer{}
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 

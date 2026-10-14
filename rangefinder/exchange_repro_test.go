@@ -5,14 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/rs/zerolog"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 // Inference after an exchange redraws racks from the bag, which makes it the
@@ -41,14 +39,9 @@ func TestExchangeInferenceIsReproducible(t *testing.T) {
 	g.SeedBag(seed)
 	g.StartGame()
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), lex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
 	// One normal move, then make the opponent exchange, so inference has an
 	// exchange to reason about.
-	plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	plays := placementsByScore(t, g)
 	if err := g.PlayMove(plays[0], true, 0); err != nil {
 		t.Fatal(err)
 	}

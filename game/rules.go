@@ -12,7 +12,6 @@ import (
 	"github.com/domino14/macondo/alphadawg"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/magpie"
 )
@@ -48,7 +47,6 @@ type GameRules struct {
 	board         *board.GameBoard
 	dist          *tilemapping.LetterDistribution
 	lexicon       lexicon.Lexicon
-	crossSetGen   cross_set.Generator
 	variant       Variant
 	alphaDawg     *kwg.KWG
 	boardname     string
@@ -117,10 +115,6 @@ func (g GameRules) LetterDistributionName() string {
 	return g.distname
 }
 
-func (g GameRules) CrossSetGen() cross_set.Generator {
-	return g.crossSetGen
-}
-
 func (g GameRules) Variant() Variant {
 	return g.variant
 }
@@ -168,36 +162,20 @@ func NewBasicGameRules(cfg *config.Config,
 		}
 	}
 
+	// The lexicon validates words. (csetGenName no longer matters: MAGPIE
+	// computes full cross-sets for every game.)
 	var lex lexicon.Lexicon
-	var csgen cross_set.Generator
-	switch csetGenName {
-	case CrossScoreOnly:
-		if lexiconName == "" {
-			lex = &lexicon.AcceptAll{Alph: dist.TileMapping()}
-		} else if wordSmog {
-			lex = &alphadawg.Lexicon{KWG: kad}
-		} else {
-			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
-			if err != nil {
-				return nil, err
-			}
-			lex = &kwg.Lexicon{KWG: *k}
+	switch {
+	case lexiconName == "":
+		lex = &lexicon.AcceptAll{Alph: dist.TileMapping()}
+	case wordSmog:
+		lex = &alphadawg.Lexicon{KWG: kad}
+	default:
+		k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
+		if err != nil {
+			return nil, err
 		}
-		csgen = &cross_set.CrossScoreOnlyGenerator{Dist: dist}
-	case CrossScoreAndSet:
-		if lexiconName == "" {
-			return nil, errors.New("lexicon name is required for this cross-set option")
-		} else if wordSmog {
-			lex = &alphadawg.Lexicon{KWG: kad}
-			csgen = &cross_set.WordSmogCrossSetGenerator{Dist: dist, AlphaDawg: kad}
-		} else {
-			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
-			if err != nil {
-				return nil, err
-			}
-			lex = &kwg.Lexicon{KWG: *k}
-			csgen = &cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: k}
-		}
+		lex = &kwg.Lexicon{KWG: *k}
 	}
 
 	exchLimit := DefaultExchangeLimit
@@ -213,7 +191,6 @@ func NewBasicGameRules(cfg *config.Config,
 		board:         board.MakeBoard(bd),
 		boardname:     boardLayoutName,
 		lexicon:       lex,
-		crossSetGen:   csgen,
 		variant:       variant,
 		alphaDawg:     kad,
 		exchangeLimit: exchLimit,

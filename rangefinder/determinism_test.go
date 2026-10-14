@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/magpie"
+	"github.com/domino14/macondo/move"
 )
 
 // seededMidGame builds the same mid-game position every time, from a seeded
@@ -39,13 +39,8 @@ func seededMidGame(t *testing.T, turns int) *game.Game {
 	g.SeedBag(seed)
 	g.StartGame()
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), lex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
 	for i := 0; i < turns; i++ {
-		plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+		plays := placementsByScore(t, g)
 		if len(plays) == 0 {
 			break
 		}
@@ -54,6 +49,23 @@ func seededMidGame(t *testing.T, turns int) *game.Game {
 		}
 	}
 	return g
+}
+
+// placementsByScore is every tile placement for the player on turn, highest
+// scoring first.
+func placementsByScore(t *testing.T, g *game.Game) []*move.Move {
+	t.Helper()
+	moves, err := g.MagpieMoves(100000, magpie.SortScore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plays []*move.Move
+	for _, m := range moves {
+		if m.Action() == move.MoveTypePlay {
+			plays = append(plays, m)
+		}
+	}
+	return plays
 }
 
 // inferOnce runs one inference over the position and returns the posterior in a
@@ -132,10 +144,7 @@ func TestUnseededGameStillInfers(t *testing.T) {
 	is.NoErr(err)
 	g.StartGame()
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), lex)
-	is.NoErr(err)
-	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
-	plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	plays := placementsByScore(t, g)
 	// Play something that keeps tiles back. A bingo leaves nothing to infer,
 	// and this game is deliberately unseeded, so the rack is a fresh draw every
 	// run and the test would pass or fail with it.

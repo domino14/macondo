@@ -36,7 +36,6 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 // defaultEndgamePlies is the default depth for `endgame`. This is a single
@@ -2433,10 +2432,22 @@ func (sc *ShellController) buildWMP(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("usage: build-wmp <lexicon>")
 	}
 	lexicon := cmd.args[0]
-
-	_, err := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon)
+	// Loading MAGPIE's data for the lexicon builds its word map, and saves
+	// it beside the lexicon, if it isn't there.
+	distName, err := tilemapping.ProbableLetterDistributionName(lexicon)
 	if err != nil {
 		return nil, err
 	}
-	return msg(fmt.Sprintf("WMP for %s built successfully.", lexicon)), nil
+	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(), distName)
+	if err != nil {
+		return nil, err
+	}
+	d, err := game.MagpieData(sc.config, lexicon, dist, distName, board.CrosswordGameBoard, false, "")
+	if err != nil {
+		return nil, err
+	}
+	if !d.HasWMP() {
+		return nil, fmt.Errorf("no word map for %s (see the MACONDO_WMP_* settings)", lexicon)
+	}
+	return msg(fmt.Sprintf("WMP for %s ready.", lexicon)), nil
 }

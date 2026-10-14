@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
@@ -15,9 +14,26 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
+
+// placementsByScore is every tile placement for the player on turn, highest
+// scoring first.
+func placementsByScore(t testing.TB, g *game.Game) []*move.Move {
+	t.Helper()
+	moves, err := g.MagpieMoves(100000, magpie.SortScore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plays []*move.Move
+	for _, m := range moves {
+		if m.Action() == move.MoveTypePlay {
+			plays = append(plays, m)
+		}
+	}
+	return plays
+}
 
 // seededSimmer builds the same position every time: a seeded bag means the deal
 // and every rack the sim draws come out of one reproducible stream.
@@ -51,16 +67,13 @@ func seededSimmerWith(t *testing.T, seedByte byte, plies, threads int,
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, tilemapping.RackFromString("AAAENSW", g.Alphabet()))
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
-	is.NoErr(err)
-	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
-	gen.GenAll(g.RackFor(0), false)
+	plays := placementsByScore(t, g)
 
 	calcs, leaves := defaultSimCalculators("NWL18")
 	s := &Simmer{}
 	s.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	s.SetThreads(threads)
-	is.NoErr(s.PrepareSim(plies, pick(gen.Plays())))
+	is.NoErr(s.PrepareSim(plies, pick(plays)))
 	return s
 }
 
