@@ -290,9 +290,10 @@ type Solver struct {
 	// prunedKWG is the word graph of every word playable in the endgame
 	// being solved, built by MAGPIE; smallBufs are per-thread generation
 	// buffers.
-	prunedKWG *magpie.KWG
-	smallBufs [][]magpie.SmallMove
-	smallOut  [][]tinymove.SmallMove
+	prunedKWG   *magpie.KWG
+	externalKWG *magpie.KWG
+	smallBufs   [][]magpie.SmallMove
+	smallOut    [][]tinymove.SmallMove
 
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
@@ -2036,8 +2037,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.lastCompletedPly = 0
 
 	tstart := time.Now()
-	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
-	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 	if s.lazySMPOptim && s.abdadaOptim {
 		return 0, nil, errors.New("you can only use lazySMP OR solve multiple variants, but not both")
 	}
@@ -2168,10 +2167,6 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	// 	Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
 	s.ensureArenas()
 	s.requestedPlies = plies
-
-	// tstart := time.Now()
-	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
-	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
 	leave, err := s.enterMagpie()
 	if err != nil {
