@@ -58,6 +58,21 @@ type GameRules struct {
 	lexiconName   string
 }
 
+// Layout is the board's rows, in Macondo's bonus characters.
+func (g GameRules) Layout() []string {
+	return g.layout
+}
+
+// MagpieDataWithLeaves is MagpieData with another leave file (see
+// dataloaders.LeavesFileForLexicon), for players with their own leaves.
+func (g GameRules) MagpieDataWithLeaves(leavefile string) (*magpie.Data, error) {
+	if g.lexiconName == "" {
+		return nil, errors.New("rules have no lexicon to generate moves from")
+	}
+	return MagpieData(g.cfg, g.lexiconName, g.dist, g.distname, g.layout,
+		IsWordSmog(g.variant), leavefile)
+}
+
 // MagpieData is MAGPIE's data for these rules' lexicon, distribution and
 // board, loaded the first time it is asked for.
 func (g GameRules) MagpieData() (*magpie.Data, error) {

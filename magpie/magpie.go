@@ -422,15 +422,38 @@ func (p *Position) Set(s State) error {
 	return nil
 }
 
-// SetRacksAndBag replaces both racks and the bag.
-func (p *Position) SetRacksAndBag(rack0, rack1, bag tilemapping.MachineWord) {
+// SetRacksAndBag replaces both racks, the bag and the player on turn. The
+// tiles must be ones the distribution holds (it is not checked here, for
+// speed; see Set).
+func (p *Position) SetRacksAndBag(rack0, rack1, bag tilemapping.MachineWord, onTurn int) {
 	if p.data.dim == 15 {
 		C.mgs15_pos_set_racks_and_bag(p.ptr, bytesPtr(rack0), C.int(len(rack0)),
-			bytesPtr(rack1), C.int(len(rack1)), bytesPtr(bag), C.int(len(bag)))
+			bytesPtr(rack1), C.int(len(rack1)), bytesPtr(bag), C.int(len(bag)), C.int(onTurn))
 	} else {
 		C.mgs21_pos_set_racks_and_bag(p.ptr, bytesPtr(rack0), C.int(len(rack0)),
-			bytesPtr(rack1), C.int(len(rack1)), bytesPtr(bag), C.int(len(bag)))
+			bytesPtr(rack1), C.int(len(rack1)), bytesPtr(bag), C.int(len(bag)), C.int(onTurn))
 	}
+}
+
+// Data is the data the position generates with.
+func (p *Position) Data() *Data { return p.data }
+
+// SetData switches the data (leaves, word map) the position generates with,
+// keeping the position. d must have the same word graph, distribution and
+// board.
+func (p *Position) SetData(d *Data) {
+	if d == p.data {
+		return
+	}
+	if d.dim != p.data.dim {
+		panic("magpie: SetData across board sizes")
+	}
+	if d.dim == 15 {
+		C.mgs15_pos_set_data(p.ptr, d.ptr)
+	} else {
+		C.mgs21_pos_set_data(p.ptr, d.ptr)
+	}
+	p.data = d
 }
 
 // SetOnTurn sets the player on turn.
