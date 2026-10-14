@@ -27,15 +27,13 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
@@ -180,15 +178,17 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) float64 {
+	eq := float64(spread-initialSpread) + leftover
 	sp.Lock()
 	defer sp.Unlock()
-	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
+	sp.equityStats.Push(eq)
 	sp.leftoverStats.Push(leftover)
+	return eq
 }
 
 func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
-	tilesUnseen int, pliesAreEven bool) {
+	tilesUnseen int, pliesAreEven bool) float64 {
 	winPct := float64(0.0)
 
 	if gameover || tilesUnseen == 0 {
@@ -237,7 +237,8 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 	}
 	sp.Lock()
 	defer sp.Unlock()
-	sp.winPctStats.Push(float64(winPct))
+	sp.winPctStats.Push(winPct)
+	return winPct
 }
 
 func (s *SimmedPlay) Move() *move.Move {
@@ -341,6 +342,18 @@ type Simmer struct {
 	rngs []*frand.RNG
 
 	wmp *wmppkg.WMP
+
+	// The sim's best-arm identification (see bai_sim.go). arms is the plays
+	// in the order the runners number them, which sorting the plays for
+	// display does not change.
+	arms              []*SimmedPlay
+	baiRunner         *bai.Runner
+	baiEquityRunner   *bai.Runner
+	baiPhase          baiPhase
+	simSeed           [32]byte
+	minSamplesPerPlay int
+	// logMu serializes log writes from several sample workers.
+	logMu sync.Mutex
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -661,6 +674,7 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
+	s.baiRunner = nil
 	s.simmedPlays = &SimmedPlays{plays: make([]*SimmedPlay, len(plays))}
 	for idx, play := range plays {
 		s.simmedPlays.plays[idx] = &SimmedPlay{}
@@ -696,6 +710,8 @@ func (s *Simmer) AvoidPruningMoves(plays []*move.Move) {
 			})
 		}
 	}
+	// The arms changed, so the sim starts over.
+	s.baiRunner = nil
 }
 
 func (s *Simmer) IsSimming() bool {
@@ -780,15 +796,7 @@ func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	defer cancel()
 
 	tstart := time.Now()
-	s.autostopper.reset()
-
-	if run.inline || s.threads <= 1 {
-		logger.Debug().Msg("Simulating on the calling goroutine")
-		s.simInline(ctx, run)
-	} else {
-		logger.Debug().Msgf("Simulating with %v threads", s.threads)
-		s.simThreaded(ctx, cancel, run)
-	}
+	s.simBAI(ctx, run)
 
 	elapsed := time.Since(tstart) // duration is in nanosecs
 	nodes = s.nodeCount.Load()
@@ -820,128 +828,6 @@ func (s *Simmer) event(logger *zerolog.Logger, quiet bool) *zerolog.Event {
 	return logger.Info()
 }
 
-// runIteration runs one sim iteration on the given thread's game copy and
-// reports whether the caller should keep going. Both loops go through here, so
-// the iteration counter, the stopping-condition cadence and what an iteration
-// error means are decided in exactly one place.
-//
-// A nil logChan means the caller is the only writer and simSingleIteration
-// should write the log stream itself.
-func (s *Simmer) runIteration(ctx context.Context, run simRun, thread int, logChan chan []byte) bool {
-	logger := zerolog.Ctx(ctx)
-
-	numIters := s.iterationCount.Add(1)
-	if err := s.simSingleIteration(ctx, s.maxPlies, thread, numIters-1, logChan); err != nil {
-		logger.Err(err).Msg("error simming iteration; stopping")
-		return false
-	}
-	if s.autostopper.stoppingCondition != StopNone &&
-		numIters%s.autostopper.stopConditionCheckInterval == 0 {
-		logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
-		if s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies) {
-			s.event(logger, run.quiet).Uint64("numIters", numIters).
-				Msg("reached stopping condition")
-			return false
-		}
-	}
-	return true
-}
-
-// simInline runs the sim to completion on the calling goroutine. Nothing else
-// runs: no controller, no writer, no workers. The stopping condition is checked
-// on the same cadence as the threaded loop, and the loop leaves on the exact
-// iteration that trips it, so the sim's answer does not depend on how long the
-// scheduler took to deliver the news.
-func (s *Simmer) simInline(ctx context.Context, run simRun) {
-	done := ctx.Done()
-
-	// The cap counts this call's iterations. s.iterationCount is the position's
-	// running total, which a caller may well have added to already.
-	for ran := 0; run.maxIters <= 0 || ran < run.maxIters; ran++ {
-		if !s.runIteration(ctx, run, 0, nil) {
-			return
-		}
-		select {
-		case <-done:
-			return
-		default:
-		}
-	}
-}
-
-// simThreaded runs the sim across s.threads workers. Workers watch the context
-// directly: whoever trips the stopping condition cancels it, and everyone else
-// sees that at the top of their next iteration.
-func (s *Simmer) simThreaded(ctx context.Context, cancel context.CancelFunc, run simRun) {
-	logger := zerolog.Ctx(ctx)
-	done := ctx.Done()
-
-	logChan := make(chan []byte)
-	writerDone := make(chan bool)
-	writer := errgroup.Group{}
-
-	if s.logStream != nil {
-		// Several workers write log lines, so they go through one writer.
-		writer.Go(func() error {
-			defer func() {
-				logger.Debug().Msgf("Writer routine exiting")
-			}()
-			for {
-				select {
-				case bytes := <-logChan:
-					s.logStream.Write(bytes)
-				case <-writerDone:
-					// Ok, actually quit now.
-					logger.Debug().Msgf("Got quit signal...")
-					return nil
-				}
-			}
-		})
-	}
-
-	// Iterations run by this call, which is what maxIters caps -- separate from
-	// s.iterationCount, the position's running total.
-	var ran atomic.Int64
-
-	g := errgroup.Group{}
-	for t := 0; t < s.threads; t++ {
-		g.Go(func() error {
-			defer func() {
-				logger.Debug().Msgf("Thread %v exiting sim", t)
-			}()
-			logger.Debug().Msgf("Thread %v starting sim", t)
-			for {
-				select {
-				case <-done:
-					return nil
-				default:
-				}
-				if run.maxIters > 0 && ran.Add(1) > int64(run.maxIters) {
-					return nil
-				}
-				if !s.runIteration(ctx, run, t, logChan) {
-					// Whoever stops first tells the others through the
-					// context, and they leave at the top of their next
-					// iteration rather than running until a controller
-					// goroutine gets around to waking them.
-					cancel()
-					return nil
-				}
-			}
-		})
-	}
-
-	// Wait for threads in errgroup:
-	err := g.Wait()
-	logger.Debug().Msgf("errgroup returned err %v", err)
-
-	// Writer thread will exit now:
-	if s.logStream != nil {
-		close(writerDone)
-		writer.Wait()
-	}
-}
-
 func (s *Simmer) Iterations() int {
 	return int(s.iterationCount.Load())
 }
@@ -960,198 +846,6 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	}
 	s.simmedPlays.trimBottom(totrim)
 	return nil
-}
-
-func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) error {
-	logger := zerolog.Ctx(ctx)
-
-	g := s.gameCopies[thread]
-
-	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	rackToSet := s.knownOppRack
-	var err error
-	if s.inferenceMode == InferenceCompletePosterior {
-		// The inferences cover every feasible leave with Bayesian posterior
-		// weights, so sample from them on every iteration. There is no
-		// uncovered leave space to fall back to random draws for.
-		rackToSet = nil
-		if len(s.inferenceCDF) > 0 {
-			rackToSet, err = s.weightedInferredDrawRacks(thread)
-			if err != nil {
-				return err
-			}
-		}
-	} else if s.inferenceMode != InferenceOff {
-		// Legacy partial-sample modes (currently only exchange inference
-		// produces these): the inferred racks cover an unknown fraction of
-		// the leave space, so use a sigmoid to determine alpha: the
-		// probability of sampling from inferred racks rather than drawing a
-		// fully random rack. Fewer inferences = lower confidence in
-		// coverage = more random fallback.
-		const maxAlpha = 0.95
-		const midpoint = 10.0
-		const sigmoidScale = 5.0
-
-		numInferences := len(s.inferences)
-		alpha := maxAlpha / (1 + math.Exp(-(float64(numInferences)-midpoint)/sigmoidScale))
-
-		if s.float64For(thread) >= alpha {
-			rackToSet = nil
-		} else {
-			if s.inferenceMode == InferenceWeightedRandomTiles {
-				rackToSet, err = s.weightedInferredDrawTiles(thread)
-			} else if s.inferenceMode == InferenceWeightedRandomRacks {
-				rackToSet, err = s.weightedInferredDrawRacks(thread)
-			}
-			if err != nil {
-				return err
-			}
-		}
-
-	}
-
-	_, err = g.SetRandomRack(opp, rackToSet)
-	if err != nil {
-		return err
-	}
-	logIter := LogIteration{Iteration: int(iterationCount), Plays: nil, Thread: thread}
-	if s.logStream != nil && len(rackToSet) > 0 {
-		logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
-	}
-
-	var logPlay LogPlay
-	var plyChild LogPlay
-	for _, simmedPlay := range s.simmedPlays.plays {
-		if simmedPlay.ignore.Load() {
-			continue
-		}
-		if s.logStream != nil {
-			logPlay = LogPlay{
-				Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
-				Leave: simmedPlay.play.LeaveString(),
-				Rack:  simmedPlay.play.FullRack(),
-				Bingo: simmedPlay.play.BingoPlayed(),
-				Pts:   simmedPlay.play.Score()}
-		}
-		// equity of the leftover tiles at the end of the sim
-		leftover := float64(0.0)
-		// logIter.Plays = append(logIter.Plays)
-		// Play the move, and back up the game state.
-		// log.Debug().Msgf("Playing move %v", play)'
-		// Set the backup mode to simulation mode only to back up the first move:
-		g.SetBackupMode(game.SimulationMode)
-		g.PlayMove(simmedPlay.play, false, 0)
-		s.nodeCount.Add(1)
-		g.SetBackupMode(game.NoBackup)
-		// Further plies will NOT be backed up.
-		for ply := 0; ply < plies; ply++ {
-			// Each ply is a player taking a turn
-			onTurn := g.PlayerOnTurn()
-			if g.Playing() != pb.PlayState_PLAYING {
-				break
-			}
-			// Assume there are exactly two players.
-
-			bestPlay := s.bestStaticTurn(onTurn, thread)
-			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-			// On the last ply no further move generation happens, so cross-set
-			// recalculation would be discarded by UnplayLastMove unused.
-			if ply == plies-1 {
-				g.PlayMoveNoCrossSet(bestPlay, false, 0)
-			} else {
-				g.PlayMove(bestPlay, false, 0)
-			}
-			s.nodeCount.Add(1)
-			// log.Debug().Msgf("Score is now %v", s.game.Score())
-
-			if s.logStream != nil {
-				plyChild = LogPlay{
-					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
-					Leave: bestPlay.LeaveString(),
-					Rack:  bestPlay.FullRack(),
-					Pts:   bestPlay.Score(),
-					Bingo: bestPlay.BingoPlayed()}
-			}
-			if ply == plies-2 || ply == plies-1 {
-				// It's either OUR last turn or OPP's last turn.
-				// Calculate equity of leftover tiles.
-				thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
-				if s.logStream != nil {
-					plyChild.Leftover = thisLeftover
-				}
-
-				// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
-				if onTurn == s.initialPlayer {
-					leftover += thisLeftover
-				} else {
-					leftover -= thisLeftover
-				}
-			}
-			if s.logStream != nil {
-				logPlay.Plies = append(logPlay.Plies, plyChild)
-			}
-			// Maybe these add{X}Stat functions can instead write them to
-			// a channel to avoid mutices
-			simmedPlay.addScoreStat(bestPlay, ply)
-
-		}
-		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
-		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		spread := g.SpreadFor(s.initialPlayer)
-		simmedPlay.addEquityStat(
-			s.initialSpread,
-			spread,
-			leftover,
-		)
-		simmedPlay.addWinPctStat(
-			spread,
-			leftover,
-			g.Playing() == pb.PlayState_GAME_OVER,
-			s.winPcts,
-			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-			g.Bag().TilesRemaining()+
-				int(g.RackFor(1-s.initialPlayer).NumTiles()),
-			plies%2 == 0,
-		)
-		g.ResetToFirstState()
-		if s.logStream != nil {
-			logPlay.WinRatio = simmedPlay.winPctStats.Last()
-			logIter.Plays = append(logIter.Plays, logPlay)
-		}
-	}
-	if s.logStream != nil {
-		var out []byte
-		if s.collectHeatMap && iterationCount < MaxHeatMapIterations {
-			// If heat map collection is on, only collect a fixed number of iterations.
-			out, err = json.Marshal(logIter)
-			if err != nil {
-				logger.Error().Err(err).Msg("marshalling log")
-				return err
-			}
-			out = append(out, '\n')
-			s.writeLog(out, logChan)
-		} else if !s.collectHeatMap {
-			out, err = yaml.Marshal([]LogIteration{logIter})
-			if err != nil {
-				logger.Error().Err(err).Msg("marshalling log")
-				return err
-			}
-			s.writeLog(out, logChan)
-		}
-
-	}
-	return nil
-}
-
-// writeLog hands a log line to the writer goroutine, or writes it directly if
-// there isn't one. A nil channel means the sim is running on a single
-// goroutine, so this one is the only writer and needs nobody to serialize it.
-func (s *Simmer) writeLog(out []byte, logChan chan []byte) {
-	if logChan != nil {
-		logChan <- out
-		return
-	}
-	s.logStream.Write(out)
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
@@ -1329,8 +1023,10 @@ func (s *Simmer) SetAutostopIterationsCutoff(i int) {
 	s.autostopper.iterationsCutoff = i
 }
 
-func (s *Simmer) SetAutostopCheckInterval(i uint64) {
-	s.autostopper.stopConditionCheckInterval = i
+// SetMinSamplesPerPlay sets how many rollouts every play gets before the sim
+// prefers any or may stop (DefaultMinSamplesPerPlay if 0).
+func (s *Simmer) SetMinSamplesPerPlay(n int) {
+	s.minSamplesPerPlay = n
 }
 
 // PlaysByWinProb returns the simmedplays structure sorted by win probability.

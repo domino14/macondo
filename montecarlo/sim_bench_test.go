@@ -138,7 +138,7 @@ func runSimBench(b *testing.B, simmers []*Simmer) {
 		for posIdx, s := range simmers {
 			for iter := 0; iter < itersPerPos; iter++ {
 				iterCount := uint64(i*itersPerPos*len(simmers) + posIdx*itersPerPos + iter + 1)
-				s.simSingleIteration(ctx, simPlies, 0, iterCount, nil)
+				s.sampleEveryPlay(ctx, 0, iterCount)
 			}
 		}
 	}

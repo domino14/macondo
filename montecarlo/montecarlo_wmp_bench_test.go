@@ -113,12 +113,12 @@ func setupSimBenchmark(b *testing.B) (*Simmer, int) {
 // BenchmarkSimCSW24NoWMP measures the baseline sim throughput without
 // any WMP integration — i.e., the same path the main branch uses.
 func BenchmarkSimCSW24NoWMP(b *testing.B) {
-	simmer, plies := setupSimBenchmark(b)
+	simmer, _ := setupSimBenchmark(b)
 
 	runtime.MemProfileRate = 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		simmer.simSingleIteration(context.Background(), plies, 0, uint64(i+1), nil)
+		simmer.sampleEveryPlay(context.Background(), 0, uint64(i+1))
 	}
 }
 
@@ -133,7 +133,7 @@ func BenchmarkSimCSW24WMP(b *testing.B) {
 		b.Fatalf("loading CSW24.wmp: %v", err)
 	}
 
-	simmer, plies := setupSimBenchmark(b)
+	simmer, _ := setupSimBenchmark(b)
 
 	// Wire the WMP into every per-thread move generator that the
 	// simmer's aiplayers were created with in PrepareSim.
@@ -145,7 +145,7 @@ func BenchmarkSimCSW24WMP(b *testing.B) {
 	runtime.MemProfileRate = 0
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		simmer.simSingleIteration(context.Background(), plies, 0, uint64(i+1), nil)
+		simmer.sampleEveryPlay(context.Background(), 0, uint64(i+1))
 	}
 }
 

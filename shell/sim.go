@@ -48,7 +48,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
-	var stopPPscaling, stopitercutoff, stopcheckinterval int
+	var stopPPscaling, stopitercutoff, minSamples int
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
 	avoidTrimMoves := []*move.Move{}
 
@@ -96,8 +96,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 				return nil, err
 			}
 
-		case "autostopcheckinterval":
-			stopcheckinterval, err = options.Int(opt)
+		case "minsamples":
+			minSamples, err = options.Int(opt)
 			if err != nil {
 				return nil, err
 			}
@@ -193,7 +193,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		stoppingCondition:     stoppingCondition,
 		autostopPPScaling:     stopPPscaling,
 		autostopIterCutoff:    stopitercutoff,
-		autostopCheckInterval: stopcheckinterval,
+		minSamplesPerPlay:     minSamples,
 		knownOppRack:          kr,
 		inferMode:             inferMode,
 		avoidTrimMoves:        avoidTrimMoves,
@@ -272,7 +272,7 @@ type simParams struct {
 	stoppingCondition     montecarlo.StoppingCondition
 	autostopPPScaling     int
 	autostopIterCutoff    int
-	autostopCheckInterval int
+	minSamplesPerPlay     int
 	knownOppRack          []tilemapping.MachineLetter
 	inferMode             montecarlo.InferenceMode
 	avoidTrimMoves        []*move.Move
@@ -297,8 +297,8 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	if params.autostopIterCutoff > 0 {
 		simmer.SetAutostopIterationsCutoff(params.autostopIterCutoff)
 	}
-	if params.autostopCheckInterval > 0 {
-		simmer.SetAutostopCheckInterval(uint64(params.autostopCheckInterval))
+	if params.minSamplesPerPlay > 0 {
+		simmer.SetMinSamplesPerPlay(params.minSamplesPerPlay)
 	}
 
 	if params.inferMode != montecarlo.InferenceOff {
