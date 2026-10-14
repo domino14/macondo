@@ -198,7 +198,6 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int) r
 		}
 		s := &montecarlo.Simmer{}
 		s.Init(gc, []equity.EquityCalculator{calc}, calc, cfg)
-		s.TryLoadWMP(cfg.WGLConfig(), g.LexiconName())
 		s.SetThreads(1)
 		plies := 5
 		if unseen := g.Bag().TilesRemaining() + int(g.RackFor(g.NextPlayer()).NumTiles()); unseen <= 14 {
