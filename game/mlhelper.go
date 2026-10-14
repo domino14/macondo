@@ -151,6 +151,8 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
+	// The features come off the Go board, played on below.
+	g.leaveMagpieBoard()
 
 	numMoves := len(moves)
 	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)

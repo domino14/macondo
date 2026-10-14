@@ -16,6 +16,7 @@ import (
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/wmp"
 )
 
@@ -160,6 +161,9 @@ func posBackupMode(m BackupMode) magpie.BackupMode {
 // markPosStale says the Go board changed in a way MAGPIE's copy did not
 // follow, so the next MagpiePosition call rebuilds it.
 func (g *Game) markPosStale() {
+	if g.magpieBoard {
+		panic("MAGPIE's board fell out of step in C-board mode")
+	}
 	if g.pos != nil {
 		g.posStale = true
 	}
@@ -239,11 +243,13 @@ func (g *Game) posPlay(m *move.Move, drawn []tilemapping.MachineLetter) {
 	if err := g.pos.Play(&mm, drawn); err != nil {
 		// The copies disagree; rebuild MAGPIE's from the Go side.
 		log.Warn().Err(err).Msg("magpie-position-out-of-step")
-		g.posStale = true
+		g.markPosStale()
 		return
 	}
+	g.viewStale = g.magpieBoard
 	if g.backupMode != NoBackup {
-		g.stateStack[max(g.stackPtr-1, 0)].posPlayed = true
+		st := g.stateStack[max(g.stackPtr-1, 0)]
+		st.posPlayed, st.posSmall = true, false
 	}
 }
 
@@ -252,10 +258,23 @@ func (g *Game) posUnplay(st *stateBackup) {
 	if g.pos == nil {
 		return
 	}
-	if !st.posPlayed || g.posStale || g.pos.Unplay() != nil {
-		g.posStale = true
+	var err error
+	switch {
+	case g.posStale:
+		return
+	case st.posSmall:
+		err = g.pos.UnplaySmall()
+	case st.posPlayed:
+		err = g.pos.Unplay()
+	default:
+		err = magpie.ErrNoBackup
 	}
-	st.posPlayed = false
+	st.posPlayed, st.posSmall = false, false
+	if err != nil {
+		g.markPosStale()
+		return
+	}
+	g.viewStale = g.magpieBoard
 }
 
 // MoveFromMagpie converts a move MAGPIE generated for the player on turn
@@ -286,4 +305,92 @@ func (g *Game) MoveFromMagpie(m *magpie.Move) *move.Move {
 	}
 	mv.SetEquity(equity)
 	return mv
+}
+
+// SetMagpieBoard puts the game in (or out of) C-board mode. In C-board mode
+// MAGPIE's copy of the position is the board: moves, small moves included,
+// are played and unplayed there only, and the Go board is a copy refreshed
+// from it when Board() is asked for. It is for searches that generate all
+// their moves through MAGPIE (the endgame and pre-endgame solvers), which
+// otherwise pay for keeping the Go board's cross-sets on every node. Code
+// that changes the Go board directly takes the game out of C-board mode
+// first.
+func (g *Game) SetMagpieBoard(on bool) error {
+	if on == g.magpieBoard {
+		return nil
+	}
+	if !on {
+		g.refreshView()
+		g.magpieBoard = false
+		return nil
+	}
+	if _, err := g.MagpiePosition(); err != nil {
+		return err
+	}
+	g.magpieBoard = true
+	g.viewStale = false
+	return nil
+}
+
+// MagpieBoard reports whether the game is in C-board mode.
+func (g *Game) MagpieBoard() bool {
+	return g.magpieBoard
+}
+
+// refreshView brings the Go board up to date with MAGPIE's, in C-board mode.
+func (g *Game) refreshView() {
+	if !g.magpieBoard || !g.viewStale {
+		return
+	}
+	if g.mboard == nil {
+		g.mboard = g.pos.Data().NewBoard()
+	}
+	g.pos.ReadBoard(g.mboard)
+	g.board.SetFromMagpie(g.mboard.Letters, g.mboard.CrossSets, g.mboard.CrossScores)
+	g.viewStale = false
+}
+
+// leaveMagpieBoard is for code about to change the Go board directly: the Go
+// board becomes the real one again, and MAGPIE's copy is rebuilt from it on
+// next use.
+func (g *Game) leaveMagpieBoard() {
+	if g.magpieBoard {
+		g.refreshView()
+		g.magpieBoard = false
+	}
+}
+
+// posPlaySmall plays a small move in MAGPIE's copy, filling g.stripBackup,
+// in C-board mode. With drawn non-nil (a pre-endgame) it is a backed-up play
+// that draws them; otherwise an incremental one.
+func (g *Game) posPlaySmall(m *tinymove.SmallMove, drawn []tilemapping.MachineLetter) {
+	var err error
+	if drawn != nil {
+		_, err = g.pos.PlaySmallDrawing(uint64(m.TinyMove()), m.Score(), drawn, g.stripBackup[:])
+	} else {
+		_, err = g.pos.PlaySmall(uint64(m.TinyMove()), m.Score(), g.stripBackup[:])
+	}
+	if err != nil {
+		panic(fmt.Sprintf("C-board play of %v failed: %v", m.ShortDescription(), err))
+	}
+	g.viewStale = true
+	if g.backupMode != NoBackup {
+		st := g.stateStack[max(g.stackPtr-1, 0)]
+		st.posPlayed = drawn != nil
+		st.posSmall = drawn == nil
+	}
+}
+
+// takeSmallMoveTiles takes a small move's placed tiles off the player's rack,
+// which board.PlaySmallMove does outside C-board mode.
+func takeSmallMoveTiles(m *tinymove.SmallMove, rack *tilemapping.Rack) {
+	tm := m.TinyMove()
+	blanks := uint64(tm) >> 12 & 127
+	for i := 0; i < m.TilesPlayed(); i++ {
+		t := tilemapping.MachineLetter(uint64(tm) >> (20 + 6*i) & 63)
+		if blanks&(1<<i) != 0 {
+			t = 0
+		}
+		rack.Take(t)
+	}
 }

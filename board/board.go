@@ -1211,3 +1211,41 @@ func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
 	}
 	return ss.String()
 }
+
+// magpieTrivialCrossSet is MAGPIE's cross-set for a square with no
+// constraint (MAX_ALPHABET_SIZE = 50).
+const magpieTrivialCrossSet = (uint64(1) << 50) - 1
+
+// SetFromMagpie sets the board's tiles, cross-sets and cross-scores from a
+// copy of MAGPIE's board (see magpie.Board): letters is dim*dim, and
+// crossSets and crossScores are 2*dim*dim, indexed by the direction of the
+// play a set constrains -- the opposite of this board's convention -- with
+// cross-scores in MAGPIE's millipoints. Anchors and extension sets are not
+// set; nothing that reads this copy generates moves from it.
+func (g *GameBoard) SetFromMagpie(letters []tilemapping.MachineLetter, crossSets []uint64,
+	crossScores []int32) {
+	if g.rowMul != g.dim {
+		panic("SetFromMagpie on a transposed board")
+	}
+	n := g.dim * g.dim
+	tiles := 0
+	for i := 0; i < n; i++ {
+		g.squares[i] = letters[i]
+		if letters[i] != 0 {
+			tiles++
+		}
+		g.vCrossSets[i] = crossSetFromMagpie(crossSets[i])
+		g.hCrossSets[i] = crossSetFromMagpie(crossSets[n+i])
+		g.vCrossScores[i] = int(crossScores[i] / 1000)
+		g.hCrossScores[i] = int(crossScores[n+i] / 1000)
+	}
+	g.tilesPlayed = tiles
+}
+
+func crossSetFromMagpie(cs uint64) CrossSet {
+	if cs == magpieTrivialCrossSet {
+		return TrivialCrossSet
+	}
+	// MAGPIE sets the blank's bit whenever any letter fits; Macondo doesn't.
+	return CrossSet(cs &^ 1)
+}

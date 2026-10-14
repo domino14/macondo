@@ -33,8 +33,10 @@ type stateBackup struct {
 	turnnum        int
 	players        playerStates
 	// posPlayed says MAGPIE's copy of the position played (and saved) the
-	// move this backup was taken for, so unplaying it there undoes it too.
+	// move this backup was taken for, so unplaying it there undoes it too;
+	// posSmall that it played it incrementally (an endgame small move).
 	posPlayed bool
+	posSmall  bool
 }
 
 func (g *Game) SetBackupMode(m BackupMode) {
@@ -49,9 +51,11 @@ func (g *Game) backupState() {
 		g.stackPtr = 0
 	}
 	st := g.stateStack[g.stackPtr]
-	st.posPlayed = false
+	st.posPlayed, st.posSmall = false, false
 
-	st.board.CopyFrom(g.board)
+	if !g.magpieBoard {
+		st.board.CopyFrom(g.board)
+	}
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
@@ -139,7 +143,9 @@ func (g *Game) UnplayLastMove() {
 		// because we typically use this when a word is challenged off, or similar.
 		b = g.stateStack[0]
 	}
-	g.board.CopyFrom(b.board)
+	if !g.magpieBoard {
+		g.board.CopyFrom(b.board)
+	}
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
@@ -151,6 +157,13 @@ func (g *Game) UnplayLastMove() {
 func (g *Game) ResetToFirstState() {
 	// This is like a fast-backward -- it unplays all of the moves on the
 	// stack.
+	if g.magpieBoard {
+		// MAGPIE undoes small moves one at a time.
+		for g.stackPtr > 0 {
+			g.UnplayLastMove()
+		}
+		return
+	}
 
 	b := g.stateStack[0]
 	g.onturn = b.onturn
@@ -176,6 +189,7 @@ func (g *Game) ResetToFirstState() {
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
 func (g *Game) Copy() *Game {
+	g.refreshView()
 	copy := &Game{
 		config:            g.config,
 		onturn:            g.onturn,
