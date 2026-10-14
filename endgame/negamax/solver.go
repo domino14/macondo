@@ -21,7 +21,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/domino14/word-golib/tilemapping"
@@ -282,7 +281,6 @@ type playLog struct {
 }
 
 type Solver struct {
-	stmMovegen   movegen.MoveGenerator
 	game         *game.Game
 	initialMoves [][]tinymove.SmallMove
 
@@ -399,7 +397,7 @@ type stuckEntry struct {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
+func (s *Solver) Init(g *game.Game) error {
 	if g != nil && game.IsWordSmog(g.Rules().Variant()) {
 		// The endgame solver generates with the small-move recorders and
 		// prunes the KWG, neither of which has an alpha dawg equivalent yet.
@@ -407,7 +405,6 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 		return errors.New("the endgame solver does not support WordSmog yet")
 	}
 	s.ttable = GlobalTranspositionTable
-	s.stmMovegen = m
 	s.game = g
 
 	s.firstWinOptim = false
@@ -420,10 +417,6 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
-	if s.stmMovegen != nil {
-		s.stmMovegen.SetGenPass(true)
-		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
-	}
 
 	return nil
 }
@@ -431,10 +424,6 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 // SetLogStream only prints coherent logs for single-threaded endgames for now.
 func (s *Solver) SetLogStream(l io.Writer) {
 	s.logStream = l
-}
-
-func (s *Solver) Movegen() movegen.MoveGenerator {
-	return s.stmMovegen
 }
 
 func (s *Solver) Variations() []PVLine {

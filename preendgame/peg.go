@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -25,7 +24,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 )
@@ -406,9 +404,7 @@ type jobOptionLog struct {
 type Solver struct {
 	endgameSolvers []*negamax.Solver
 
-	movegen          movegen.MoveGenerator
 	game             *game.Game
-	gaddag           *kwg.KWG
 	ttable           *negamax.TranspositionTable
 	curEndgamePlies  int
 	maxEndgamePlies  int
@@ -488,7 +484,7 @@ type Solver struct {
 // maxRootPlays is the most candidate plays a pre-endgame solve generates.
 const maxRootPlays = 300000
 
-func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
+func (s *Solver) Init(g *game.Game) error {
 	if game.IsWordSmog(g.Rules().Variant()) {
 		// The pre-endgame solver leans on the endgame solver, which has no
 		// alpha dawg support yet.
@@ -509,7 +505,6 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.curEndgamePlies = 3
 	s.maxEndgamePlies = s.curEndgamePlies
 	s.iterativeDeepening = true
-	s.gaddag = gd
 	s.earlyCutoffOptim = true
 	s.maxTilesLeft = 1
 	s.skipTiebreaker = false
@@ -798,7 +793,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.
 			g.Bag().SetFixedOrder(true)
-			if err := es.Init(nil, g); err != nil {
+			if err := es.Init(g); err != nil {
 				return nil, err
 			}
 			// Every endgame generates from the pruned graph built above, on a

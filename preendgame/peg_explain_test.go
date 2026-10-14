@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
@@ -23,11 +22,8 @@ func makeExplainSolver(t *testing.T, bagTailStr string) *Solver {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
-
 	peg := &Solver{}
-	is.NoErr(peg.Init(g.Game, gd))
+	is.NoErr(peg.Init(g.Game))
 
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())
 	peg.SetSolveOnly([]*move.Move{m})
@@ -140,11 +136,8 @@ func TestExplainModeNoRegression(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
-
 	peg := &Solver{}
-	is.NoErr(peg.Init(g.Game, gd))
+	is.NoErr(peg.Init(g.Game))
 
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())
 	peg.SetSolveOnly([]*move.Move{m})
