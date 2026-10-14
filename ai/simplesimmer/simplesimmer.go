@@ -26,6 +26,12 @@ type SimpleSimmer struct {
 	logging     bool
 }
 
+// miniSimMinSamples is how many rollouts every play gets before a mini-sim
+// may prefer one or stop: the 128 iterations the old auto-stopper waited for
+// before pruning. MAGPIE's 500 would exceed the mini-sims' 200-iteration
+// budget, leaving them no adaptive sampling at all.
+const miniSimMinSamples = 128
+
 func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
 	btp := &SimpleSimmer{}
 
@@ -74,6 +80,7 @@ func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	// 2 plies for this simple simmer. can maybe configure later.
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
 	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
 	wp := p.simmer.WinningPlay()
 	return wp.Move(), nil
@@ -100,6 +107,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 	p.simmer.SetThreads(1)
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
 	var logfile *os.File
 	var err error
 	var filename string
