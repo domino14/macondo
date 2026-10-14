@@ -153,3 +153,37 @@ func TestCanceled(t *testing.T) {
 		t.Fatalf("got %v", res.Status)
 	}
 }
+
+// A run continued across calls is the run done in one.
+func TestRunnerResumes(t *testing.T) {
+	means := []float64{0.40, 0.45, 0.47, 0.30}
+	opts := Options{Delta: 0, SampleMinimum: 20, Threads: 1, Paired: true}
+	sample := gaussian(means, 0.3, true, 5)
+
+	one := NewRunner(len(means), opts)
+	opts.SampleLimit = 1000
+	whole, err := one.Run(context.Background(), opts, sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	two := NewRunner(len(means), opts)
+	opts.SampleLimit = 300
+	if _, err := two.Run(context.Background(), opts, sample); err != nil {
+		t.Fatal(err)
+	}
+	opts.SampleLimit = 1000
+	parts, err := two.Run(context.Background(), opts, sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if whole.Samples != 1000 || parts.Samples != 1000 {
+		t.Fatalf("samples %d and %d", whole.Samples, parts.Samples)
+	}
+	for a := range means {
+		if whole.Counts[a] != parts.Counts[a] || whole.Means[a] != parts.Means[a] {
+			t.Fatalf("arm %d: %d/%v in one run, %d/%v in two", a,
+				whole.Counts[a], whole.Means[a], parts.Counts[a], parts.Means[a])
+		}
+	}
+}
