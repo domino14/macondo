@@ -154,6 +154,7 @@ func main() {
 		simIters    = flag.Int("simiters", 0, "mini-sim iterations per leaf (0 = default)")
 		msMoves     = flag.Int("minisim-moves", 0, "static plays per mini-sim besides the opponent's (0 = 10)")
 		msEqual     = flag.Bool("minisim-equal", false, "give every mini-sim play -simiters rollouts, no early stop")
+		tauMult     = flag.Float64("tau-mult", 0, "multiply the engine's temperature, schedule and one-tile rule included (0 = 1)")
 		maxLeaves   = flag.Int("maxleaves", 0, "enumeration ceiling (0 = default)")
 		inferThread = flag.Int("infer-threads", 1, "threads inside one inference")
 		trace       = flag.Bool("trace", false, "record every measured leaf and what was predicted for it")
@@ -317,7 +318,7 @@ func main() {
 			for pos := range work {
 				for rep := 0; rep < max(1, *repeat); rep++ {
 					rec := replay(pos, calcs, cfg, *variant, replayOpts{
-						tau: *tau, tauSchedule: tauSched, tauScale1: *tauScale1, exchangeMode: exchangeMode, measuredPrior: *measPrior, budget: *budget, rounds: *rounds, simIters: *simIters, msMoves: *msMoves, msEqual: *msEqual,
+						tau: *tau, tauSchedule: tauSched, tauScale1: *tauScale1, exchangeMode: exchangeMode, measuredPrior: *measPrior, budget: *budget, rounds: *rounds, simIters: *simIters, msMoves: *msMoves, msEqual: *msEqual, tauMult: *tauMult,
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
@@ -360,6 +361,7 @@ type replayOpts struct {
 	budget, rounds, simIters, maxLeaves, threads int
 	msMoves                                      int
 	msEqual                                      bool
+	tauMult                                      float64
 	trace                                        bool
 	seed                                         uint64
 	seedMode                                     string
@@ -473,6 +475,7 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	}
 	rf.SetMiniSimMoves(o.msMoves)
 	rf.SetMiniSimEqual(o.msEqual)
+	rf.SetTauMultiplier(o.tauMult)
 	rf.SetTracing(o.trace)
 	rf.SetProposalMode(o.proposal)
 	rf.SetExplorationFloor(o.floor)

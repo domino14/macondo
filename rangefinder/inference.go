@@ -241,6 +241,8 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
+	// tauMult multiplies the result on top of every other rule; 0 means 1.
+	tauMult float64
 	// oneTileScale is the default scale PrepareFinder picked for this
 	// position (oneTileTauScale on an early one-tile play, else 1). It
 	// applies only when neither tau nor tauScale was pinned.
@@ -344,8 +346,20 @@ func (r *RangeFinder) SetTau(tau float64) {
 }
 
 // Tau is the softmax temperature in use: the value SetTau pinned, or else
-// the phase schedule for the position PrepareFinder was given.
+// the phase schedule for the position PrepareFinder was given, times any
+// SetTauMultiplier.
 func (r *RangeFinder) Tau() float64 {
+	if r.tauMult != 0 {
+		return r.tauMult * r.baseTau()
+	}
+	return r.baseTau()
+}
+
+// SetTauMultiplier multiplies the temperature on top of everything else,
+// leaving the schedule and the one-tile default in place (experiments).
+func (r *RangeFinder) SetTauMultiplier(m float64) { r.tauMult = m }
+
+func (r *RangeFinder) baseTau() float64 {
 	scale := 1.0
 	if r.tauScale != 0 {
 		scale = r.tauScale
