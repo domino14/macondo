@@ -17,12 +17,11 @@ import (
 	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/movegen/wordprune"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/domino14/word-golib/tilemapping"
@@ -288,7 +287,12 @@ type Solver struct {
 	initialMoves [][]tinymove.SmallMove
 
 	gameCopies []*game.Game
-	movegens   []movegen.MoveGenerator
+	// prunedKWG is the word graph of every word playable in the endgame
+	// being solved, built by MAGPIE; smallBufs are per-thread generation
+	// buffers.
+	prunedKWG *magpie.KWG
+	smallBufs [][]magpie.SmallMove
+	smallOut  [][]tinymove.SmallMove
 
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
@@ -523,6 +527,14 @@ func (s *Solver) ensureArenas() {
 	for i := range s.arenas {
 		s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
 	}
+	// Generation buffers, one per thread, made here: threads must never grow
+	// these slices themselves.
+	s.smallBufs = make([][]magpie.SmallMove, s.threads)
+	s.smallOut = make([][]tinymove.SmallMove, s.threads)
+	for i := range s.smallBufs {
+		s.smallBufs[i] = make([]magpie.SmallMove, maxSmallPlays)
+		s.smallOut[i] = make([]tinymove.SmallMove, 0, 1024)
+	}
 	s.stuckMemo = make([][]stuckEntry, s.threads)
 	for i := range s.stuckMemo {
 		s.stuckMemo[i] = make([]stuckEntry, stuckMemoSize)
@@ -538,17 +550,12 @@ func (s *Solver) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	for i := 0; i < s.threads-1; i++ {
-		s.gameCopies = append(s.gameCopies, s.game.Copy())
-		s.gameCopies[i].SetBackupMode(game.SimulationMode)
-	}
-	s.movegens = []movegen.MoveGenerator{}
-	gaddag := s.stmMovegen.(*movegen.GordonGenerator).GADDAG()
-	for i := 0; i < s.threads-1; i++ {
-		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution())
-		mg.SetSortingParameter(movegen.SortByNone)
-		mg.SetGenPass(true)
-		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
-		s.movegens = append(s.movegens, mg)
+		c := s.game.Copy()
+		c.SetBackupMode(game.SimulationMode)
+		if err := s.magpieGame(c); err != nil {
+			return err
+		}
+		s.gameCopies = append(s.gameCopies, c)
 	}
 	return nil
 }
@@ -561,20 +568,14 @@ func (s *Solver) makeGameCopies() error {
 func (s *Solver) generateSTMPlays(depth, thread int) ([]tinymove.SmallMove, bool) {
 	// STM means side-to-move
 	g := s.game
-	mg := s.stmMovegen
-
 	if thread > 0 {
-		mg = s.movegens[thread-1]
 		g = s.gameCopies[thread-1]
 	}
-
-	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] == depth {
 		return s.initialMoves[thread], false
 	}
 
-	mg.GenAll(stmRack, false)
-	plays := mg.SmallPlays()
+	plays := s.smallPlays(g, thread, -1)
 
 	// Use the arena for recursive (in-search) move generation.
 	// Use make for initial move population (currentIDDepths == -1).
@@ -604,11 +605,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 		g = s.gameCopies[thread-1]
 	}
 	if s.useHeuristics && s.magpieOrdering {
-		mg := s.stmMovegen
-		if thread > 0 {
-			mg = s.movegens[thread-1]
-		}
-		s.assignEstimatesHeuristic(moves, g, mg, thread, ttMove, nodeKey)
+		s.assignEstimatesHeuristic(moves, g, thread, ttMove, nodeKey)
 		return
 	}
 
@@ -667,7 +664,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 // the face value of the tiles played), and, when the opponent has stuck tiles,
 // adds the conservation bonus and the build-chain boost.
 func (s *Solver) assignEstimatesHeuristic(moves []tinymove.SmallMove, g *game.Game,
-	mg movegen.MoveGenerator, thread int, ttMove tinymove.TinyMove, nodeKey uint64) {
+	thread int, ttMove tinymove.TinyMove, nodeKey uint64) {
 
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	pnot := (g.PlayerOnTurn() + 1) % g.NumPlayers()
@@ -676,7 +673,7 @@ func (s *Solver) assignEstimatesHeuristic(moves []tinymove.SmallMove, g *game.Ga
 	ld := g.Bag().LetterDistribution()
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 
-	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
+	frac := s.oppStuckFraction(g, nodeKey, thread)
 	buildValues := s.computeBuildChainValues(moves, g.Board(), frac, thread)
 
 	for idx := range moves {
@@ -1767,11 +1764,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		// Evaluate the state. If the game is still going, play it out greedily
 		// from here; otherwise the spread is already final.
 		if s.useHeuristics && g.Playing() == pb.PlayState_PLAYING {
-			mg := s.stmMovegen
-			if thread > 0 {
-				mg = s.movegens[thread-1]
-			}
-			val := s.greedyPlayout(g, mg, pv, nodeKey, thread)
+			val := s.greedyPlayout(g, pv, nodeKey, thread)
 			if s.transpositionTableOptim && nodeKey != 0 {
 				// Cache the playout, so that revisiting this leaf -- on the next
 				// iterative-deepening pass, in a re-search, or through a
@@ -2030,36 +2023,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
 
-	// Build a pruned KWG containing only words playable in this endgame
-	// position. This shrinks the GADDAG the move generator traverses and
-	// typically cuts solve time by ~20%.
-	if s.prunedKWGOptim {
-		gg := s.stmMovegen.(*movegen.GordonGenerator)
-		origGADDAG := gg.GADDAG()
-		t0 := time.Now()
-		if prunedKWG, err := wordprune.GeneratePrunedKWG(
-			s.game.Board(),
-			s.game.RackFor(0),
-			s.game.RackFor(1),
-			origGADDAG,
-		); err == nil && prunedKWG != nil {
-			gg.SetGADDAG(prunedKWG)
-			defer gg.SetGADDAG(origGADDAG)
-			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
-				origCSGaddag := csg.Gaddag
-				csg.Gaddag = prunedKWG
-				defer func() { csg.Gaddag = origCSGaddag }()
-			}
-			fullNodes := len(origGADDAG.Nodes())
-			prunedNodes := len(prunedKWG.Nodes())
-			log.Info().
-				Int("full-nodes", fullNodes).
-				Int("pruned-nodes", prunedNodes).
-				Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
-				Dur("build-ms", time.Since(t0)).
-				Msg("endgame-using-pruned-kwg")
-		}
+	leave, err := s.enterMagpie()
+	if err != nil {
+		return 0, nil, err
 	}
+	defer leave()
 
 	s.ensureArenas()
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
@@ -2135,7 +2103,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		return err
 	})
 
-	err := g.Wait()
+	err = g.Wait()
 	// Go down tree and find best variation:
 
 	s.principalVariation.MaterializeFull()
@@ -2205,25 +2173,11 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
-	// Build a pruned KWG for this endgame position (same optimisation as Solve).
-	if s.prunedKWGOptim {
-		ggQD := s.stmMovegen.(*movegen.GordonGenerator)
-		origGADDAGQD := ggQD.GADDAG()
-		if prunedKWG, err := wordprune.GeneratePrunedKWG(
-			s.game.Board(),
-			s.game.RackFor(0),
-			s.game.RackFor(1),
-			origGADDAGQD,
-		); err == nil && prunedKWG != nil {
-			ggQD.SetGADDAG(prunedKWG)
-			defer ggQD.SetGADDAG(origGADDAGQD)
-			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
-				origCSGaddag := csg.Gaddag
-				csg.Gaddag = prunedKWG
-				defer func() { csg.Gaddag = origCSGaddag }()
-			}
-		}
+	leave, err := s.enterMagpie()
+	if err != nil {
+		return 0, nil, err
 	}
+	defer leave()
 
 	s.initialSpread = s.game.CurrentSpread()
 	log.Debug().Int("thread", thread).Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())

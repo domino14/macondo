@@ -594,4 +594,5 @@ func BenchmarkVsRoyWithPrunedKWG(b *testing.B) {
 func BenchmarkVsRoyWithoutPrunedKWG(b *testing.B) {
 	benchmarkVsRoy(b, false)
 }
+
 // }

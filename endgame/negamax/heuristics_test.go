@@ -98,12 +98,12 @@ func TestOppStuckFraction(t *testing.T) {
 	// is stuck.
 	s := solverFromCGP(t, stuckEndgameCGP, "CSW19")
 	prepForLeafCall(t, s, 30)
-	is.Equal(s.oppStuckFraction(s.game, s.stmMovegen, 0, 0), float32(1.0))
+	is.Equal(s.oppStuckFraction(s.game, 0, 0), float32(1.0))
 
 	// Nothing is stuck on an open board with common tiles.
 	open := solverFromCGP(t, openEndgameCGP, "CSW19")
 	prepForLeafCall(t, open, 30)
-	is.Equal(open.oppStuckFraction(open.game, open.stmMovegen, 0, 0), float32(0.0))
+	is.Equal(open.oppStuckFraction(open.game, 0, 0), float32(0.0))
 
 	// Now the multi-tile cases. The single-tile cross-set scan cannot settle
 	// these on its own -- a tile with no single-tile play may still play inside
@@ -115,7 +115,7 @@ func TestOppStuckFraction(t *testing.T) {
 	withB.game.RackFor(1).Add(tilemapping.MachineLetter(2)) // B
 	prepForLeafCall(t, withB, 30)
 	is.Equal(withB.game.RackLettersFor(1), "BV")
-	is.Equal(withB.oppStuckFraction(withB.game, withB.stmMovegen, 0, 0), float32(4)/float32(7))
+	is.Equal(withB.oppStuckFraction(withB.game, 0, 0), float32(4)/float32(7))
 
 	// Add an E instead and the V stops being stuck entirely, because it can now
 	// go down as part of a longer word. This is exactly the case the fast scan
@@ -124,7 +124,7 @@ func TestOppStuckFraction(t *testing.T) {
 	withE.game.RackFor(1).Add(tilemapping.MachineLetter(5)) // E
 	prepForLeafCall(t, withE, 30)
 	is.Equal(withE.game.RackLettersFor(1), "EV")
-	is.Equal(withE.oppStuckFraction(withE.game, withE.stmMovegen, 0, 0), float32(0.0))
+	is.Equal(withE.oppStuckFraction(withE.game, 0, 0), float32(0.0))
 }
 
 // TestGreedyPlayoutRestoresState checks that the playout leaves the position
@@ -148,7 +148,7 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	stackRemaining := g.StateStackRemaining()
 
 	var pv PVLine
-	v1 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v1 := s.greedyPlayout(g, &pv, 0, 0)
 
 	is.Equal(bd.SquaresSlice(), squares)
 	is.Equal(bd.CrossSetsForDir(board.HorizontalDirection), hCross)
@@ -163,22 +163,21 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 
 	// Same position, same answer.
-	v2 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v2 := s.greedyPlayout(g, &pv, 0, 0)
 	is.Equal(v1, v2)
 
 	// And playing a move, evaluating, and taking it back must not disturb the
 	// value at the original position either.
-	s.stmMovegen.GenAll(g.RackFor(onTurn), false)
-	plays := slices.Clone(s.stmMovegen.SmallPlays())
+	plays := slices.Clone(s.smallPlays(g, 0, -1))
 	for i := 0; i < len(plays) && i < 10; i++ {
 		_, err := g.PlaySmallMove(&plays[i])
 		is.NoErr(err)
 		if g.Playing() == pb.PlayState_PLAYING {
-			s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+			s.greedyPlayout(g, &pv, 0, 0)
 		}
 		g.UnplayLastMove()
 	}
-	is.Equal(s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0), v1)
+	is.Equal(s.greedyPlayout(g, &pv, 0, 0), v1)
 }
 
 // TestGreedyPlayoutStackBudget checks that the playout respects the backup
@@ -191,20 +190,20 @@ func TestGreedyPlayoutStackBudget(t *testing.T) {
 	g := s.game
 
 	var pv PVLine
-	full := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	full := s.greedyPlayout(g, &pv, 0, 0)
 	is.True(pv.NumMoves() > 0)
 
 	// With no room at all, fall back to the static spread and touch nothing.
 	g.SetStateStackLength(0)
 	is.Equal(g.StateStackRemaining(), 0)
-	static := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	static := s.greedyPlayout(g, &pv, 0, 0)
 	is.Equal(static, int16(g.SpreadFor(g.PlayerOnTurn())))
 	is.Equal(pv.NumMoves(), 0)
 	is.True(static != full)
 
 	// A short stack should still play what it can rather than panic.
 	g.SetStateStackLength(2)
-	short := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	short := s.greedyPlayout(g, &pv, 0, 0)
 	is.True(pv.NumMoves() <= 2)
 	is.Equal(g.StateStackRemaining(), 2)
 	_ = short
@@ -220,7 +219,7 @@ func TestPassPenaltyPreventsDoublePass(t *testing.T) {
 	prepForLeafCall(t, s, 40)
 	g := s.game
 
-	frac := s.oppStuckFraction(g, s.stmMovegen, 0, 0)
+	frac := s.oppStuckFraction(g, 0, 0)
 	is.Equal(frac, float32(1.0))
 
 	// Establish that the penalty is load-bearing here: with the conservation
@@ -229,8 +228,7 @@ func TestPassPenaltyPreventsDoublePass(t *testing.T) {
 	// pass behind them.
 	ld := g.Bag().LetterDistribution()
 	onTurn := g.PlayerOnTurn()
-	s.stmMovegen.GenAll(g.RackFor(onTurn), false)
-	plays := slices.Clone(s.stmMovegen.SmallPlays())
+	plays := slices.Clone(s.smallPlays(g, 0, -1))
 	bestUnpenalized := math.MinInt32
 	for i := range plays {
 		if plays[i].IsPass() {
@@ -245,7 +243,7 @@ func TestPassPenaltyPreventsDoublePass(t *testing.T) {
 	is.True(bestUnpenalized > -passPenalty)
 
 	var pv PVLine
-	v := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v := s.greedyPlayout(g, &pv, 0, 0)
 	t.Logf("greedy playout value %d over %d moves", v, pv.NumMoves())
 	// It plays the rack off instead of passing out immediately.
 	is.True(!pv.tinyMoves[0].IsPass())
@@ -265,8 +263,7 @@ func TestBuildChainValues(t *testing.T) {
 	prepForLeafCall(t, s, 30)
 	g := s.game
 
-	s.stmMovegen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	moves := slices.Clone(s.stmMovegen.SmallPlays())
+	moves := slices.Clone(s.smallPlays(g, 0, -1))
 	is.True(len(moves) > 1)
 
 	// No build chain unless the opponent is stuck.

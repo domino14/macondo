@@ -271,6 +271,20 @@ int MGS(data_write_rit)(const mg_data *d, const char *path, int threads,
   return failed ? -1 : 0;
 }
 
+int MGS(data_write_wmp)(const mg_data *d, const char *path, char *err,
+                        int err_len) {
+  const WMP *wmp = players_data_get_wmp(d->players_data, 0);
+  if (!wmp) {
+    mgs_set_err(err, err_len, "no word map to write");
+    return -1;
+  }
+  ErrorStack *es = error_stack_create();
+  wmp_write_to_file(wmp, path, es);
+  const bool failed = mgs_take_error(es, err, err_len);
+  error_stack_destroy(es);
+  return failed ? -1 : 0;
+}
+
 int MGS(data_has_wmp)(const mg_data *d) {
   return players_data_get_data(d->players_data, PLAYERS_DATA_TYPE_WMP, 0) !=
          NULL;
@@ -664,7 +678,12 @@ static uint64_t mgs_macondo_tiny_move(const Move *m) {
   return code;
 }
 
-int MGS(gen_small)(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap) {
+int MGS(gen_small)(mg_pos *p, int player, int gen_pass, mg_small_move *out,
+                   int out_cap) {
+  const int on_turn = game_get_player_on_turn_index(p->game);
+  if (player >= 0) {
+    game_set_player_on_turn_index(p->game, player);
+  }
   if (!p->small_list || move_list_get_capacity(p->small_list) < out_cap) {
     if (p->small_list) {
       small_move_list_destroy(p->small_list);
@@ -707,7 +726,31 @@ int MGS(gen_small)(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap) {
   if (gen_pass && !have_pass && n < out_cap) {
     out[n++] = (mg_small_move){0, 0, 0, 0};
   }
+  game_set_player_on_turn_index(p->game, on_turn);
   return n;
+}
+
+uint64_t MGS(tiles_played)(mg_pos *p, int player, uint64_t known) {
+  const int on_turn = game_get_player_on_turn_index(p->game);
+  game_set_player_on_turn_index(p->game, player);
+  if (!p->small_list) {
+    p->small_list = move_list_create_small(1);
+  }
+  uint64_t bv = 0;
+  const MoveGenArgs args = {
+      .game = p->game,
+      .move_list = p->small_list,
+      .move_record_type = MOVE_RECORD_TILES_PLAYED,
+      .move_sort_type = MOVE_SORT_SCORE,
+      .override_kwg = p->override_kwg,
+      .target_equity = EQUITY_MAX_VALUE,
+      .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
+      .tiles_played_bv = &bv,
+      .initial_tiles_bv = known,
+  };
+  generate_moves(&args);
+  game_set_player_on_turn_index(p->game, on_turn);
+  return bv;
 }
 
 // Decodes a Macondo TinyMove against the board into a Move: placed tiles go

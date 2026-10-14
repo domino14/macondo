@@ -82,6 +82,10 @@ typedef struct mg_kwg mg_kwg;
                         char *err, int err_len);                               \
   void P##data_destroy(mg_data *d);                                            \
   int P##data_has_wmp(const mg_data *d);                                       \
+  /* Writes the data's word map to path. Returns 0, or -1 with a message in   \
+   * err. */                                                                  \
+  int P##data_write_wmp(const mg_data *d, const char *path, char *err,         \
+                        int err_len);                                          \
   /* Leave value of the multiset, in millipoints (0 with no leaves). */      \
   int32_t P##data_leave_value(const mg_data *d, const uint8_t *tiles, int n);  \
                                                                                \
@@ -139,9 +143,14 @@ typedef struct mg_kwg mg_kwg;
   void P##pos_read_racks(const mg_pos *p, uint8_t *counts0, uint8_t *counts1,  \
                          int *bag_count);                                      \
                                                                                \
-  /* Endgame: every play for the player on turn, as small moves, with the     \
-   * position's override word graph if set. Includes a pass if gen_pass. */   \
-  int P##gen_small(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap);  \
+  /* Endgame: every play for player (-1 for the player on turn), as small     \
+   * moves, with the position's override word graph if set. Includes a pass  \
+   * if gen_pass. */                                                          \
+  int P##gen_small(mg_pos *p, int player, int gen_pass, mg_small_move *out,    \
+                   int out_cap);                                               \
+  /* The tiles player can play somewhere, as a bit per machine letter, ORed   \
+   * into known (it stops once every rack tile is known playable). */         \
+  uint64_t P##tiles_played(mg_pos *p, int player, uint64_t known);             \
   /* Plays a small move scoring score points (bag empty) with an incremental  \
    * undo, writing the move's tiles into strip (0 for a played-through        \
    * square). Returns the play length, or -1 if it does not fit the board. */ \
