@@ -35,3 +35,4 @@ data/strategy/default/models-bak*
 *.bin
 *.dat
 *.gcg
+/build/
