@@ -22,7 +22,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/domino14/macondo/zobrist"
@@ -32,10 +31,10 @@ import (
 // nestedOurTurnSolve is entered. The result is a pure function of this state
 // (given fixed solver config), so we can memoize it.
 type nestedCacheKey struct {
-	board          uint64                               // board-only Zobrist hash
-	ourRack        [zobrist.MaxLetters]uint8            // Rack.LetArr narrowed to uint8
-	unseen         [tilemapping.MaxAlphabetSize]uint8   // bag.Peek() ∪ opp.rack multiset
-	scorelessTurns uint8                                // 0 or 1 in practice (2 ends the game)
+	board          uint64                             // board-only Zobrist hash
+	ourRack        [zobrist.MaxLetters]uint8          // Rack.LetArr narrowed to uint8
+	unseen         [tilemapping.MaxAlphabetSize]uint8 // bag.Peek() ∪ opp.rack multiset
+	scorelessTurns uint8                              // 0 or 1 in practice (2 ends the game)
 }
 
 // nestedCache is a shared, thread-safe memo table for nestedOurTurnSolve
@@ -219,69 +218,69 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 					cr = float64(ch) / float64(ch+cm)
 				}
 				nestedByBagSize := make(map[int]uint64)
-					for i := 1; i <= InBagMaxLimit; i++ {
-						if n := s.numNestedByBagSize[i].Load(); n > 0 {
-							nestedByBagSize[i] = n
-						}
+				for i := 1; i <= InBagMaxLimit; i++ {
+					if n := s.numNestedByBagSize[i].Load(); n > 0 {
+						nestedByBagSize[i] = n
 					}
-					now := time.Now()
-					s.inFlightMu.RLock()
-					type permSnapshot struct {
-						Play           string  `json:"play"`
-						PermInBag      string  `json:"perm_in_bag"`
-						OppRack        string  `json:"opp_rack"`
-						OurRack        string  `json:"our_rack"`
-						ElapsedS       float64 `json:"elapsed_s"`
-						EndgamesOnPerm uint64  `json:"endgames_on_perm"`
-						NestedBagSize  int32   `json:"nested_bag_size,omitempty"`
+				}
+				now := time.Now()
+				s.inFlightMu.RLock()
+				type permSnapshot struct {
+					Play           string  `json:"play"`
+					PermInBag      string  `json:"perm_in_bag"`
+					OppRack        string  `json:"opp_rack"`
+					OurRack        string  `json:"our_rack"`
+					ElapsedS       float64 `json:"elapsed_s"`
+					EndgamesOnPerm uint64  `json:"endgames_on_perm"`
+					NestedBagSize  int32   `json:"nested_bag_size,omitempty"`
+				}
+				curEndgames := s.numEndgamesSolved.Load()
+				inFlight := make([]permSnapshot, 0, s.threads)
+				for t := 0; t < s.threads; t++ {
+					p := s.inFlightPerms[t]
+					if len(p.permInBag) == 0 {
+						continue
 					}
-					curEndgames := s.numEndgamesSolved.Load()
-					inFlight := make([]permSnapshot, 0, s.threads)
-					for t := 0; t < s.threads; t++ {
-						p := s.inFlightPerms[t]
-						if len(p.permInBag) == 0 {
-							continue
-						}
-						threadNow := s.threadEndgamesSolved[t].Load()
-						var permEndgames uint64
-						if threadNow >= p.endgamesAtStart {
-							permEndgames = threadNow - p.endgamesAtStart
-						}
-						// Compute display strings lazily here in the ticker (every 60s),
-						// not in the hot per-perm path.
-						inFlight = append(inFlight, permSnapshot{
-							Play:           p.play,
-							PermInBag:      tilemapping.MachineWord(p.permInBag).UserVisible(p.alphabet),
-							OppRack:        tilemapping.MachineWord(p.oppRack[:p.oppRackLen]).UserVisible(p.alphabet),
-							OurRack:        tilemapping.MachineWord(p.ourRack[:p.ourRackLen]).UserVisible(p.alphabet),
-							ElapsedS:       now.Sub(p.startedAt).Seconds(),
-							EndgamesOnPerm: permEndgames,
-							NestedBagSize:  s.threadNestedBagSize[t].Load(),
-						})
+					threadNow := s.threadEndgamesSolved[t].Load()
+					var permEndgames uint64
+					if threadNow >= p.endgamesAtStart {
+						permEndgames = threadNow - p.endgamesAtStart
 					}
-					s.inFlightMu.RUnlock()
-					total := s.totalPerms.Load()
-					done := processed.Load()
-					remaining := uint32(0)
-					if total > done {
-						remaining = total - done
-					}
-					log.Info().
-						Uint32("processed", done).
-						Uint32("total", total).
-						Uint32("remaining", remaining).
-						Uint64("endgames-solved", curEndgames).
-						Uint64("cutoffs", s.numCutoffs.Load()).
-						Uint64("nested-calls", s.numNestedCalls.Load()).
-						Uint64("max-nested-depth", s.maxNestedDepth.Load()).
-						Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
-						Uint64("nested-cache-hits", ch).
-						Uint64("nested-cache-misses", cm).
-						Float64("nested-cache-hit-rate", cr).
-						Int("nested-cache-size", s.nestedCache.size()).
-						Interface("nested-calls-by-bag-size", nestedByBagSize).
-						Interface("in-flight", inFlight).
-						Msg("peg-status")
+					// Compute display strings lazily here in the ticker (every 60s),
+					// not in the hot per-perm path.
+					inFlight = append(inFlight, permSnapshot{
+						Play:           p.play,
+						PermInBag:      tilemapping.MachineWord(p.permInBag).UserVisible(p.alphabet),
+						OppRack:        tilemapping.MachineWord(p.oppRack[:p.oppRackLen]).UserVisible(p.alphabet),
+						OurRack:        tilemapping.MachineWord(p.ourRack[:p.ourRackLen]).UserVisible(p.alphabet),
+						ElapsedS:       now.Sub(p.startedAt).Seconds(),
+						EndgamesOnPerm: permEndgames,
+						NestedBagSize:  s.threadNestedBagSize[t].Load(),
+					})
+				}
+				s.inFlightMu.RUnlock()
+				total := s.totalPerms.Load()
+				done := processed.Load()
+				remaining := uint32(0)
+				if total > done {
+					remaining = total - done
+				}
+				log.Info().
+					Uint32("processed", done).
+					Uint32("total", total).
+					Uint32("remaining", remaining).
+					Uint64("endgames-solved", curEndgames).
+					Uint64("cutoffs", s.numCutoffs.Load()).
+					Uint64("nested-calls", s.numNestedCalls.Load()).
+					Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+					Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+					Uint64("nested-cache-hits", ch).
+					Uint64("nested-cache-misses", cm).
+					Float64("nested-cache-hit-rate", cr).
+					Int("nested-cache-size", s.nestedCache.size()).
+					Interface("nested-calls-by-bag-size", nestedByBagSize).
+					Interface("in-flight", inFlight).
+					Msg("peg-status")
 			}
 		}
 	}()
@@ -378,8 +377,6 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 	permutations := generatePermutations(maybeInBagTiles, s.numinbag)
 	g0 := s.endgameSolvers[0].Game()
-	mg0 := s.endgameSolvers[0].Movegen()
-	mg0.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 	snap := snapshotPEGState(g0)
 
 	result := make([][]option, len(s.plays))
@@ -395,10 +392,7 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 			MoveTilesToBeginning(tiles, g0.Bag())
 			if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
 				if err := g0.PlayMove(p.Play, false, 0); err == nil {
-					mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
-					if len(mg0.Plays()) > 0 {
-						opt.oppEstimate = float64(mg0.Plays()[0].Equity())
-					}
+					opt.oppEstimate = topScoreFor(g0, g0.PlayerOnTurn())
 					g0.UnplayLastMove()
 				}
 			}
@@ -414,7 +408,6 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 	}
 
 	snap.restore(g0)
-	mg0.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 	return result
 }
 
@@ -723,7 +716,6 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
 
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
 	if s.logStream != nil {
@@ -736,8 +728,6 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 	if s.maxTilesLeft >= 0 && tilesLeftAfterPlay > s.maxTilesLeft && len(s.solveOnlyMoves) == 0 {
 		return nil
 	}
-
-	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
 	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 	MoveTilesToBeginning(j.opt.mls, g.Bag())
@@ -794,10 +784,8 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
 
 	options := []option{}
-	mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
 	tilesLeftAfterPlay := s.numinbag - j.ourMove.Play.TilesPlayed()
@@ -820,10 +808,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			MoveTilesToBeginning(tiles, g.Bag())
 			if _, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil); err == nil {
 				if err := g.PlayMove(j.ourMove.Play, false, 0); err == nil {
-					mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-					if len(mg.Plays()) > 0 {
-						topEquity = mg.Plays()[0].Equity()
-					}
+					topEquity = topScoreFor(g, g.PlayerOnTurn())
 					g.UnplayLastMove()
 				}
 			}
@@ -839,8 +824,6 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			return options[i].oppEstimate > options[j].oppEstimate
 		})
 	}
-
-	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
 	for idx := range options {
 		options[idx].idx = idx
@@ -1127,9 +1110,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 // previous move was also a pass).
 func (s *Solver) allocSortedReplies(thread int, prevMove tinymove.SmallMove) []tinymove.SmallMove {
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
-	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	plays := mg.SmallPlays()
+	plays := s.endgameSolvers[thread].SmallPlays(g, -1)
 	genPlays := s.arenas[thread].Alloc(len(plays))
 	copy(genPlays, plays)
 	for idx := range genPlays {
@@ -1239,7 +1220,6 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	}
 
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
 
 	// Capture the caller's actual bag ordering before any reshuffling.
 	// This is the key into the per-bag verdict map for this call.
@@ -1304,7 +1284,6 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			est float64
 		}
 		spe := make([]spWithEst, len(subPerms))
-		mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 		for i, sp := range subPerms {
 			tiles := make([]tilemapping.MachineLetter, len(sp.Perm))
 			for j, el := range sp.Perm {
@@ -1314,10 +1293,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			g.ThrowRacksInFor(opp)
 			MoveTilesToBeginning(tiles, g.Bag())
 			if _, err := g.SetRandomRack(opp, nil); err == nil {
-				mg.GenAll(g.RackFor(opp), false)
-				if plays := mg.Plays(); len(plays) > 0 {
-					spe[i].est = plays[0].Equity()
-				}
+				spe[i].est = topScoreFor(g, opp)
 			}
 		}
 		snap.restore(g)
@@ -1325,16 +1301,13 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		for i := range spe {
 			subPerms[i] = spe[i].sp
 		}
-		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 	}
 
-	if s.skipDeepPass {
-		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
-		mg.SetGenPass(lastMoveWasPass)
-		defer mg.SetGenPass(true)
+	ourPlays := s.endgameSolvers[thread].SmallPlays(g, -1)
+	if s.skipDeepPass && g.ScorelessTurns() <= g.LastScorelessTurns() {
+		// Only consider passing right after a pass.
+		ourPlays = slices.DeleteFunc(ourPlays, func(m tinymove.SmallMove) bool { return m.IsPass() })
 	}
-	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	ourPlays := mg.SmallPlays()
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))

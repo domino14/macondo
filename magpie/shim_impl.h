@@ -501,7 +501,7 @@ int MGS(gen)(mg_pos *p, int record, int sort, int32_t margin, mg_move *out,
       .move_list = ml,
       .move_record_type = (move_record_t)record,
       .move_sort_type = (move_sort_t)sort,
-      .override_kwg = NULL,
+      .override_kwg = p->override_kwg,
       .eq_margin_movegen = margin,
       .target_equity = EQUITY_MAX_VALUE,
       .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
@@ -884,6 +884,9 @@ mg_kwg *MGS(pos_pruned_kwg)(const mg_pos *p) {
 void MGS(kwg_destroy)(mg_kwg *k) { kwg_destroy((KWG *)k); }
 
 void MGS(pos_set_override_kwg)(mg_pos *p, const mg_kwg *k) {
+  if (p->override_kwg == (const KWG *)k) {
+    return;
+  }
   p->override_kwg = (const KWG *)k;
   if (k) {
     game_set_override_kwgs(p->game, (const KWG *)k, (const KWG *)k,

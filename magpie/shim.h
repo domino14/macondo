@@ -167,7 +167,8 @@ typedef struct mg_kwg mg_kwg;
   mg_kwg *P##pos_pruned_kwg(const mg_pos *p);                                  \
   void P##kwg_destroy(mg_kwg *k);                                              \
   /* Generates (and builds cross-sets) from k instead of the full word graph; \
-   * NULL goes back to the full one. k must outlive its use. */               \
+   * NULL goes back to the full one. k must outlive its use. Setting the      \
+   * graph already in use does nothing. */                                    \
   void P##pos_set_override_kwg(mg_pos *p, const mg_kwg *k);
 
 MG_DECLARE_API(mgs15_)
