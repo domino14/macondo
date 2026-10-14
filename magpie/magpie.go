@@ -349,6 +349,36 @@ func (p *Position) Set(s State) error {
 	if len(s.Squares) != dim*dim {
 		return fmt.Errorf("magpie: %d squares for a %dx%d board", len(s.Squares), dim, dim)
 	}
+	// MAGPIE aborts on a tile count the distribution can't hold, so check
+	// here.
+	dist := p.data.dist.Distribution()
+	counts := make([]int, len(dist))
+	count := func(t tilemapping.MachineLetter) error {
+		if t.IsBlanked() {
+			t = 0
+		}
+		if int(t) >= len(dist) {
+			return fmt.Errorf("magpie: tile %d is outside the distribution", t)
+		}
+		counts[t]++
+		if counts[t] > int(dist[t]) {
+			return fmt.Errorf("magpie: more of tile %d than the distribution has", t)
+		}
+		return nil
+	}
+	for _, w := range [][]tilemapping.MachineLetter{s.Squares, s.Racks[0], s.Racks[1], s.Bag} {
+		for _, t := range w {
+			if t == 0 && &w[0] == &s.Squares[0] {
+				continue // an empty square
+			}
+			if err := count(t); err != nil {
+				return err
+			}
+		}
+	}
+	if len(s.Racks[0]) > 7 || len(s.Racks[1]) > 7 {
+		return errors.New("magpie: a rack holds more than 7 tiles")
+	}
 	var errbuf [256]C.char
 	sq, bag := bytesPtr(s.Squares), bytesPtr(s.Bag)
 	r0, r1 := bytesPtr(s.Racks[0]), bytesPtr(s.Racks[1])
