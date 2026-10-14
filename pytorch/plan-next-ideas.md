@@ -16,6 +16,10 @@ Tries 1 and 2 (listwise loss over all 50 candidates) lowered the ranking
 loss without raising top-pick agreement. With all 1.32M labels: a loss on
 the top of the list only (cross-entropy over the sim's top 3-5, or pairwise
 best-vs-each weighted by gap / SE). Details in plan-sim-distill.md.
+Built 10/14: trainer `--rank-loss topk|pair` (`--rank-k`), groups
+~/data/simdistill/groups-top16.bin (1.26M, top 16 each). Ready to run after
+the GPU swap: `queue-simft3.sh` (pair) then `queue-simft4.sh` (topk, k 4),
+each 10k steps from streamopen + 100k pairs vs HastyBot.
 Cost: ~1 h to build groups, ~5 h fine-tune, ~3.5 h match.
 
 ## Batch 2: more spatial heads  (each ~1 day training + match)

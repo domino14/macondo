@@ -146,32 +146,59 @@ class SimGroups:
         return board, scal, spans, [w.to(device) for w in wins]
 
 
-def rank_loss(pred, spans, wins, tau):
-    """Listwise ranking loss over each group's candidates: cross-entropy from
-    the sim's target distribution to softmax(net win % / tau), where the net's
-    win % is 50 (v + 1), v = P(win) - P(loss) from the WDL head.
+def rank_loss(pred, spans, wins, tau, kind="list", k=4):
+    """Ranking loss over each group's candidates, on the net's win % 50 (v + 1),
+    v = P(win) - P(loss) from the WDL head. Three kinds:
 
-    The target weights candidate i by exp(-d_i / tau_i): d_i is its sim win %
-    below the sim's best, and tau_i = sqrt(tau^2 + (100 SE_i)^2) widens the
-    temperature by its standard error, so a gap the sim measured poorly (a
-    candidate pruned after a few hundred iterations) counts for less. Also
-    returns, per group, whether the net's top candidate is the sim's, and the
-    sim win percentage the net's pick gives up."""
+    list: cross-entropy from the sim's target distribution to softmax(net
+    win % / tau) over all candidates. The target weights candidate i by
+    exp(-d_i / tau_i): d_i is its sim win % below the sim's best, and
+    tau_i = sqrt(tau^2 + (100 SE_i)^2) widens the temperature by its
+    standard error, so a gap the sim measured poorly (a candidate pruned
+    after a few hundred iterations) counts for less.
+
+    topk: the same target with all its mass on the sim's top k, against the
+    student's softmax over all candidates: only the top of the list is
+    ordered; the rest just has to stay below it.
+
+    pair: the sim's best against each other candidate, a logistic loss on
+    (net win % of best - net win % of other) / tau, each pair weighted by
+    how clearly the sim separated them: gap / combined SE, full weight from
+    2 SE (coin-flip pairs count little). Groups with no separated pair add
+    nothing.
+
+    Also returns, per group, whether the net's top candidate is the sim's,
+    and the sim win percentage the net's pick gives up."""
     p = torch.softmax(pred["wdl"].float(), dim=1)
     v = p[:, 2] - p[:, 0]
     losses, agree, regret = [], [], []
     for (s, n), ws in zip(spans, wins):
         w, se = ws[0], ws[1]
-        student = (50 * (v[s : s + n] + 1)) / tau
-        teacher = torch.softmax(-(100 * (w.max() - w)) / torch.sqrt(tau**2 + (100 * se) ** 2), dim=0)
-        losses.append(-(teacher * torch.log_softmax(student, dim=0)).sum())
-        k = int(torch.argmax(v[s : s + n]))
-        agree.append(float(k == int(torch.argmax(w))))
-        regret.append(float(100 * (w.max() - w[k])))
-    return torch.stack(losses).mean(), float(np.mean(agree)), float(np.mean(regret))
+        pct = 50 * (v[s : s + n] + 1)
+        b = int(torch.argmax(w))
+        if kind == "pair":
+            sep = (w[b] - w) / torch.sqrt(se[b] ** 2 + se**2).clamp_min(1e-4)
+            wt = (sep / 2).clamp(0, 1)
+            wt[b] = 0
+            if float(wt.sum()) > 0:
+                losses.append((wt * F.softplus(-(pct[b] - pct) / tau)).sum() / wt.sum())
+        else:
+            logits = -(100 * (w.max() - w)) / torch.sqrt(tau**2 + (100 * se) ** 2)
+            if kind == "topk" and n > k:
+                keep = torch.zeros_like(w, dtype=torch.bool)
+                keep[torch.topk(w, k).indices] = True
+                logits = logits.masked_fill(~keep, float("-inf"))
+            teacher = torch.softmax(logits, dim=0)
+            ls = torch.log_softmax(pct / tau, dim=0)
+            losses.append(-(teacher * ls.masked_fill(teacher == 0, 0)).sum())
+        j = int(torch.argmax(v[s : s + n]))
+        agree.append(float(j == b))
+        regret.append(float(100 * (w.max() - w[j])))
+    loss = torch.stack(losses).mean() if losses else v.sum() * 0
+    return loss, float(np.mean(agree)), float(np.mean(regret))
 
 
-def rank_grad_norm(net, groups, idx, device, tau):
+def rank_grad_norm(net, groups, idx, device, tau, kind="list", k=4):
     """L2 norm of d(ranking loss)/d(trunk params) on the given groups, fp32."""
     trunk = [p for n, p in net.named_parameters() if not n.startswith("heads")]
     was = net.training
@@ -182,7 +209,7 @@ def rank_grad_norm(net, groups, idx, device, tau):
     chunks = [idx[i : i + 2] for i in range(0, len(idx), 2)]
     for c in chunks:
         board, scal, spans, wins = groups.batch(c, device)
-        loss, _, _ = rank_loss(net(board, scal), spans, wins, tau)
+        loss, _, _ = rank_loss(net(board, scal), spans, wins, tau, kind, k)
         g = torch.autograd.grad(loss, trunk, allow_unused=True)
         for t, x in zip(total, g):
             if x is not None:
@@ -193,7 +220,7 @@ def rank_grad_norm(net, groups, idx, device, tau):
 
 
 @torch.no_grad()
-def validate_groups(net, groups, device, tau, amp_dtype, chunk=8):
+def validate_groups(net, groups, device, tau, amp_dtype, chunk=8, kind="list", k=4):
     net.eval()
     tot, ag, rg, n = 0.0, 0.0, 0.0, 0
     for a in range(0, len(groups), chunk):
@@ -201,7 +228,7 @@ def validate_groups(net, groups, device, tau, amp_dtype, chunk=8):
         board, scal, spans, wins = groups.batch(idx, device)
         with autocast(device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))):
             pred = net(board, scal)
-        l, agree, regret = rank_loss(pred, spans, wins, tau)
+        l, agree, regret = rank_loss(pred, spans, wins, tau, kind, k)
         tot += float(l) * len(idx); ag += agree * len(idx); rg += regret * len(idx); n += len(idx)
     net.train()
     return tot / n, ag / n, rg / n
@@ -628,6 +655,14 @@ def parse_args(argv=None):
         "re-measured at every validation (overrides --rank-weight)",
     )
     p.add_argument(
+        "--rank-loss",
+        choices=["list", "topk", "pair"],
+        default="list",
+        help="ranking loss: list (all candidates), topk (target on the sim's top --rank-k only), "
+        "pair (sim's best vs each other, weighted by gap / SE)",
+    )
+    p.add_argument("--rank-k", type=int, default=4, help="topk: how many of the sim's best carry the target")
+    p.add_argument(
         "--rank-tau",
         type=float,
         default=2.0,
@@ -980,7 +1015,7 @@ def main():
     def balance_rank(gn_wdl):
         if not (sim_groups and args.rank_share > 0):
             return
-        g = rank_grad_norm(raw_net, sim_groups, rank_diag, device, args.rank_tau)
+        g = rank_grad_norm(raw_net, sim_groups, rank_diag, device, args.rank_tau, args.rank_loss, args.rank_k)
         args.rank_weight = args.rank_share * gn_wdl * args.weights["wdl"] / max(g, 1e-9)
         print(f"         rank weight {args.rank_weight:.4g} (trunk grad: rank {g:.4g}, wdl {gn_wdl:.4g})", file=sys.stderr)
     rank_run = {"loss": 0.0, "agree": 0.0, "regret": 0.0, "n": 0}
@@ -989,7 +1024,7 @@ def main():
         rank_csv = open(args.csv + ".rank.csv", "w", newline="")
         rank_csv.write("step,train_rank,train_agree,train_regret,val_rank,val_agree,val_regret\n")
         if sim_val:
-            vl, va, vr = validate_groups(raw_net, sim_val, device, args.rank_tau, amp_dtype)
+            vl, va, vr = validate_groups(raw_net, sim_val, device, args.rank_tau, amp_dtype, kind=args.rank_loss, k=args.rank_k)
             print(f"      0  sim groups held out: rank loss {vl:.4f}  net pick = sim pick {100*va:.1f}%  "
                   f"sim win given up {vr:.2f} pts", file=sys.stderr)
             rank_csv.write(f"0,,,,{vl:.6f},{va:.6f},{vr:.6f}\n"); rank_csv.flush()
@@ -1086,7 +1121,7 @@ def main():
                     if sim_groups is not None and args.groups_per_micro > 0:
                         gi = rank_rng.integers(0, len(sim_groups), args.groups_per_micro)
                         gb, gs, spans, wins = sim_groups.batch(gi, device)
-                        rl, ra, rr = rank_loss(net(gb, gs), spans, wins, args.rank_tau)
+                        rl, ra, rr = rank_loss(net(gb, gs), spans, wins, args.rank_tau, args.rank_loss, args.rank_k)
                         loss = loss + args.rank_weight * rl
                         rank_run["loss"] += float(rl.detach()); rank_run["agree"] += ra
                         rank_run["regret"] += rr; rank_run["n"] += 1
@@ -1160,7 +1195,7 @@ def main():
                         rank_run = {"loss": 0.0, "agree": 0.0, "regret": 0.0, "n": 0}
                         vl = va = vr = float("nan")
                         if sim_val:
-                            vl, va, vr = validate_groups(net, sim_val, device, args.rank_tau, amp_dtype)
+                            vl, va, vr = validate_groups(net, sim_val, device, args.rank_tau, amp_dtype, kind=args.rank_loss, k=args.rank_k)
                         print(f"         sim groups: train rank {tl:.4f} agree {100*ta:.1f}%  |  held out rank {vl:.4f}  "
                               f"net pick = sim pick {100*va:.1f}%  sim win given up {vr:.2f} pts")
                         rank_csv.write(f"{step},{tl:.6f},{ta:.6f},{tr:.6f},{vl:.6f},{va:.6f},{vr:.6f}\n")
