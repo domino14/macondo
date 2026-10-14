@@ -2288,7 +2288,6 @@ func (sc *ShellController) runBaselineSim(params simParams) ([]montecarlo.Candid
 	}
 	baseline := &montecarlo.Simmer{}
 	baseline.Init(sc.game.Game, []equity.EquityCalculator{calc}, calc, sc.config)
-	baseline.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 
 	params.inferMode = montecarlo.InferenceOff
 	if err := sc.setSimmerParams(baseline, params); err != nil {

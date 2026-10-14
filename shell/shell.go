@@ -21,7 +21,6 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/domino14/word-golib/cache"
 	wglconfig "github.com/domino14/word-golib/config"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
@@ -43,7 +42,6 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
@@ -175,8 +173,6 @@ type ShellController struct {
 	gameRunnerTicker  *time.Ticker
 
 	curTurnNum       int
-	gen              movegen.MoveGenerator
-	backupgen        movegen.MoveGenerator // used for endgame engine
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
@@ -518,23 +514,6 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-	// WMP is wired into the simmer only. The interactive `gen` /
-	// `best` / endgame paths use sc.gen (and sc.backupgen below),
-	// which deliberately do NOT get a WMP — those code paths need
-	// the full enumeration that AllPlaysRecorder / endgame solvers
-	// rely on, and WMP's win is only in the shadow + best-first
-	// rollout loop that Monte Carlo sim drives. The TopN equivalence
-	// test (montecarlo/wmp_equivalence_test.go) covers the sim path
-	// only; mirror this constraint if WMP is ever extended elsewhere.
-	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
-	sc.gen = sc.game.MoveGenerator()
-
-	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
-		return err
-	}
-
-	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
@@ -730,8 +709,6 @@ func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
 		return nil, err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
-	sc.gen = sc.game.MoveGenerator()
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)

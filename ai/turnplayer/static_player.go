@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/samber/lo"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -27,7 +25,6 @@ type AIStaticTurnPlayer struct {
 	calculators []equity.EquityCalculator
 	eval        staticEval
 
-	gen movegen.MoveGenerator
 	cfg *config.Config
 }
 
@@ -54,20 +51,7 @@ func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculator
 }
 
 func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
-	gd, err := kwg.GetKWG(conf.WGLConfig(), p.LexiconName(), kwg.WithDistribution(p.Rules().LetterDistributionName()))
-	if err != nil {
-		return nil, err
-	}
-	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution())
-	if game.IsWordSmog(p.Rules().Variant()) {
-		gen.SetWordSmog(p.Rules().AlphaDawg())
-	}
-	gen.SetEquityCalculators(calculators)
-	// The top-N recorder computes equity inline and needs the game for bag and
-	// opponent-rack state. Callers that swap in their own game copy (the
-	// simmer, the autoplay runner) still override this afterwards.
-	gen.SetGame(p.Game)
-	ret := &AIStaticTurnPlayer{*p, calculators, staticEvalFor(calculators), gen, conf}
+	ret := &AIStaticTurnPlayer{*p, calculators, staticEvalFor(calculators), conf}
 	return ret, nil
 }
 
@@ -121,10 +105,6 @@ func (p *AIStaticTurnPlayer) GenerateMovesFor(g *game.Game, numPlays int) []*mov
 		panic(err)
 	}
 	return plays
-}
-
-func (p *AIStaticTurnPlayer) MoveGenerator() movegen.MoveGenerator {
-	return p.gen
 }
 
 func (p *AIStaticTurnPlayer) Calculators() []equity.EquityCalculator {

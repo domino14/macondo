@@ -9,7 +9,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
@@ -90,8 +89,6 @@ func TestStochasticTurn(t *testing.T) {
 	runner.StartGame(0)
 	// this rack has so much equity that the player might pass/exchange.
 	runner.game.SetRackFor(0, tilemapping.RackFromString("ADFGHIJ", runner.alphabet))
-	runner.aiplayers[0].MoveGenerator().(*movegen.GordonGenerator).SetRecordNTopPlays(2)
-	runner.aiplayers[0].MoveGenerator().(*movegen.GordonGenerator).SetGame(runner.game)
 	plays := map[string]int{}
 	for i := 0; i < 10000; i++ {
 		bestPlay := runner.genStochasticStaticTurn(0)

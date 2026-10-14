@@ -105,7 +105,6 @@ func BenchmarkSim(b *testing.B) {
 	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
-	simmer.TryLoadWMP(game.Config().WGLConfig(), game.LexiconName())
 	log.Debug().Msg("About to start")
 	runtime.MemProfileRate = 1
 	zerolog.SetGlobalLevel(zerolog.Disabled)

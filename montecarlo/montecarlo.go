@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/domino14/word-golib/cache"
-	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -35,9 +34,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 /*
@@ -341,8 +338,6 @@ type Simmer struct {
 	// the moment the two bots simmed for different lengths.
 	rngs []*frand.RNG
 
-	wmp *wmppkg.WMP
-
 	// The sim's best-arm identification (see bai_sim.go). arms is the plays
 	// in the order the runners number them, which sorting the plays for
 	// display does not change.
@@ -397,9 +392,6 @@ func (s *Simmer) Threads() int {
 func (s *Simmer) SetStochasticStaticEval(j bool) {
 	log.Debug().Msg("set stochastic static evaluator for this bot")
 	s.stochasticStaticEval = j
-	for i := range s.aiplayers {
-		s.aiplayers[i].MoveGenerator().(*movegen.GordonGenerator).SetRecordNTopPlays(2)
-	}
 }
 
 func (s *Simmer) CleanupTempFile() {
@@ -549,43 +541,6 @@ func (s *Simmer) SetInferences(racks []InferredRack, rackLength int, mode Infere
 	}
 }
 
-// SetWMP wires a WMP into every per-thread move generator that the simmer
-// creates in makeGameCopies. Call this once after Init; the WMP is
-// re-applied automatically on each subsequent PrepareSim call.
-// Pass nil to disable WMP.
-func (s *Simmer) SetWMP(w *wmppkg.WMP) {
-	s.wmp = w
-}
-
-// WMP returns the WMP wired into this simmer, or nil if it is running on
-// the KWG algorithm. A caller that sims in a loop can read the answer back
-// once and re-apply it with SetWMP rather than asking TryLoadWMP again.
-func (s *Simmer) WMP() *wmppkg.WMP {
-	return s.wmp
-}
-
-// TryLoadWMP loads the WMP for lexiconName from the global object cache and
-// wires it into this simmer. If the WMP is unavailable for any reason the
-// simmer falls back to the KWG algorithm.
-//
-// This asks the word map cache, which takes a process-global lock and logs
-// the answer, so it belongs on a per-sim path and not a per-iteration one.
-func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
-	if s.origGame.Board().Dim() != 15 {
-		log.Info().Int("boardDim", s.origGame.Board().Dim()).
-			Msg("WMP disabled for non-standard board; using KWG algorithm")
-		return
-	}
-	w, err := wmppkg.EnsureWMP(cfg, lexiconName)
-	if err != nil {
-		log.Info().Err(err).Str("lexicon", lexiconName).
-			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
-		return
-	}
-	log.Debug().Str("lexicon", lexiconName).Msg("WMP loaded; sim will use faster word map structure")
-	s.SetWMP(w)
-}
-
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
@@ -619,12 +574,6 @@ func (s *Simmer) makeGameCopies() error {
 		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
 		if err != nil {
 			return err
-		}
-		// not ideal, but refactor later. The play recorder needs it.
-		gen := player.MoveGenerator().(*movegen.GordonGenerator)
-		gen.SetGame(s.gameCopies[i])
-		if s.wmp != nil {
-			gen.SetWMP(s.wmp)
 		}
 		s.aiplayers = append(s.aiplayers, player)
 	}
