@@ -294,13 +294,15 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 	}
 	spread := g.SpreadFor(s.initialPlayer)
 	simmedPlay.addEquityStat(s.initialSpread, spread, leftover)
+	onTurn := g.PlayerOnTurn()
 	winProb := simmedPlay.addWinPctStat(
 		spread,
 		leftover,
 		g.Playing() == pb.PlayState_GAME_OVER,
 		s.winPcts,
-		// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-		g.Bag().TilesRemaining()+int(g.RackFor(1-s.initialPlayer).NumTiles()),
+		g.Bag().TilesRemaining(),
+		int(g.RackFor(onTurn).NumTiles()),
+		int(g.RackFor(1-onTurn).NumTiles()),
 		plies%2 == 0,
 	)
 	g.ResetToFirstState()

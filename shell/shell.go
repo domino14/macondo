@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
-	"github.com/domino14/word-golib/cache"
 	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
@@ -193,7 +192,6 @@ type ShellController struct {
 	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
 
 	simStats *stats.SimStats
-	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	// Variation tree for exploring different lines of play
 	variationRoot    *VariationNode // Root of the variation tree (initial game position)
@@ -293,17 +291,6 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	// fix hardcoding later
-	winpct, err := cache.Load(cfg.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
-	if err != nil {
-		panic(err)
-	}
-	var ok bool
-	winPcts, ok := winpct.([][]float32)
-	if !ok {
-		panic("win percentages not correct type")
-	}
-
 	// Load aliases from config
 	aliases := make(map[string]string)
 	if aliasesFromConfig := cfg.GetStringMapString(config.ConfigAliases); aliasesFromConfig != nil {
@@ -317,7 +304,6 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 		options:        opts,
 		aliases:        aliases,
 		macondoVersion: gitVersion,
-		winpcts:        winPcts,
 	}
 
 	// Create the autocompleter with reference to the controller

@@ -22,7 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/domino14/word-golib/cache"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -35,6 +34,7 @@ import (
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/winpct"
 )
 
 /*
@@ -187,50 +187,30 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	return eq
 }
 
-func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
-	tilesUnseen int, pliesAreEven bool) float64 {
+// addWinPctStat records the rollout's win probability: the result if the
+// game ended, else the table's, looked up for the player on turn at the
+// rollout's end as MAGPIE does. bag and the rack sizes are the end state's,
+// onTurnRack being the rack of the player on turn then.
+func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, table *winpct.Table,
+	bag, onTurnRack, offTurnRack int, pliesAreEven bool) float64 {
 	winPct := float64(0.0)
 
-	if gameover || tilesUnseen == 0 {
+	if gameover {
 		if spread == 0 {
 			winPct = 0.5
 		} else if spread > 0 {
 			winPct = 1.0
 		}
 	} else {
-		if tilesUnseen > 93 {
-			// Only for ZOMGWords or similar; this is a bit of a hack.
-			tilesUnseen = 93
-		}
 		// for an even-ply sim, it is our opponent's turn at the end of the sim.
-		// the table is calculated from our perspective, so flip the spread.
-		// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
-		// is on turn, we want to look up -20 as the spread, and then flip the win %
-		// as well.
+		// the table is calculated from the on-turn player's perspective, so
+		// flip the spread, look it up, and flip the win % back.
 		spreadPlusLeftover := spread + int(math.Round(leftover))
 		if pliesAreEven {
 			spreadPlusLeftover = -spreadPlusLeftover
 		}
-
-		if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
-			spreadPlusLeftover = equity.MaxRepresentedWinSpread
-		}
-		if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
-			spreadPlusLeftover = -equity.MaxRepresentedWinSpread
-		}
-		// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
-		// spread = index
-		// 200 = 0
-		// 199 = 1
-		// 99 = 101
-		// 0 = 200
-		// -1 = 201
-		// -101 = 301
-		// -200 = 400
-		pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-
+		pct := table.WinPct(spreadPlusLeftover, bag, onTurnRack, offTurnRack)
 		if pliesAreEven {
-			// see the above comment re flipping win pct.
 			pct = 1 - pct
 		}
 		winPct = float64(pct)
@@ -323,7 +303,7 @@ type Simmer struct {
 	simming      bool
 	readyToSim   bool
 	simmedPlays  *SimmedPlays
-	winPcts      [][]float32
+	winPcts      *winpct.Table
 	cfg          *config.Config
 	knownOppRack []tilemapping.MachineLetter
 
@@ -371,21 +351,13 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	s.threads = max(1, runtime.NumCPU())
 	s.autostopper = newAutostopper()
 
-	// Hard-code the location of the win-pct file for now.
-	// If we want to make some for other lexica in the future we'll
-	// have to redo the equity calculator stuff.
 	s.cfg = cfg
 	if s.cfg != nil {
-		// some hardcoded stuff here:
-		winpct, err := cache.Load(s.cfg.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
+		table, err := winpct.ForDistribution(s.cfg.WGLConfig(), game.Rules().LetterDistribution().Name)
 		if err != nil {
 			panic(err)
 		}
-		var ok bool
-		s.winPcts, ok = winpct.([][]float32)
-		if !ok {
-			panic("win percentages not correct type")
-		}
+		s.winPcts = table
 	}
 }
 
