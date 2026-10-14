@@ -49,8 +49,18 @@ typedef struct mg_move {
   uint8_t tiles[MG_MAX_DIM];
 } mg_move;
 
+// A small move for the endgame: tm is Macondo's TinyMove encoding (0 for a
+// pass; see tinymove/tiny_move.go).
+typedef struct mg_small_move {
+  uint64_t tm;
+  int16_t score;
+  uint8_t tiles_played;
+  uint8_t play_length;
+} mg_small_move;
+
 typedef struct mg_data mg_data;
 typedef struct mg_pos mg_pos;
+typedef struct mg_kwg mg_kwg;
 
 #define MG_DECLARE_API(P)                                                      \
   /* Lexicon data shared read-only by every position made from it. kwg and  \
@@ -127,7 +137,24 @@ typedef struct mg_pos mg_pos;
                          uint64_t *cross_sets, int32_t *cross_scores,          \
                          uint8_t *anchors);                                    \
   void P##pos_read_racks(const mg_pos *p, uint8_t *counts0, uint8_t *counts1,  \
-                         int *bag_count);
+                         int *bag_count);                                      \
+                                                                               \
+  /* Endgame: every play for the player on turn, as small moves, with the     \
+   * position's override word graph if set. Includes a pass if gen_pass. */   \
+  int P##gen_small(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap);  \
+  /* Plays a small move scoring score points (bag empty) with an incremental  \
+   * undo, writing the move's letters, played-through ones included, into     \
+   * strip. Returns the play length, or -1 if it does not fit the board. */   \
+  int P##play_small(mg_pos *p, uint64_t tm, int score, uint8_t *strip);        \
+  /* Undoes the last play_small. Returns 0, or -1 with none to undo. */       \
+  int P##unplay_small(mg_pos *p);                                              \
+  /* A word graph of every word playable from this position, for the          \
+   * endgame. Free with kwg_destroy. */                                       \
+  mg_kwg *P##pos_pruned_kwg(const mg_pos *p);                                  \
+  void P##kwg_destroy(mg_kwg *k);                                              \
+  /* Generates (and builds cross-sets) from k instead of the full word graph; \
+   * NULL goes back to the full one. k must outlive its use. */               \
+  void P##pos_set_override_kwg(mg_pos *p, const mg_kwg *k);
 
 MG_DECLARE_API(mgs15_)
 MG_DECLARE_API(mgs21_)
