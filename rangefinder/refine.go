@@ -89,6 +89,15 @@ func (r *RangeFinder) evaluateLeaves(ctx context.Context, leaves [][]tilemapping
 				}
 				leave := leaves[i]
 
+				if r.exchangeByPosterior() {
+					likelihood, err := r.measureExchange(gc, simmer, leave)
+					if err != nil {
+						return err
+					}
+					onResult(leave, likelihood)
+					continue
+				}
+
 				// Build the full deterministic rack: played tiles + this leave.
 				// Passing a full RackTileLimit-length knownRack to SetRandomRack
 				// causes it to: (1) put back the old rack, (2) remove fullRack

@@ -77,6 +77,9 @@ type CorpusFilter struct {
 	// LeaveLen, when non-zero, keeps only inferences of that many tiles. Six
 	// is the one-tile-play bucket, where the read goes wrong.
 	LeaveLen int
+	// Exchanges keeps only reads of an exchange; Placements only reads of a
+	// tile placement. Neither set takes both.
+	Exchanges, Placements bool
 	// MaxBag and MinBag bound the phase; MaxBag 0 means no upper bound.
 	MinBag, MaxBag int
 	// WorseThan keeps only inferences the run scored below this many bits.
@@ -223,6 +226,10 @@ func wantedTurns(half [][]string, cols map[string]int, f CorpusFilter) map[int]i
 			continue
 		}
 		if f.LeaveLen > 0 && len([]rune(truth)) != f.LeaveLen {
+			continue
+		}
+		isExch := strings.HasPrefix(get(half[i], "play"), "(exch")
+		if (f.Exchanges && !isExch) || (f.Placements && isExch) {
 			continue
 		}
 		bag, err := strconv.Atoi(get(half[i], "tilesremaining"))
