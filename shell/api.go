@@ -34,7 +34,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	wmppkg "github.com/domino14/macondo/wmp"
@@ -669,14 +668,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime)*time.Second)
 	}
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
-		return nil, err
-	}
-
-	mg := movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
-
-	err = sc.endgameSolver.Init(mg, sc.game.Game)
+	err = sc.endgameSolver.Init(sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
@@ -891,13 +883,10 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		"endgameplies %v, maxtime %v, threads %v, iterative-deepening %v%v, nested-depth-limit %v",
 		endgamePlies, maxtime, maxthreads, idStr, idNote, nestedDepthLimit))
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
+	sc.preendgameSolver = new(preendgame.Solver)
+	if err := sc.preendgameSolver.Init(sc.game.Game); err != nil {
 		return nil, err
 	}
-
-	sc.preendgameSolver = new(preendgame.Solver)
-	sc.preendgameSolver.Init(sc.game.Game, gd)
 
 	if maxthreads != 0 {
 		sc.preendgameSolver.SetThreads(maxthreads)

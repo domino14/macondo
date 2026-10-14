@@ -13,10 +13,8 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -37,15 +35,10 @@ func solverFromCGP(t *testing.T, pos, lex string) *Solver {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), lex)
-	if err != nil {
-		t.Fatal(err)
-	}
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 	s := new(Solver)
-	if err := s.Init(gen, g.Game); err != nil {
+	if err := s.Init(g.Game); err != nil {
 		t.Fatal(err)
 	}
 	s.SetThreads(1)
@@ -63,7 +56,6 @@ func prepForLeafCall(t *testing.T, s *Solver, stackLen int) {
 	s.game.SetEndgameMode(true)
 	s.game.SetBackupMode(game.SimulationMode)
 	s.game.SetStateStackLength(stackLen)
-	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 }
 
 // TestStuckEndgameSolvedShallow is the headline claim: on a position that takes

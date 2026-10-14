@@ -9,7 +9,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/endgame/negamax"
@@ -17,7 +16,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 const InferencesSimLimit = 2
@@ -106,16 +104,11 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, err
-	}
 	// make a copy of the game.
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(endgamePlies + 1)
-	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-	err = p.endgamer.Init(gen1, gameCopy)
+	err := p.endgamer.Init(gameCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -139,11 +132,7 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, err
-	}
-	err = p.preendgamer.Init(p.Game, gd)
+	err := p.preendgamer.Init(p.Game)
 	if err != nil {
 		return nil, err
 	}
