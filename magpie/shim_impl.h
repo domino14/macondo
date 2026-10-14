@@ -449,6 +449,9 @@ static void mgs_move_in(const mg_move *in, Move *m) {
 int MGS(gen)(mg_pos *p, int record, int sort, int32_t margin, mg_move *out,
              int out_cap) {
   MoveList *ml = p->move_list;
+  if (record != MG_RECORD_BEST && move_list_get_capacity(ml) != out_cap) {
+    move_list_resize(ml, out_cap);
+  }
   const MoveGenArgs args = {
       .game = p->game,
       .move_list = ml,

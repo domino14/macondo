@@ -32,10 +32,19 @@ type stateBackup struct {
 	onturn         int
 	turnnum        int
 	players        playerStates
+	// posPlayed says MAGPIE's copy of the position played (and saved) the
+	// move this backup was taken for, so unplaying it there undoes it too.
+	posPlayed bool
 }
 
 func (g *Game) SetBackupMode(m BackupMode) {
 	g.backupMode = m
+	if g.pos != nil {
+		g.pos.SetBackupMode(posBackupMode(m))
+		for _, st := range g.stateStack {
+			st.posPlayed = false
+		}
+	}
 }
 
 func (g *Game) backupState() {
@@ -43,6 +52,7 @@ func (g *Game) backupState() {
 		g.stackPtr = 0
 	}
 	st := g.stateStack[g.stackPtr]
+	st.posPlayed = false
 
 	st.board.CopyFrom(g.board)
 	st.bag.CopyFrom(g.bag)
@@ -137,6 +147,7 @@ func (g *Game) UnplayLastMove() {
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
+	g.posUnplay(b)
 }
 
 // ResetToFirstState unplays all moves on the stack.
@@ -148,6 +159,7 @@ func (g *Game) ResetToFirstState() {
 	g.onturn = b.onturn
 	g.turnnum = b.turnnum
 	g.stackPtr = 0
+	g.markPosStale()
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)

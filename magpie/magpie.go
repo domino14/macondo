@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"unsafe"
 
@@ -281,14 +282,41 @@ func (d *Data) LeaveValue(leave tilemapping.MachineWord) float64 {
 }
 
 // Position is a board with its cross-sets and anchors, both racks and the
-// bag. It is not safe for concurrent use: give each worker its own.
+// bag. It is not safe for concurrent use: give each worker its own. Its C
+// memory is freed by Close, or when the garbage collector finds it
+// unreachable.
 type Position struct {
 	ptr   *C.mg_pos
+	h     *posHandle
 	data  *Data
 	moves []Move
 }
 
-// NewPosition makes an empty position. moveCapacity bounds RecordAll.
+// posHandle owns a position's C memory; the cleanup the garbage collector
+// runs holds it rather than the Position.
+type posHandle struct {
+	ptr *C.mg_pos
+	dim int
+}
+
+func (h *posHandle) free() {
+	if h.ptr == nil {
+		return
+	}
+	if h.dim == 15 {
+		C.mgs15_pos_destroy(h.ptr)
+	} else {
+		C.mgs21_pos_destroy(h.ptr)
+	}
+	h.ptr = nil
+}
+
+// DefaultMoveCapacity is how many moves RecordAll keeps unless Generate is
+// asked for more.
+const DefaultMoveCapacity = 1000
+
+// NewPosition makes an empty position. moveCapacity is how many moves
+// RecordAll keeps by default (the best moveCapacity).
 func NewPosition(d *Data, moveCapacity int, seed uint64) *Position {
 	if moveCapacity < 1 {
 		moveCapacity = 1
@@ -299,19 +327,14 @@ func NewPosition(d *Data, moveCapacity int, seed uint64) *Position {
 	} else {
 		p.ptr = C.mgs21_pos_create(d.ptr, C.int(moveCapacity), C.uint64_t(seed))
 	}
+	p.h = &posHandle{ptr: p.ptr, dim: d.dim}
+	runtime.AddCleanup(p, func(h *posHandle) { h.free() }, p.h)
 	return p
 }
 
-// Close frees the position.
+// Close frees the position now.
 func (p *Position) Close() {
-	if p.ptr == nil {
-		return
-	}
-	if p.data.dim == 15 {
-		C.mgs15_pos_destroy(p.ptr)
-	} else {
-		C.mgs21_pos_destroy(p.ptr)
-	}
+	p.h.free()
 	p.ptr = nil
 }
 
@@ -449,18 +472,31 @@ func (p *Position) BackupDepth() int {
 }
 
 // Generate generates moves for the player on turn, best first. margin (in
-// points) is the window for RecordWithin. The returned slice is reused by
-// the next call.
+// points) is the window for RecordWithin. RecordAll keeps the position's
+// move capacity's worth; see GenerateN. The returned slice is reused by the
+// next call.
 func (p *Position) Generate(record Record, sort Sort, margin float64) []Move {
-	out := (*C.mg_move)(unsafe.Pointer(&p.moves[0]))
-	m := C.int32_t(margin * EquityResolution)
-	var n C.int
-	if p.data.dim == 15 {
-		n = C.mgs15_gen(p.ptr, C.int(record), C.int(sort), m, out, C.int(len(p.moves)))
-	} else {
-		n = C.mgs21_gen(p.ptr, C.int(record), C.int(sort), m, out, C.int(len(p.moves)))
+	return p.GenerateN(record, sort, margin, len(p.moves))
+}
+
+// GenerateN is Generate keeping at most n moves (the best n).
+func (p *Position) GenerateN(record Record, sort Sort, margin float64, n int) []Move {
+	if n < 1 {
+		n = 1
 	}
-	return p.moves[:n]
+	if n > len(p.moves) {
+		p.moves = make([]Move, n)
+	}
+	out := (*C.mg_move)(unsafe.Pointer(&p.moves[0]))
+	capacity := C.int(n)
+	m := C.int32_t(margin * EquityResolution)
+	var got C.int
+	if p.data.dim == 15 {
+		got = C.mgs15_gen(p.ptr, C.int(record), C.int(sort), m, out, capacity)
+	} else {
+		got = C.mgs21_gen(p.ptr, C.int(record), C.int(sort), m, out, capacity)
+	}
+	return p.moves[:got]
 }
 
 // Play plays m for the player on turn, who then draws the tiles in drawn
