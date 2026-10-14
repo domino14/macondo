@@ -143,11 +143,16 @@ typedef struct mg_kwg mg_kwg;
    * position's override word graph if set. Includes a pass if gen_pass. */   \
   int P##gen_small(mg_pos *p, int gen_pass, mg_small_move *out, int out_cap);  \
   /* Plays a small move scoring score points (bag empty) with an incremental  \
-   * undo, writing the move's letters, played-through ones included, into     \
-   * strip. Returns the play length, or -1 if it does not fit the board. */   \
+   * undo, writing the move's tiles into strip (0 for a played-through        \
+   * square). Returns the play length, or -1 if it does not fit the board. */ \
   int P##play_small(mg_pos *p, uint64_t tm, int score, uint8_t *strip);        \
   /* Undoes the last play_small. Returns 0, or -1 with none to undo. */       \
   int P##unplay_small(mg_pos *p);                                              \
+  /* play for a small move: backed up as the backup mode says, drawing the    \
+   * tiles in drawn (for a pre-endgame, where the bag is not empty). Writes   \
+   * the strip as play_small does. Returns the play length or -1. */          \
+  int P##play_small_drawing(mg_pos *p, uint64_t tm, int score,                 \
+                            const uint8_t *drawn, int ndrawn, uint8_t *strip); \
   /* A word graph of every word playable from this position, for the          \
    * endgame. Free with kwg_destroy. */                                       \
   mg_kwg *P##pos_pruned_kwg(const mg_pos *p);                                  \

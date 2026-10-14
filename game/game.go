@@ -97,6 +97,11 @@ type Game struct {
 	pos        *magpie.Position
 	posStale   bool
 	posScratch [2][board.MaxBoardDim]tilemapping.MachineLetter
+	// magpieBoard is C-board mode (see SetMagpieBoard): pos is the board and
+	// board is a copy of it, out of date when viewStale.
+	magpieBoard bool
+	viewStale   bool
+	mboard      *magpie.Board
 }
 
 func (g *Game) Config() *config.Config {
@@ -342,6 +347,7 @@ func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
 
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
+	g.leaveMagpieBoard()
 	g.Board().Clear()
 	g.markPosStale()
 	if g.customRNG != nil {
@@ -610,10 +616,12 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m)
-		if updateCrossSets {
-			// Calculate cross-sets.
-			g.crossSetGen.UpdateForMove(g.board, m)
+		if !g.magpieBoard {
+			g.board.PlayMove(m)
+			if updateCrossSets {
+				// Calculate cross-sets.
+				g.crossSetGen.UpdateForMove(g.board, m)
+			}
 		}
 		score := m.Score()
 		// no international rule counts a score of 0 as a scoreless turn
@@ -745,7 +753,11 @@ func (g *Game) PlaySmallMoveNoCrossSet(m *tinymove.SmallMove) (
 func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
-	g.markPosStale()
+	if g.magpieBoard {
+		g.pushRacks()
+	} else {
+		g.markPosStale()
+	}
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -753,15 +765,23 @@ func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 		if g.playing == pb.PlayState_GAME_OVER {
 			log.Warn().Msg("adding a pass when game is already over")
 		}
+		if g.magpieBoard {
+			g.posPlaySmall(m, nil)
+		}
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 	} else {
 		// It's a tile-play move.
-		g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
-		if updateCrossSets {
-			// Calculate cross-sets.
-			g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		if g.magpieBoard {
+			takeSmallMoveTiles(m, g.players[g.onturn].rack)
+			g.posPlaySmall(m, nil)
+		} else {
+			g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
+			if updateCrossSets {
+				// Calculate cross-sets.
+				g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+			}
 		}
 		score := int(m.Score())
 
@@ -804,7 +824,11 @@ func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
-	g.markPosStale()
+	if g.magpieBoard {
+		g.pushRacks()
+	} else {
+		g.markPosStale()
+	}
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -812,12 +836,19 @@ func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
 		if g.playing == pb.PlayState_GAME_OVER {
 			log.Warn().Msg("adding a pass when game is already over")
 		}
+		if g.magpieBoard {
+			g.posPlaySmall(m, []tilemapping.MachineLetter{})
+		}
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 	} else {
-		g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
-		g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		if g.magpieBoard {
+			takeSmallMoveTiles(m, g.players[g.onturn].rack)
+		} else {
+			g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
+			g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		}
 		score := int(m.Score())
 
 		g.lastScorelessTurns = g.scorelessTurns
@@ -833,6 +864,9 @@ func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
 		drew := g.drawAtMostFor(g.onturn, int(m.TilesPlayed()), g.players[g.onturn].placeholderRack)
 		for i := 0; i < drew; i++ {
 			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
+		if g.magpieBoard {
+			g.posPlaySmall(m, g.players[g.onturn].placeholderRack[:drew])
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
@@ -933,7 +967,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		return nil, err
 	}
 
-	err = modifyForPlaythrough(mw, g.board, vertical, row, col)
+	err = modifyForPlaythrough(mw, g.Board(), vertical, row, col)
 	if err != nil {
 		return nil, err
 	}
@@ -1003,6 +1037,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	if g.board == nil {
 		return fmt.Errorf("board does not exist")
 	}
+	g.leaveMagpieBoard()
 	if g.bag == nil {
 		return fmt.Errorf("bag has not been initialized; need to start game")
 	}
@@ -1117,6 +1152,7 @@ func (g *Game) PlayTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
+	g.leaveMagpieBoard()
 	g.markPosStale()
 	g.onturn = int(evt.PlayerIndex)
 	m, err := MoveFromEvent(evt, g.alph, g.board)
@@ -1377,10 +1413,12 @@ func (g *Game) Bag() *tilemapping.Bag {
 
 // Board returns the current board state.
 func (g *Game) Board() *board.GameBoard {
+	g.refreshView()
 	return g.board
 }
 
 func (g *Game) SetBoard(b *board.GameBoard) {
+	g.leaveMagpieBoard()
 	g.board = b
 	g.markPosStale()
 }
@@ -1446,6 +1484,7 @@ func (g *Game) FirstPlayer() *pb.PlayerInfo {
 }
 
 func (g *Game) RecalculateBoard() {
+	g.leaveMagpieBoard()
 	// Recalculate cross-sets and anchors for move generator
 	g.crossSetGen.GenerateAll(g.board)
 	g.board.UpdateAllAnchors()
@@ -1466,7 +1505,7 @@ func (g *Game) ExchangeLimit() int {
 
 // ToCGP converts the game to a CGP string. See cgp directory.
 func (g *Game) ToCGP(formatForBot bool) string {
-	fen := g.board.ToFEN(g.alph)
+	fen := g.Board().ToFEN(g.alph)
 	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
 	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
 	ourScore := g.curPlayer().points

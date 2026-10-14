@@ -654,8 +654,8 @@ func (p *Position) GenerateSmall(pass bool, buf []SmallMove) []SmallMove {
 }
 
 // PlaySmall plays a small move worth score points with an incremental undo
-// (the bag must be empty). The move's letters, played-through ones included,
-// go into strip; it returns how many.
+// (the bag must be empty). The move's tiles go into strip, 0 for a
+// played-through square; it returns how many.
 func (p *Position) PlaySmall(tm uint64, score int, strip []tilemapping.MachineLetter) (int, error) {
 	sp := (*C.uint8_t)(unsafe.Pointer(&strip[0]))
 	var n C.int
@@ -727,4 +727,21 @@ func (p *Position) SetOverrideKWG(k *KWG) {
 	} else {
 		C.mgs21_pos_set_override_kwg(p.ptr, kp)
 	}
+}
+
+// PlaySmallDrawing plays a small move worth score points saved as the backup
+// mode says, the player drawing drawn (a pre-endgame's bag is not empty).
+// The move's letters go into strip, as for PlaySmall.
+func (p *Position) PlaySmallDrawing(tm uint64, score int, drawn, strip []tilemapping.MachineLetter) (int, error) {
+	sp := (*C.uint8_t)(unsafe.Pointer(&strip[0]))
+	var n C.int
+	if p.data.dim == 15 {
+		n = C.mgs15_play_small_drawing(p.ptr, C.uint64_t(tm), C.int(score), bytesPtr(drawn), C.int(len(drawn)), sp)
+	} else {
+		n = C.mgs21_play_small_drawing(p.ptr, C.uint64_t(tm), C.int(score), bytesPtr(drawn), C.int(len(drawn)), sp)
+	}
+	if n < 0 {
+		return 0, errors.New("magpie: small move does not fit the board, or a drawn tile is not in the bag")
+	}
+	return int(n), nil
 }

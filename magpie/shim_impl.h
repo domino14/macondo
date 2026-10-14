@@ -762,6 +762,16 @@ static bool mgs_move_from_tiny(const Board *board, uint64_t tm, Move *m) {
   return true;
 }
 
+// Writes a move's tiles into strip, 0 for a played-through square, as
+// Macondo's board.PlaySmallMove does.
+static int mgs_strip(const Move *m, uint8_t *strip) {
+  const int len = move_get_tiles_length(m);
+  for (int i = 0; i < len; i++) {
+    strip[i] = move_get_tile(m, i);
+  }
+  return len;
+}
+
 int MGS(play_small)(mg_pos *p, uint64_t tm, int score, uint8_t *strip) {
   Game *game = p->game;
   const Board *board = game_get_board(game);
@@ -771,17 +781,7 @@ int MGS(play_small)(mg_pos *p, uint64_t tm, int score, uint8_t *strip) {
   }
   int len = 0;
   if (tm != 0) {
-    // The strip, with played-through squares filled in from the board.
-    const int row = move_get_row_start(&m), col = move_get_col_start(&m);
-    const bool vertical = move_get_dir(&m) == BOARD_VERTICAL_DIRECTION;
-    len = move_get_tiles_length(&m);
-    for (int i = 0; i < len; i++) {
-      const MachineLetter t = move_get_tile(&m, i);
-      strip[i] = t != PLAYED_THROUGH_MARKER
-                     ? t
-                     : board_get_letter(board, vertical ? row + i : row,
-                                        vertical ? col : col + i);
-    }
+    len = mgs_strip(&m, strip);
     move_set_score(&m, int_to_equity(score));
   }
   if (p->undo_depth == p->undo_cap) {
@@ -793,6 +793,26 @@ int MGS(play_small)(mg_pos *p, uint64_t tm, int score, uint8_t *strip) {
     p->undo_cap = cap;
   }
   play_move_incremental(&m, game, p->undos[p->undo_depth++]);
+  return len;
+}
+
+int MGS(play_small_drawing)(mg_pos *p, uint64_t tm, int score,
+                            const uint8_t *drawn, int ndrawn, uint8_t *strip) {
+  const Board *board = game_get_board(p->game);
+  Move m;
+  if (!mgs_move_from_tiny(board, tm, &m)) {
+    return -1;
+  }
+  int len = 0;
+  if (tm != 0) {
+    len = mgs_strip(&m, strip);
+    move_set_score(&m, int_to_equity(score));
+  }
+  mg_move mm;
+  mgs_move_out(&m, &mm);
+  if (MGS(play)(p, &mm, drawn, ndrawn) != 0) {
+    return -1;
+  }
   return len;
 }
 
