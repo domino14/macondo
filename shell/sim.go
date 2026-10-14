@@ -188,15 +188,15 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	}
 
 	params := &simParams{
-		threads:               threads,
-		plies:                 plies,
-		stoppingCondition:     stoppingCondition,
-		autostopPPScaling:     stopPPscaling,
-		autostopIterCutoff:    stopitercutoff,
-		minSamplesPerPlay:     minSamples,
-		knownOppRack:          kr,
-		inferMode:             inferMode,
-		avoidTrimMoves:        avoidTrimMoves,
+		threads:            threads,
+		plies:              plies,
+		stoppingCondition:  stoppingCondition,
+		autostopPPScaling:  stopPPscaling,
+		autostopIterCutoff: stopitercutoff,
+		minSamplesPerPlay:  minSamples,
+		knownOppRack:       kr,
+		inferMode:          inferMode,
+		avoidTrimMoves:     avoidTrimMoves,
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -267,15 +267,15 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 }
 
 type simParams struct {
-	threads               int
-	plies                 int
-	stoppingCondition     montecarlo.StoppingCondition
-	autostopPPScaling     int
-	autostopIterCutoff    int
-	minSamplesPerPlay     int
-	knownOppRack          []tilemapping.MachineLetter
-	inferMode             montecarlo.InferenceMode
-	avoidTrimMoves        []*move.Move
+	threads            int
+	plies              int
+	stoppingCondition  montecarlo.StoppingCondition
+	autostopPPScaling  int
+	autostopIterCutoff int
+	minSamplesPerPlay  int
+	knownOppRack       []tilemapping.MachineLetter
+	inferMode          montecarlo.InferenceMode
+	avoidTrimMoves     []*move.Move
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
