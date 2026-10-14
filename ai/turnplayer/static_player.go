@@ -25,6 +25,7 @@ type AIStaticTurnPlayer struct {
 	turnplayer.BaseTurnPlayer
 
 	calculators []equity.EquityCalculator
+	eval        staticEval
 
 	gen movegen.MoveGenerator
 	cfg *config.Config
@@ -66,7 +67,7 @@ func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators 
 	// opponent-rack state. Callers that swap in their own game copy (the
 	// simmer, the autoplay runner) still override this afterwards.
 	gen.SetGame(p.Game)
-	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf}
+	ret := &AIStaticTurnPlayer{*p, calculators, staticEvalFor(calculators), gen, conf}
 	return ret, nil
 }
 
@@ -105,24 +106,21 @@ func (p *AIStaticTurnPlayer) SetLastMoves(m []*move.Move) { panic("I am not used
 
 func (p *AIStaticTurnPlayer) AddLastMove(m *move.Move) { panic("I am not used currently") }
 
+// GenerateMoves generates the best numPlays moves for the player on turn,
+// best first.
 func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
-	curRack := p.RackFor(p.PlayerOnTurn())
-	oppRack := p.RackFor(p.NextPlayer())
-	// in case we don't have full rack info:
-	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
-	p.gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
+	return p.GenerateMovesFor(p.Game, numPlays)
+}
 
-	gg := p.gen.(*movegen.GordonGenerator)
-	if plays, ok := GenerateWordSmogTopPlays(gg, curRack, exchAllowed, numPlays); ok {
-		p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-		return p.TopPlays(plays, numPlays)
+// GenerateMovesFor generates the best numPlays moves for the player on turn
+// in g -- this player's game or a copy of it -- ranked by this player's
+// static evaluation.
+func (p *AIStaticTurnPlayer) GenerateMovesFor(g *game.Game, numPlays int) []*move.Move {
+	plays, err := magpieGenerate(g, p.eval, numPlays)
+	if err != nil {
+		panic(err)
 	}
-
-	p.gen.GenAll(curRack, exchAllowed)
-	plays := gg.Plays()
-	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	return p.TopPlays(plays, numPlays)
+	return plays
 }
 
 func (p *AIStaticTurnPlayer) MoveGenerator() movegen.MoveGenerator {
@@ -135,6 +133,7 @@ func (p *AIStaticTurnPlayer) Calculators() []equity.EquityCalculator {
 
 func (p *AIStaticTurnPlayer) SetCalculators(c []equity.EquityCalculator) {
 	p.calculators = c
+	p.eval = staticEvalFor(c)
 }
 
 func (p *AIStaticTurnPlayer) GetBotType() pb.BotRequest_BotCode {

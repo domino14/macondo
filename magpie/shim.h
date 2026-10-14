@@ -87,11 +87,15 @@ typedef struct mg_pos mg_pos;
                  int n0, const uint8_t *rack1, int n1, const uint8_t *bag,     \
                  int nbag, int on_turn, int32_t score0, int32_t score1,        \
                  int scoreless_turns, char *err, int err_len);                 \
-  /* Replaces both racks and the bag (e.g. for drawn or inferred racks). */   \
+  /* Replaces both racks, the bag and the player on turn. */                 \
   void P##pos_set_racks_and_bag(mg_pos *p, const uint8_t *rack0, int n0,       \
                                 const uint8_t *rack1, int n1,                  \
-                                const uint8_t *bag, int nbag);                 \
+                                const uint8_t *bag, int nbag, int on_turn);    \
   void P##pos_set_on_turn(mg_pos *p, int on_turn);                             \
+  /* Switches the data (leaves, word map) the position generates with. The    \
+   * new data must have the same word graph, distribution and layout, and     \
+   * the old data must outlive the position. */                               \
+  void P##pos_set_data(mg_pos *p, mg_data *d);                                 \
   /* What play backs up for unplay: MG_BACKUP_OFF, MG_BACKUP_STACK (every    \
    * play, any depth) or MG_BACKUP_SINGLE (only the last play). Changing the  \
    * mode drops the backups held. */                                          \

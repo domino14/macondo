@@ -54,6 +54,9 @@ func MagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Letter
 	distName string, layout []string, wordSmog bool, leavefile string) (*magpie.Data, error) {
 
 	wcfg := cfg.WGLConfig()
+	if leavefile == "leaves.klv2" {
+		leavefile = "" // the lexicon's standard leaves
+	}
 	if leavefile == "" && len(layout) == 21 {
 		leavefile = "super-leaves.klv2"
 	}
@@ -173,8 +176,7 @@ func (g *Game) posLive() bool {
 func (g *Game) pushRacks() {
 	r0 := g.posScratch[0][:g.players[0].rack.NoAllocTilesOn(g.posScratch[0][:])]
 	r1 := g.posScratch[1][:g.players[1].rack.NoAllocTilesOn(g.posScratch[1][:])]
-	g.pos.SetRacksAndBag(r0, r1, g.bag.Tiles())
-	g.pos.SetOnTurn(g.onturn)
+	g.pos.SetRacksAndBag(r0, r1, g.bag.Tiles(), g.onturn)
 }
 
 func (g *Game) syncPos() error {

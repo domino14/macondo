@@ -405,11 +405,26 @@ int MGS(pos_set)(mg_pos *p, const uint8_t *squares, const uint8_t *rack0,
 
 void MGS(pos_set_racks_and_bag)(mg_pos *p, const uint8_t *rack0, int n0,
                                 const uint8_t *rack1, int n1,
-                                const uint8_t *bag, int nbag) {
+                                const uint8_t *bag, int nbag, int on_turn) {
   Game *game = p->game;
   mgs_fill_rack(player_get_rack(game_get_player(game, 0)), rack0, n0);
   mgs_fill_rack(player_get_rack(game_get_player(game, 1)), rack1, n1);
   mgs_set_bag(game_get_bag(game), bag, nbag);
+  game_set_player_on_turn_index(game, on_turn);
+}
+
+void MGS(pos_set_data)(mg_pos *p, mg_data *d) {
+  if (p->data == d) {
+    return;
+  }
+  p->data = d;
+  // Only the players' data pointers change. The word graph, distribution and
+  // layout are the same, so cross-sets stay valid (game_update would redo
+  // them all), and the game keeps the old data's distribution, which is
+  // identical and outlives it (Macondo never frees data).
+  for (int i = 0; i < 2; i++) {
+    player_update(d->players_data, game_get_player(p->game, i));
+  }
 }
 
 void MGS(pos_set_on_turn)(mg_pos *p, int on_turn) {
