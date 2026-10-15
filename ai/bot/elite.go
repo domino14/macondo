@@ -203,11 +203,14 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			if p.cfg.InferenceTimeSecs > 0 {
 				inferTimeSecs = p.cfg.InferenceTimeSecs
 			}
-			logger.Info().Float64("tau", p.inferencer.Tau()).
-				Int("timeSecs", inferTimeSecs).
-				Int("budget", p.cfg.InferenceBudget).
-				Int("simIters", p.inferencer.SimIters()).
-				Msg("inference-tau")
+			ev := logger.Info().Float64("tau", p.inferencer.Tau()).
+				Int("simIters", p.inferencer.SimIters())
+			if p.cfg.InferenceBudget > 0 {
+				ev = ev.Int("budget", p.cfg.InferenceBudget)
+			} else {
+				ev = ev.Int("timeSecs", inferTimeSecs)
+			}
+			ev.Msg("inference-tau")
 			if p.cfg.InferenceBudget > 0 {
 				// Bounded by leaves measured rather than by the clock, so the
 				// answer no longer depends on how busy the machine was. The
