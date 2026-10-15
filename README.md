@@ -46,12 +46,37 @@ rather than the default Go server. It's _much_ faster, but it's not trivial to r
 If your macondo directory is at `$HOME/code/macondo` you would run `docker run` with these parameters:
 
 ```
-docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.06-py3     tritonserver --model-repository=/models
+docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:26.08-py3     tritonserver --model-repository=/models
 ```
 
 You may need to install the NVIDIA Container Toolkit to use your GPU for inference.
 
 Then you can run Macondo with the `MACONDO_TRITON_USE_TRITON` environment variable set to `true`.
+
+The model is chosen with `triton-model-name` and `triton-model-version` in
+the config (or `MACONDO_TRITON_MODEL_NAME` / `MACONDO_TRITON_MODEL_VERSION`).
+With `--model-control-mode=explicit`, Triton must also be told to load it
+(`--load-model=<name>` or `pytorch/triton-models.sh load <name>`).
+
+# Running the neural network without a GPU
+
+Without Triton (`triton-use-triton` false), macondo runs the same model's
+`model.onnx` on the CPU with [ONNX Runtime](https://github.com/microsoft/onnxruntime).
+Slower than a GPU, but enough for `mleval` and the occasional game.
+
+1. Download ONNX Runtime 1.29 for your platform from its
+   [releases page](https://github.com/microsoft/onnxruntime/releases/tag/v1.29.0)
+   (e.g. `onnxruntime-linux-x64-1.29.0.tgz`) and unpack it anywhere. On
+   macOS, `brew install onnxruntime` also works if it is 1.29.
+2. Point macondo at the library, in the config or the environment:
+   `onnxruntime-lib: /path/to/onnxruntime-linux-x64-1.29.0/lib/libonnxruntime.so`
+   (`MACONDO_ONNXRUNTIME_LIB`). Optional: `onnx-threads` (`MACONDO_ONNX_THREADS`),
+   threads per evaluation; ONNX Runtime picks one per core by default.
+3. Pick the model as above (`triton-model-name`); macondo loads
+   `data/strategy/default/models/<name>/<version, default 1>/model.onnx`.
+
+This needs a cgo build (the default when building from source on the
+target machine).
 
 ### Attributions
 

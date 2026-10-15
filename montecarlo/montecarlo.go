@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/domino14/macondo/boardenergy"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -308,10 +309,13 @@ type Simmer struct {
 	nodeCount      atomic.Uint64
 	threads        int
 
-	simming      bool
-	readyToSim   bool
-	simmedPlays  *SimmedPlays
-	winPcts      [][]float32
+	simming     bool
+	readyToSim  bool
+	simmedPlays *SimmedPlays
+	winPcts     [][]float32
+	// leafWin, when set, replaces the winPcts table lookup at the end of a
+	// simulated line (8..93 unseen tiles; the table covers the rest).
+	leafWin      *boardenergy.LeafWin
 	cfg          *config.Config
 	knownOppRack []tilemapping.MachineLetter
 
@@ -1103,16 +1107,21 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			spread,
 			leftover,
 		)
-		simmedPlay.addWinPctStat(
-			spread,
-			leftover,
-			g.Playing() == pb.PlayState_GAME_OVER,
-			s.winPcts,
-			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-			g.Bag().TilesRemaining()+
-				int(g.RackFor(1-s.initialPlayer).NumTiles()),
-			plies%2 == 0,
-		)
+		// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
+		unseen := g.Bag().TilesRemaining() + int(g.RackFor(1-s.initialPlayer).NumTiles())
+		if lw := s.leafWin; lw != nil && g.Playing() != pb.PlayState_GAME_OVER &&
+			unseen >= boardenergy.MinUnseen && unseen <= 93 {
+			simmedPlay.pushWinPct(leafWinPct(lw, g, spread, leftover, unseen, plies%2 == 0))
+		} else {
+			simmedPlay.addWinPctStat(
+				spread,
+				leftover,
+				g.Playing() == pb.PlayState_GAME_OVER,
+				s.winPcts,
+				unseen,
+				plies%2 == 0,
+			)
+		}
 		g.ResetToFirstState()
 		if s.logStream != nil {
 			logPlay.WinRatio = simmedPlay.winPctStats.Last()
@@ -1462,4 +1471,40 @@ func (s *Simmer) calculateWeightedProbabilitiesForBag() {
 	}
 
 	log.Debug().Interface("bag-probabilities", s.adjustedBagProbabilities).Msg("calculated-weighted-bag")
+}
+
+// SetLeafWin makes the sim score the end of each simulated line with lw
+// instead of the win-percentage table (nil restores the table).
+func (s *Simmer) SetLeafWin(lw *boardenergy.LeafWin) { s.leafWin = lw }
+
+func (sp *SimmedPlay) pushWinPct(p float64) {
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(p)
+}
+
+// leafWinPct is addWinPctStat's lookup done with the fitted leaf model: the
+// same spread (plus leftover) and the same even-ply flip, since both the
+// table and the model give the win chance of the player on turn.
+func leafWinPct(lw *boardenergy.LeafWin, g *game.Game, spread int, leftover float64, unseen int, pliesAreEven bool) float64 {
+	sp := spread + int(math.Round(leftover))
+	if pliesAreEven {
+		sp = -sp
+	}
+	var occupied []int
+	if b := g.Board(); lw.UsesEnergy() && b.Dim() == 15 {
+		occupied = make([]int, 0, 100)
+		for r := 0; r < 15; r++ {
+			for c := 0; c < 15; c++ {
+				if b.GetLetter(r, c) != 0 {
+					occupied = append(occupied, r*15+c)
+				}
+			}
+		}
+	}
+	p := lw.Prob(sp, unseen, occupied)
+	if pliesAreEven {
+		p = 1 - p
+	}
+	return p
 }

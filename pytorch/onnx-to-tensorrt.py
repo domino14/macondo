@@ -1,114 +1,36 @@
-import os
+"""
+Build a TensorRT engine (.plan) from an ONNX model.
+
+    python onnx-to-tensorrt.py --onnx macondo-nn.onnx --output macondo-nn.engine
+    python onnx-to-tensorrt.py --onnx x.onnx --output x.engine --precision fp32
+
+TensorRT 11 only builds strongly typed networks: there are no FP16/INT8
+builder flags any more, precision comes from the data types in the ONNX
+graph. So `--precision fp16` converts the graph to fp16 in memory first
+(weights and activations), keeping the graph inputs/outputs fp32 so the
+Triton config (TYPE_FP32 board/scalars/value) is unchanged. The legacy
+INT8 calibration API was removed in TensorRT 11 (and never worked well for
+us), so it is gone here too.
+
+The engine only loads on the exact TensorRT version that built it, which
+must match the Triton container (see the NVIDIA frameworks support matrix).
+"""
+
 import argparse
+
+import onnx
 import tensorrt as trt
-import numpy as np
-import pycuda.autoinit
-import pycuda.driver as cuda
-import struct
 
 
-class FileCalibrator(trt.IInt8EntropyCalibrator2):
-    def __init__(self, calibration_file, batch_size=8, cache_file="calibration.cache"):
-        trt.IInt8EntropyCalibrator2.__init__(self)
-        self.batch_size = batch_size
-        self.cache_file = cache_file
-        self.current_index = 0
-        self.done = False
+def to_fp16(model):
+    """Convert weights and activations to fp16, keep graph I/O fp32."""
+    from onnxconverter_common import float16
 
-        # Load calibration data from file
-        self.boards = []
-        self.scalars = []
-
-        print(f"Loading calibration data from {calibration_file}")
-        with open(calibration_file, "rb") as f:
-            while True:
-                try:
-                    # Read header - 4 bytes for the size
-                    hdr = f.read(4)
-                    if not hdr or len(hdr) < 4:
-                        break
-
-                    (n_bytes,) = struct.unpack("<I", hdr)
-
-                    # Read payload
-                    payload = f.read(n_bytes)
-                    if len(payload) != n_bytes:
-                        break
-
-                    # Process the data
-                    N_PLANE = C * H * W  # Calculate from dimensions
-                    vec = np.frombuffer(payload, dtype=np.float32).copy()
-                    board = vec[:N_PLANE].reshape(C, H, W).astype(np.float32)
-                    scalars = vec[N_PLANE : N_PLANE + N_SCAL].astype(np.float32)
-
-                    # Store the data
-                    self.boards.append(board)
-                    self.scalars.append(scalars)
-
-                    if len(self.boards) % 100 == 0:
-                        print(f"Loaded {len(self.boards)} calibration samples")
-
-                except (IOError, struct.error) as e:
-                    print(f"Error reading calibration data: {e}")
-                    break
-
-        print(f"Loaded {len(self.boards)} calibration samples")
-
-        if len(self.boards) == 0:
-            raise ValueError("No calibration data loaded")
-
-        # Convert to numpy arrays
-        self.boards = np.array(self.boards, dtype=np.float32)
-        self.scalars = np.array(self.scalars, dtype=np.float32)
-
-        # Allocate device memory for batches
-        self.board_device = cuda.mem_alloc(
-            self.batch_size * C * H * W * 4
-        )  # 4 bytes per float
-        self.scalar_device = cuda.mem_alloc(self.batch_size * N_SCAL * 4)
-
-        # Device input pointers
-        self.device_inputs = [int(self.board_device), int(self.scalar_device)]
-
-    def get_batch_size(self):
-        return self.batch_size
-
-    def get_batch(self, names):
-        if self.current_index + self.batch_size > len(self.boards) or self.done:
-            return None
-
-        end_idx = min(self.current_index + self.batch_size, len(self.boards))
-        if end_idx - self.current_index < self.batch_size:
-            # Pad the last batch if needed
-            board_batch = np.zeros((self.batch_size, C, H, W), dtype=np.float32)
-            scalar_batch = np.zeros((self.batch_size, N_SCAL), dtype=np.float32)
-
-            actual_size = end_idx - self.current_index
-            board_batch[:actual_size] = self.boards[self.current_index : end_idx]
-            scalar_batch[:actual_size] = self.scalars[self.current_index : end_idx]
-        else:
-            board_batch = self.boards[self.current_index : end_idx]
-            scalar_batch = self.scalars[self.current_index : end_idx]
-
-        # Copy to device
-        cuda.memcpy_htod(self.board_device, np.ascontiguousarray(board_batch))
-        cuda.memcpy_htod(self.scalar_device, np.ascontiguousarray(scalar_batch))
-
-        self.current_index += self.batch_size
-        if self.current_index >= len(self.boards):
-            self.done = True
-
-        return self.device_inputs
-
-    def read_calibration_cache(self):
-        if os.path.exists(self.cache_file):
-            with open(self.cache_file, "rb") as f:
-                return f.read()
-        return None
-
-    def write_calibration_cache(self, cache):
-        with open(self.cache_file, "wb") as f:
-            f.write(cache)
+    return float16.convert_float_to_float16(
+        model,
+        keep_io_types=True,
+        disable_shape_infer=False,
+    )
 
 
 def build_engine_from_onnx(
@@ -117,108 +39,52 @@ def build_engine_from_onnx(
     precision="fp16",
     max_batch_size=128,
     max_workspace_size=1 << 30,
-    calibration_file=None,
-    calibration_cache="calibration.cache",
+    tf32=True,
 ):
-    """
-    Builds a TensorRT engine from an ONNX model
-
-    Args:
-        onnx_file_path: Path to the ONNX model
-        engine_file_path: Path to save the TensorRT engine
-        precision: 'fp32', 'fp16', or 'int8'
-        max_batch_size: Maximum batch size
-        max_workspace_size: Maximum workspace size in bytes
-        calibration_file: File containing calibration data for INT8
-        calibration_cache: Path to save/load calibration cache
-
-    Returns:
-        The path to the generated engine file
-    """
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
 
-    # Create network with explicit batch flag
-    explicit_batch = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    network = builder.create_network(explicit_batch)
+    model = onnx.load(onnx_file_path)
+    if precision == "fp16":
+        model = to_fp16(model)
+        print("Converted ONNX graph to fp16 (fp32 inputs/outputs kept)")
+    else:
+        print("Using FP32 precision" + (" with TF32 tensor cores" if tf32 else ""))
 
+    flags = 1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
+    network = builder.create_network(flags)
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, max_workspace_size)
+    if not tf32:
+        config.clear_flag(trt.BuilderFlag.TF32)
 
-    # Parse ONNX file
     parser = trt.OnnxParser(network, logger)
-    with open(onnx_file_path, "rb") as model:
-        if not parser.parse(model.read()):
-            for error in range(parser.num_errors):
-                print(f"ONNX parsing error: {parser.get_error(error)}")
-            return None
+    if not parser.parse(model.SerializeToString()):
+        for error in range(parser.num_errors):
+            print(f"ONNX parsing error: {parser.get_error(error)}")
+        return None
 
-    # Set precision flags
-    if precision == "fp16" and builder.platform_has_fast_fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
-        print("Using FP16 precision")
-    elif precision == "int8" and builder.platform_has_fast_int8:
-        config.set_flag(trt.BuilderFlag.INT8)
-
-        if calibration_file:
-            print(f"Using INT8 precision with calibrator from {calibration_file}")
-            # Create calibrator with data from file
-            calibrator = FileCalibrator(
-                calibration_file=calibration_file,
-                batch_size=8,  # Small batch size for calibration
-                cache_file=calibration_cache,
-            )
-            config.int8_calibrator = calibrator
-            print("Calibrator created successfully")
-        else:
-            print("Using INT8 precision with static ranges")
-            # Set dynamic ranges for all tensors
-            for i in range(network.num_inputs):
-                tensor = network.get_input(i)
-                if tensor.name:
-                    print(f"Setting range for input: {tensor.name}")
-                    tensor.dynamic_range = (0.0, 1.0)  # normalized inputs
-
-            for i in range(network.num_outputs):
-                tensor = network.get_output(i)
-                if tensor.name:
-                    print(f"Setting range for output: {tensor.name}")
-                    tensor.dynamic_range = (-1.0, 1.0)  # typical output range
-
-            for i in range(network.num_layers):
-                layer = network.get_layer(i)
-                for j in range(layer.num_outputs):
-                    tensor = layer.get_output(j)
-                    if tensor.name:
-                        if "board" in tensor.name or "scalars" in tensor.name:
-                            tensor.dynamic_range = (0.0, 1.0)  # normalized inputs
-                        else:
-                            tensor.dynamic_range = (
-                                -6.0,
-                                6.0,
-                            )  # Conservative default range for activations
-    else:
-        print("Using FP32 precision")
-
-    print(f"Building TensorRT engine, this may take a few minutes...")
-
-    # Set optimization profiles for dynamic batch size
+    # Optimization profile for the dynamic batch axis. Every input keeps its
+    # non-batch dims; only the batch range is set.
     profile = builder.create_optimization_profile()
-    profile.set_shape(
-        "board", (1, C, H, W), (max_batch_size // 2, C, H, W), (max_batch_size, C, H, W)
-    )
-    profile.set_shape(
-        "scalars", (1, N_SCAL), (max_batch_size // 2, N_SCAL), (max_batch_size, N_SCAL)
-    )
+    for i in range(network.num_inputs):
+        t = network.get_input(i)
+        dims = list(t.shape[1:])
+        profile.set_shape(
+            t.name,
+            (1, *dims),
+            (max_batch_size // 2, *dims),
+            (max_batch_size, *dims),
+        )
+        print(f"input {t.name}: {t.dtype} batch 1..{max_batch_size} x {dims}")
     config.add_optimization_profile(profile)
 
-    # Build and save engine
+    print("Building TensorRT engine, this may take a few minutes...")
     serialized_engine = builder.build_serialized_network(network, config)
     if serialized_engine is None:
         print("Failed to create TensorRT engine")
         return None
 
-    # Serialize the engine
     with open(engine_file_path, "wb") as f:
         f.write(serialized_engine)
 
@@ -239,35 +105,21 @@ if __name__ == "__main__":
         "--precision",
         type=str,
         default="fp16",
-        choices=["fp32", "fp16", "int8"],
-        help="Precision for TensorRT engine",
+        choices=["fp32", "fp16"],
+        help="fp16 converts the ONNX graph to half precision before building",
     )
     parser.add_argument(
         "--max-batch-size", type=int, default=128, help="Maximum batch size"
     )
     parser.add_argument(
-        "--calib-file",
-        type=str,
-        default=None,
-        help="Path to calibration data file for INT8 precision",
+        "--no-tf32", action="store_true", help="disable TF32 tensor cores for fp32"
     )
-    parser.add_argument(
-        "--calib-cache",
-        type=str,
-        default="calibration.cache",
-        help="Path to calibration cache file",
-    )
-
     args = parser.parse_args()
-
-    # Import C, H, W, N_SCAL from training.py
-    from training import C, H, W, N_SCAL
 
     build_engine_from_onnx(
         args.onnx,
         args.output,
         args.precision,
         args.max_batch_size,
-        calibration_file=args.calib_file,
-        calibration_cache=args.calib_cache,
+        tf32=not args.no_tf32,
     )

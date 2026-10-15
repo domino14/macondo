@@ -62,18 +62,11 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		// wherever the search stops, so the deepest iteration -- by far the
 		// most expensive one -- earns much less than it used to.
 		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()) - 1
-	} else if unseen > 7 && unseen <= 8 {
+	} else if unseen == 8 && (p.fixedSimPlies <= 0 || HasPreendgame(p.botType)) {
 		usePreendgame = true
-	} else if unseen > 8 && unseen <= 14 {
-		moves = p.GenerateMoves(100)
-		simPlies = unseen
 	} else {
 		moves = p.GenerateMoves(100)
-		if p.minSimPlies > 2 {
-			simPlies = p.minSimPlies
-		} else {
-			simPlies = 2
-		}
+		simPlies = simPliesFor(unseen, p.minSimPlies, p.fixedSimPlies)
 	}
 	simThreads := p.simThreads
 	if p.simThreads == 0 {
@@ -97,6 +90,23 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		return nonEndgameBest(ctx, p, simPlies, moves)
 	}
 
+}
+
+// simPliesFor is the sim depth with `unseen` tiles (bag plus the opponent's
+// rack) not on our rack, for unseen > 7. By default the midgame sims
+// max(2, minPlies) plies and the late game, with 2..7 tiles in the bag,
+// sims `unseen` plies. A positive fixedPlies overrides both: every sim is
+// exactly that deep, so an "N-ply" bot is N-ply for the whole game.
+func simPliesFor(unseen, minPlies, fixedPlies int) int {
+	switch {
+	case fixedPlies > 0:
+		return fixedPlies
+	case unseen <= 14:
+		return unseen
+	case minPlies > 2:
+		return minPlies
+	}
+	return 2
 }
 
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
@@ -241,6 +251,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
 	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
+	p.simmer.SetLeafWin(simLeafWin(p.cfg.SimLeafWin, p.Config().WGLConfig().DataPath))
 	if p.simThreads != 0 {
 		p.simmer.SetThreads(p.simThreads)
 	}

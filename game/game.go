@@ -89,6 +89,10 @@ type Game struct {
 	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
 
 	tritonClient *triton.TritonClient
+	// Feature buffers reused by MLEvaluateMoves from one request to the next
+	// (about 3.9 MB for 50 candidates). Copy() does not carry them over, so
+	// every copy of a game, e.g. one per sim thread, grows its own.
+	mlPlanesBuf, mlScalarsBuf []float32
 }
 
 func (g *Game) Config() *config.Config {
@@ -206,6 +210,14 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		game.tritonClient, err = triton.NewTritonClient(tritonURL, modelName, modelVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create triton client: %w", err)
+		}
+		// Request the spread head too when the served model has one; the
+		// ML bot ranks decided games on it. Not fatal: the value-only
+		// default still plays.
+		if err := game.tritonClient.DetectOutputs(); err != nil {
+			log.Warn().Err(err).Str("model", modelName).Msg("could not read the model's outputs; requesting value only")
+		} else {
+			log.Info().Str("model", modelName).Strs("outputs", game.tritonClient.Outputs()).Msg("triton outputs requested")
 		}
 	}
 

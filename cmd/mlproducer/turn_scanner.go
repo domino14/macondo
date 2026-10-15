@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/csv"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -24,7 +25,10 @@ type Turn struct {
 	Equity         float64 // Macondo equity of the move
 	TilesRemaining int     // tiles left in bag after this ply
 	OppScore       int     // opponent’s cumulative score after the ply
-	// You may add helpers like Spread() or PlyIndex() later.
+	// OpeningPlies is the game's K sampled opening plies (autoplay
+	// -openingplies), 0 for logs without the column. Turns 1..K were
+	// sampled, not played by the bots.
+	OpeningPlies int
 }
 
 // -------------------------------------------------------------------
@@ -34,6 +38,8 @@ type TurnScanner struct {
 	r    *csv.Reader // wraps underlying bufio.Reader
 	curr Turn        // last successfully parsed turn
 	err  error
+	// openingCol is the index of the openingplies column, -1 when absent.
+	openingCol int
 }
 
 // NewTurnScanner prepares a CSV reader that:
@@ -45,13 +51,21 @@ func NewTurnScanner(src io.Reader) *TurnScanner {
 	cr := csv.NewReader(br)
 	cr.TrimLeadingSpace = true
 	cr.ReuseRecord = true
-	cr.FieldsPerRecord = 12 // we expect exactly 12 columns
+	// The 12 base columns, plus whatever a run appended (inference columns
+	// on some rows, openingplies on all): widths vary, so read by header.
+	cr.FieldsPerRecord = -1
 
-	// Discard header
-	if _, err := cr.Read(); err != nil {
+	header, err := cr.Read()
+	if err != nil {
 		return &TurnScanner{err: err}
 	}
-	return &TurnScanner{r: cr}
+	ts := &TurnScanner{r: cr, openingCol: -1}
+	for i, name := range header {
+		if strings.TrimSpace(name) == "openingplies" {
+			ts.openingCol = i
+		}
+	}
+	return ts
 }
 
 // Scan advances to the next record.  False = EOF or error.
@@ -67,11 +81,24 @@ func (ts *TurnScanner) Scan() bool {
 		}
 		return false
 	}
+	if rec[0] == "playerID" {
+		// A header row inside the stream: several logs concatenated. The
+		// column layout comes from the first header; extra ones are skipped
+		// (parsing one as a turn panicked the replay on the rack "rack").
+		return ts.Scan()
+	}
 
+	if len(rec) < 12 {
+		ts.err = fmt.Errorf("turn row has %d columns, need 12", len(rec))
+		return false
+	}
 	t, perr := parseRecord(rec)
 	if perr != nil {
 		ts.err = perr
 		return false
+	}
+	if ts.openingCol >= 0 && ts.openingCol < len(rec) {
+		t.OpeningPlies, _ = strconv.Atoi(strings.TrimSpace(rec[ts.openingCol]))
 	}
 	ts.curr = t
 	return true
