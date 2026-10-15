@@ -14,7 +14,7 @@
 #
 set -euo pipefail
 
-BRANCH="${BRANCH:-claude/tau-table}"
+BRANCH="${BRANCH:-master}"
 MACONDO_DIR="${MACONDO_DIR:-$HOME/macondo}"
 CONFIG="${CONFIG:-infer-v-sim-12500.json}"
 THREADS="${THREADS:-}"          # default: every logical CPU
@@ -99,7 +99,7 @@ if [ ! -f "$CONFIG" ]; then
   say "Writing $CONFIG (was not present)"
   cat > "$CONFIG" <<'JSON'
 {
-  "description": "Inference (claude/tau-table defaults: fitted tau curve, one-tile x2 above 20 in the bag, exchanges by leave value) vs no inference, 5-ply sims both sides, 12500 game pairs",
+  "description": "Inference (engine defaults: fitted tau curve, one-tile x2 above 20 in the bag, exchanges by leave value) vs no inference, 5-ply sims both sides, 12500 game pairs",
   "experimentId": "infer-v-sim-12500",
   "lexicon": "NWL23",
   "letterDistribution": "English",
