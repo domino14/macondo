@@ -45,6 +45,7 @@ The producer replays half of all games transposed.
 | simft | 10/9 | streamopen + 485k sim-label groups | fine-tune 10k steps, listwise rank loss (SE-aware teacher, tau 2, weight 1) | 10k | 57.48 ± 0.18 | +8.8 | -0.17 vs streamopen; no gain |
 | simft2 | 10/10 | same | rank-share 1 (gradient-balanced), tau 1 | 10k | 57.18 ± 0.18 | +8.4 | -0.47 (3.6 SE): full-list ranking hurts |
 | own | 10/10-11 | open+open2 54M, streamed | streamopen recipe from scratch + 2 ownership heads (self_own/opp_own, `-ownership`, `MACONDO_OWNERSHIP=1`) | 101k | 57.65 ± 0.18 | +9.3 | identical to streamopen (57.65): ownership adds nothing |
+| simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
 
 ## Bot changes that affect matches
 
@@ -61,4 +62,3 @@ The producer replays half of all games transposed.
 - `pytorch/pairs-stats.py`: paired match statistics; `autoanalyze` in the shell prints the same.
 
 Reproduction notes: `pytorch/results/nwl23s-spatial-heads/` (the spatial-heads result) and `pytorch/results/streamed/` (stream, streamopen).
-| simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
