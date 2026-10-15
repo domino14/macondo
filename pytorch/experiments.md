@@ -2236,3 +2236,18 @@ the time, 0.09 win points given up). The weak spot is late (bag under ~20):
 1.32 win points given up per move, 10x the opening's; that is where better
 labels or a deeper search would pay. (The first attempt died: every replayed
 game opened its own Triton connection; fixed in b0ad90e9.)
+
+#### Result: simft3 (pairwise sim loss, full labels) vs HastyBot (10/15/26 12:25)
+
+```
+FastMlBot(simft3): paired win rate 56.97% +/- 0.18 (95%; SE 0.09)   swept 24.2%  lost 10.3%  spread +6.3/game
+```
+
+streamopen 57.65 (+9.5): -0.68, ~5 SE of the difference: worse, and worse
+than tries 1-2. Fine-tune from streamopen, 10k steps, 1.26M groups (the
+sim's top 16 of 50, all 1.32M deb192 labels), --rank-loss pair: the sim's
+best against each other candidate, weight gap/SE (full from 2 SE),
+gradient-balanced (--rank-share 1), tau 1. Held-out agreement with the
+sim's pick 68.7% -> ~69-70% (noise on 531 positions). First run on the
+5070 Ti: 0.93 s/step (old card ~2), match 200k games in ~70 min.
+simft4 (top-4 loss) is the last try on this line.

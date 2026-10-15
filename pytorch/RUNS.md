@@ -61,3 +61,4 @@ The producer replays half of all games transposed.
 - `pytorch/pairs-stats.py`: paired match statistics; `autoanalyze` in the shell prints the same.
 
 Reproduction notes: `pytorch/results/nwl23s-spatial-heads/` (the spatial-heads result) and `pytorch/results/streamed/` (stream, streamopen).
+| simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
