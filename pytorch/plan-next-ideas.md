@@ -82,6 +82,11 @@ day on deb192), too slow; the net costs GPU time instead.
 
 ## Small things to test after the GPU swap
 
+Swap done 10/15 00:45 (5070 Ti, PCIe x16): all 20 TensorRT engines rebuilt
+(18 s each; old ones in ~/data/trt-rebuild/old-3070ti), streamopen v1 now
+exports 4 outputs (value/spread identical), container recreated. Net-vs-net
+autoplay 68k games/h at 12 threads (old card 32.7k); 24 threads no faster.
+
 - fp32 value tail: the TensorRT engines are fp16, and value = P(win) -
   P(loss) with both near 0.5 is computed in fp16, so differences under
   ~0.001 are rounded away (an opening's 8F/8G/8H JEU: 0.0176 each on the
