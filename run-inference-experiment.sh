@@ -70,8 +70,13 @@ else
 fi
 echo "  now at $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
 
+# MAGPIE (the move generator) is a submodule; the build compiles it.
+git submodule sync --quiet
+git submodule update --init third_party/magpie
+
 # -------------------------------------------------------------------- build
 say "Building"
+command -v cc >/dev/null || die "no C compiler (cc) on PATH; MAGPIE is built from source"
 make macondo_shell
 [ -x ./bin/shell ] || die "build finished but ./bin/shell is missing"
 
