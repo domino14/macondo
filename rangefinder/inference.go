@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/rand"
 	"runtime"
 	"slices"
 	"sort"
@@ -41,7 +42,7 @@ const (
 	// SoftmaxTemperature controls how "rational" we assume the opponent to be
 	// when computing P(play | leave). Lower values assume near-optimal play;
 	// higher values allow more weight for sub-optimal plays. This is the
-	// early-game value; tauForBag raises it as the bag empties.
+	// early-game value; a TauSchedule can raise it as the bag empties.
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
@@ -111,7 +112,9 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 	if len(leave) == 0 {
 		return 0
 	}
-	leaveCounts := map[tilemapping.MachineLetter]int{}
+	// Counted in an array, not a map, so the sum below runs in tile order and
+	// the same leave gets the same float every time.
+	var leaveCounts [256]int
 	for _, t := range leave {
 		leaveCounts[t]++
 	}
@@ -119,8 +122,13 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 	N := 0
 	for i, c := range bagMap {
 		N += int(c)
-		if leaveCounts[tilemapping.MachineLetter(i)] > int(c) {
+		if leaveCounts[i] > int(c) {
 			return 0 // impossible leave
+		}
+	}
+	for t := len(bagMap); t < len(leaveCounts); t++ {
+		if leaveCounts[t] > 0 {
+			return 0
 		}
 	}
 	if N == 0 {
@@ -130,8 +138,10 @@ func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float
 
 	// logP = Σ logC(bagMap[t], leaveCount[t]) - logC(N, k)
 	logP := -logBinomial(N, k)
-	for t, lc := range leaveCounts {
-		logP += logBinomial(int(bagMap[t]), lc)
+	for t, lc := range leaveCounts[:len(bagMap)] {
+		if lc > 0 {
+			logP += logBinomial(int(bagMap[t]), lc)
+		}
 	}
 	return math.Exp(logP)
 }
@@ -222,13 +232,22 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
-	// tauSchedule turns on the bag-size temperature schedule (tauForBag) for
-	// positions where tau was not pinned. Off by default: the engine runs at a
-	// fixed SoftmaxTemperature until the schedule is tuned as a whole.
-	tauSchedule bool
+	// tauSchedule picks a bag-size temperature schedule for positions where
+	// tau was not pinned. Off by default: the engine runs at a fixed
+	// SoftmaxTemperature until a schedule is validated as a whole.
+	tauSchedule TauSchedule
 	// phaseTau is the schedule's temperature for the current position, set
 	// by PrepareFinder when tauSchedule is on and tau was not pinned.
 	phaseTau float64
+	// tauScale multiplies whatever temperature is in use; 0 means 1.
+	tauScale float64
+	// oneTileScale is the default scale PrepareFinder picked for this
+	// position (oneTileTauScale on an early one-tile play, else 1). It
+	// applies only when neither tau nor tauScale was pinned.
+	oneTileScale float64
+	// exchangeMode picks how an exchange is read; see ExchangeMode.
+	exchangeMode     ExchangeMode
+	measuredPriorPin float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -305,6 +324,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
 	r.maxRounds = DefaultMaxRefineRounds
+	r.measuredPriorPin = -1
 }
 
 func (r *RangeFinder) SetThreads(t int) {
@@ -321,27 +341,167 @@ func (r *RangeFinder) SetTau(tau float64) {
 // Tau is the softmax temperature in use: the value SetTau pinned, or else
 // the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
+	scale := 1.0
+	if r.tauScale != 0 {
+		scale = r.tauScale
+	} else if r.tau == 0 && r.oneTileScale != 0 {
+		scale = r.oneTileScale
+	}
 	if r.tau != 0 {
-		return r.tau
+		return scale * r.tau
 	}
 	if r.phaseTau != 0 {
-		return r.phaseTau
+		return scale * r.phaseTau
 	}
-	return SoftmaxTemperature
+	return scale * SoftmaxTemperature
 }
 
-// SetTauSchedule turns the bag-size temperature schedule on or off. A pinned
-// tau wins over the schedule either way.
-func (r *RangeFinder) SetTauSchedule(on bool) {
-	r.tauSchedule = on
+// SetTauScale multiplies the temperature in use, pinned or scheduled, for
+// experiments that vary it by something other than the bag. 0 or 1 is off.
+func (r *RangeFinder) SetTauScale(s float64) {
+	r.tauScale = s
+}
+
+// ExchangeMode is how an exchange is read.
+type ExchangeMode int
+
+const (
+	// ExchangeValue weighs every possible kept leave by its prior times
+	// exp(ExchangeValueBeta x its static leave value). A player who exchanges
+	// keeps the best leave they can, and the leave table already knows which
+	// leaves are good. No sims; the posterior is exact and complete. It is the
+	// default: on 300 replayed exchanges the true kept leave gets +0.43 bits
+	// over ignoring the exchange, where the old sampler got -1.71.
+	ExchangeValue ExchangeMode = iota
+	// ExchangeSampler is the old reading: draw whole racks and keep the
+	// leaves of whatever exchanges the mini-sim happened to rank, so the true
+	// leave gets weight only if both chances land. It ruled out the kept
+	// leave in 63% of the exchanges of the 5,000-pair run.
+	ExchangeSampler
+	// ExchangeSim reads an exchange like a tile placement: the unknown is the
+	// kept leave, each measurement draws the thrown tiles at random and
+	// forces that exchange into the mini-sim, and leaves never measured are
+	// imputed. The random thrown tiles make each measurement mostly about
+	// them, not the leave, and on replayed exchanges it scored below ignoring
+	// the exchange altogether.
+	ExchangeSim
+)
+
+// ExchangeValueBeta is how strongly leave value predicts the leave kept on an
+// exchange, per point: a leave worth 10 more is about twice as likely. Fitted
+// by maximum likelihood to the 2,970 exchanges of the 5,000-pair run with a
+// known kept leave; it comes out the same (0.055 to 0.076) at every kept size.
+const ExchangeValueBeta = 0.072
+
+// SetExchangeMode chooses how an exchange is read; see ExchangeMode.
+func (r *RangeFinder) SetExchangeMode(m ExchangeMode) {
+	r.exchangeMode = m
+}
+
+// SetExchangePosterior is SetExchangeMode(ExchangeSim) when on and
+// SetExchangeMode(ExchangeSampler) when off.
+func (r *RangeFinder) SetExchangePosterior(on bool) {
+	if on {
+		r.exchangeMode = ExchangeSim
+	} else {
+		r.exchangeMode = ExchangeSampler
+	}
+}
+
+// exchangeMeasuredPrior is how many measurements' worth of trust the model's
+// imputed likelihood gets beside an exchange leave's own measurements.
+const exchangeMeasuredPrior = 3.0
+
+// SetMeasuredPrior pins the pseudo-count that blends a measured leave with
+// the model (see imputationTuning.measuredPrior); negative restores the
+// default, which is exchangeMeasuredPrior for an exchange read through the
+// posterior and nothing otherwise.
+func (r *RangeFinder) SetMeasuredPrior(m float64) {
+	r.measuredPriorPin = m
+}
+
+// exchangeByPosterior says whether this inference reads an exchange through
+// the posterior.
+func (r *RangeFinder) exchangeByPosterior() bool {
+	return r.exchangeMode == ExchangeSim && r.isExchange()
+}
+
+// isExchange says whether the play being read is an exchange.
+func (r *RangeFinder) isExchange() bool {
+	return r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
+}
+
+// measureExchange is one measurement of a kept leave: draw the thrown tiles
+// at random from what is unseen, and score the exchange of exactly those
+// tiles in a mini-sim of the whole rack. Averaged over draws this is P(an
+// exchange of this many tiles keeping leave | leave), the same quantity a
+// placement's measurement is.
+func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleSimmer,
+	leave []tilemapping.MachineLetter) (float64, error) {
+
+	opp := g.PlayerOnTurn()
+	drawn, err := g.SetRandomRack(opp, leave)
+	if err != nil {
+		return 0, err
+	}
+	if len(leave)+len(drawn) != game.RackTileLimit {
+		return 0, nil
+	}
+	thrown := make(tilemapping.MachineWord, len(drawn))
+	copy(thrown, drawn)
+	kept := make(tilemapping.MachineWord, len(leave))
+	copy(kept, leave)
+	exch := move.NewExchangeMove(thrown, kept, g.Alphabet())
+
+	if _, err := simmer.GenAndSim(context.Background(), 10, exch); err != nil {
+		return 0, err
+	}
+	r.simCount.Add(1)
+	likelihood, _ := softmaxLikelihood(simmer.BestPlays().PlaysNoLock(), exch, g.Board(), r.Tau())
+	return likelihood, nil
+}
+
+// TauSchedule says how the temperature follows the bag when tau is not pinned.
+type TauSchedule int
+
+const (
+	// TauFitted is the curve fitted to real games, tauFittedForBag. It is the
+	// default: replayed over the 5,000-pair run it gains 3.1 bits on the true
+	// leave with 2 to 7 in the bag and 0.9 with 8 to 20 over a fixed 0.05,
+	// and nothing either way earlier.
+	TauFitted TauSchedule = iota
+	// TauFixed keeps SoftmaxTemperature at every bag size.
+	TauFixed
+	// TauSteps is the hand-cut three-phase schedule, tauForBag.
+	TauSteps
+)
+
+// oneTileTauScale multiplies the scheduled temperature on a one-tile play
+// (a six-tile leave) with at least oneTileTauMinBag tiles in the bag. The mini-sim's verdict on a six-tile
+// leave is the noisiest there is, and early in the game a sharp temperature
+// trusts it too far: replayed, doubling gains 2.9 bits with 21 to 45 in the
+// bag and 2.5 with 46 or more, while later it costs a little (-0.3 at 2-7,
+// -0.1 at 8-20). Four times gains no more than twice.
+const (
+	oneTileTauScale  = 2.0
+	oneTileTauMinBag = 21
+)
+
+// SetTauSchedule picks the bag-size temperature schedule. A pinned tau wins
+// over the schedule either way. The default is TauFitted.
+func (r *RangeFinder) SetTauSchedule(s TauSchedule) {
+	r.tauSchedule = s
 }
 
 // scheduleTau sets the schedule's temperature for a position with this many
-// tiles left in the bag: tauForBag when the schedule is on, nothing otherwise.
+// tiles left in the bag, or nothing when the schedule is TauFixed.
 func (r *RangeFinder) scheduleTau(bag int) {
 	r.phaseTau = 0
-	if r.tauSchedule {
+	switch r.tauSchedule {
+	case TauSteps:
 		r.phaseTau = tauForBag(bag)
+	case TauFitted:
+		r.phaseTau = tauFittedForBag(bag)
 	}
 }
 
@@ -367,6 +527,42 @@ func tauForBag(bag int) float64 {
 		return 0.1
 	}
 	return SoftmaxTemperature
+}
+
+// fittedTauKnots is the maximum-likelihood temperature at each knot of the
+// bag, fitted with cmd/taufit on 16,550 BestBot turns from 2,000 NWL23 games
+// on woogles, with log tau piecewise linear in the bag between knots. The
+// curve is tight (95% game-bootstrap intervals within about 10%) except at
+// 2 in the bag, where it is [1.9, 3.4]. Folds held out by game: 0.67 nats
+// per position better than one constant, 0.05 better than the best three
+// fitted steps and 0.17 better than tauForBag.
+//
+// It deliberately leaves out how many tiles the play used. Fitted on its own
+// that looks strong -- one-tile plays want twenty times the temperature of
+// six-tile ones -- but one-tile plays crowd the end of the game, and with
+// the bag in the model a full bag-by-tiles-played table gains less than a
+// thousandth of a nat per position held out.
+var fittedTauKnots = []struct {
+	bag int
+	tau float64
+}{
+	{2, 2.5}, {7, 0.45}, {14, 0.14}, {20, 0.075}, {30, 0.047}, {45, 0.034}, {60, 0.029}, {86, 0.021},
+}
+
+// tauFittedForBag interpolates fittedTauKnots in log tau, holding the end
+// values outside them.
+func tauFittedForBag(bag int) float64 {
+	k := fittedTauKnots
+	if bag <= k[0].bag {
+		return k[0].tau
+	}
+	for i := 1; i < len(k); i++ {
+		if bag <= k[i].bag {
+			w := float64(bag-k[i-1].bag) / float64(k[i].bag-k[i-1].bag)
+			return math.Exp((1-w)*math.Log(k[i-1].tau) + w*math.Log(k[i].tau))
+		}
+	}
+	return k[len(k)-1].tau
 }
 
 // SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
@@ -567,6 +763,13 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.lastOppMove.TilesPlayed() == game.RackTileLimit {
 		return ErrNoInformation
 	}
+	r.tuning.measuredPrior = 0
+	if r.exchangeByPosterior() {
+		r.tuning.measuredPrior = exchangeMeasuredPrior
+	}
+	if r.measuredPriorPin >= 0 {
+		r.tuning.measuredPrior = r.measuredPriorPin
+	}
 	r.lastOppMoveRackTiles = []tilemapping.MachineLetter{}
 	for _, t := range r.lastOppMove.Tiles() {
 		if t == 0 {
@@ -577,6 +780,11 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
 	}
 	r.inference.RackLength = game.RackTileLimit - len(r.lastOppMoveRackTiles)
+	r.oneTileScale = 1
+	if r.inference.RackLength == game.RackTileLimit-1 && !r.isExchange() &&
+		r.origGame.Bag().TilesRemaining() >= oneTileTauMinBag {
+		r.oneTileScale = oneTileTauScale
+	}
 	log.Info().Int("inference-rack-length", r.inference.RackLength).Msg("preparing inference")
 
 	// Sort to make it easy to compare to other plays:
@@ -756,8 +964,12 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// distinct leave exactly once and apply full Bayesian weighting
 	// (prior × likelihood) rather than importance sampling.
 	// Exchange moves are excluded because their "leave" semantics differ.
-	isExchange := r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
-	if !isExchange && r.inference.RackLength >= 1 {
+	isExchange := r.isExchange()
+	if isExchange && r.exchangeMode == ExchangeValue {
+		return r.inferExchangeByValue()
+	}
+	byPosterior := !isExchange || r.exchangeByPosterior()
+	if byPosterior && r.inference.RackLength >= 1 {
 		maxLeaves := r.enumerationLimit()
 		m := countMultisets(r.inferenceBagMap, r.inference.RackLength)
 		if m <= maxLeaves {
@@ -769,7 +981,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 			Msg("leaf-space-too-large-using-sampling")
 	}
 
-	if !isExchange && r.inference.RackLength >= 1 {
+	if byPosterior && r.inference.RackLength >= 1 {
 		// Monte Carlo sampling path for tile placements: every sampled leave
 		// (whatever its likelihood) feeds the marginal-lift accumulator so a
 		// complete posterior can be imputed after sampling ends.
@@ -939,8 +1151,28 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	isExchange := r.lastOppMove.Action() == move.MoveTypeExchange
 	// otherwise, it's a tile placement play.
 
-	if isExchange {
+	if isExchange && r.exchangeMode == ExchangeSampler {
 		return r.inferSingleExchange(thread, iterNum, logChan)
+	}
+	if isExchange {
+		// Draw the kept leave from the prior: a random rack, and a random
+		// choice of which of its tiles were kept.
+		if _, err := g.SetRandomRack(opp, nil); err != nil {
+			return nil, err
+		}
+		rack := g.RackFor(opp).TilesOn()
+		if len(rack) < r.inference.RackLength {
+			return nil, nil
+		}
+		rng := rand.New(rand.NewSource(r.refineSeed() ^ int64(iterNum)*0x5DEECE66D))
+		rng.Shuffle(len(rack), func(i, j int) { rack[i], rack[j] = rack[j], rack[i] })
+		leave := make([]tilemapping.MachineLetter, r.inference.RackLength)
+		copy(leave, rack[:r.inference.RackLength])
+		likelihood, err := r.measureExchange(g, r.aiplayers[thread].(*simplesimmer.SimpleSimmer), leave)
+		if err != nil {
+			return nil, err
+		}
+		return []montecarlo.InferredRack{{Leave: leave, Weight: likelihood}}, nil
 	}
 
 	extraDrawn, err = g.SetRandomRack(opp, r.lastOppMoveRackTiles)

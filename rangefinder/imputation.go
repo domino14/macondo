@@ -884,6 +884,13 @@ type imputationTuning struct {
 	valueMode ValueMode
 	valueSet  bool
 	valueOf   func(runs []tileRun) float64
+	// measuredPrior, when positive, blends a measured leave's mean with the
+	// model's imputed likelihood as if the model were this many extra
+	// measurements. Zero trusts the measurements alone, right for a placement,
+	// whose measured rack is fixed by the leave. An exchange measurement draws
+	// the thrown tiles at random, so one measurement is one noisy draw of
+	// what the leave is worth; see RangeFinder.SetExchangePosterior.
+	measuredPrior float64
 }
 
 const (
@@ -1160,6 +1167,12 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 				if ml, ok := measured[string(keyBuf)]; ok {
 					isMeasured = true
 					w := ml.mean()
+					if m0 := tune.measuredPrior; m0 > 0 {
+						runBuf = runsOf(buf, runBuf)
+						imp := math.Exp(logCalib + mod.logImputed(runBuf))
+						c := float64(ml.count)
+						w = (c*w + m0*imp) / (c + m0)
+					}
 					if w <= 0 {
 						return // measured to be (numerically) impossible
 					}

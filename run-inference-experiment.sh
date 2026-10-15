@@ -14,9 +14,9 @@
 #
 set -euo pipefail
 
-BRANCH="${BRANCH:-claude/game-pair-autoplay-seed-wy2n1b}"
+BRANCH="${BRANCH:-master}"
 MACONDO_DIR="${MACONDO_DIR:-$HOME/macondo}"
-CONFIG="${CONFIG:-infer-v-sim-5000.json}"
+CONFIG="${CONFIG:-infer-v-sim-12500.json}"
 THREADS="${THREADS:-}"          # default: every logical CPU
 PAIRS=""                        # override numGames, for a smoke test
 DRY_RUN=0
@@ -99,22 +99,21 @@ if [ ! -f "$CONFIG" ]; then
   say "Writing $CONFIG (was not present)"
   cat > "$CONFIG" <<'JSON'
 {
-  "description": "Inference (tau 0.05) vs no inference, 5-ply sims both sides, 5000 game pairs",
-  "experimentId": "infer-v-sim-5000",
+  "description": "Inference (engine defaults: fitted tau curve, one-tile x2 above 20 in the bag, exchanges by leave value) vs no inference, 5-ply sims both sides, 12500 game pairs",
+  "experimentId": "infer-v-sim-12500",
   "lexicon": "NWL23",
   "letterDistribution": "English",
-  "numGames": 5000,
-  "threads": 128,
+  "numGames": 12500,
+  "threads": 192,
   "outputDir": "./experiments",
   "block": true,
   "gamePairs": true,
-  "seed": 20260911,
+  "seed": 20261012,
 
   "player1": {
     "botCode": "SIMMING_INFER_BOT_NO_EG",
     "minSimPlies": 5,
     "simThreads": 1,
-    "inferenceTau": 0.05,
     "inferenceBudget": 200
   },
   "player2": {
@@ -158,6 +157,28 @@ EOF
 if [ "$DRY_RUN" = "1" ]; then
   say "--dry-run: everything is ready, not launching"
   exit 0
+fi
+
+# -------------------------------------------------------------------- boost
+# CPU boost off before the run. On the 192-thread machine, boost transitions
+# under a sudden full load are the suspected cause of the hard crashes during
+# the sim-distill labelling. Not persistent across reboots, so it is applied
+# here every time. ALLOW_BOOST=1 skips it.
+if [ "${ALLOW_BOOST:-0}" != "1" ]; then
+  say "Turning CPU boost off"
+  if [ -e /sys/devices/system/cpu/cpufreq/boost ]; then
+    BOOSTFILE=/sys/devices/system/cpu/cpufreq/boost; OFF=0
+  elif [ -e /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+    BOOSTFILE=/sys/devices/system/cpu/intel_pstate/no_turbo; OFF=1
+  else
+    die "no boost control found under /sys/devices/system/cpu; rerun with ALLOW_BOOST=1 to skip"
+  fi
+  if [ "$(cat "$BOOSTFILE")" != "$OFF" ] && [ "$DRY_RUN" != "1" ]; then
+    echo "$OFF" | sudo -n tee "$BOOSTFILE" >/dev/null || die "could not write $BOOSTFILE without a password.
+  Run:  echo $OFF | sudo tee $BOOSTFILE
+  then rerun this script (or ALLOW_BOOST=1 to run with boost on)."
+  fi
+  echo "  $BOOSTFILE = $(cat "$BOOSTFILE")"
 fi
 
 # --------------------------------------------------------------------- run
