@@ -86,6 +86,12 @@ Swap done 10/15 00:45 (5070 Ti, PCIe x16): all 20 TensorRT engines rebuilt
 (18 s each; old ones in ~/data/trt-rebuild/old-3070ti), streamopen v1 now
 exports 4 outputs (value/spread identical), container recreated. Net-vs-net
 autoplay 68k games/h at 12 threads (old card 32.7k); 24 threads no faster.
+Serving benchmark 10/15 (bench-serving.sh, 3,000 games each, games/h):
+baseline 68.4k (12 thr) / 67.1k (24); 2 instances 87.8k / 87.8k (+28%);
+dynamic batching (200 us queue, batch <= 512) 55.4k / 49.3k / 47.6k (12/24/48
+thr, slower: the queue delay adds latency to a latency-bound loop); both
+58.7k / 73.0k (24/48). Two instances are now the default (copy_model.sh,
+streamopen's config): same engine, identical outputs, more requests in flight.
 
 - fp32 value tail: the TensorRT engines are fp16, and value = P(win) -
   P(loss) with both near 0.5 is computed in fp16, so differences under

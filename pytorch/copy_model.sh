@@ -76,7 +76,7 @@ output [
 
 instance_group [
   {{
-    count: 1
+    count: 2
     kind: KIND_GPU
     gpus: [ 0 ]
   }}
