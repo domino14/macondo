@@ -136,7 +136,7 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 		if dup {
 			continue
 		}
-		alt := ev.firstAvoiding(b, plays, func(f Key) bool { return f == w })
+		alt, _ := ev.firstAvoiding(b, plays, func(f Key) bool { return f == w })
 		wrs = append(wrs, WordRegret{Word: w, Main: wi == 0, Regret: best - alt})
 	}
 	for wi, w := range bestWords {
@@ -150,7 +150,7 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 		if dup {
 			continue
 		}
-		alt := ev.firstAvoiding(b, plays, func(f Key) bool {
+		alt, _ := ev.firstAvoiding(b, plays, func(f Key) bool {
 			return len(f) == len(a) && AlphaKey(f) == a
 		})
 		ars = append(ars, AlphaRegret{Alpha: a, Regret: best - alt})
@@ -159,8 +159,9 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 }
 
 // firstAvoiding returns the equity of the best move none of whose formed words
-// is in the excluded set.
-func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) float64 {
+// is in the excluded set, and false (with a pass's equity) if there is none in
+// the list.
+func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) (float64, bool) {
 	for i := 1; i < len(plays); i++ {
 		ok := true
 		for _, f := range ev.wordsOf(b, plays, i) {
@@ -170,21 +171,23 @@ func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, exclu
 			}
 		}
 		if ok {
-			return plays[i].Equity()
+			return plays[i].Equity(), true
 		}
 	}
-	return turnplayer.StaticPassPenalty
+	return turnplayer.StaticPassPenalty, false
 }
 
 // RegretFor returns the regret of excluding the given set of words (as keys) at
 // this position: the best move's equity minus the best equity among moves that
 // form none of them. Used by the synthetic estimator, where the target word is
 // fixed in advance and may not be in the best move at all (regret 0).
-func (ev *Evaluator) RegretFor(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) float64 {
+// found is false when no move in the list avoids the set; with a truncated
+// (top-N) list the caller should then retry with the full list.
+// It reuses the cache, so call Reset when the move list changes.
+func (ev *Evaluator) RegretFor(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) (regret float64, found bool) {
 	if len(plays) == 0 || plays[0].Action() != move.MoveTypePlay {
-		return 0
+		return 0, true
 	}
-	ev.reset(len(plays))
 	hit := false
 	for _, f := range ev.wordsOf(b, plays, 0) {
 		if excluded(f) {
@@ -193,7 +196,11 @@ func (ev *Evaluator) RegretFor(b *board.GameBoard, plays []*move.Move, excluded 
 		}
 	}
 	if !hit {
-		return 0
+		return 0, true
 	}
-	return plays[0].Equity() - ev.firstAvoiding(b, plays, excluded)
+	alt, found := ev.firstAvoiding(b, plays, excluded)
+	return plays[0].Equity() - alt, found
 }
+
+// Reset clears the per-turn cache for a new move list of n moves.
+func (ev *Evaluator) Reset(n int) { ev.reset(n) }

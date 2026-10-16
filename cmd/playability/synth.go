@@ -20,6 +20,8 @@ import (
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/playability"
 	"github.com/domino14/macondo/wmp"
 )
@@ -128,12 +130,27 @@ func lexiconClasses(cfg *config.Config, lexicon string) (map[playability.Key][]p
 	return classes, k.GetAlphabet(), nil
 }
 
-func loadPositions(dir string, max int) ([]playability.Position, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "shard-*.gob.gz"))
-	if err != nil {
-		return nil, err
+// loadPositions reads the saved turns of shards 0..nShards-1 (all present
+// shards if nShards is 0). A fixed shard range keeps the reservoir, and so a
+// resumed synth run, the same while gen is still writing shards.
+func loadPositions(dir string, nShards, max int) ([]playability.Position, error) {
+	var files []string
+	if nShards > 0 {
+		for i := 0; i < nShards; i++ {
+			f := playability.ShardPath(dir, i)
+			if _, err := os.Stat(f); err != nil {
+				return nil, fmt.Errorf("position shard missing: %w", err)
+			}
+			files = append(files, f)
+		}
+	} else {
+		var err error
+		files, err = filepath.Glob(filepath.Join(dir, "shard-*.gob.gz"))
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(files)
 	}
-	sort.Strings(files)
 	var pos []playability.Position
 	for _, f := range files {
 		var sh playability.Shard
@@ -161,7 +178,9 @@ func runSynth(args []string) error {
 	stride := fs.Int("stride", 1, "only do every stride-th chunk (quick coverage pass)")
 	slack := fs.Int("slack", 1, "strata: the full word, then racks 1..slack letters short of it")
 	maxPos := fs.Int("max-positions", 500000, "positions to load")
+	posShards := fs.Int("pos-shards", 0, "load positions from shards 0..N-1 only (0 = all present)")
 	workers := fs.Int("workers", 3, "worker goroutines")
+	topN := fs.Int("topn", 10, "generate the top N moves first; full list only if none avoids the word")
 	lexicon := fs.String("lexicon", "NWL23", "lexicon")
 	ld := fs.String("ld", "english", "letter distribution")
 	only := fs.String("words", "", "comma-separated words: do just their alphagrams (testing)")
@@ -173,7 +192,7 @@ func runSynth(args []string) error {
 		return err
 	}
 	cfg := newConfig(*lexicon, *ld)
-	positions, err := loadPositions(*in, *maxPos)
+	positions, err := loadPositions(*in, *posShards, *maxPos)
 	if err != nil {
 		return err
 	}
@@ -221,7 +240,7 @@ func runSynth(args []string) error {
 		}
 	}
 	log.Info().Int("positions", len(positions)).Int("alphagrams", len(alphas)).
-		Int("chunks", nChunks).Int("todo", len(todo)).Msg("synth")
+		Int("chunks", nChunks).Int("todo", len(todo)).Int64("fullgens", fullGens.Load()).Msg("synth")
 
 	jobs := make(chan int)
 	go func() {
@@ -240,7 +259,7 @@ func runSynth(args []string) error {
 			defer wg.Done()
 			for c := range jobs {
 				lo, hi := c**chunk, min((c+1)**chunk, len(alphas))
-				res, err := synthChunk(cfg, positions, alphas[lo:hi], classes, c, *mPos, *k, *slack)
+				res, err := synthChunk(cfg, positions, alphas[lo:hi], classes, c, *mPos, *k, *slack, *topN)
 				if err != nil {
 					errc <- err
 					return
@@ -251,7 +270,7 @@ func runSynth(args []string) error {
 				}
 				n := done.Add(1)
 				log.Info().Int("chunk", c).Int("len", len(alphas[lo])).Int64("done", n).
-					Int("todo", len(todo)).
+					Int("todo", len(todo)).Int64("fullgens", fullGens.Load()).
 					Float64("chunks/h", float64(n)/time.Since(start).Hours()).Msg("chunk-done")
 			}
 		}()
@@ -304,8 +323,11 @@ type synthJob struct {
 	draw        []int
 }
 
+// fullGens counts the samples where top-N was not enough.
+var fullGens atomic.Int64
+
 func synthChunk(cfg *config.Config, positions []playability.Position, alphas []playability.Key,
-	classes map[playability.Key][]playability.Key, idx, m, k, slack int) (*SynthChunk, error) {
+	classes map[playability.Key][]playability.Key, idx, m, k, slack, topN int) (*SynthChunk, error) {
 
 	h := fnv.New64a()
 	fmt.Fprintf(h, "synth/%d", idx)
@@ -398,22 +420,46 @@ func synthChunk(cfg *config.Config, positions []playability.Position, alphas []p
 			if err := g.SetRackFor(pi, rack); err != nil {
 				return nil, err
 			}
-			plays := wk.btp.GenerateMoves(math.MaxInt32)
 			b := g.Board()
-			ra := ev.RegretFor(b, plays, func(f playability.Key) bool {
-				return len(f) == len(a) && playability.AlphaKey(f) == a
-			})
-			if debug {
-				fmt.Fprintf(os.Stderr, "%s rack=%s best=%s eq=%.1f regret=%.1f\n", playability.Visible(a, tm),
-					rack.String(), plays[0].ShortDescription(), plays[0].Equity(), ra)
+			// Top-N with shadow pruning is much cheaper than the full list on
+			// bingo racks; fall back to the full list when no move in the top N
+			// avoids a word.
+			var ra float64
+			wr := map[playability.Key]float64{}
+			for _, n := range []int{topN, math.MaxInt32} {
+				var plays []*move.Move
+				if n == math.MaxInt32 {
+					wk.gen.SetPlayRecorder(movegen.AllPlaysRecorder)
+				} else {
+					wk.gen.SetRecordNTopPlays(n)
+				}
+				plays = wk.btp.GenerateMoves(n)
+				ev.Reset(len(plays))
+				var ok bool
+				ra, ok = ev.RegretFor(b, plays, func(f playability.Key) bool {
+					return len(f) == len(a) && playability.AlphaKey(f) == a
+				})
+				for w := range r.Words {
+					if ra == 0 {
+						wr[w] = 0 // no anagram in the best move: no single word can matter
+						continue
+					}
+					rw, okw := ev.RegretFor(b, plays, func(f playability.Key) bool { return f == w })
+					wr[w] = rw
+					ok = ok && okw
+				}
+				if debug {
+					fmt.Fprintf(os.Stderr, "%s rack=%s best=%s eq=%.1f regret=%.1f n=%d ok=%v\n", playability.Visible(a, tm),
+						rack.String(), plays[0].ShortDescription(), plays[0].Equity(), ra, len(plays), ok)
+				}
+				if ok || len(plays) < n {
+					break
+				}
+				fullGens.Add(1)
 			}
 			r.Alpha.add(ra)
 			for w, st := range r.Words {
-				if ra == 0 {
-					st.add(0) // no anagram in the best move: no single word can matter
-					continue
-				}
-				st.add(ev.RegretFor(b, plays, func(f playability.Key) bool { return f == w }))
+				st.add(wr[w])
 			}
 		}
 	}

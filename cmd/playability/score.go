@@ -29,7 +29,7 @@ func perGame(sum, sum2 float64, n, tpg float64) (float64, float64) {
 func runScore(args []string) error {
 	fs := flag.NewFlagSet("score", flag.ExitOnError)
 	genDir := fs.String("gen", "", "gen shard directory")
-	synthDir := fs.String("synth", "", "synth chunk directory (optional)")
+	synthDir := fs.String("synth", "", "synth chunk directories, comma-separated (optional)")
 	out := fs.String("out", "", "output directory")
 	lexicon := fs.String("lexicon", "NWL23", "lexicon")
 	ld := fs.String("ld", "english", "letter distribution")
@@ -62,7 +62,11 @@ func runScore(args []string) error {
 
 	synth := map[playability.Key]*SynthResult{}
 	if *synthDir != "" {
-		sf, _ := filepath.Glob(filepath.Join(*synthDir, "synth-*.gob.gz"))
+		var sf []string
+		for _, dir := range strings.Split(*synthDir, ",") {
+			m, _ := filepath.Glob(filepath.Join(dir, "synth-*.gob.gz"))
+			sf = append(sf, m...)
+		}
 		for _, f := range sf {
 			var ch SynthChunk
 			if err := playability.ReadGob(f, &ch); err != nil {

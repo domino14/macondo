@@ -12,6 +12,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/pprof"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -23,6 +24,13 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "usage: playability gen|synth|score [flags]")
 		os.Exit(2)
+	}
+	if f := os.Getenv("PLAY_CPUPROFILE"); f != "" {
+		pf, err := os.Create(f)
+		if err == nil {
+			pprof.StartCPUProfile(pf)
+			defer pprof.StopCPUProfile()
+		}
 	}
 	var err error
 	switch os.Args[1] {
@@ -36,6 +44,7 @@ func main() {
 		err = fmt.Errorf("unknown subcommand %q", os.Args[1])
 	}
 	if err != nil {
+		pprof.StopCPUProfile()
 		log.Fatal().Err(err).Msg("playability")
 	}
 }
