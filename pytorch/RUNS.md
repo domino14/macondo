@@ -47,6 +47,8 @@ The producer replays half of all games transposed.
 | own | 10/10-11 | open+open2 54M, streamed | streamopen recipe from scratch + 2 ownership heads (self_own/opp_own, `-ownership`, `MACONDO_OWNERSHIP=1`) | 101k | 57.65 ± 0.18 | +9.3 | identical to streamopen (57.65): ownership adds nothing |
 | simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
 | simft4 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | top-4 listwise loss (SE-aware target on the sim's top 4), rank-share 1, tau 1, 5070 Ti | 10k | 57.52 ± 0.18 | +8.9 | -0.13 (1 SE) vs streamopen: level; sim distillation closed |
+| nvnft | 10/16 | streamopen + 3M net-vs-net games (streamopen self-play) 50/50 with 3M open2 games | fine-tune 11k steps, lr 1e-4, final weights, 5070 Ti (4,180 pos/s) | 11k | 57.07 ± 0.18 | +8.9 | -0.49 (3.8 SE) vs hastyft: worse vs Hasty; head-to-head pending |
+| hastyft | 10/16 | streamopen + 3M fresh HastyBot games (control) 50/50 with the same 3M open2 games | same as nvnft | 11k | 57.56 ± 0.18 | +9.2 | -0.09 vs streamopen: level (more Hasty data, no change) |
 
 ## Bot changes that affect matches
 

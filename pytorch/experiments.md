@@ -2266,3 +2266,24 @@ The best of the four sim fine-tunes (57.48, 57.18, 56.97, 57.52) and none
 beats streamopen: the 5-ply labels, as distilled here, do not move play.
 Sim distillation is closed; the labels stay archived
 (~/data/results/simlabels-5ply-nwl23). Next: net-vs-net A/B (queue-nvn-ab.sh).
+
+#### Result: net-vs-net A/B vs HastyBot (10/16/26 04:00-05:10)
+
+```
+FastMlBot(nvnft):   paired win rate 57.07% +/- 0.18 (95%; SE 0.09)  swept 24.0%  lost 9.9%  spread +8.9/game
+FastMlBot(hastyft): paired win rate 57.56% +/- 0.18 (95%; SE 0.09)  swept 24.9%  lost 9.9%  spread +9.2/game
+```
+
+Both fine-tune streamopen for 11k steps x 2048 (lr 1e-4, warmup 500, final
+weights) on a 50/50 interleave (mix-logs.py) of 3M new games with the same
+73.2M rows (~3M games) from the head of open2. A's new games are streamopen
+vs streamopen (gen-nvn.sh); B's are fresh HastyBot vs HastyBot with the same
+opening flags. B is level with streamopen (57.65): more Hasty games change
+nothing. A is 0.49 below B (3.8 SE): against HastyBot, the net's own games
+make it worse. Caveat: the benchmark opponent is HastyBot, and the labels A
+learned are outcomes under net-vs-net play; a position's value against a
+weaker opponent differs, so the Hasty match may penalise A for learning the
+"right" values for a stronger game. Head-to-head nvnft vs hastyft
+(queue-ml-v-ml.sh, 100k pairs) running to settle it. (First A attempt ran
+dry at ~7.8k steps: a pass yields ~4.0M positions, one turn from the ~68%
+of games with a pre-endgame draw; rerun with 7 passes.)
