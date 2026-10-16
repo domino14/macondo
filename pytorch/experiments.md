@@ -2302,3 +2302,19 @@ match measures how well a net exploits HastyBot, not strength in general;
 self-play ideas need a head-to-head yardstick (vs streamopen or a fixed
 control net) as well as the Hasty match. Next: the from-scratch pair
 (queue-scratch-ab.sh), then decide whether to scale self-play.
+
+#### Result: nvnft vs streamopen head to head; nvnscr vs HastyBot (10/16/26)
+
+```
+FastMlBot(nvnft) vs FastMlBot(streamopen): paired win rate 50.37% +/- 0.16 (95%; SE 0.08)  spread +1.0/game
+FastMlBot(nvnscr) vs HastyBot:             paired win rate 54.45% +/- 0.18 (95%; SE 0.09)  spread +5.0/game
+```
+
+The self-play fine-tune beats its parent head to head (+0.37, 4.6 SE),
+matching its +0.30 over hastyft. nvnscr: a net trained from scratch on
+only the 3M net-vs-net games (20k steps, best-val weights) reaches 54.45%
+vs HastyBot, above every pre-spatial-heads net trained on 54M Hasty games
+(53.1-53.3) though below streamopen (57.65). The fair comparison is the
+3M-Hasty-games control (hastyscr), training now. (The nvnft vs streamopen
+match started early, at 11:45, through a wrong-pid wait, and shared the
+GPU with nvnscr's training; that slows both, results unaffected.)
