@@ -2287,3 +2287,18 @@ weaker opponent differs, so the Hasty match may penalise A for learning the
 (queue-ml-v-ml.sh, 100k pairs) running to settle it. (First A attempt ran
 dry at ~7.8k steps: a pass yields ~4.0M positions, one turn from the ~68%
 of games with a pre-endgame draw; rerun with 7 passes.)
+
+#### Result: nvnft vs hastyft head to head (10/16/26 10:46)
+
+```
+FastMlBot(nvnft) vs FastMlBot(hastyft): paired win rate 50.30% +/- 0.16 (95%; SE 0.08)  swept 13.4%  lost 12.8%  spread +1.0/game
+```
+
+The self-play fine-tune beats the Hasty-data control head to head by 0.30
+(3.7 SE) while losing to it against HastyBot by 0.49 (3.8 SE). Two real
+effects with opposite signs: values learned from the net's own games help
+against a net-strength opponent and hurt against HastyBot. The HastyBot
+match measures how well a net exploits HastyBot, not strength in general;
+self-play ideas need a head-to-head yardstick (vs streamopen or a fixed
+control net) as well as the Hasty match. Next: the from-scratch pair
+(queue-scratch-ab.sh), then decide whether to scale self-play.
