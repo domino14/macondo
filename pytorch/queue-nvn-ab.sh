@@ -10,8 +10,10 @@
 #
 # 1. generate the 3M Hasty control games on the CPU (~/data/hasty3m.txt.gz)
 # 2. build the two mixed logs (mix-logs.py; old rows = the nvn row count)
-# 3. fine-tune A, then B (run-stream.sh: 4 passes of ~5.7M games each, one
-#    turn per game per pass, 11k steps of 2048, lr 1e-4); each deploys its
+# 3. fine-tune A, then B (run-stream.sh: 11k steps of 2048, lr 1e-4; a pass
+#    gives ~4.0M positions, one turn from the ~68% of games with an eligible
+#    turn, so 4 passes ran dry at ~7.8k steps on 10/15: 7 passes, the trainer
+#    stops at 11k); each deploys its
 #    final weights and plays 100k pairs vs HastyBot. B waits for A's match.
 #
 # Re-runnable: finished outputs (the Hasty log, the mixes) are kept.
@@ -40,7 +42,7 @@ fi
 for arm in "nvnft mix-nvn" "hastyft mix-hasty"; do
     set -- $arm
     log "fine-tune $1 on $2"
-    TAG=$1 LOGS="$DATA/$2.txt.gz" VAL=val-streamopen.bin PASSES=4 ROWS_PER_PASS=5700000 \
+    TAG=$1 LOGS="$DATA/$2.txt.gz" VAL=val-streamopen.bin PASSES=7 ROWS_PER_PASS=4000000 \
     STEPS=${STEPS:-11000} BATCH=128 ACCUM=16 GPU_MEM=5120 LR=1e-4 WARMUP=500 DEPLOY_FINAL=1 \
     TRAIN_EXTRA="--init-ckpt $INIT" \
       ./run-stream.sh >> "queue-$1.log" 2>&1 || log "$1 failed (see queue-$1.log)"
