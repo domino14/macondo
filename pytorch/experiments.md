@@ -2251,3 +2251,18 @@ gradient-balanced (--rank-share 1), tau 1. Held-out agreement with the
 sim's pick 68.7% -> ~69-70% (noise on 531 positions). First run on the
 5070 Ti: 0.93 s/step (old card ~2), match 200k games in ~70 min.
 simft4 (top-4 loss) is the last try on this line.
+
+#### Result: simft4 (top-4 sim loss, full labels) vs HastyBot (10/15/26 16:00)
+
+```
+FastMlBot(simft4): paired win rate 57.52% +/- 0.18 (95%; SE 0.09)   swept 25.0%  lost 10.0%  spread +8.9/game
+```
+
+streamopen 57.65 (+9.5): -0.13, ~1 SE of the difference: level. Same
+recipe as simft3 with --rank-loss topk --rank-k 4 (the SE-aware softmax
+target over the sim's top 4 only, the rest just kept below them). Held-out
+agreement with the sim's pick 68.7% -> 69.7%, sim win given up 0.51 pts/move.
+The best of the four sim fine-tunes (57.48, 57.18, 56.97, 57.52) and none
+beats streamopen: the 5-ply labels, as distilled here, do not move play.
+Sim distillation is closed; the labels stay archived
+(~/data/results/simlabels-5ply-nwl23). Next: net-vs-net A/B (queue-nvn-ab.sh).

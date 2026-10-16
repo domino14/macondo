@@ -46,6 +46,7 @@ The producer replays half of all games transposed.
 | simft2 | 10/10 | same | rank-share 1 (gradient-balanced), tau 1 | 10k | 57.18 ± 0.18 | +8.4 | -0.47 (3.6 SE): full-list ranking hurts |
 | own | 10/10-11 | open+open2 54M, streamed | streamopen recipe from scratch + 2 ownership heads (self_own/opp_own, `-ownership`, `MACONDO_OWNERSHIP=1`) | 101k | 57.65 ± 0.18 | +9.3 | identical to streamopen (57.65): ownership adds nothing |
 | simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
+| simft4 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | top-4 listwise loss (SE-aware target on the sim's top 4), rank-share 1, tau 1, 5070 Ti | 10k | 57.52 ± 0.18 | +8.9 | -0.13 (1 SE) vs streamopen: level; sim distillation closed |
 
 ## Bot changes that affect matches
 

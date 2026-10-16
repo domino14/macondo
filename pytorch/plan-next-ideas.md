@@ -78,6 +78,11 @@ day on deb192), too slow; the net costs GPU time instead.
    Hasty games as the control.
 3. Fine-tune the same starting net on each set, same steps and settings,
    mixing in old data so self-play does not narrow the net. Match both.
+   Scripted 10/15 (queue-nvn-ab.sh, after the BIOS flash): 3M fresh Hasty
+   games (run-openings.sh GEN only), then each arm = its 3M games
+   interleaved 50/50 with the same head of open2 (mix-logs.py, 2,000-row
+   blocks), fine-tune streamopen 11k steps x 2048 (4 passes), lr 1e-4,
+   final weights, 100k pairs vs HastyBot. A = nvnft, B = hastyft.
 4. If net-vs-net wins: iterate (new net plays the next generation).
 
 ## Small things to test after the GPU swap
