@@ -197,6 +197,26 @@ both bots (`minSimPlies 2`; the late-bag sims and the endgame are unchanged)
 and budget 200. Same seed (20261012), 12,500 pairs. The baseline for trying
 ideas fast before confirming them at 5 plies. Result pending.
 
+### decidelab ceiling and static ranks (launched Oct 17, 2026 01:13)
+
+decidelab gained an `oracle` chooser, the same sim bot told the opponent's true
+leave (what a perfect read would choose), and logs each choice's static rank.
+Queued on deb192 (`~/macondo/lab/queue1.sh`, 48 threads beside the match):
+
+- `dl-2ply-oracle`: 2,000 positions from the 2-ply baseline's turn log
+  (snapshot of 54,363 lines), 2-ply deciders, budget 200, judge 3,000
+  iterations at 5 plies against the true leave.
+- `dl-5ply-oracle`: 1,000 positions from the 5,000-pair run, 5-ply deciders.
+
+Result pending.
+
+## Running log
+
+What is on deb192 and when it changed. Results go in the sections above.
+
+- Oct 16 22:12: `infer-v-sim-2ply` match launched (192 threads).
+- Oct 17 01:13: `queue1.sh` (decidelab oracle runs) launched, 48 threads.
+
 ## Idea queue
 
 1. **Ceiling by phase (decidelab).** Add an oracle chooser (true leave) to
