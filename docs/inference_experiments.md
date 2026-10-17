@@ -208,7 +208,40 @@ Queued on deb192 (`~/macondo/lab/queue1.sh`, 48 threads beside the match):
   iterations at 5 plies against the true leave.
 - `dl-5ply-oracle`: 1,000 positions from the 5,000-pair run, 5-ply deciders.
 
-Result pending.
+**2-ply result (Oct 17 02:54, 2,000 positions, 100 min).** Gain over `none`
+in win points per turn, 95% bootstrap intervals:
+
+| bag    | n     | none2 (noise) | infer                  | oracle                 |
+|--------|-------|---------------|------------------------|------------------------|
+| 2-7    | 156   | 0.6% / +0.00  | 9.6% / -0.30 [-0.87, +0.07] | 50.6% / **+2.14** [+1.36, +3.06] |
+| 8-20   | 323   | 2.5% / +0.02  | 6.2% / +0.13 [-0.08, +0.36] | 34.7% / **+0.67** [+0.37, +1.02] |
+| 21-50  | 725   | 2.2% / +0.00  | 10.6% / -0.00 [-0.10, +0.08] | 25.8% / **+0.33** [+0.24, +0.43] |
+| 51+    | 796   | 2.1% / +0.00  | 10.9% / +0.02 [-0.05, +0.07] | 26.6% / **+0.29** [+0.23, +0.36] |
+| all    | 2,000 | 2.1% / +0.01  | 9.9% / +0.00 [-0.06, +0.07] | 29.5% / **+0.51** [+0.42, +0.61] |
+
+(cells: share of positions where the move changed / gain)
+
+- At 2 plies, inference gains nothing (+0.00), while a perfect read is worth
+  +0.51 points per turn: about +6 points a game at ~12 sims a game. The
+  ceiling is large, so there is room to gain; how inference reads and uses
+  the leave is the limit.
+- The ceiling grows as the bag empties (+0.29 early, +2.14 at bag 2-7), and
+  there inference is timid or wrong. At bag 8-20 it changes 6% of moves
+  against the oracle's 35%. At bag 2-7 it changes 10%; only 4 of those 15
+  changes match the oracle's, and the gain is negative.
+- Agreement: when inference changes the move, it picks the oracle's move half
+  the time at bag 21+ (82 of 164) and 8-20 (11 of 20). It follows only 21%,
+  10% and 5% of the oracle's changes at 21+, 8-20 and 2-7.
+- 2-ply sims are quiet: a second copy of the sim bot changes 2.1% of moves
+  (the 5-ply run: 14.8%).
+- Static rank: the oracle's move ranks 51-100 in 1.8% of positions and the
+  inferer's in 0.6%; neither went past 100 (the candidate list is 100 deep).
+  A deeper list is worth little for now (idea 5).
+- Check: corpus games are unseeded, so the judge never shares the deciding
+  sims' draws (`none` and `none2` would otherwise agree everywhere).
+
+Next: what the late-game reads do wrong. `dl-2ply-late-variants` (queued) runs
+inferring variants on bag <= 20: tau x 0.5, tau 0.05 and budget 1,000.
 
 ## Running log
 
@@ -216,6 +249,10 @@ What is on deb192 and when it changed. Results go in the sections above.
 
 - Oct 16 22:12: `infer-v-sim-2ply` match launched (192 threads).
 - Oct 17 01:13: `queue1.sh` (decidelab oracle runs) launched, 48 threads.
+- Oct 17 02:54: `dl-2ply-oracle` done (above). `dl-5ply-oracle` briefly
+  stopped over a suspected shared seed (false alarm), relaunched 02:58 as
+  `queue2.sh`.
+- Oct 17 03:05: `queue3.sh` queued behind it: `dl-2ply-late-variants`.
 
 ## Idea queue
 
