@@ -290,6 +290,10 @@ What is on deb192 and when it changed. Results go in the sections above.
   stopped over a suspected shared seed (false alarm), relaunched 02:58 as
   `queue2.sh`.
 - Oct 17 03:05: `queue3.sh` queued behind it: `dl-2ply-late-variants`.
+- Oct 17 05:00: `dl-5ply-oracle` done (above); `dl-2ply-late-variants`
+  started (~7 h: four inferring arms).
+- Oct 17 05:15: `queue4.sh` queued behind it: `dl-2ply-infobits` (3,000
+  positions from a fresh snapshot, `decidelab-v3`).
 
 ## Idea queue
 
