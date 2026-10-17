@@ -2318,3 +2318,15 @@ vs HastyBot, above every pre-spatial-heads net trained on 54M Hasty games
 3M-Hasty-games control (hastyscr), training now. (The nvnft vs streamopen
 match started early, at 11:45, through a wrong-pid wait, and shared the
 GPU with nvnscr's training; that slows both, results unaffected.)
+
+#### Result: hastyscr (3M HastyBot games, from scratch) vs HastyBot (10/16/26 20:20)
+
+```
+FastMlBot(hastyscr) vs HastyBot: paired win rate 55.39% +/- 0.18 (95%; SE 0.09)  spread +5.9/game
+```
+
+0.94 above nvnscr (54.45) against HastyBot: the net trained on HastyBot's
+own games exploits HastyBot better, as with the fine-tunes (hastyft >
+nvnft by 0.49 there). The head-to-head nvnscr vs hastyscr died after 208
+games (the hastyscr match's unload watcher unloaded the model a moment
+after queue-after-scratch2.sh loaded it); rerun queued in queue-student.sh.
