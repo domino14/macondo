@@ -66,3 +66,11 @@ Seeds are fixed per shard and per chunk, so a re-run reproduces a missing shard 
 - **AENST** (STANE family): best on 9 turns in 458k, 0.0015 pts/game. Each word in it is about 0.
 - **EOLIPILE:** 1 self-play hit; B gives 0.003–0.004 pts/game.
 - **A vs B:** on the high-probability 7s, B agrees with A within about 2 SE. The 8s varied between runs because the pilot only had 4.6k saved turns.
+
+## Full run (10M games, NWL23, finished Oct 17)
+- 229M turns, 22.92 turns/game, 0 mismatches against HastyBot's top play. Output: `~/data/playability/final/playability.tsv`.
+- **Self-play coverage** (alphagrams seen at least once): 7s and 8s 99.9%, 9s 98.6%, 10s 84.8%, 11s 49%, 12s 29%, 13s 11%, 14s 2.5%, 15s 1%.
+- **B vs A:** 7s 0.93, 8s 0.93-0.97 on well-sampled alphagrams, so B is scaled by 1.078 and 1.041. For 9s, B reads only 0.3-0.4 of A, because 61% of 9-letter hits are hooks onto an 8 on the board (AERATION→AERATIONS), which B doesn't model. B is therefore not used for 9+.
+- **Top:** QI 4.48 pts/game, then the 2-letter E words, ZA, JO. 7s: AEINRST 51 per 1000 games; 8s: ADEIINOT 58; 9s: AEILNORST 3.5.
+- **Examples:** EOLIPILE is #9460 by probability among 8s but #3392 by playability. AENST is worth 2.1 per 1000 games; STANE alone 0.47.
+- Words 11+ that self-play never saw sit on the prior (prior_share near 1), which ranks them by probability.

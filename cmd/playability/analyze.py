@@ -13,6 +13,11 @@ Per alphagram (and per word inside it):
      evidence (most 9+ letter ones) end up near the prior, which leans on
      probability.
 
+B is used only for lengths 7-8, scaled by a per-length calibration factor
+(sum A / sum B over alphagrams self-play saw at least 100 times; printed).
+For 9+ B misses most of the value: 60% of 9-letter hits are hooks onto an
+8 already on the board, which conditioned rack re-deals do not model.
+
 Units: equity points per 1000 games (HastyBot static equity).
 
 usage: analyze.py SCORE_DIR [OUT_DIR]
@@ -69,24 +74,39 @@ def main():
     for w in words:
         by_alpha.setdefault(w["alphagram"], []).append(w)
 
+    # Per-length calibration of B against A, over well-sampled alphagrams.
+    B_LENS = (7, 8)
+    calib = {}
+    print("B calibration (sum A / sum B, alphagrams with n >= 100):")
+    for L in B_LENS:
+        s = [r for r in alphas if int(r["len"]) == L and int(r["n"]) >= 100 and r["b_play"]]
+        sa, sb = sum(fnum(r["a_play"]) for r in s), sum(fnum(r["b_play"]) for r in s)
+        calib[L] = sa / sb if sb else 1.0
+        print(f"  len {L}: {len(s)} alphagrams, factor {calib[L]:.3f}")
+
+    def b_of(r):
+        L = int(r["len"])
+        b = fnum(r["b_play"])
+        if b is None or L not in calib:
+            return None, None
+        return b * calib[L], fnum(r["b_se"]) * calib[L]
+
     # Per-word combined values (no shrinkage: within-class shares).
     wval = {}
     for w in words:
         a, ase = fnum(w["a_play"]), math.hypot(fnum(w["a_se"]), floor_a)
-        b = fnum(w["b_play"])
-        bse = None
+        b, bse = b_of(w)
         if b is not None:
-            bse = max(fnum(w["b_se"]), floor_a * 0.1, 1e-12)
+            bse = max(bse, floor_a * 0.1, 1e-12)
         v, se, src = combine(a, ase, b, bse)
         wval[w["word"]] = (v, se)
 
     rows = []
     for r in alphas:
         a, ase = fnum(r["a_play"]), math.hypot(fnum(r["a_se"]), floor_a)
-        b = fnum(r["b_play"])
-        bse = None
+        b, bse = b_of(r)
         if b is not None:
-            bse = max(fnum(r["b_se"]), b_floor(r, tpg, G), 1e-12)
+            bse = max(bse, b_floor(r, tpg, G) * calib[int(r["len"])], 1e-12)
         v, se, src = combine(a, ase, b, bse)
         ws = by_alpha.get(r["alphagram"], [])
         hooks = sum(int(w["fhooks"]) + int(w["bhooks"]) for w in ws)
@@ -99,7 +119,10 @@ def main():
         L = x["len"]
         al = x["alpha"]
         f = [1.0]
-        f += [1.0 if L == k else 0.0 for k in range(3, 16)]
+        # Lengths 3-10 get their own level; 11+ share one with a linear slope,
+        # since few long alphagrams are well measured.
+        f += [1.0 if L == k else 0.0 for k in range(3, 11)]
+        f += [1.0 if L >= 11 else 0.0, max(L - 10, 0)]
         lc = math.log(max(x["combos"], 1.0))
         f += [lc, lc * L / 7.0]
         f += [math.log1p(len(x["words"])), math.log1p(x["hooks"])]
@@ -156,7 +179,7 @@ def main():
                   f"  prob#{x['prob_rank']:<6} n={x['n']:<7} {x['src']:<2} {wl}")
 
     show("top alphagrams (equity pts per 1000 games)", rows, 25)
-    for L in range(2, 11):
+    for L in range(2, 16):
         show(f"length {L}", [x for x in rows if x["len"] == L], 10)
 
 
