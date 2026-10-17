@@ -36,6 +36,9 @@ type BotConfig struct {
 	// InferenceTau overrides the default softmax temperature for inference.
 	// If 0, the default SoftmaxTemperature constant is used.
 	InferenceTau float64
+	// InferenceTauScale multiplies the temperature in use, pinned or
+	// scheduled. 0 leaves it alone.
+	InferenceTauScale float64
 	// InferenceTimeSecs is the wall-clock budget per turn for inference.
 	// If 0, defaults to 20 seconds.
 	InferenceTimeSecs int

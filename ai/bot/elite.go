@@ -187,6 +187,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceTau > 0 {
 			p.inferencer.SetTau(p.cfg.InferenceTau)
 		}
+		if p.cfg.InferenceTauScale > 0 {
+			p.inferencer.SetTauScale(p.cfg.InferenceTauScale)
+		}
 		if p.cfg.InferenceSimIters > 0 {
 			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
 		}

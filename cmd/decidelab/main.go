@@ -12,6 +12,9 @@
 //	oracle SIMMING_BOT_NO_EG simming against the opponent's true leave: the
 //	       ceiling, what a perfect read would choose
 //
+// -arms picks which of these run, and -variants adds inferring bots with other
+// settings, e.g. -variants "sharp:scale=0.5;b1000:budget=1000;t05:tau=0.05".
+//
 // and then judges the distinct choices with a long sim that knows the
 // opponent's true leave. The judge's win % difference between infer's choice
 // and none's is what inference gained in that position; the same for none2
@@ -32,6 +35,8 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,10 +98,17 @@ func main() {
 	minBag := flag.Int("minbag", 2, "only positions the log has at least this many tiles in the bag for")
 	plies := flag.Int("plies", 5, "sim plies of the deciding bots (the judge always sims 5)")
 	budget := flag.Int("budget", 200, "inference leaf budget")
+	armList := flag.String("arms", "none,none2,infer,oracle", "built-in choosers to run (none always runs)")
+	variantList := flag.String("variants", "", "extra inferring choosers, name:key=value,...;... (keys tau, scale, budget)")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
 		flag.Usage()
+		os.Exit(2)
+	}
+	arms, err := parseArms(*armList, *variantList, *plies, *budget)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 	cfg := config.DefaultConfig()
@@ -142,7 +154,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for pos := range work {
-				rec := decide(pos, cfg, *judgeIters, *plies, *budget)
+				rec := decide(pos, cfg, *judgeIters, arms)
 				mu.Lock()
 				enc.Encode(rec)
 				mu.Unlock()
@@ -158,12 +170,75 @@ func main() {
 	wg.Wait()
 }
 
-func botConfig(cfg *config.Config, plies, budget int, oracle bool) *bot.BotConfig {
-	return &bot.BotConfig{Config: *cfg, MinSimPlies: plies, SimThreads: 1, InferenceBudget: budget,
-		OracleInference: oracle}
+// arm is one chooser: a bot and the settings it decides with.
+type arm struct {
+	name   string
+	code   pb.BotRequest_BotCode
+	plies  int
+	budget int
+	tau    float64
+	scale  float64
+	oracle bool
 }
 
-func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters, plies, budget int) record {
+func parseArms(list, variants string, plies, budget int) ([]arm, error) {
+	builtin := map[string]arm{
+		"none":   {code: pb.BotRequest_SIMMING_BOT_NO_EG},
+		"none2":  {code: pb.BotRequest_SIMMING_BOT_NO_EG},
+		"infer":  {code: pb.BotRequest_SIMMING_INFER_BOT_NO_EG},
+		"oracle": {code: pb.BotRequest_SIMMING_BOT_NO_EG, oracle: true},
+	}
+	arms := []arm{{name: "none", code: pb.BotRequest_SIMMING_BOT_NO_EG, plies: plies, budget: budget}}
+	for _, n := range strings.Split(list, ",") {
+		n = strings.TrimSpace(n)
+		if n == "" || n == "none" {
+			continue
+		}
+		a, ok := builtin[n]
+		if !ok {
+			return nil, fmt.Errorf("unknown arm %q", n)
+		}
+		a.name, a.plies, a.budget = n, plies, budget
+		arms = append(arms, a)
+	}
+	for _, v := range strings.Split(variants, ";") {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		name, settings, _ := strings.Cut(v, ":")
+		a := arm{name: name, code: pb.BotRequest_SIMMING_INFER_BOT_NO_EG, plies: plies, budget: budget}
+		for _, kv := range strings.Split(settings, ",") {
+			k, val, ok := strings.Cut(kv, "=")
+			if !ok {
+				return nil, fmt.Errorf("variant %q: want key=value, got %q", name, kv)
+			}
+			x, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				return nil, fmt.Errorf("variant %q: %v", name, err)
+			}
+			switch k {
+			case "tau":
+				a.tau = x
+			case "scale":
+				a.scale = x
+			case "budget":
+				a.budget = int(x)
+			default:
+				return nil, fmt.Errorf("variant %q: unknown key %q", name, k)
+			}
+		}
+		arms = append(arms, a)
+	}
+	return arms, nil
+}
+
+func botConfig(cfg *config.Config, a arm) *bot.BotConfig {
+	return &bot.BotConfig{Config: *cfg, MinSimPlies: a.plies, SimThreads: 1, InferenceBudget: a.budget,
+		InferenceTau: a.tau, InferenceTauScale: a.scale, OracleInference: a.oracle}
+}
+
+func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int, arms []arm) record {
 	g := pos.Game
 	rec := record{GameID: pos.GameID, Half: pos.Half, Turn: pos.Turn, OppPlay: pos.OppPlay,
 		TrueLeave: pos.TrueLeave, MyRack: pos.MyRack, Bag: g.Bag().TilesRemaining(), Kept: pos.LeaveLen,
@@ -171,21 +246,11 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters, plies
 		Spread:   g.SpreadFor(g.PlayerOnTurn()), Choices: map[string]*choice{},
 		OppTiles: int(g.RackFor(g.NextPlayer()).NumTiles())}
 
-	arms := []struct {
-		name   string
-		code   pb.BotRequest_BotCode
-		oracle bool
-	}{
-		{"none", pb.BotRequest_SIMMING_BOT_NO_EG, false},
-		{"none2", pb.BotRequest_SIMMING_BOT_NO_EG, false},
-		{"infer", pb.BotRequest_SIMMING_INFER_BOT_NO_EG, false},
-		{"oracle", pb.BotRequest_SIMMING_BOT_NO_EG, true},
-	}
 	moves := map[string]*move.Move{}
 	rank := map[string]int{}
 	for _, a := range arms {
 		gc := g.CopyWithHistory()
-		p, err := bot.NewBotTurnPlayerFromGame(gc, botConfig(cfg, plies, budget, a.oracle), a.code)
+		p, err := bot.NewBotTurnPlayerFromGame(gc, botConfig(cfg, a), a.code)
 		if err != nil {
 			rec.Err = err.Error()
 			return rec
