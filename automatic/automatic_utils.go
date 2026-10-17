@@ -8,7 +8,6 @@ import (
 	"expvar"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -415,8 +414,8 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	glfilename := filepath.Join(
-		path.Dir(outputFilename),
-		"games-"+path.Base(outputFilename))
+		filepath.Dir(outputFilename),
+		"games-"+filepath.Base(outputFilename))
 	gamelogfile, err := os.Create(glfilename)
 	if err != nil {
 		return err
