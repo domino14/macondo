@@ -277,8 +277,37 @@ gate needs a proxy the bot has: `RangeFinder.InfoBits`, the posterior's KL
 from the tile-count prior, now logged by decidelab (`infoBits`) and usable as
 a gate (`InferenceMinInfoBits`; decidelab variant key `minbits`).
 
-Next: what the late-game reads do wrong. `dl-2ply-late-variants` (queued) runs
-inferring variants on bag <= 20: tau x 0.5, tau 0.05 and budget 1,000.
+### Late-bag variants (Oct 17, 2026 05:00-08:30)
+
+`dl-2ply-late-variants`: 1,000 positions with bag <= 20 from the 2-ply
+baseline, 2-ply deciders. Gain over `none`, and paired difference from the
+default inferer (`infer`: fitted tau, budget 200):
+
+| chooser | changed | gain vs none          | minus infer, 2-7      | minus infer, 8-20     | minus infer, all      |
+|---------|---------|-----------------------|-----------------------|-----------------------|-----------------------|
+| infer   | 8.5%    | +0.17 [+0.05, +0.30]  |                       |                       |                       |
+| sharp (tau x 0.5) | 11.8% | +0.21 [+0.09, +0.35] | +0.07 [-0.06, +0.19] | +0.03 [-0.05, +0.14] | +0.05 [-0.03, +0.13] |
+| b1000 (budget 1,000) | 8.4% | +0.19 [+0.07, +0.32] | +0.00 (identical) | +0.04 [-0.04, +0.14] | +0.02 [-0.02, +0.08] |
+| **t05 (fixed tau 0.05)** | 18.8% | **+0.38** [+0.18, +0.59] | **+0.38** [+0.02, +0.76] | +0.10 [-0.02, +0.24] | **+0.22** [+0.05, +0.39] |
+| oracle  | 38.3%   | +1.10 [+0.81, +1.41]  | +1.64                 | +0.44                 | +0.94                 |
+
+- **A sharp tau late in the game more than doubles inference's gain** there.
+  The fitted curve is very flat late (tau 2.5 at bag 2, 0.45 at bag 7, 0.075
+  at bag 20), so x 0.5 barely moves it. Fixed 0.05 changes 19% of moves, and
+  38% of its changes are the oracle's (71 of 188; default 30 of 85).
+- This reverses the Oct 12 replay verdict, where the fitted curve gained
+  about 3 bits on the true leave at bag 2-7. Bits measure calibration;
+  decisions want a confident read. The fit says the opponent's late plays
+  look noisy to a 2-ply mini-sim, which is true, but discounting them that
+  much throws away what they do say.
+- A bigger budget does nothing late: with few unseen tiles, every leave is
+  already enumerated (identical choices at bag 2-7).
+- (Bag 2-7 here gave infer +0.28 [+0.08, +0.53] against -0.30 [-0.87,
+  +0.07] in the first run on 156 positions: different samples, wide
+  intervals.)
+
+Next: `dl-2ply-late-tau` sweeps fixed tau 0.025 / 0.05 / 0.1 / 0.2 on bag
+<= 20, to place the optimum before a match.
 
 ## Running log
 
@@ -294,6 +323,9 @@ What is on deb192 and when it changed. Results go in the sections above.
   started (~7 h: four inferring arms).
 - Oct 17 05:15: `queue4.sh` queued behind it: `dl-2ply-infobits` (3,000
   positions from a fresh snapshot, `decidelab-v3`).
+- Oct 17 08:31: `dl-2ply-late-variants` done (above); `dl-2ply-infobits`
+  started.
+- Oct 17 08:40: `queue5.sh` queued behind it: `dl-2ply-late-tau`.
 
 ## Idea queue
 
