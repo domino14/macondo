@@ -9,6 +9,8 @@
 //	none   SIMMING_BOT_NO_EG, as the match's opponent
 //	none2  the same again: how often the choice changes from sim noise alone
 //	infer  SIMMING_INFER_BOT_NO_EG on the engine's current defaults
+//	oracle SIMMING_BOT_NO_EG simming against the opponent's true leave: the
+//	       ceiling, what a perfect read would choose
 //
 // and then judges the distinct choices with a long sim that knows the
 // opponent's true leave. The judge's win % difference between infer's choice
@@ -18,6 +20,9 @@
 // Usage:
 //
 //	decidelab -turnlog ~/Downloads/infer-v-sim-5000.txt -positions 400 -parallel 10
+//
+// Each choice also records its static rank: its place in the static move list,
+// 1 being the top play, to show whether the sim's 100 candidates are enough.
 package main
 
 import (
@@ -50,7 +55,13 @@ type choice struct {
 	ElapsedMS int64   `json:"elapsedMs"`
 	JudgeWin  float64 `json:"judgeWin"`
 	JudgeSE   float64 `json:"judgeSE"`
+	// StaticRank is the move's 1-based place in the static ranking; 0 = beyond
+	// rankDepth.
+	StaticRank int `json:"staticRank"`
 }
+
+// rankDepth is how deep in the static ranking a choice is looked for.
+const rankDepth = 1000
 
 type record struct {
 	GameID    string             `json:"gameID"`
@@ -80,6 +91,8 @@ func main() {
 	judgeIters := flag.Int("judge-iters", 3000, "judge sim iterations")
 	maxBag := flag.Int("maxbag", 0, "only positions with at most this many in the bag (0 = no limit)")
 	minBag := flag.Int("minbag", 2, "only positions the log has at least this many tiles in the bag for")
+	plies := flag.Int("plies", 5, "sim plies of the deciding bots (the judge always sims 5)")
+	budget := flag.Int("budget", 200, "inference leaf budget")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
@@ -129,7 +142,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for pos := range work {
-				rec := decide(pos, cfg, *judgeIters)
+				rec := decide(pos, cfg, *judgeIters, *plies, *budget)
 				mu.Lock()
 				enc.Encode(rec)
 				mu.Unlock()
@@ -145,11 +158,12 @@ func main() {
 	wg.Wait()
 }
 
-func botConfig(cfg *config.Config) *bot.BotConfig {
-	return &bot.BotConfig{Config: *cfg, MinSimPlies: 5, SimThreads: 1, InferenceBudget: 200}
+func botConfig(cfg *config.Config, plies, budget int, oracle bool) *bot.BotConfig {
+	return &bot.BotConfig{Config: *cfg, MinSimPlies: plies, SimThreads: 1, InferenceBudget: budget,
+		OracleInference: oracle}
 }
 
-func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int) record {
+func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters, plies, budget int) record {
 	g := pos.Game
 	rec := record{GameID: pos.GameID, Half: pos.Half, Turn: pos.Turn, OppPlay: pos.OppPlay,
 		TrueLeave: pos.TrueLeave, MyRack: pos.MyRack, Bag: g.Bag().TilesRemaining(), Kept: pos.LeaveLen,
@@ -158,20 +172,30 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int) r
 		OppTiles: int(g.RackFor(g.NextPlayer()).NumTiles())}
 
 	arms := []struct {
-		name string
-		code pb.BotRequest_BotCode
+		name   string
+		code   pb.BotRequest_BotCode
+		oracle bool
 	}{
-		{"none", pb.BotRequest_SIMMING_BOT_NO_EG},
-		{"none2", pb.BotRequest_SIMMING_BOT_NO_EG},
-		{"infer", pb.BotRequest_SIMMING_INFER_BOT_NO_EG},
+		{"none", pb.BotRequest_SIMMING_BOT_NO_EG, false},
+		{"none2", pb.BotRequest_SIMMING_BOT_NO_EG, false},
+		{"infer", pb.BotRequest_SIMMING_INFER_BOT_NO_EG, false},
+		{"oracle", pb.BotRequest_SIMMING_BOT_NO_EG, true},
 	}
 	moves := map[string]*move.Move{}
+	rank := map[string]int{}
 	for _, a := range arms {
 		gc := g.CopyWithHistory()
-		p, err := bot.NewBotTurnPlayerFromGame(gc, botConfig(cfg), a.code)
+		p, err := bot.NewBotTurnPlayerFromGame(gc, botConfig(cfg, plies, budget, a.oracle), a.code)
 		if err != nil {
 			rec.Err = err.Error()
 			return rec
+		}
+		if len(rank) == 0 {
+			for i, m := range p.GenerateMoves(rankDepth) {
+				if _, ok := rank[m.ShortDescription()]; !ok {
+					rank[m.ShortDescription()] = i + 1
+				}
+			}
 		}
 		t0 := time.Now()
 		m, err := p.BestPlay(context.Background())
@@ -180,7 +204,8 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int) r
 			return rec
 		}
 		s := m.ShortDescription()
-		rec.Choices[a.name] = &choice{Move: s, Equity: m.Equity(), ElapsedMS: time.Since(t0).Milliseconds()}
+		rec.Choices[a.name] = &choice{Move: s, Equity: m.Equity(), ElapsedMS: time.Since(t0).Milliseconds(),
+			StaticRank: rank[s]}
 		moves[s] = m
 	}
 
