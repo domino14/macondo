@@ -49,8 +49,9 @@ The producer replays half of all games transposed.
 | simft4 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | top-4 listwise loss (SE-aware target on the sim's top 4), rank-share 1, tau 1, 5070 Ti | 10k | 57.52 ± 0.18 | +8.9 | -0.13 (1 SE) vs streamopen: level; sim distillation closed |
 | nvnft | 10/16 | streamopen + 3M net-vs-net games (streamopen self-play) 50/50 with 3M open2 games | fine-tune 11k steps, lr 1e-4, final weights, 5070 Ti (4,180 pos/s) | 11k | 57.07 ± 0.18 | +8.9 | -0.49 (3.8 SE) vs hastyft: worse vs Hasty, but beats hastyft head to head 50.30 ± 0.16 (3.7 SE) and streamopen 50.37 ± 0.16 (4.6 SE) |
 | hastyft | 10/16 | streamopen + 3M fresh HastyBot games (control) 50/50 with the same 3M open2 games | same as nvnft | 11k | 57.56 ± 0.18 | +9.2 | -0.09 vs streamopen: level (more Hasty data, no change) |
-| nvnscr | 10/16 | 3M net-vs-net games only, from scratch | streamopen recipe, 20k steps (~20 passes), best val; shared the GPU with a match 11:45-14:45 | 20k | 54.45 ± 0.18 | +5.0 | -0.94 vs hastyscr (vs Hasty); head to head pending |
+| nvnscr | 10/16 | 3M net-vs-net games only, from scratch | streamopen recipe, 20k steps (~20 passes), best val; shared the GPU with a match 11:45-14:45 | 20k | 54.45 ± 0.18 | +5.0 | -0.94 vs hastyscr (vs Hasty); loses head to head too, 49.64 ± 0.17 (4 SE) |
 | hastyscr | 10/16 | 3M HastyBot games only, from scratch (control) | same as nvnscr | 20k | 55.39 ± 0.18 | +5.9 | the Hasty-games control: better vs Hasty |
+| student6 | 10/16-17 | MAGPIE's distillation of streamopen (6 layers, jvc56/MAGPIE@569cfe09) | imported (import_magpie_student.py, parity 4e-7), TensorRT fp16 | | 55.80 ± 0.18 | +7.1 | -1.85 vs streamopen vs Hasty; streamopen head to head 48.07 ± 0.17; generation only +6% faster (bottleneck is not the GPU) |
 
 ## Bot changes that affect matches
 

@@ -2330,3 +2330,41 @@ own games exploits HastyBot better, as with the fine-tunes (hastyft >
 nvnft by 0.49 there). The head-to-head nvnscr vs hastyscr died after 208
 games (the hastyscr match's unload watcher unloaded the model a moment
 after queue-after-scratch2.sh loaded it); rerun queued in queue-student.sh.
+
+#### Result: nvnscr vs hastyscr head to head; MAGPIE's student; generation profile (10/17/26)
+
+```
+FastMlBot(nvnscr) vs FastMlBot(hastyscr):      paired win rate 49.64% +/- 0.17 (95%; SE 0.09)  spread -0.0/game
+FastMlBot(student6) vs HastyBot:               paired win rate 55.80% +/- 0.18 (95%; SE 0.09)  spread +7.1/game
+FastMlBot(student6) vs FastMlBot(streamopen):  paired win rate 48.07% +/- 0.17 (95%; SE 0.09)  spread -2.7/game
+```
+
+From scratch, 3M self-play games lose to 3M HastyBot games both ways
+(-0.94 vs Hasty, -0.36 head to head): self-play data helps as a
+fine-tune on a strong net (nvnft +0.37 over its parent) but is not a
+better sole source at this size (one policy's games, less diverse).
+
+MAGPIE's 6-layer student of streamopen is 1.9 points weaker head to head
+and 1.85 vs HastyBot, and only ~6% faster at generation.
+
+Generation profile (queue-profile-gen.sh, idle machine, 6,000 net-vs-net
+games each, gen-nvn.sh flags, 2 Triton instances):
+
+| run | games/h |
+|---|---|
+| streamopen, 12 threads, old feeder (spin) | 111.6k |
+| streamopen, 12 threads, blocking feeder | 112.6k |
+| streamopen, 16 threads | 113.4k |
+| student6, 12 threads | 119.7k |
+| student6, 16 threads | 119.5k |
+
+Idle, generation is ~112k games/h (the 88-91k figures were under load).
+The feeder spin fix makes no measurable difference here. More threads and
+a smaller net barely help, and the autoplay process uses only ~4.5 of 16
+cores: the client is not CPU-bound; it waits on the serving path. Of the
+client's CPU: Triton request path 36% (protobuf/gRPC copies of the fp32
+feature tensors ~20%, building feature vectors 18%), quick 2-ply endgames
+24%, movegen 22%. Levers: smaller requests (fp16/uint8 features, or send
+the board once per position and only per-move deltas), in-process
+inference instead of gRPC, or concurrent requests per game; check where
+tritonserver's own CPU goes before choosing.
