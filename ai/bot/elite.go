@@ -266,6 +266,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceTauScale > 0 {
 			p.inferencer.SetTauScale(p.cfg.InferenceTauScale)
 		}
+		p.inferencer.SetTauCap(inferenceTauCap(p.cfg.InferenceTauCap))
 		if p.cfg.InferenceSimIters > 0 {
 			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
 		}
@@ -369,4 +370,22 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	logger.Info().Interface("winning-move", play.Move().String()).Msg("sim-done")
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
+}
+
+// DefaultInferenceTauCap caps the inference temperature when the bot config
+// sets no cap. The fitted tau schedule is very flat late in the game (about
+// 0.45 at bag 7, 2.5 at bag 2); capping it at 0.1 sharpens only the late
+// reads (bag ~17 and below). Paired 2-ply matches against the uncapped bot:
+// +0.14 ± 0.13 win % over 18,186 pairs (docs/inference_experiments.md).
+const DefaultInferenceTauCap = 0.1
+
+// inferenceTauCap resolves a configured cap: 0 is the default, negative none.
+func inferenceTauCap(c float64) float64 {
+	switch {
+	case c == 0:
+		return DefaultInferenceTauCap
+	case c < 0:
+		return 0
+	}
+	return c
 }

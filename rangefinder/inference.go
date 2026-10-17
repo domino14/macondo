@@ -241,6 +241,8 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
+	// tauCap caps the temperature in use, after tauScale; 0 means no cap.
+	tauCap float64
 	// oneTileScale is the default scale PrepareFinder picked for this
 	// position (oneTileTauScale on an early one-tile play, else 1). It
 	// applies only when neither tau nor tauScale was pinned.
@@ -341,6 +343,21 @@ func (r *RangeFinder) SetTau(tau float64) {
 // Tau is the softmax temperature in use: the value SetTau pinned, or else
 // the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
+	t := r.uncappedTau()
+	if r.tauCap > 0 && t > r.tauCap {
+		return r.tauCap
+	}
+	return t
+}
+
+// SetTauCap caps the temperature in use, pinned or scheduled: the fitted
+// schedule is very flat late in the game, and decisions do better with a
+// sharper read there than the fit's best calibration. 0 removes the cap.
+func (r *RangeFinder) SetTauCap(c float64) {
+	r.tauCap = c
+}
+
+func (r *RangeFinder) uncappedTau() float64 {
 	scale := 1.0
 	if r.tauScale != 0 {
 		scale = r.tauScale
