@@ -36,3 +36,4 @@ data/strategy/default/models-bak*
 *.dat
 *.gcg
 /build/
+/magpie/magpie_stamp.h
