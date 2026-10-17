@@ -1,6 +1,6 @@
 all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker
 
-.PHONY: magpie
+.PHONY: magpie windows
 
 # MAGPIE's static libraries (third_party/magpie, a submodule), which the
 # magpie/ cgo package links. MAGPIE_MARCH=x86-64-v2 (or similar) for a
@@ -11,6 +11,13 @@ magpie:
 # Macondo links MAGPIE through cgo. The Lambda runs on Amazon Linux 2, so the
 # binary is linked statically (build it with `sam build --use-container` so
 # it is compiled there), with MAGPIE for a portable instruction set.
+# Cross-compiles bin/shell.exe for 64-bit Windows; needs llvm-mingw's bin
+# directory on PATH (see scripts/build_magpie.sh). Static, with the 8 MB thread
+# stacks MAGPIE needs (see magpie/magpie.go).
+windows:
+	MAGPIE_TARGET=windows-amd64 scripts/build_magpie.sh
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-clang go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always) -extldflags '-static -Wl,--stack,8388608'" -o bin/shell.exe cmd/shell/main.go
+
 build-MacondoLambdaFunction:
 	MAGPIE_MARCH=x86-64-v2 scripts/build_magpie.sh
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags netgo,osusergo -ldflags '-linkmode external -extldflags "-static"' -o bootstrap cmd/lambda/main.go

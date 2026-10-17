@@ -8,9 +8,21 @@
 package magpie
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../third_party/magpie/src -I${SRCDIR}/../build/magpie -DRACK_SIZE=7 -DNDEBUG -O3 -Wno-trigraphs
-#cgo LDFLAGS: ${SRCDIR}/../build/magpie/libmagpie_b15.a ${SRCDIR}/../build/magpie/libmagpie_b21.a -lm -lpthread
+#cgo CFLAGS: -I${SRCDIR}/../third_party/magpie/src -DRACK_SIZE=7 -DNDEBUG -O3 -Wno-trigraphs
+#cgo !windows CFLAGS: -I${SRCDIR}/../build/magpie
+#cgo !windows LDFLAGS: ${SRCDIR}/../build/magpie/libmagpie_b15.a ${SRCDIR}/../build/magpie/libmagpie_b21.a -lm -lpthread
 #cgo linux LDFLAGS: -ldl
+// Windows links the cross-compiled libraries (MAGPIE_TARGET=windows-<arch>
+// make magpie). Link with -extldflags=-Wl,--stack,8388608 (go refuses it
+// here): PEG, the endgame and BAI recurse on the calling thread, MAGPIE sizes
+// its own Windows stacks to 8 MB for that, and every Go thread takes the
+// executable's default.
+#cgo windows CFLAGS: -D_WIN32_WINNT=0x0A00
+#cgo windows LDFLAGS: -lm -lpthread -lwinhttp
+#cgo windows,amd64 CFLAGS: -I${SRCDIR}/../build/magpie-windows-amd64
+#cgo windows,amd64 LDFLAGS: ${SRCDIR}/../build/magpie-windows-amd64/libmagpie_b15.a ${SRCDIR}/../build/magpie-windows-amd64/libmagpie_b21.a
+#cgo windows,arm64 CFLAGS: -I${SRCDIR}/../build/magpie-windows-arm64
+#cgo windows,arm64 LDFLAGS: ${SRCDIR}/../build/magpie-windows-arm64/libmagpie_b15.a ${SRCDIR}/../build/magpie-windows-arm64/libmagpie_b21.a
 #include <stdlib.h>
 #include "shim.h"
 */
