@@ -379,7 +379,11 @@ What is on deb192 and when it changed. Results go in the sections above.
 - Oct 17 13:50: `infer-v-sim-2ply` stopped at 4,863 pairs: **50.55% ± 0.62**
   (spread +1.46 ± 1.02). Old binary kept as `bin/shell-1169b8c1`.
 - Oct 17 13:57: `repro-check`: new binary (f4e4300b), no cap, first 192
-  pairs of the baseline's seed.
+  pairs of the baseline's seed. All 192 pairs identical to the baseline (384 of 384
+  scores), so the new binary plays as the old one.
+- Oct 17 14:31: `infer-v-sim-2ply-cap05` launched: the baseline's config and
+  seed plus `inferenceTauCap 0.05`, 192 threads. Compared pair by pair with
+  `infer-v-sim-2ply` once it passes 4,863 pairs (~14 h).
 
 ## Idea queue
 
