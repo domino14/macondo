@@ -8,6 +8,7 @@
 #                                                of spinning on `default:`)
 #   nospin 16 thr  streamopen
 #   nospin 12 thr  student6
+#   nospin 16 thr  student6
 # Output: ~/data/profile-gen/<name>.{prof,log}, games/h in this log.
 cd "$(dirname "$0")"
 REPO=$(cd .. && pwd)
@@ -45,6 +46,7 @@ run spin-12 shell-spin macondo-nn-tf-streamopen 12
 run nospin-12 shell-nospin macondo-nn-tf-streamopen 12
 run nospin-16 shell-nospin macondo-nn-tf-streamopen 16
 run nospin-12-student shell-nospin macondo-nn-tf-student6 12
+run nospin-16-student shell-nospin macondo-nn-tf-student6 16
 ./triton-models.sh unload macondo-nn-tf-streamopen >/dev/null
 ./triton-models.sh unload macondo-nn-tf-student6 >/dev/null
 log "done"
