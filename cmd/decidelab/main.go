@@ -103,7 +103,7 @@ func main() {
 	plies := flag.Int("plies", 5, "sim plies of the deciding bots (the judge always sims 5)")
 	budget := flag.Int("budget", 200, "inference leaf budget")
 	armList := flag.String("arms", "none,none2,infer,oracle", "built-in choosers to run (none always runs)")
-	variantList := flag.String("variants", "", "extra inferring choosers, name:key=value,...;... (keys tau, scale, budget, minbits)")
+	variantList := flag.String("variants", "", "extra inferring choosers, name:key=value,...;... (keys tau, scale, cap, budget, minbits)")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
@@ -183,6 +183,7 @@ type arm struct {
 	tau     float64
 	scale   float64
 	minBits float64
+	tauCap  float64
 	oracle  bool
 }
 
@@ -231,6 +232,8 @@ func parseArms(list, variants string, plies, budget int) ([]arm, error) {
 				a.budget = int(x)
 			case "minbits":
 				a.minBits = x
+			case "cap":
+				a.tauCap = x
 			default:
 				return nil, fmt.Errorf("variant %q: unknown key %q", name, k)
 			}
@@ -242,7 +245,7 @@ func parseArms(list, variants string, plies, budget int) ([]arm, error) {
 
 func botConfig(cfg *config.Config, a arm) *bot.BotConfig {
 	return &bot.BotConfig{Config: *cfg, MinSimPlies: a.plies, SimThreads: 1, InferenceBudget: a.budget,
-		InferenceTau: a.tau, InferenceTauScale: a.scale, InferenceMinInfoBits: a.minBits,
+		InferenceTau: a.tau, InferenceTauScale: a.scale, InferenceMinInfoBits: a.minBits, InferenceTauCap: a.tauCap,
 		OracleInference: a.oracle}
 }
 

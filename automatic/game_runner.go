@@ -86,6 +86,7 @@ type AutomaticRunnerPlayer struct {
 	InferenceSimIters            int
 	InferenceMaxEnumeratedLeaves int
 	InferenceBudget              int
+	InferenceTauCap              float64
 	OracleInference              bool
 }
 
@@ -135,6 +136,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceSimIters:            players[idx].InferenceSimIters,
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
 			InferenceBudget:              players[idx].InferenceBudget,
+			InferenceTauCap:              players[idx].InferenceTauCap,
 			OracleInference:              players[idx].OracleInference,
 		}
 

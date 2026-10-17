@@ -39,6 +39,9 @@ type BotConfig struct {
 	// InferenceTauScale multiplies the temperature in use, pinned or
 	// scheduled. 0 leaves it alone.
 	InferenceTauScale float64
+	// InferenceTauCap caps the temperature in use (after any scale). 0 = no
+	// cap.
+	InferenceTauCap float64
 	// InferenceMinInfoBits skips reads that moved less than this far from
 	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
 	// sim bot's. 0 uses every read.

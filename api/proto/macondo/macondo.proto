@@ -478,6 +478,10 @@ message AutoplayPlayerConfig {
   // bounded by this count instead, so the same position always produces the
   // same posterior. If 0, inference is bounded by time as before.
   int32 inference_budget = 12;
+  // inference_tau_cap caps the inference temperature, pinned or scheduled.
+  // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
+  // 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
+  double inference_tau_cap = 13;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
