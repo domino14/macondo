@@ -306,6 +306,29 @@ default inferer (`infer`: fitted tau, budget 200):
   +0.07] in the first run on 156 positions: different samples, wide
   intervals.)
 
+### A confidence gate? No (Oct 17, 2026 08:31-10:39)
+
+`dl-2ply-infobits`: 3,000 positions (all bags) from a later snapshot of the
+2-ply baseline, with each read's `infoBits`. Overall: infer +0.10 [+0.06,
++0.15] per turn, oracle +0.47 [+0.39, +0.55]. (The first 2,000-position
+sample gave infer +0.00 [-0.06, +0.07]; pooled, about +0.06.)
+
+Gain by read strength (infoBits) and the offline gate (gain kept where
+infoBits >= threshold, 0 elsewhere):
+
+| bag  | infoBits quartiles | gain by infoBits band | gate 0 / 0.5 / 1 / 2 bits |
+|------|--------------------|-----------------------|---------------------------|
+| <=20 | 0.13 / 0.30 / 0.71 | +0.03 (<0.25), +0.29, +0.07, +0.30 (1-2), +1.79 (2-4, n=26) | +0.19 / +0.11 / +0.10 / +0.06 |
+| 21+  | 0.54 / 1.03 / 1.79 | +0.01 (<0.25), +0.01, +0.06, +0.08, +0.08, +0.33 (4+) | +0.07 / +0.07 / +0.05 / +0.03 |
+
+No band loses: weak reads rarely change the move (3-6%) and then gain about
+nothing. Every threshold gives up gain. The losses tied to low lift come
+from confident reads that are wrong, which the bot cannot see. Gate dropped;
+`InferenceMinInfoBits` stays as an option, default off.
+
+Baseline check at 10:40: `infer-v-sim-2ply` = **50.85% ± 0.70** after 3,899
+pairs (spread +1.73 ± 1.16), level with the 5-ply runs.
+
 Next: `dl-2ply-late-tau` sweeps fixed tau 0.025 / 0.05 / 0.1 / 0.2 on bag
 <= 20, to place the optimum before a match.
 
@@ -326,6 +349,7 @@ What is on deb192 and when it changed. Results go in the sections above.
 - Oct 17 08:31: `dl-2ply-late-variants` done (above); `dl-2ply-infobits`
   started.
 - Oct 17 08:40: `queue5.sh` queued behind it: `dl-2ply-late-tau`.
+- Oct 17 10:39: `dl-2ply-infobits` done (gate: no); `dl-2ply-late-tau` started.
 
 ## Idea queue
 
