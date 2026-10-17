@@ -504,9 +504,6 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 				log.Err(ctx.Err()).Msg("Context done")
 				log.Info().Msg("Got stop signal, exiting soon...")
 				break gameLoop
-			default:
-				// do nothing
-
 			}
 			if i == numGames {
 				queuingJobs = false
