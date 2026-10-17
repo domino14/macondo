@@ -2,38 +2,43 @@
 
 from invoke import task
 
+# Windows targets cross-compile from Linux with llvm-mingw (its bin directory
+# on PATH), as MAGPIE's own Windows release does.
+WINDOWS_TRIPLES = {"amd64": "x86_64-w64-mingw32", "arm64": "aarch64-w64-mingw32"}
+
 
 @task
-def build(c):
+def build(c, nickname, windows=""):
+    """Builds the shell into macondo-<tag>-<nickname>.zip. Macondo links MAGPIE
+    through cgo, so it is built natively on each platform (see
+    .github/workflows/build-and-upload-binaries.yml), except for Windows:
+    --windows amd64 (or arm64) cross-compiles macondo.exe and updater.exe.
+    MAGPIE_MARCH picks the instruction set MAGPIE is compiled for."""
     tag = c.run("git describe --exact-match --tags", hide=True).stdout.strip()
     print("Tag was", tag)
 
-    gitflags = f'-ldflags "-X main.GitVersion={tag}"'
-
-    # Build universal mac executable. This only works on Mac:
-    c.run(f"GOOS=darwin GOARCH=amd64 go build -o macondo-amd64 {gitflags} ./cmd/shell")
-    c.run(f"GOOS=darwin GOARCH=arm64 go build -o macondo-arm64 {gitflags} ./cmd/shell")
-    c.run("lipo -create -output macondo macondo-amd64 macondo-arm64")
-    c.run(
-        f"zip -r macondo-{tag}-osx-universal.zip ./macondo ./data ./scripts/lua ./explainer"
-    )
-    c.run("rm -f macondo macondo-amd64 macondo-arm64")
-
-    for os, nickname, arch, executable in [
-        ("linux", "linux-x86_64", "amd64", "macondo"),
-        ("windows", "win64", "amd64", "macondo.exe"),
-    ]:
+    if not windows:
+        gitflags = f'-ldflags "-X main.GitVersion={tag}"'
+        c.run("scripts/build_magpie.sh")
+        c.run(f"CGO_ENABLED=1 go build -o macondo {gitflags} ./cmd/shell")
         c.run(
-            f"GOOS={os} GOARCH={arch} go build -o {executable} {gitflags} ./cmd/shell"
+            f"zip -r macondo-{tag}-{nickname}.zip ./macondo ./data ./scripts/lua ./explainer"
         )
-        if os == "windows":
-            c.run(
-                f"GOOS=windows GOARCH={arch} go build -o updater.exe {gitflags} ./cmd/updater"
-            )
-            c.run(
-                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./updater.exe ./data ./scripts/lua ./explainer"
-            )
-        if os != "windows":
-            c.run(
-                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data ./scripts/lua ./explainer"
-            )
+        c.run("rm -f macondo")
+        return
+
+    triple = WINDOWS_TRIPLES[windows]
+    # Static, so the executables need no MinGW DLLs; an 8 MB stack for every
+    # thread, which MAGPIE's recursion needs (see magpie/magpie.go).
+    ldflags = (
+        f'-ldflags "-X main.GitVersion={tag} '
+        "-extldflags '-static -Wl,--stack,8388608'\""
+    )
+    env = f"GOOS=windows GOARCH={windows} CGO_ENABLED=1 CC={triple}-clang"
+    c.run(f"MAGPIE_TARGET=windows-{windows} scripts/build_magpie.sh")
+    c.run(f"{env} go build -o macondo.exe {ldflags} ./cmd/shell")
+    c.run(f"{env} go build -o updater.exe {ldflags} ./cmd/updater")
+    c.run(
+        f"zip -r macondo-{tag}-{nickname}.zip ./macondo.exe ./updater.exe ./data ./scripts/lua ./explainer"
+    )
+    c.run("rm -f macondo.exe updater.exe")

@@ -12,13 +12,10 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -52,14 +49,6 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), lex)
-	if err != nil {
-		panic(err)
-	}
-
-	dist := rules.LetterDistribution()
-	gen := movegen.NewGordonGenerator(gd, g.Board(), dist)
-	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -67,7 +56,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	if err != nil {
 		panic(err)
 	}
-	cross_set.GenAllCrossSets(g.Board(), gd, dist)
+	g.RecalculateBoard()
 
 	g.SetRacksForBoth([]*tilemapping.Rack{
 		tilemapping.RackFromString(rack1, alph),
@@ -81,7 +70,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 
 	s := new(Solver)
 
-	err = s.Init(gen, g)
+	err = s.Init(g)
 	if err != nil {
 		panic(err)
 	}
@@ -201,16 +190,11 @@ func TestVeryDeep(t *testing.T) {
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
-	s.Init(gen, g.Game)
+	s.Init(g.Game)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -231,16 +215,11 @@ func TestPassFirst(t *testing.T) {
 	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, pos)
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen1 := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
-	s.Init(gen1, g.Game)
+	s.Init(g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
@@ -301,18 +280,11 @@ func TestPolishFromGcg(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 46)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(cfg.WGLConfig(), "OSPS49")
-	is.NoErr(err)
-
 	g.SetBackupMode(game.SimulationMode)
-	gen := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
 
-	s.Init(gen, g)
+	s.Init(g)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, _, _ := s.Solve(context.Background(), plies)
@@ -341,17 +313,12 @@ func TestStuckPruning(t *testing.T) {
 	deepEndgame := "4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
 
-	s.Init(gen, g.Game)
+	s.Init(g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(72))
@@ -381,14 +348,8 @@ func TestProperIterativeDeepening(t *testing.T) {
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
 
-		gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
-		is.NoErr(err)
-
-		gen := movegen.NewGordonGenerator(
-			gd, g.Board(), g.Bag().LetterDistribution(),
-		)
 		s := new(Solver)
-		s.Init(gen, g)
+		s.Init(g)
 
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
@@ -418,17 +379,11 @@ func TestFromGCG(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
-
 	g.SetBackupMode(game.SimulationMode)
-	gen := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
 
-	s.Init(gen, g)
+	s.Init(g)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -459,17 +414,12 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
 
-	s.Init(gen, g.Game)
+	s.Init(g.Game)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 
@@ -493,16 +443,11 @@ func BenchmarkPassFirst(b *testing.B) {
 	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, pos)
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
-	gen1 := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
 
 	s := new(Solver)
-	s.Init(gen1, g.Game)
+	s.Init(g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	b.ResetTimer()
 	// Large majority of this allocation is the transposition table.
@@ -540,7 +485,7 @@ func BenchmarkPassFirst(b *testing.B) {
 // 		gd, g.Board(), g.Bag().LetterDistribution(),
 // 	)
 // 	s := new(Solver)
-// 	s.Init(gen, g)
+// 	s.Init(g)
 
 // 	// Test just the negamax function without the search etc functionality.
 // 	s.requestedPlies = plies
@@ -594,4 +539,5 @@ func BenchmarkVsRoyWithPrunedKWG(b *testing.B) {
 func BenchmarkVsRoyWithoutPrunedKWG(b *testing.B) {
 	benchmarkVsRoy(b, false)
 }
+
 // }

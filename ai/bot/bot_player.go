@@ -18,7 +18,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/stats"
@@ -163,32 +162,20 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 }
 
 func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
+	if numPlays != 1 {
+		return p.AIStaticTurnPlayer.GenerateMoves(numPlays)
+	}
+	if _, filtered := BotConfigs[p.botType]; !filtered {
+		return p.AIStaticTurnPlayer.GenerateMoves(1)
+	}
+	// A level bot picks among all the plays.
+	plays := p.AIStaticTurnPlayer.GenerateMoves(maxFilteredPlays)
 	curRack := p.RackFor(p.PlayerOnTurn())
-	oppRack := p.RackFor(p.NextPlayer())
-	gen := p.MoveGenerator()
-	// in case we don't have full rack info:
-	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
-	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-
-	gg := gen.(*movegen.GordonGenerator)
-	plays, wordSmog := aiturnplayer.GenerateWordSmogTopPlays(gg, curRack, exchAllowed, numPlays)
-	if !wordSmog {
-		gen.GenAll(curRack, exchAllowed)
-		plays = gg.Plays()
-	}
-
-	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	if numPlays == 1 {
-		// Plays aren't sorted yet
-		sort.Slice(plays, func(i, j int) bool {
-			return plays[i].Equity() > plays[j].Equity()
-		})
-		return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType, p.LexiconName())}
-	}
-
-	return p.TopPlays(plays, numPlays)
+	return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType, p.LexiconName())}
 }
+
+// maxFilteredPlays is how many of the best plays a level bot filters.
+const maxFilteredPlays = 300000
 
 type moveEval struct {
 	move *move.Move

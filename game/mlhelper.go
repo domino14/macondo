@@ -151,6 +151,9 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
+	if _, err := g.MagpiePosition(); err != nil {
+		return nil, err
+	}
 
 	numMoves := len(moves)
 	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
@@ -159,8 +162,11 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		g.backupState()
 		switch m.Action() {
 		case move.MoveTypePlay:
-			g.board.PlayMove(m)
-			g.crossSetGen.UpdateForMove(g.board, m)
+			// On the board only: the player draws nothing.
+			if err := g.posPlay(m); err != nil {
+				g.UnplayLastMove()
+				return nil, err
+			}
 			score := m.Score()
 			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns = 0

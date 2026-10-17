@@ -51,8 +51,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/rangefinder"
 )
 
@@ -140,7 +138,6 @@ type harnessCfg struct {
 // under different rack assumptions. Created once per worker goroutine.
 type tier2Evaluator struct {
 	simmer *montecarlo.Simmer
-	gen    *movegen.GordonGenerator
 	player *turnplayer.AIStaticTurnPlayer
 	hcfg   *harnessCfg
 }
@@ -150,16 +147,13 @@ func newTier2Evaluator(g *game.Game, calcs []equity.EquityCalculator, cfg *confi
 	if err != nil {
 		return nil, err
 	}
-	gen := p.MoveGenerator().(*movegen.GordonGenerator)
-	gen.SetGame(g)
-
 	s := &montecarlo.Simmer{}
 	s.Init(g, calcs, calcs[0].(*equity.CombinedStaticCalculator), cfg)
 	s.SetThreads(hcfg.tier2Threads)
 	s.SetStoppingCondition(montecarlo.StopNone)
 	s.SetAutostopIterationsCutoff(hcfg.tier2Iters)
 
-	return &tier2Evaluator{simmer: s, gen: gen, player: p, hcfg: hcfg}, nil
+	return &tier2Evaluator{simmer: s, player: p, hcfg: hcfg}, nil
 }
 
 // evalUnderAssumption runs a short sim under a given rack assumption and
@@ -198,24 +192,12 @@ func runTier2(
 	trueLeaveFound bool,
 	ctx context.Context,
 ) (*Tier2Result, error) {
-	playerIdx := g.PlayerOnTurn()
 
 	// Generate top-N candidate moves statically.
-	oppRack := g.RackFor(1 - playerIdx)
-	unseen := int(oppRack.NumTiles()) + g.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= g.ExchangeLimit()
-	ev.gen.SetGame(g)
-	ev.gen.SetRecordNTopPlays(ev.hcfg.tier2Candidates)
-	ev.gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, g.ExchangeLimit()))
-	ev.gen.GenAll(g.RackFor(playerIdx), exchAllowed)
-	plays := ev.gen.Plays()
-	if len(plays) == 0 {
+	movePtrs := ev.player.GenerateMovesFor(g, ev.hcfg.tier2Candidates)
+	if len(movePtrs) == 0 {
 		return nil, fmt.Errorf("no candidate plays generated")
 	}
-
-	// Convert []*move.Move to []*move.Move (Plays() already returns that).
-	movePtrs := make([]*move.Move, len(plays))
-	copy(movePtrs, plays)
 
 	result := &Tier2Result{OracleAvailable: trueLeaveFound}
 

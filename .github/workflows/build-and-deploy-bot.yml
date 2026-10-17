@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
       # America is the one word graph the tests need that isn't published
       # alongside the others, so it comes from the private repo; everything
       # else is fetched below. Publish America and this step, the checkout
@@ -51,14 +53,13 @@ jobs:
       - name: Install lexicon data
         run: cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
 
+      # MAGPIE's static libraries, which every Go build links (see
+      # scripts/build_magpie.sh). Word maps are built and saved on first use.
       - name: Build
         run: make
 
-      - name: Build CSW24 WMP for tests
-        run: go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/CSW24.kwg -out /opt/data/lexica/CSW24.wmp
-
       - name: Run tests
-        run: go test $(go list ./... | grep -v wasm)
+        run: go test ./...
 
       - name: Discord notification
         env:
@@ -67,6 +68,36 @@ jobs:
         with:
           args: "Macondo backend built successfully for branch {{GITHUB_REF_NAME}}."
 
+  # Releases cross-compile Windows (build-and-upload-binaries.yml); this keeps
+  # that build working between tags. Compile only: no Windows runner here.
+  windows_cross_compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.22"
+
+      - name: Get llvm-mingw
+        env:
+          LLVM_MINGW_VERSION: "20261006"
+          LLVM_MINGW: llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64
+          LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/$LLVM_MINGW.tar.xz" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$LLVM_MINGW.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$LLVM_MINGW.tar.xz" | sha256sum -c --strict -
+          tar xJf "$RUNNER_TEMP/$LLVM_MINGW.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$LLVM_MINGW/bin" >> "$GITHUB_PATH"
+
+      - name: Cross-compile bin/shell.exe
+        run: make windows
+
   push_docker:
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/master' }}
@@ -74,6 +105,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Log in to the container registry
         uses: docker/login-action@v3

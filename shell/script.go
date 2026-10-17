@@ -28,11 +28,11 @@ var exports = map[string]lua.LGFunction{
 	"gamestate": gamestate,
 
 	// Synchronous versions (preferred for scripts)
-	"endgame":       endgameSync, // sync by default
-	"peg":           pegSync,     // sync by default
-	"sim":           simSync,     // sync by default
-	"infer":         inferSync,   // sync by default
-	"analyze":       analyze,     // game analysis
+	"endgame":       endgameSync,  // sync by default
+	"peg":           pegSync,      // sync by default
+	"sim":           simSync,      // sync by default
+	"infer":         inferSync,    // sync by default
+	"analyze":       analyze,      // game analysis
 	"analyze-batch": analyzeBatch, // batch game analysis
 
 	// Async versions (for advanced use cases)

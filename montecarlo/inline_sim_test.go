@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
@@ -15,12 +14,39 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/magpie"
+	"github.com/domino14/macondo/move"
 )
+
+// placementsByScore is every tile placement for the player on turn, highest
+// scoring first.
+func placementsByScore(t testing.TB, g *game.Game) []*move.Move {
+	t.Helper()
+	moves, err := g.MagpieMoves(100000, magpie.SortScore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plays []*move.Move
+	for _, m := range moves {
+		if m.Action() == move.MoveTypePlay {
+			plays = append(plays, m)
+		}
+	}
+	return plays
+}
 
 // seededSimmer builds the same position every time: a seeded bag means the deal
 // and every rack the sim draws come out of one reproducible stream.
 func seededSimmer(t *testing.T, seedByte byte, plies, threads int) *Simmer {
+	return seededSimmerWith(t, seedByte, plies, threads, func(plays []*move.Move) []*move.Move {
+		return plays[:10]
+	})
+}
+
+// seededSimmerWith is seededSimmer simming the plays pick chooses from the
+// position's plays, best-scoring first.
+func seededSimmerWith(t *testing.T, seedByte byte, plies, threads int,
+	pick func([]*move.Move) []*move.Move) *Simmer {
 	t.Helper()
 	is := is.New(t)
 
@@ -41,16 +67,13 @@ func seededSimmer(t *testing.T, seedByte byte, plies, threads int) *Simmer {
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, tilemapping.RackFromString("AAAENSW", g.Alphabet()))
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
-	is.NoErr(err)
-	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
-	gen.GenAll(g.RackFor(0), false)
+	plays := placementsByScore(t, g)
 
 	calcs, leaves := defaultSimCalculators("NWL18")
 	s := &Simmer{}
 	s.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	s.SetThreads(threads)
-	is.NoErr(s.PrepareSim(plies, gen.Plays()[:10]))
+	is.NoErr(s.PrepareSim(plies, pick(plays)))
 	return s
 }
 
@@ -79,19 +102,22 @@ func TestInlineSimIsReproducible(t *testing.T) {
 	is.True(iters1 > 0)
 }
 
-// The loop leaves on the very iteration the stopping condition trips, so the
-// count always lands on a check boundary. The threaded loop cannot promise this:
-// its workers only find out through the context.
-func TestInlineSimStopsOnACheckBoundary(t *testing.T) {
+// A clear-cut position stops on the stopping rule, well short of the cap.
+func TestInlineSimStopsOnTheThreshold(t *testing.T) {
 	is := is.New(t)
 
-	s := seededSimmer(t, 7, 2, 1)
+	// The best-scoring play against the five worst.
+	s := seededSimmerWith(t, 7, 2, 1, func(plays []*move.Move) []*move.Move {
+		return append([]*move.Move{plays[0]}, plays[len(plays)-5:]...)
+	})
 	s.SetStoppingCondition(Stop99)
 	is.NoErr(s.Simulate(context.Background()))
 
-	interval := s.autostopper.stopConditionCheckInterval
-	is.True(interval > 0)
-	is.Equal(uint64(s.Iterations())%interval, uint64(0))
+	cap := s.autostopper.iterationsCutoff + 2*s.autostopper.perPlyStopScaling
+	t.Logf("stopped after %d iterations (cap %d)", s.Iterations(), cap)
+	is.True(s.Iterations() >= DefaultMinSamplesPerPlay)
+	is.True(s.Iterations() < cap/2)
+	is.Equal(s.WinningPlay().Move(), s.arms[0].Move())
 }
 
 // liveGoroutines returns the id of every goroutine that exists right now.
@@ -138,6 +164,8 @@ func TestSimSingleThreadCountsWhatItRan(t *testing.T) {
 
 	s := seededSimmer(t, 11, 2, 1)
 	s.SetStoppingCondition(StopNone)
+	// Bag cycling counts in whole cycles of rollouts.
+	s.SetBagCycle(false)
 
 	s.SimSingleThread(50, 2)
 	is.Equal(s.Iterations(), 50)
@@ -157,7 +185,6 @@ func TestInlineSimHonorsContext(t *testing.T) {
 	cancel()
 
 	is.NoErr(s.Simulate(ctx))
-	// One iteration runs before the context is consulted; the point is that it
-	// stops immediately rather than simming forever.
-	is.Equal(s.Iterations(), 1)
+	// The context is consulted before every round, so nothing runs.
+	is.Equal(s.Iterations(), 0)
 }

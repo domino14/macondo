@@ -14,19 +14,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/movegen/wordprune"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 )
@@ -362,7 +359,7 @@ func (p *PreEndgamePlay) TotalOutcomes() int {
 }
 
 type inFlightPermInfo struct {
-	play            string
+	play string
 	// Raw tile data instead of pre-formatted strings; strings are computed
 	// lazily in the 60-second status ticker to avoid per-perm allocs.
 	permInBag       []tilemapping.MachineLetter
@@ -407,9 +404,7 @@ type jobOptionLog struct {
 type Solver struct {
 	endgameSolvers []*negamax.Solver
 
-	movegen          movegen.MoveGenerator
 	game             *game.Game
-	gaddag           *kwg.KWG
 	ttable           *negamax.TranspositionTable
 	curEndgamePlies  int
 	maxEndgamePlies  int
@@ -426,23 +421,23 @@ type Solver struct {
 	avoidPruneMoves  []*move.Move
 	leaveCalc        equity.Leaves
 
-	earlyCutoffOptim bool
-	maxTilesLeft     int // -1 = no limit; skip plays leaving more than this many tiles in the bag. default 1
-	skipTiebreaker   bool
-	skipLossOptim        bool
-	iterativeDeepening   bool
-	nestedDepthLimit     int  // -1 = unlimited; default 1
-	skipDeepPass         bool // default true; forwarded to endgame solvers
+	earlyCutoffOptim   bool
+	maxTilesLeft       int // -1 = no limit; skip plays leaving more than this many tiles in the bag. default 1
+	skipTiebreaker     bool
+	skipLossOptim      bool
+	iterativeDeepening bool
+	nestedDepthLimit   int  // -1 = unlimited; default 1
+	skipDeepPass       bool // default true; forwarded to endgame solvers
 
-	numEndgamesSolved        atomic.Uint64
-	totalPerms               atomic.Uint32
-	numCutoffs               atomic.Uint64
-	numNestedCalls           atomic.Uint64
-	numSubPermsEvaluated     atomic.Uint64
-	maxNestedDepth           atomic.Uint64
-	nestedCacheHits          atomic.Uint64
-	nestedCacheMisses        atomic.Uint64
-	numNestedByBagSize       [InBagMaxLimit + 1]atomic.Uint64
+	numEndgamesSolved    atomic.Uint64
+	totalPerms           atomic.Uint32
+	numCutoffs           atomic.Uint64
+	numNestedCalls       atomic.Uint64
+	numSubPermsEvaluated atomic.Uint64
+	maxNestedDepth       atomic.Uint64
+	nestedCacheHits      atomic.Uint64
+	nestedCacheMisses    atomic.Uint64
+	numNestedByBagSize   [InBagMaxLimit + 1]atomic.Uint64
 	potentialWinnerMutex sync.RWMutex
 	minPotentialLosses   float32
 
@@ -462,11 +457,11 @@ type Solver struct {
 	arenas []*tinymove.SmallMoveArena
 
 	// Debug trace fields — zero-valued means tracing disabled.
-	traceWriter          io.Writer
+	traceWriter        io.Writer
 	traceTargetBagTail tilemapping.MachineWord // draw-order bag tiles to match (first drawn first)
-	traceOnce            bool
-	traceSeenMatch       atomic.Bool
-	traceMu              sync.Mutex
+	traceOnce          bool
+	traceSeenMatch     atomic.Bool
+	traceMu            sync.Mutex
 
 	// Eventuality explanation (single-thread, single-perm diagnostic mode).
 	// Active only when explainResult != nil. All collection sites are guarded.
@@ -486,7 +481,10 @@ type Solver struct {
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
-func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
+// maxRootPlays is the most candidate plays a pre-endgame solve generates.
+const maxRootPlays = 300000
+
+func (s *Solver) Init(g *game.Game) error {
 	if game.IsWordSmog(g.Rules().Variant()) {
 		// The pre-endgame solver leans on the endgame solver, which has no
 		// alpha dawg support yet.
@@ -507,7 +505,6 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.curEndgamePlies = 3
 	s.maxEndgamePlies = s.curEndgamePlies
 	s.iterativeDeepening = true
-	s.gaddag = gd
 	s.earlyCutoffOptim = true
 	s.maxTilesLeft = 1
 	s.skipTiebreaker = false
@@ -540,11 +537,11 @@ func (s *Solver) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Solver) SetTraceWriter(w io.Writer)        { s.traceWriter = w }
+func (s *Solver) SetTraceWriter(w io.Writer) { s.traceWriter = w }
 func (s *Solver) SetTraceTargetBagTail(tail tilemapping.MachineWord) {
 	s.traceTargetBagTail = tail
 }
-func (s *Solver) SetTraceOnce(once bool)            { s.traceOnce = once }
+func (s *Solver) SetTraceOnce(once bool) { s.traceOnce = once }
 
 // SubPermExplanation captures one row of the per-bag-tile outcome table
 // computed by a nested sub-PEG.
@@ -573,13 +570,13 @@ type NestedLevelExplanation struct {
 // outer-perm verdict, populated during eventuality-mode solve.
 type EventualityExplanation struct {
 	// Stage 1 — our outer play
-	OurPlay      string // e.g. "13M P(AH)"
-	OurScore     int
+	OurPlay       string // e.g. "13M P(AH)"
+	OurScore      int
 	OurRackBefore string // rack before outer play
-	OurRackAfter string // rack after outer play and draw
-	BagBefore    string // bag at outer-perm entry
-	BagAfter     string // bag after our play and draw
-	OppRack      string // opp rack at outer-perm entry
+	OurRackAfter  string // rack after outer play and draw
+	BagBefore     string // bag at outer-perm entry
+	BagAfter      string // bag after our play and draw
+	OppRack       string // opp rack at outer-perm entry
 
 	// Stage 2 — opp replies
 	TotalOppReplies int    // count of opp replies tried
@@ -663,16 +660,22 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	var winners []*PreEndgamePlay
 	var err error
 
-	s.movegen = movegen.NewGordonGenerator(s.gaddag, s.game.Board(), s.game.Bag().LetterDistribution())
-	s.movegen.SetGenPass(true)
-	// Don't allow pre-endgame opponent to use more than 7 tiles.
-	s.movegen.SetMaxTileUsage(7)
 	// Examine high equity plays first.
 	var moves []*move.Move
 	if len(s.solveOnlyMoves) != 0 {
 		moves = s.solveOnlyMoves
 	} else {
-		moves = s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
+		pos, err := s.game.MagpiePosition()
+		if err != nil {
+			return nil, err
+		}
+		// Every play and the pass (the bag is too small to exchange), by
+		// MAGPIE's static equity.
+		gen := pos.GenerateN(magpie.RecordAll, magpie.SortEquity, 0, maxRootPlays)
+		moves = make([]*move.Move, len(gen))
+		for i := range gen {
+			moves[i] = s.game.MoveFromMagpie(&gen[i])
+		}
 	}
 	c, err := equity.NewCombinedStaticCalculator(
 		s.game.LexiconName(), s.game.Config(), "", equity.PEGAdjustmentFilename)
@@ -680,8 +683,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		return nil, err
 	}
 	s.leaveCalc = c
-	for _, m := range moves {
-		m.SetEquity(c.Equity(m, s.game.Board(), s.game.Bag(), nil))
+	if len(s.solveOnlyMoves) != 0 {
+		for _, m := range moves {
+			m.SetEquity(c.Equity(m, s.game.Board(), s.game.Bag(), nil))
+		}
 	}
 	sort.Slice(moves, func(i, j int) bool {
 		return moves[i].Equity() > moves[j].Equity()
@@ -728,46 +733,20 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	}
 	s.numinbag = s.game.Bag().TilesRemaining()
 
-	// Build one pruned KWG for the whole PEG solve. All endgames share the
-	// same total tile pool (our rack + opp rack + bag); the distribution
-	// between racks changes per endgame but the union never changes. We
-	// combine everything into a single synthetic rack and build the pruned
-	// graph once, then hand it to every endgame solver. This is done outside
-	// the iterative-deepening loop because the tile pool is constant across plies.
-	gaddagToUse := s.gaddag
-	{
-		allTilesRack := &tilemapping.Rack{LetArr: make([]int, len(s.game.RackFor(0).LetArr))}
-		for i := range allTilesRack.LetArr {
-			allTilesRack.LetArr[i] = s.game.RackFor(0).LetArr[i] + s.game.RackFor(1).LetArr[i]
-		}
-		for _, t := range s.game.Bag().Peek() {
-			allTilesRack.LetArr[int(t)]++
-		}
-		emptyRack := &tilemapping.Rack{LetArr: make([]int, len(allTilesRack.LetArr))}
-		t0 := time.Now()
-		if prunedKWG, err := wordprune.GeneratePrunedKWG(
-			s.game.Board(), allTilesRack, emptyRack, s.gaddag,
-		); err == nil && prunedKWG != nil {
-			gaddagToUse = prunedKWG
-			fullNodes := len(s.gaddag.Nodes())
-			prunedNodes := len(prunedKWG.Nodes())
-			log.Info().
-				Int("full-nodes", fullNodes).
-				Int("pruned-nodes", prunedNodes).
-				Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
-				Dur("build-ms", time.Since(t0)).
-				Msg("preendgame-using-pruned-kwg")
-		}
+	// Build one pruned word graph for the whole PEG solve. All endgames share
+	// the same total tile pool (our rack + opp rack + bag); the distribution
+	// between racks changes per endgame but the union never changes, and
+	// MAGPIE's word pruning draws on that union. Every endgame solver
+	// generates from it. This is done outside the iterative-deepening loop
+	// because the tile pool is constant across plies.
+	rootPos, err := s.game.MagpiePosition()
+	if err != nil {
+		return nil, err
 	}
-	// Swap crossSetGen to use the pruned KWG. game.Copy() shares crossSetGen
-	// by reference, so all endgame solver copies inherit this automatically.
-	if gaddagToUse != s.gaddag {
-		if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
-			origCSGaddag := csg.Gaddag
-			csg.Gaddag = gaddagToUse
-			defer func() { csg.Gaddag = origCSGaddag }()
-		}
-	}
+	t0 := time.Now()
+	prunedKWG := rootPos.PrunedKWG()
+	defer prunedKWG.Close()
+	log.Info().Dur("build-ms", time.Since(t0)).Msg("preendgame-using-pruned-kwg")
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
@@ -814,13 +793,16 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.
 			g.Bag().SetFixedOrder(true)
-			mg := movegen.NewGordonGenerator(gaddagToUse, g.Board(), g.Bag().LetterDistribution())
-			err := es.Init(mg, g)
+			if err := es.Init(g); err != nil {
+				return nil, err
+			}
+			// Every endgame generates from the pruned graph built above.
+			es.SetPrunedKWG(prunedKWG)
+			gpos, err := g.MagpiePosition()
 			if err != nil {
 				return nil, err
 			}
-			// PEG already built a pruned KWG above; skip per-endgame rebuilding.
-			es.SetPrunedKWGOptim(false)
+			gpos.SetOverrideKWG(prunedKWG)
 			// Endgame itself should be single-threaded; we are solving many individual
 			// endgames in parallel.
 			es.SetThreads(1)

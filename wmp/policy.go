@@ -1,3 +1,6 @@
+// Package wmp holds the policy for MAGPIE's word maps (see game/magpie.go):
+// whether to use one, whether to build one that isn't on disk, and how big
+// one may be.
 package wmp
 
 import (
@@ -23,14 +26,14 @@ import (
 //
 // A Lambda wants the opposite of the build: it pays for one on every cold
 // start, and building CSW24's takes about as long as reading it (1.4s either
-// way), while SLV26's takes 10.4s to build or 8.6s to read against a KWG move
-// generator that costs neither. So it sets
+// way), while SLV26's takes 10.4s to build or 8.6s to read against MAGPIE's
+// KWG generator, which costs neither. So it sets
 //
 //	MACONDO_WMP_BUILD_IF_MISSING=false
 //	MACONDO_WMP_MAX_MB=200
 //
-// and gets: read whatever is seeded on the volume and small enough, and fall
-// back to the KWG move generator for anything missing or larger.
+// and gets: read whatever is seeded on the volume and small enough, and
+// generate without a word map for anything missing or larger.
 
 const (
 	EnvEnabled        = "MACONDO_WMP_ENABLED"

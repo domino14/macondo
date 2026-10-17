@@ -48,7 +48,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
-	var stopPPscaling, stopitercutoff, stopcheckinterval int
+	var stopPPscaling, stopitercutoff, minSamples int
+	noBagCycle := false
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
 	avoidTrimMoves := []*move.Move{}
 
@@ -96,8 +97,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 				return nil, err
 			}
 
-		case "autostopcheckinterval":
-			stopcheckinterval, err = options.Int(opt)
+		case "minsamples":
+			minSamples, err = options.Int(opt)
 			if err != nil {
 				return nil, err
 			}
@@ -153,6 +154,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 			default:
 				return nil, errors.New("that inference mode is not supported")
 			}
+		case "bagcycle":
+			noBagCycle = !options.Bool(opt)
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -188,15 +191,16 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	}
 
 	params := &simParams{
-		threads:               threads,
-		plies:                 plies,
-		stoppingCondition:     stoppingCondition,
-		autostopPPScaling:     stopPPscaling,
-		autostopIterCutoff:    stopitercutoff,
-		autostopCheckInterval: stopcheckinterval,
-		knownOppRack:          kr,
-		inferMode:             inferMode,
-		avoidTrimMoves:        avoidTrimMoves,
+		threads:            threads,
+		plies:              plies,
+		stoppingCondition:  stoppingCondition,
+		autostopPPScaling:  stopPPscaling,
+		autostopIterCutoff: stopitercutoff,
+		minSamplesPerPlay:  minSamples,
+		noBagCycle:         noBagCycle,
+		knownOppRack:       kr,
+		inferMode:          inferMode,
+		avoidTrimMoves:     avoidTrimMoves,
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -267,15 +271,17 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 }
 
 type simParams struct {
-	threads               int
-	plies                 int
-	stoppingCondition     montecarlo.StoppingCondition
-	autostopPPScaling     int
-	autostopIterCutoff    int
-	autostopCheckInterval int
-	knownOppRack          []tilemapping.MachineLetter
-	inferMode             montecarlo.InferenceMode
-	avoidTrimMoves        []*move.Move
+	threads            int
+	plies              int
+	stoppingCondition  montecarlo.StoppingCondition
+	autostopPPScaling  int
+	autostopIterCutoff int
+	minSamplesPerPlay  int
+	// noBagCycle turns off MAGPIE's bag cycling, which is on by default.
+	noBagCycle     bool
+	knownOppRack   []tilemapping.MachineLetter
+	inferMode      montecarlo.InferenceMode
+	avoidTrimMoves []*move.Move
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -297,9 +303,10 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	if params.autostopIterCutoff > 0 {
 		simmer.SetAutostopIterationsCutoff(params.autostopIterCutoff)
 	}
-	if params.autostopCheckInterval > 0 {
-		simmer.SetAutostopCheckInterval(uint64(params.autostopCheckInterval))
+	if params.minSamplesPerPlay > 0 {
+		simmer.SetMinSamplesPerPlay(params.minSamplesPerPlay)
 	}
+	simmer.SetBagCycle(!params.noBagCycle)
 
 	if params.inferMode != montecarlo.InferenceOff {
 		inferences := sc.rangefinder.Inferences()
@@ -370,7 +377,6 @@ func (sc *ShellController) startMultiSimExperiment(iters, plies, simCount int, p
 			return err
 		}
 		mcsimmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-		mcsimmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 		simmers = append(simmers, mcsimmer)
 	}
 

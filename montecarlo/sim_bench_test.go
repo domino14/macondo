@@ -5,13 +5,11 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog"
 )
 
@@ -50,10 +48,6 @@ func buildSimmers(b *testing.B, spec positionSpec) []*Simmer {
 	if err != nil {
 		b.Fatal(err)
 	}
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), benchLexicon)
-	if err != nil {
-		b.Fatal(err)
-	}
 	playerInfos := []*pb.PlayerInfo{
 		{Nickname: "p1", RealName: "Player1"},
 		{Nickname: "p2", RealName: "Player2"},
@@ -71,7 +65,6 @@ func buildSimmers(b *testing.B, spec positionSpec) []*Simmer {
 		g.SeedBag(seed)
 		g.StartGame()
 
-		gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 		for g.Playing() == pb.PlayState_PLAYING {
 			done := false
 			switch spec.cond {
@@ -83,7 +76,7 @@ func buildSimmers(b *testing.B, spec positionSpec) []*Simmer {
 			if done {
 				break
 			}
-			plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+			plays := placementsByScore(b, g)
 			if len(plays) == 0 {
 				break
 			}
@@ -105,8 +98,7 @@ func buildSimmers(b *testing.B, spec positionSpec) []*Simmer {
 		}
 		parsed.RecalculateBoard()
 
-		gen := movegen.NewGordonGenerator(gd, parsed.Board(), parsed.Rules().LetterDistribution())
-		plays := gen.GenAll(parsed.RackFor(parsed.PlayerOnTurn()), false)
+		plays := placementsByScore(b, parsed.Game)
 		if len(plays) == 0 {
 			continue
 		}
@@ -138,7 +130,7 @@ func runSimBench(b *testing.B, simmers []*Simmer) {
 		for posIdx, s := range simmers {
 			for iter := 0; iter < itersPerPos; iter++ {
 				iterCount := uint64(i*itersPerPos*len(simmers) + posIdx*itersPerPos + iter + 1)
-				s.simSingleIteration(ctx, simPlies, 0, iterCount, nil)
+				s.sampleEveryPlay(ctx, 0, iterCount)
 			}
 		}
 	}
