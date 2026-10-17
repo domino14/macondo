@@ -1312,6 +1312,38 @@ func (r *RangeFinder) Inferences() *Inference {
 	return r.inference
 }
 
+// InfoBits is how far the read moved from the tile counts alone: the KL
+// divergence of the posterior from the combinatorial prior, in bits. It is
+// what the bot knows about a read's strength without the true leave. NaN when
+// the posterior is not complete (the exchange path), as its weights then do
+// not cover every leave.
+func (r *RangeFinder) InfoBits() float64 {
+	inf := r.inference
+	if inf == nil || !inf.Complete || len(inf.InferredRacks) == 0 {
+		return math.NaN()
+	}
+	total := 0.0
+	for _, ir := range inf.InferredRacks {
+		total += ir.Weight
+	}
+	if total <= 0 {
+		return math.NaN()
+	}
+	kl := 0.0
+	for _, ir := range inf.InferredRacks {
+		w := ir.Weight / total
+		if w <= 0 {
+			continue
+		}
+		prior := combinatorialPrior(ir.Leave, r.inferenceBagMap)
+		if prior <= 0 {
+			continue
+		}
+		kl += w * math.Log2(w/prior)
+	}
+	return kl
+}
+
 func (r *RangeFinder) Reset() {
 	r.inference = NewInference()
 	r.readyToInfer = false
