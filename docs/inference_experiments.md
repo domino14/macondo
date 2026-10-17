@@ -329,8 +329,33 @@ from confident reads that are wrong, which the bot cannot see. Gate dropped;
 Baseline check at 10:40: `infer-v-sim-2ply` = **50.85% ± 0.70** after 3,899
 pairs (spread +1.73 ± 1.16), level with the 5-ply runs.
 
-Next: `dl-2ply-late-tau` sweeps fixed tau 0.025 / 0.05 / 0.1 / 0.2 on bag
-<= 20, to place the optimum before a match.
+### Late tau sweep (Oct 17, 2026 10:39-13:44)
+
+`dl-2ply-late-tau`: another 1,000 positions with bag <= 20. Paired
+difference from the default inferer, win points per turn:
+
+| fixed tau | 2-7                   | 8-20                  | all                   |
+|-----------|-----------------------|-----------------------|-----------------------|
+| 0.025     | +0.15 [-0.50, +0.68]  | +0.00 [-0.15, +0.14]  | +0.06 [-0.21, +0.30]  |
+| **0.05**  | **+0.36** [+0.09, +0.70] | +0.01 [-0.13, +0.15] | **+0.15** [+0.02, +0.31] |
+| 0.1       | +0.25 [-0.03, +0.58]  | -0.00 [-0.12, +0.12]  | +0.10 [-0.03, +0.24]  |
+| 0.2       | +0.22 [-0.01, +0.52]  | -0.07 [-0.17, +0.00]  | +0.05 [-0.06, +0.18]  |
+
+0.05 is best again. Pooled with the variants run (2,000 positions): **+0.37
+[+0.14, +0.61] at bag 2-7**, +0.05 [-0.04, +0.15] at 8-20, +0.18 [+0.08,
++0.30] overall. 0.025 is no better and much noisier.
+
+New option `inferenceTauCap` (autoplay config) / `InferenceTauCap` (bot) /
+`cap` (decidelab): caps the temperature, so a cap of 0.05 keeps the fitted
+values early (below 0.05 from bag ~29) and changes only the late reads.
+
+Expected size in a match: about +0.37 x ~1.5 inferring turns at bag 2-7 per
+game, plus a little at 8-30: roughly +0.6 win points per game. Too small to
+see in two independent 5,000-pair matches (difference SE ~0.45), so the
+match reuses the baseline's seed and is compared pair by pair.
+
+Next: `infer-v-sim-2ply-cap05`, the baseline match with `inferenceTauCap
+0.05`, after a check that the new binary reproduces the baseline's pairs.
 
 ## Running log
 
@@ -350,6 +375,11 @@ What is on deb192 and when it changed. Results go in the sections above.
   started.
 - Oct 17 08:40: `queue5.sh` queued behind it: `dl-2ply-late-tau`.
 - Oct 17 10:39: `dl-2ply-infobits` done (gate: no); `dl-2ply-late-tau` started.
+- Oct 17 13:44: `dl-2ply-late-tau` done (tau 0.05 best).
+- Oct 17 13:50: `infer-v-sim-2ply` stopped at 4,863 pairs: **50.55% ± 0.62**
+  (spread +1.46 ± 1.02). Old binary kept as `bin/shell-1169b8c1`.
+- Oct 17 13:57: `repro-check`: new binary (f4e4300b), no cap, first 192
+  pairs of the baseline's seed.
 
 ## Idea queue
 
