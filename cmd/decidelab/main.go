@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -63,6 +64,9 @@ type choice struct {
 	// StaticRank is the move's 1-based place in the static ranking; 0 = beyond
 	// rankDepth.
 	StaticRank int `json:"staticRank"`
+	// InfoBits is an inferring chooser's read strength (RangeFinder.InfoBits);
+	// absent when it did not infer or the posterior was incomplete.
+	InfoBits *float64 `json:"infoBits,omitempty"`
 }
 
 // rankDepth is how deep in the static ranking a choice is looked for.
@@ -99,7 +103,7 @@ func main() {
 	plies := flag.Int("plies", 5, "sim plies of the deciding bots (the judge always sims 5)")
 	budget := flag.Int("budget", 200, "inference leaf budget")
 	armList := flag.String("arms", "none,none2,infer,oracle", "built-in choosers to run (none always runs)")
-	variantList := flag.String("variants", "", "extra inferring choosers, name:key=value,...;... (keys tau, scale, budget)")
+	variantList := flag.String("variants", "", "extra inferring choosers, name:key=value,...;... (keys tau, scale, budget, minbits)")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
@@ -172,13 +176,14 @@ func main() {
 
 // arm is one chooser: a bot and the settings it decides with.
 type arm struct {
-	name   string
-	code   pb.BotRequest_BotCode
-	plies  int
-	budget int
-	tau    float64
-	scale  float64
-	oracle bool
+	name    string
+	code    pb.BotRequest_BotCode
+	plies   int
+	budget  int
+	tau     float64
+	scale   float64
+	minBits float64
+	oracle  bool
 }
 
 func parseArms(list, variants string, plies, budget int) ([]arm, error) {
@@ -224,6 +229,8 @@ func parseArms(list, variants string, plies, budget int) ([]arm, error) {
 				a.scale = x
 			case "budget":
 				a.budget = int(x)
+			case "minbits":
+				a.minBits = x
 			default:
 				return nil, fmt.Errorf("variant %q: unknown key %q", name, k)
 			}
@@ -235,7 +242,8 @@ func parseArms(list, variants string, plies, budget int) ([]arm, error) {
 
 func botConfig(cfg *config.Config, a arm) *bot.BotConfig {
 	return &bot.BotConfig{Config: *cfg, MinSimPlies: a.plies, SimThreads: 1, InferenceBudget: a.budget,
-		InferenceTau: a.tau, InferenceTauScale: a.scale, OracleInference: a.oracle}
+		InferenceTau: a.tau, InferenceTauScale: a.scale, InferenceMinInfoBits: a.minBits,
+		OracleInference: a.oracle}
 }
 
 func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int, arms []arm) record {
@@ -271,6 +279,9 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int, a
 		s := m.ShortDescription()
 		rec.Choices[a.name] = &choice{Move: s, Equity: m.Equity(), ElapsedMS: time.Since(t0).Milliseconds(),
 			StaticRank: rank[s]}
+		if ib := p.LastInferenceInfoBits(); a.code == pb.BotRequest_SIMMING_INFER_BOT_NO_EG && !math.IsNaN(ib) {
+			rec.Choices[a.name].InfoBits = &ib
+		}
 		moves[s] = m
 	}
 

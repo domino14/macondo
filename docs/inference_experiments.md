@@ -240,6 +240,43 @@ in win points per turn, 95% bootstrap intervals:
 - Check: corpus games are unseeded, so the judge never shares the deciding
   sims' draws (`none` and `none2` would otherwise agree everywhere).
 
+**5-ply result (Oct 17 05:00, 1,000 positions from the 5,000-pair run,
+122 min).**
+
+| bag    | n     | none2 (noise) | infer                  | oracle                 |
+|--------|-------|---------------|------------------------|------------------------|
+| 2-7    | 81    | 1.2% / +0.03  | 6.2% / +0.04 [+0.00, +0.10] | 49.4% / **+1.38** [+0.65, +2.22] |
+| 8-20   | 171   | 3.5% / +0.04  | 8.2% / +0.10 [+0.01, +0.20] | 43.3% / **+0.78** [+0.54, +1.05] |
+| 21-50  | 358   | 3.6% / -0.00  | 9.2% / +0.02 [-0.06, +0.10] | 27.9% / **+0.37** [+0.26, +0.50] |
+| 51+    | 390   | 4.4% / +0.03  | 10.3% / +0.02 [-0.05, +0.09] | 24.9% / **+0.35** [+0.25, +0.47] |
+| all    | 1,000 | 3.7% / +0.02  | 9.2% / +0.04 [-0.01, +0.08] | 31.1% / **+0.52** [+0.42, +0.62] |
+
+- The ceiling is the same at 5 plies (+0.52 vs +0.51). Inference captures
+  about 7% of it (+0.04), against none at 2 plies. Either way it is far from
+  the ceiling, in every phase.
+- On the MAGPIE engine (BAI sims), 5-ply sim noise is 3.7% changed moves,
+  down from 14.8% on the Go engine (Oct 14).
+- Static rank: the oracle's move ranks 51-100 in 3.2% of positions (max 99),
+  so with perfect reads the candidate list starts to matter; for today's
+  reads (1.5%) it does not.
+
+**Gain by read quality (2-ply positions joined to the match's lift bits).**
+At bag 21+, weak reads lose and strong ones gain:
+
+| lift     | n   | infer changed | infer gain             | oracle gain |
+|----------|-----|---------------|------------------------|-------------|
+| < 0      | 312 | 10.6%         | -0.09 [-0.24, +0.03]   | +0.38       |
+| 0-1      | 485 | 7.6%          | -0.03 [-0.15, +0.05]   | +0.25       |
+| 1-2      | 354 | 13.0%         | +0.06 [-0.00, +0.13]   | +0.36       |
+| 2-4      | 279 | 11.5%         | +0.10 [+0.00, +0.24]   | +0.27       |
+| 4+       | 91  | 17.6%         | +0.08 [-0.06, +0.22]   | +0.29       |
+
+Inference acts about as often on weak reads as on strong ones, and the weak
+ones cost about what the strong ones earn. Lift needs the true leave, so a
+gate needs a proxy the bot has: `RangeFinder.InfoBits`, the posterior's KL
+from the tile-count prior, now logged by decidelab (`infoBits`) and usable as
+a gate (`InferenceMinInfoBits`; decidelab variant key `minbits`).
+
 Next: what the late-game reads do wrong. `dl-2ply-late-variants` (queued) runs
 inferring variants on bag <= 20: tau x 0.5, tau 0.05 and budget 1,000.
 

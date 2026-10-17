@@ -39,6 +39,10 @@ type BotConfig struct {
 	// InferenceTauScale multiplies the temperature in use, pinned or
 	// scheduled. 0 leaves it alone.
 	InferenceTauScale float64
+	// InferenceMinInfoBits skips reads that moved less than this far from
+	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
+	// sim bot's. 0 uses every read.
+	InferenceMinInfoBits float64
 	// InferenceTimeSecs is the wall-clock budget per turn for inference.
 	// If 0, defaults to 20 seconds.
 	InferenceTimeSecs int
@@ -73,6 +77,15 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
+	// when there was none.
+	lastInfoBits float64
+}
+
+// LastInferenceInfoBits is how informative the last turn's read was
+// (RangeFinder.InfoBits), NaN when the bot did not infer.
+func (p *BotTurnPlayer) LastInferenceInfoBits() float64 {
+	return p.lastInfoBits
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,

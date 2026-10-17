@@ -178,6 +178,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
 	inferenceRan := false
+	p.lastInfoBits = math.NaN()
 	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
@@ -247,6 +248,12 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && inferenceRan {
+		p.lastInfoBits = p.inferencer.InfoBits()
+	}
+	if HasInfer(p.botType) && inferenceRan && p.cfg.InferenceMinInfoBits > 0 &&
+		!(p.lastInfoBits >= p.cfg.InferenceMinInfoBits) {
+		logger.Info().Float64("infoBits", p.lastInfoBits).Msg("weak read, simming without it")
+	} else if HasInfer(p.botType) && inferenceRan {
 		inferences := p.inferencer.Inferences()
 		nInferred := len(inferences.InferredRacks)
 		if inferences.Complete {
