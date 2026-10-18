@@ -76,7 +76,7 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	c.SetDefault(ConfigTritonUseTriton, false)
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
-	c.SetDefault(ConfigTritonModelName, "macondo-nn")
+	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
@@ -172,7 +172,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTtableMemFraction, 0.20)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
-	c.SetDefault(ConfigTritonModelName, "macondo-nn")
+	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
 	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
 	c.SetDefault(ConfigGenaiProvider, "gemini")

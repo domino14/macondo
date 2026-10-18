@@ -58,6 +58,33 @@ the config (or `MACONDO_TRITON_MODEL_NAME` / `MACONDO_TRITON_MODEL_VERSION`).
 With `--model-control-mode=explicit`, Triton must also be told to load it
 (`--load-model=<name>` or `pytorch/triton-models.sh load <name>`).
 
+## Models
+
+Two value nets ship in `data/strategy/default/models/`. Both are the same
+transformer (8 layers, d_model 192, a token per square), scoring each of the
+top 50 static-equity candidates by win probability:
+
+| name | trained on | vs HastyBot | head to head |
+|---|---|---|---|
+| `macondo-tf` (default) | 54M HastyBot self-play games, 6 passes, one position per game per pass | 57.65% ± 0.18 | |
+| `macondo-tf-selfplay` | `macondo-tf` fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats `macondo-tf` 50.37% ± 0.16 |
+
+Win rates are 100k game pairs, ties counted half, with a 95% interval. The
+self-play net exploits HastyBot a little less but beats its parent head to
+head. Training runs and matches are logged in `pytorch/RUNS.md` and
+`pytorch/experiments.md`.
+
+To pick one for a whole session, set `triton-model-name` (e.g.
+`MACONDO_TRITON_MODEL_NAME=macondo-tf-selfplay`). In `autoplay`,
+`-tritonmodel1` / `-tritonmodel2` give each player its own model, so the two
+can play each other.
+
+Each model has a `model.plan` for Triton and a `model.onnx` for the CPU path
+below. The `.plan` is a TensorRT engine and only loads on the TensorRT
+version that built it (TensorRT 11.2, as in `tritonserver:26.08`). If
+Triton refuses it, rebuild it from the `.onnx`:
+`python pytorch/onnx-to-tensorrt.py --onnx model.onnx --output model.plan`.
+
 # Running the neural network without a GPU
 
 Without Triton (`triton-use-triton` false), macondo runs the same model's

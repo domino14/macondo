@@ -16,7 +16,7 @@ cd "$(dirname "$0")"
 log() { echo "$(date '+%F %T') $*"; }
 
 TAG=${TAG:-nvn}
-MODEL=${MODEL:-macondo-nn-tf-streamopen}
+MODEL=${MODEL:-macondo-tf}
 VER=${VER:-1}
 CHUNKS=${CHUNKS:-12}
 CHUNK_GAMES=${CHUNK_GAMES:-250000}

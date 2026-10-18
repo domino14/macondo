@@ -33,7 +33,7 @@ import (
 // up against the sim's best.
 //
 //	MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
-//	MACONDO_TRITON_MODEL_NAME=macondo-nn-tf-streamopen MACONDO_TRITON_MODEL_VERSION=1 \
+//	MACONDO_TRITON_MODEL_NAME=macondo-tf MACONDO_TRITON_MODEL_VERSION=1 \
 //	simlabel check -turns open2.txt.gz -tag open2 -positions positions-val.jsonl -labels labels-val.jsonl
 func checkMain(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
