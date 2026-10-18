@@ -22,6 +22,7 @@ Units: equity points per 1000 games (HastyBot static equity).
 
 usage: analyze.py SCORE_DIR [OUT_DIR]
 """
+import collections
 import csv
 import math
 import os
@@ -148,14 +149,23 @@ def main():
         x["hi"] = math.exp(m + 1.96 * math.sqrt(pv)) - delta
         x["prior_share"] = pv / tau2  # 1 = all prior, 0 = all data
 
-    # Ranks within length.
+    # Ranks within length: every alphagram gets a distinct rank 1..N. Ties
+    # (rare except among long racks that sit on the prior) go to the more
+    # probable rack, then alphabetically.
     for L in set(x["len"] for x in rows):
         grp = [x for x in rows if x["len"] == L]
-        for i, x in enumerate(sorted(grp, key=lambda x: -x["combos"])):
+        for i, x in enumerate(sorted(grp, key=lambda x: (-x["combos"], x["alpha"]))):
             x["prob_rank"] = i + 1
-        for i, x in enumerate(sorted(grp, key=lambda x: -x["post"])):
+        for i, x in enumerate(sorted(grp, key=lambda x: (-x["post"], -x["combos"], x["alpha"]))):
             x["play_rank"] = i + 1
-    rows.sort(key=lambda x: -x["post"])
+    rows.sort(key=lambda x: (-x["post"], x["len"], x["play_rank"]))
+
+    # Every lexicon alphagram must be ranked exactly once per length.
+    want = collections.Counter(len(a) for a in by_alpha)
+    have = collections.Counter(x["len"] for x in rows)
+    assert want == have, f"alphagram counts differ: lexicon {want} vs ranked {have}"
+    for L, n in have.items():
+        assert sorted(x["play_rank"] for x in rows if x["len"] == L) == list(range(1, n + 1))
 
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "playability.tsv"), "w") as f:
@@ -169,6 +179,16 @@ def main():
                     f"{x['src']}\t{x['n']}\t{x['a'] * PER:.4g}\t"
                     f"{'' if x['b'] is None else format(x['b'] * PER, '.4g')}\t{wl}\n")
     print(f"wrote {os.path.join(out, 'playability.tsv')}")
+
+    # The study list: one row per alphagram, by length then playability rank.
+    with open(os.path.join(out, "ranks.tsv"), "w") as f:
+        f.write("len\trank\talphagram\tplayability\tlo95\thi95\tprior_share\tprob_rank\tn_best\twords\n")
+        for x in sorted(rows, key=lambda x: (x["len"], x["play_rank"])):
+            ws = ",".join(sorted(x["words"], key=lambda w: -wval[w][0]))
+            f.write(f"{x['len']}\t{x['play_rank']}\t{x['alpha']}\t{x['post'] * PER:.4g}\t{x['lo'] * PER:.3g}\t"
+                    f"{x['hi'] * PER:.3g}\t{x['prior_share']:.2f}\t{x['prob_rank']}\t{x['n']}\t{ws}\n")
+    print(f"wrote {os.path.join(out, 'ranks.tsv')}: " +
+          ", ".join(f"{L}s {have[L]}" for L in sorted(have)))
 
     def show(title, items, k):
         print(f"\n== {title}")

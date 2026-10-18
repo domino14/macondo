@@ -43,7 +43,14 @@ Self-play almost never produces most 8–15 letter words. B estimates the same p
    - vowel share
 4. Alphagrams with no evidence (most of 9+) land on the prior, which leans on probability. `prior_share` in the output says how much of each value is prior.
 
-## Running (resumable; run from the main checkout, which has ./data)
+## Pipeline: lexicon in, ranked study list out
+```
+cmd/playability/run-pipeline.sh CSW24          # from the main checkout; data in ~/data/playability/CSW24
+cmd/playability/query.py ~/data/playability/CSW24/final/ranks.tsv 7 201 400
+```
+`final/ranks.tsv` has one row per alphagram: `len rank alphagram playability lo95 hi95 prior_share prob_rank n_best words`. Ranks are distinct and run 1..N within each length; ties go to the more probable rack, then alphabetically. Every step resumes. On a busy 16-core machine, 1000 shards (10M games) took 18 h.
+
+## Running the steps by hand (resumable; run from the main checkout, which has ./data)
 ```
 cmd/playability/run-gen.sh 3 1000   # 1000 shards x 10k games; skips finished shards
 cmd/playability/run-synth.sh 2      # waits for shards 0..59 (positions), then B; skips finished chunks
