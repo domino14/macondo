@@ -83,3 +83,25 @@ Seeds are fixed per shard and per chunk, so a re-run reproduces a missing shard 
 - **Top:** QI 4.48 pts/game, then the 2-letter E words, ZA, JO. 7s: AEINRST 51 per 1000 games; 8s: ADEIINOT 58; 9s: AEILNORST 3.5.
 - **Examples:** EOLIPILE is #9460 by probability among 8s but #3392 by playability. AENST is worth 2.1 per 1000 games; STANE alone 0.47.
 - Words 11+ that self-play never saw sit on the prior (prior_share near 1), which ranks them by probability.
+
+## Measured vs prior, by length (NWL23, 10M games)
+The result tables are not committed; regenerate them with the pipeline.
+
+How much of each length is measured vs prior (rank correlation of playability with probability, median `prior_share`):
+
+| len | rho vs probability | prior_share | never the top play |
+|---|---|---|---|
+| 7-8 | 0.94-0.95 | 0.01 | 0% |
+| 9 | 0.79 | 0.09 | 1% |
+| 10 | 0.87 | 0.42 | 15% |
+| 11-12 | 0.95-0.98 | 0.72 | 51-71% |
+| 13-15 | 0.995-1.000 | 0.72 | 89-99% |
+
+9s and 10s are carried by self-play (the top 10s, e.g. RERADIATED, have hundreds of hits). From 13 up the ranks are essentially probability order.
+
+## Comparison with a count-based list (Oct 17-18)
+An outside list counts how often each word is the top play (exact ties split 1/N) and sums words into racks. Against its raw NWL23 counts (Spearman within length):
+- Rack level 0.90-0.97 for 2-9 letters; within their top 1,000, 0.48-0.81 for 4-9.
+- Most of the top-1,000 gap is in the raw counts, not the method: their NWL23 counts behave as if leaves mattered less than for HastyBot (TUITION ~1.0x our count, AEINRST 0.12x; their TWL18 counts were a flat 0.10x). The cause is unknown; the author reports a HastyBot-like eval. `PLAY_BOT=NO_LEAVE_BOT` in `gen` was used to test this.
+- Method alone (our count vs our regret, same games): 0.94-0.99 overall, 0.68-0.89 in the top 1,000. Regret drops vowel dumps (AUDIO, OWIE) and 8+letter hook 9s, and raises power-tile racks (QUIZ, QWERTY).
+- The regret gap per hit is not noise: split-half r 0.91-1.00 at 1M games for 2-8 letters.
