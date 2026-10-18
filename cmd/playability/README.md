@@ -7,7 +7,7 @@ How much is knowing a word worth? For any set of words S,
 
 At one turn the loss is a **regret**: E(best move) − E(best move that forms no word in S). "Forms" means the main word and every cross word, so hooks count. AXE gets credit when the best play hooks an E onto AX. The per-game value is the average regret per turn times the number of turns per game.
 
-- **Word value:** S = {w}. STANE is worth almost nothing, because ANTES, NATES, ETNAS or NEATS usually plays in the same spot for the same score.
+- **Word value:** S = {w}. STANE is worth 0.47 per 1000 games; it is the best play's word only 1,133 times in 10M games, and each time losing it costs about 4.2 points, the same as losing the whole AENST rack.
 - **Alphagram value:** S = all anagrams of the alphagram. This is what a study list wants.
 
 **Units:** HastyBot static equity points per game; `analyze.py` reports per 1000 games.
@@ -72,7 +72,7 @@ Seeds are fixed per shard and per chunk, so a re-run reproduces a missing shard 
 ## Pilot (20k games, NWL23)
 - Turns per game: 22.9.
 - **QI** is first at 4.5 pts/game: best on 10,246 turns, 5,654 of them as the main word. The next tier is the 2-letter E words (RE/ER, ET/TE, EN/NE, DE/ED), mostly as cross words, then ZA and JO.
-- **AENST** (STANE family): best on 9 turns in 458k, 0.0015 pts/game. Each word in it is about 0.
+- **AENST** (STANE family): best on 9 turns in 458k, 0.0015 pts/game. (The pilot suggested each word in it was about 0; the full run says otherwise, see above.)
 - **EOLIPILE:** 1 self-play hit; B gives 0.003–0.004 pts/game.
 - **A vs B:** on the high-probability 7s, B agrees with A within about 2 SE. The 8s varied between runs because the pilot only had 4.6k saved turns.
 
