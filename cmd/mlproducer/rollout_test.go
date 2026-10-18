@@ -10,6 +10,7 @@ import (
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/triton"
 )
 
@@ -139,9 +140,13 @@ type leafVec struct {
 }
 
 // recordingScorer returns a fixed value/spread and keeps every batch.
+// recordingScorer keeps each position's leaf batch under the position's
+// index (pos, advanced by runRollouts). A position whose rollouts all end
+// the game is scored by real results and makes no call.
 type recordingScorer struct {
 	value, spread float32
-	calls         [][]leafVec
+	calls         map[int][]leafVec
+	pos           int
 }
 
 func (s *recordingScorer) Infer(planes, scalars []float32, n int) (*triton.ModelOutputs, error) {
@@ -152,7 +157,10 @@ func (s *recordingScorer) Infer(planes, scalars []float32, n int) (*triton.Model
 			scalars: append([]float32(nil), scalars[i*NScal:(i+1)*NScal]...),
 		}
 	}
-	s.calls = append(s.calls, batch)
+	if s.calls == nil {
+		s.calls = map[int][]leafVec{}
+	}
+	s.calls[s.pos] = batch
 	out := &triton.ModelOutputs{Value: make([]float32, n), Spread: make([]float32, n)}
 	for i := range n {
 		out.Value[i] = s.value
@@ -207,9 +215,21 @@ func runRollouts(t *testing.T, plies, rollouts int, scorer *recordingScorer) ([]
 	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
 	want := feedGame(t, table)
 	shared := &RolloutShared{Client: scorer, Calcs: table.eqCalcsForTest()}
-	got := feedGame(t, NewGameAssembler(NPlies, shared, plies, rollouts, 1.0))
-	if len(want) != 23 || len(got) != 23 || len(scorer.calls) != 23 {
-		t.Fatalf("want 23 positions and 23 scorer calls, got %d %d %d", len(want), len(got), len(scorer.calls))
+	ga := NewGameAssembler(NPlies, shared, plies, rollouts, 1.0)
+	deals := 0
+	ga.labeler.afterDeal = func(*game.Game, int, *move.Move) {
+		scorer.pos = deals / rollouts // every position deals `rollouts` times
+		deals++
+	}
+	got := feedGame(t, ga)
+	if len(want) != 23 || len(got) != 23 || deals != 23*rollouts {
+		t.Fatalf("want 23 positions and %d deals, got %d %d %d", 23*rollouts, len(want), len(got), deals)
+	}
+	// Only a position near the end can have every rollout end the game.
+	for i := range want {
+		if _, ok := scorer.calls[i]; !ok && unseenTiles((*want[i].features)[NPlanes:]) >= safeUnseen {
+			t.Fatalf("position %d: no leaves to score with %d tiles unseen", i, unseenTiles((*want[i].features)[NPlanes:]))
+		}
 	}
 	return want, got
 }
@@ -694,4 +714,45 @@ func feedGameWithPick(t *testing.T, ga *GameAssembler, turn int) []outputVector 
 		out = append(out, ga.FeedTurn(tn)...)
 	}
 	return out
+}
+
+// Each rollout deals the racks the real game would have: the opponent's
+// first, min(7, unseen) tiles (it was drawn before the labeled move, so it
+// never holds the mover's exchanged tiles), then the mover's leave topped
+// up from what is left. Dealing the mover first gave them up to 7 tiles
+// from a nearly empty bag and left the opponent short, so late positions
+// were labeled by an opponent who played out from a short rack.
+func TestRolloutDealsRealRackSizes(t *testing.T) {
+	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	shared := &RolloutShared{Client: &recordingScorer{value: 0.4}, Calcs: table.eqCalcsForTest()}
+	ga := NewGameAssembler(NPlies, shared, 2, 8, 1.0)
+	deals, lowBag := 0, 0
+	ga.labeler.afterDeal = func(g *game.Game, mover int, m *move.Move) {
+		leave := len(m.Leave())
+		opp := int(g.RackFor(1 - mover).NumTiles())
+		drawn := int(g.RackFor(mover).NumTiles()) - leave
+		exch := 0
+		if m.Action() == move.MoveTypeExchange {
+			exch = len(m.Tiles())
+		}
+		// Everything the mover cannot see, less what they exchanged.
+		avail := opp + g.Bag().TilesRemaining() + drawn - exch
+		if want := min(game.RackTileLimit, avail); opp != want {
+			t.Fatalf("%s: opponent dealt %d tiles, want %d (%d unseen)", m.ShortDescription(), opp, want, avail)
+		}
+		if want := min(game.RackTileLimit-leave, avail-opp); drawn != want {
+			t.Fatalf("%s: mover drew %d tiles onto a %d-tile leave, want %d (%d unseen)", m.ShortDescription(), drawn, leave, want, avail)
+		}
+		deals++
+		if avail-opp < game.RackTileLimit-leave {
+			lowBag++
+		}
+	}
+	feedGame(t, ga)
+	if deals != 23*8 {
+		t.Fatalf("%d deals, want %d", deals, 23*8)
+	}
+	if lowBag == 0 {
+		t.Fatal("no position with too few tiles in the bag for a full draw: the test does not cover the short-bag case")
+	}
 }

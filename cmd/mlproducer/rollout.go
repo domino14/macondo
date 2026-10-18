@@ -54,6 +54,10 @@ type RolloutLabeler struct {
 
 	planes  []float32
 	scalars []float32
+
+	// afterDeal, if set (tests), sees the game after each rollout's racks
+	// are dealt, before the first rollout ply.
+	afterDeal func(g *game.Game, mover int, m *move.Move)
 }
 
 // RolloutShared is what every worker's labeler shares.
@@ -139,13 +143,29 @@ func (rl *RolloutLabeler) Label(g *game.Game, ai aiturnplayer.AITurnPlayer, move
 	}()
 
 	for i := 0; i < rl.rollouts; i++ {
-		// Fresh racks. The mover draws before their exchanged tiles (if any)
-		// go back in the bag, as in a real game.
+		// Fresh racks, dealt in the real order. The opponent's rack was
+		// drawn before this move, so it is dealt first: min(7, unseen) tiles
+		// (if the bag ran dry on their last draw, the unseen tiles are their
+		// rack), never including tiles the mover exchanged. The mover then
+		// draws from what is left. Dealing the mover first let them take up
+		// to 7 tiles from a nearly empty bag, leaving the opponent short:
+		// with one tile in the bag, a 4-tile opponent rack that often
+		// played out.
 		g.ThrowRacksIn()
 		if exchange {
 			if err := g.Bag().RemoveTiles(m.Tiles()); err != nil {
 				return rolloutLabel{}, false, fmt.Errorf("rollout: remove exchanged tiles: %w", err)
 			}
+		}
+		// The leave stays with the mover while the opponent is dealt. (A new
+		// rack each time: the game keeps the pointer and draws onto it.)
+		leaveRack := tilemapping.NewRack(g.Alphabet())
+		leaveRack.Set(leave)
+		if err := g.SetRackForOnly(mover, leaveRack); err != nil {
+			return rolloutLabel{}, false, fmt.Errorf("rollout: mover leave: %w", err)
+		}
+		if _, err := g.SetRandomRack(opp, nil); err != nil {
+			return rolloutLabel{}, false, fmt.Errorf("rollout: opponent draw: %w", err)
 		}
 		if _, err := g.SetRandomRack(mover, leave); err != nil {
 			return rolloutLabel{}, false, fmt.Errorf("rollout: mover draw: %w", err)
@@ -153,8 +173,8 @@ func (rl *RolloutLabeler) Label(g *game.Game, ai aiturnplayer.AITurnPlayer, move
 		if exchange {
 			g.Bag().PutBack(m.Tiles())
 		}
-		if _, err := g.SetRandomRack(opp, nil); err != nil {
-			return rolloutLabel{}, false, fmt.Errorf("rollout: opponent draw: %w", err)
+		if rl.afterDeal != nil {
+			rl.afterDeal(g, mover, m)
 		}
 		g.SetPlayerOnTurn(opp)
 
