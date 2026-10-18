@@ -32,6 +32,8 @@ Self-play almost never produces most 8–15 letter words. B estimates the same p
 - **Move generation:** top-10 with shadow pruning, falling back to the full list only if no top-10 move avoids the word. The pilot gave identical results with this.
 
 ## Combining (`score`, `analyze.py`)
+**Since Oct 17, B is not used:** the pipeline and `analyze.py` take self-play only. At 10M games self-play covers 99.9% of 7-8 letter racks, and B's error bars were unreliable for racks with few B hits, so combining moved some power-tile racks by thousands of places (BCEEKSZ #14,310 with B vs #10,716 without). The steps below describe the old combination.
+
 1. `score` writes `words.tsv` and `alphas.tsv` for every word in the lexicon (combos, hooks, A and B columns) and `meta.tsv`.
 2. `analyze.py` combines A and B by inverse variance. A's standard error gets a floor of one unresolved 20-point hit.
 3. It then shrinks toward a prior in log space. The prior is fitted on well-measured alphagrams using:

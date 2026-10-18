@@ -2,10 +2,9 @@
 """Final playability tables from `playability score` output.
 
 Per alphagram (and per word inside it):
-  1. Combine estimator A (self-play) and B (conditioned re-deals) by inverse
-     variance. A's standard error gets a floor of one unresolved hit (C points
-     over G games), so a word never seen in self-play is "about zero, give or
-     take one hit", not "exactly zero".
+  1. Take the self-play estimate. Its standard error gets a floor of one
+     unresolved hit (C points over G games), so a word never seen in self-play
+     is "about zero, give or take one hit", not "exactly zero".
   2. Shrink toward a prior: regress log playability on features (length,
      log probability, anagram count, hooks, power tiles, vowels) over the
      alphagrams that are well measured, then combine each alphagram's own
@@ -13,10 +12,12 @@ Per alphagram (and per word inside it):
      evidence (most 9+ letter ones) end up near the prior, which leans on
      probability.
 
-B is used only for lengths 7-8, scaled by a per-length calibration factor
-(sum A / sum B over alphagrams self-play saw at least 100 times; printed).
-For 9+ B misses most of the value: 60% of 9-letter hits are hooks onto an
-8 already on the board, which conditioned rack re-deals do not model.
+The synthetic estimator (`playability synth`) is not used. With 10M games
+self-play sees 99.9% of 7-8 letter racks, and the synthetic estimate's
+standard error is unreliable when it has few hits, so combining the two
+moved some well-measured power-tile racks by thousands of places. For 9+
+it misses most of the value: 60% of 9-letter hits are hooks onto an 8
+already on the board, which conditioned rack re-deals do not model.
 
 Units: equity points per 1000 games (HastyBot static equity).
 
@@ -43,29 +44,11 @@ def fnum(s, default=None):
     return float(s) if s not in ("", None) else default
 
 
-def combine(a, ase, b, bse):
-    """Inverse-variance combination; b may be None."""
-    if b is None:
-        return a, ase, "A"
-    wa, wb = 1 / ase**2, 1 / bse**2
-    return (a * wa + b * wb) / (wa + wb), math.sqrt(1 / (wa + wb)), "AB"
-
-
-def b_floor(row, tpg, G):
-    """One hit's worth for B: chance the rack qualifies x C / K."""
-    k = fnum(row.get("b_k"), 0)
-    pm = fnum(row.get("b_pmean"), 0) or 0
-    if not k:
-        return 0
-    return pm * tpg * C / k
-
-
 def main():
     d = sys.argv[1]
     out = sys.argv[2] if len(sys.argv) > 2 else d
     meta = dict(l.rstrip("\n").split("\t", 1) for l in open(os.path.join(d, "meta.tsv")))
     G = float(meta["games"])
-    tpg = float(meta["turns_per_game"])
     floor_a = C / G
     delta = C / G  # log offset: one hit
 
@@ -75,45 +58,19 @@ def main():
     for w in words:
         by_alpha.setdefault(w["alphagram"], []).append(w)
 
-    # Per-length calibration of B against A, over well-sampled alphagrams.
-    B_LENS = (7, 8)
-    calib = {}
-    print("B calibration (sum A / sum B, alphagrams with n >= 100):")
-    for L in B_LENS:
-        s = [r for r in alphas if int(r["len"]) == L and int(r["n"]) >= 100 and r["b_play"]]
-        sa, sb = sum(fnum(r["a_play"]) for r in s), sum(fnum(r["b_play"]) for r in s)
-        calib[L] = sa / sb if sb else 1.0
-        print(f"  len {L}: {len(s)} alphagrams, factor {calib[L]:.3f}")
-
-    def b_of(r):
-        L = int(r["len"])
-        b = fnum(r["b_play"])
-        if b is None or L not in calib:
-            return None, None
-        return b * calib[L], fnum(r["b_se"]) * calib[L]
-
-    # Per-word combined values (no shrinkage: within-class shares).
+    # Per-word values (no shrinkage: within-class shares).
     wval = {}
     for w in words:
-        a, ase = fnum(w["a_play"]), math.hypot(fnum(w["a_se"]), floor_a)
-        b, bse = b_of(w)
-        if b is not None:
-            bse = max(bse, floor_a * 0.1, 1e-12)
-        v, se, src = combine(a, ase, b, bse)
-        wval[w["word"]] = (v, se)
+        wval[w["word"]] = (fnum(w["a_play"]), math.hypot(fnum(w["a_se"]), floor_a))
 
     rows = []
     for r in alphas:
-        a, ase = fnum(r["a_play"]), math.hypot(fnum(r["a_se"]), floor_a)
-        b, bse = b_of(r)
-        if b is not None:
-            bse = max(bse, b_floor(r, tpg, G) * calib[int(r["len"])], 1e-12)
-        v, se, src = combine(a, ase, b, bse)
+        a, se = fnum(r["a_play"]), math.hypot(fnum(r["a_se"]), floor_a)
         ws = by_alpha.get(r["alphagram"], [])
         hooks = sum(int(w["fhooks"]) + int(w["bhooks"]) for w in ws)
         rows.append(dict(alpha=r["alphagram"], len=int(r["len"]), combos=float(r["combos"]),
-                         words=r["words"].split(","), n=int(r["n"]), a=a, b=b,
-                         est=max(v, 0.0), se=se, src=src, hooks=hooks))
+                         words=r["words"].split(","), n=int(r["n"]),
+                         est=max(a, 0.0), se=se, hooks=hooks))
 
     # Features for the prior.
     def feats(x):
@@ -170,14 +127,13 @@ def main():
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "playability.tsv"), "w") as f:
         f.write("rank\talphagram\tlen\tplayability\tlo95\thi95\tprior_share\tprob_rank\tplay_rank_in_len\t"
-                "source\tn_best\traw_a\traw_b\twords\n")
+                "n_best\twords\n")
         for i, x in enumerate(rows):
             wl = ",".join(f"{w}:{wval[w][0] * PER:.3g}" for w in
                           sorted(x["words"], key=lambda w: -wval[w][0]))
             f.write(f"{i + 1}\t{x['alpha']}\t{x['len']}\t{x['post'] * PER:.4g}\t{x['lo'] * PER:.3g}\t"
                     f"{x['hi'] * PER:.3g}\t{x['prior_share']:.2f}\t{x['prob_rank']}\t{x['play_rank']}\t"
-                    f"{x['src']}\t{x['n']}\t{x['a'] * PER:.4g}\t"
-                    f"{'' if x['b'] is None else format(x['b'] * PER, '.4g')}\t{wl}\n")
+                    f"{x['n']}\t{wl}\n")
     print(f"wrote {os.path.join(out, 'playability.tsv')}")
 
     # The study list: one row per alphagram, by length then playability rank.
@@ -196,7 +152,7 @@ def main():
             wl = " ".join(f"{w}({wval[w][0] * PER:.3g})" for w in
                           sorted(x["words"], key=lambda w: -wval[w][0])[:6])
             print(f"  {x['alpha']:<10} {x['post'] * PER:9.3g}  [{x['lo'] * PER:.3g}, {x['hi'] * PER:.3g}]"
-                  f"  prob#{x['prob_rank']:<6} n={x['n']:<7} {x['src']:<2} {wl}")
+                  f"  prob#{x['prob_rank']:<6} n={x['n']:<7} {wl}")
 
     show("top alphagrams (equity pts per 1000 games)", rows, 25)
     for L in range(2, 16):
