@@ -403,6 +403,57 @@ bag <= 20) and `dl-knobs-early` (1,000, bag >= 21), 2-ply deciders: infer,
 iters 50/800, plays 5/20/40, mini-sim plies 1/3, budget 1000, tau 0.05,
 oracle; agreement with 16 samples per source, all arms paired.
 
+### Cap match result (Oct 17-18, 2026)
+
+`infer-v-sim-2ply-cap05`, stopped at 4,868 pairs: **50.47% ± 0.62**. Against
+the baseline pair by pair (4,862 common pairs, 60.7% identical):
+**-0.07 ± 0.33**. The cap was in force (28,564 inferring turns at tau 0.05,
+about 2.9 per game). No measurable gain.
+
+That is consistent with decidelab once the right comparison is made: the
+cap changes infer into t05 only late, and t05 minus infer is about +0.26
+win points per turn at bag 2-7 and about 0 at 8-20 (table below). With
+about one such turn per game, the expected gain is about +0.25 per game, at
+the top of the interval. The +0.6 estimate above double counted.
+
+### Knob sweep: how close reads get to the oracle (Oct 18, 2026)
+
+`dl-knobs-late` (1,000 positions, bag <= 20) and `dl-knobs-early` (1,000,
+bag >= 21), 2-ply deciders, all arms on the same positions, decision
+agreement with 16 leaves per source. Regret in win points per turn: what
+the moves that leaves drawn from each source lead to give up against the
+true leave. Prior 1.29, truth (noise floor) 0.10.
+
+| arm | ms/turn | lift | regret closed 2-7 | 8-20 | 21+ | all | judge gain (all) |
+|---|---|---|---|---|---|---|---|
+| infer (200 iters, 10 plays, 2 plies, budget 200) | 81k | 0.88 | 15% | 12% | 17% | 15% | +0.10 |
+| iters 50 | 40k | 0.58 | 18% | 13% | 14% | 16% | +0.10 |
+| iters 800 | 171k | 0.95 | 16% | 12% | 11% | 14% | +0.12 |
+| plays 5 | 54k | 0.85 | 16% | 13% | 10% | 14% | +0.12 |
+| plays 20 | 131k | 0.82 | 14% | 12% | 10% | 13% | +0.11 |
+| plays 40 | 230k | 0.85 | 16% | 12% | 11% | 14% | +0.11 |
+| mini-sim 1 ply | 47k | -0.16 | 7% | 0% | 2% | 4% | -0.01 |
+| mini-sim 3 plies | 109k | 0.68 | 14% | 9% | 11% | 12% | +0.11 |
+| budget 1000 | 207k | 1.24 | 17% | 11% | 14% | 15% | +0.11 |
+| **tau 0.05** | 76k | 0.75 | **40%** | **22%** | 10% | **30%** | **+0.17** |
+
+(ms/turn is single-threaded wall time of the whole decision; 21+ pools
+21-50 and 51-100.)
+
+- **Reads close about 15% of the gap** between no read and a perfect one.
+- **Mini-sim effort does nothing**: iterations 50-800, plays 5-40, 3 plies
+  and budget 1,000 all land at 12-18%. Iterations 50 or plays 5 match the
+  default at half the time. One-ply mini-sims break the read.
+- **Only sharpness moves it**: tau 0.05 doubles the closed share overall and
+  reaches 40% at bag 2-7 (regret 2.07 vs 2.85 for infer, 3.32 prior). Early
+  (bag 21+) it is the same as fitted, which is already near 0.05 there.
+- **Lift points the wrong way late**: tau 0.05's lift at bag 2-7 is -0.28
+  against +0.36 for fitted, yet its decisions are much better. The soft
+  lifts get the sign right (overlap 0.26 vs 0.08, value 0.38 vs 0.17).
+- **Per-position prediction is weak for every tile metric** (Spearman with
+  regret gain 0.10-0.18; soft overlap a little ahead of lift). Use regret
+  itself to compare settings, soft overlap as a cheap side score.
+
 ## Running log
 
 What is on deb192 and when it changed. Results go in the sections above.
@@ -442,6 +493,10 @@ What is on deb192 and when it changed. Results go in the sections above.
   ± 0.5, ~8 days at April's 207 games/h). First look at ~10,000 games:
   below 51.0% means 52 is outside the interval, stop. 2-game smoke passed
   (tau 0.05 in use, inferences fed to the sim).
+- Oct 18 03:21: queue6 stopped cap05 at 4,868 pairs: -0.07 ± 0.33 vs
+  baseline (paired).
+- Oct 18 06:08 / 08:27: `dl-knobs-late` / `dl-knobs-early` done.
+- Oct 18 08:27: `april-tau05-replica` started (~200 games/h, as in April).
 
 ## Idea queue
 
