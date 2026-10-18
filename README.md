@@ -42,16 +42,31 @@ Tag the release; i.e. `git tag vX.Y.Z`, then `git push --tags`. This will kick o
 
 If you want to use the neural network model, I recommend you use Triton server
 rather than the default Go server. It's _much_ faster, but it's not trivial to run locally.
+You need Docker and the NVIDIA Container Toolkit (for GPU access from Docker).
 
-If your macondo directory is at `$HOME/code/macondo` you would run `docker run` with these parameters:
+1. **Build the engines, once per machine.** Triton runs each model as a
+   TensorRT engine (`model.plan`), compiled from the committed `model.onnx`
+   for your GPU. Engines are not in git because one only loads on the GPU
+   generation and TensorRT version that built it. This builds every missing
+   or out-of-date engine inside the same Triton image the server uses, so
+   the versions always match (about 20 s per model):
 
-```
-docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:26.08-py3     tritonserver --model-repository=/models
-```
+   ```
+   pytorch/build-engines.sh
+   ```
 
-You may need to install the NVIDIA Container Toolkit to use your GPU for inference.
+   Run it again after changing GPUs or the Triton image (set `TRITON_IMAGE`
+   if you use a different one than below; `FORCE=1` rebuilds everything).
 
-Then you can run Macondo with the `MACONDO_TRITON_USE_TRITON` environment variable set to `true`.
+2. **Start Triton.** If your macondo directory is at `$HOME/code/macondo`:
+
+   ```
+   docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:26.08-py3     tritonserver --model-repository=/models
+   ```
+
+3. **Point macondo at it:** set the `MACONDO_TRITON_USE_TRITON` environment
+   variable to `true` (and `MACONDO_TRITON_URL` if Triton's gRPC port is not
+   `localhost:8001`).
 
 The model is chosen with `triton-model-name` and `triton-model-version` in
 the config (or `MACONDO_TRITON_MODEL_NAME` / `MACONDO_TRITON_MODEL_VERSION`).
@@ -79,11 +94,16 @@ To pick one for a whole session, set `triton-model-name` (e.g.
 `-tritonmodel1` / `-tritonmodel2` give each player its own model, so the two
 can play each other.
 
-Each model has a `model.plan` for Triton and a `model.onnx` for the CPU path
-below. The `.plan` is a TensorRT engine and only loads on the TensorRT
-version that built it (TensorRT 11.2, as in `tritonserver:26.08`). If
-Triton refuses it, rebuild it from the `.onnx`:
-`python pytorch/onnx-to-tensorrt.py --onnx model.onnx --output model.plan`.
+Each model folder holds:
+
+- `model.onnx`: the model itself, its graph and full-precision (fp32)
+  weights, in the portable ONNX format. This is what is committed. The CPU
+  path below runs it directly.
+- `model.plan` (built by `pytorch/build-engines.sh`, not committed): the
+  TensorRT engine Triton serves, the same net compiled for your GPU in half
+  precision (fp16), which is much faster on NVIDIA tensor cores and changes
+  the outputs only by rounding (win probabilities by about 0.002).
+- `config.pbtxt`: Triton's description of the model's inputs and outputs.
 
 # Running the neural network without a GPU
 
