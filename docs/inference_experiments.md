@@ -356,6 +356,52 @@ match reuses the baseline's seed and is compared pair by pair.
 
 Next: `infer-v-sim-2ply-cap05`, the baseline match with `inferenceTauCap
 0.05`, after a check that the new binary reproduces the baseline's pairs.
+Interim at 2,246 pairs: cap minus baseline **-0.23 ± 0.48** points, so the
++0.6 is already outside the interval.
+
+### How close do reads get to the oracle? (set up Oct 17, 2026)
+
+Where the true leave ranks, from the 2-ply baseline's turn log (18,613
+inferring turns; median posterior size 100 leaves at bag 2-7, 3,346 at 51+):
+
+| bag | truth 1st | top 5 | top 20 | median rank | median rank, share of list | lift bits |
+|---|---|---|---|---|---|---|
+| 2-7 | 7.0% | 25.8% | 56.2% | 17 | 21% | 0.38 |
+| 8-20 | 5.6% | 18.3% | 38.2% | 39 | 10% | 0.94 |
+| 21-50 | 4.6% | 15.3% | 30.2% | 80 | 6% | 1.03 |
+| 51+ | 4.3% | 14.0% | 28.3% | 117 | 4% | 0.90 |
+
+Lift scores only the exact leave: weight on AENRS when the truth is AENST
+counts the same as weight on QVWXZ. New measures (`b3d8de19`):
+
+- **Soft lift**: log2(sum post(L)K(L,T) / sum prior(L)K(L,T)), the lift with
+  a similarity kernel K(L,T); with K = exact match it is the lift. Overlap
+  kernel 2^-(tiles of T missing from L); value kernel exp(-d/3),
+  d = |V(L) - V(T)| + 1 point per missing tile (KLV leave values).
+- **Decision regret** (`decidelab -agree N`): sample N leaves from the
+  posterior and N from the prior, sim each as the opponent's known rack over
+  the top 20 plays plus every chooser's pick (300 iterations), and price the
+  pick with a 2,000-iteration sim against the true leave. Regret = win points
+  given up there. The truth's own short sim gives the noise floor, so
+  closed = (prior - posterior) / (prior - truth) is the share of the way from
+  no read to a perfect one, in the bot's own currency. Similar leaves score as
+  similar exactly when they lead to the same play.
+- Mini-sim knobs as decidelab variant keys: `iters` (200), `plays` (10 top
+  static plays beside the observed one), `mplies` (2).
+
+`readlab.py` reports all of these by bag, plus how well each tile-level
+measure predicts the position's regret gain and judge gain (Spearman), to
+pick an everyday score that tracks decisions.
+
+Smoke (12 positions, local): runs end to end. One position: posterior samples
+gave up 1.6 win points against 3.3 for prior samples. A truth sim at 300
+iterations disagreed with itself in 4 of 6 positions, hence regret rather
+than move agreement.
+
+Queued (`lab/queue6.sh`, after cap05): `dl-knobs-late` (1,000 positions,
+bag <= 20) and `dl-knobs-early` (1,000, bag >= 21), 2-ply deciders: infer,
+iters 50/800, plays 5/20/40, mini-sim plies 1/3, budget 1000, tau 0.05,
+oracle; agreement with 16 samples per source, all arms paired.
 
 ## Running log
 
@@ -384,6 +430,11 @@ What is on deb192 and when it changed. Results go in the sections above.
 - Oct 17 14:31: `infer-v-sim-2ply-cap05` launched: the baseline's config and
   seed plus `inferenceTauCap 0.05`, 192 threads. Compared pair by pair with
   `infer-v-sim-2ply` once it passes 4,863 pairs (~14 h).
+- Oct 17 20:36: cap05 interim, 2,246 pairs: 50.66% ± 0.93; minus baseline
+  -0.23 ± 0.48 (paired).
+- Oct 17 21:08: `queue6.sh` armed: stops cap05 at 4,863 pairs, then
+  `dl-knobs-late` and `dl-knobs-early` (`bin/decidelab-v4`, b3d8de19,
+  180 at once).
 
 ## Idea queue
 
