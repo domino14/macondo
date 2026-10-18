@@ -52,6 +52,10 @@ type BotConfig struct {
 	// InferenceSimIters is the max mini-sim iterations per rack candidate.
 	// If 0, defaults to 200.
 	InferenceSimIters int
+	// InferenceMiniSimPlays and InferenceMiniSimPlies shape each mini-sim: top
+	// static plays considered beside the observed one, and plies. 0 = 10 and 2.
+	InferenceMiniSimPlays int
+	InferenceMiniSimPlies int
 	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
 	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
 	InferenceMaxEnumeratedLeaves int
@@ -89,6 +93,12 @@ type BotTurnPlayer struct {
 // (RangeFinder.InfoBits), NaN when the bot did not infer.
 func (p *BotTurnPlayer) LastInferenceInfoBits() float64 {
 	return p.lastInfoBits
+}
+
+// Inferencer is the bot's range finder, holding the last turn's read; nil for
+// a bot that does not infer.
+func (p *BotTurnPlayer) Inferencer() *rangefinder.RangeFinder {
+	return p.inferencer
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,

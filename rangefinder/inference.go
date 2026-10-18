@@ -253,6 +253,10 @@ type RangeFinder struct {
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
+	// miniPlays and miniPlies shape each mini-sim: how many top static plays
+	// it sims beside the observed one, and how deep. 0 means 10 and 2.
+	miniPlays int
+	miniPlies int
 	// maxEnumeratedLeaves is the threshold for switching from Monte Carlo sampling
 	// to exhaustive enumeration. When the number of distinct leaves drawable from
 	// the bag (countMultisets) is ≤ this value, inferEnumerated is used instead of
@@ -470,7 +474,7 @@ func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleS
 	copy(kept, leave)
 	exch := move.NewExchangeMove(thrown, kept, g.Alphabet())
 
-	if _, err := simmer.GenAndSim(context.Background(), 10, exch); err != nil {
+	if _, err := simmer.GenAndSim(context.Background(), r.MiniSimPlays(), exch); err != nil {
 		return 0, err
 	}
 	r.simCount.Add(1)
@@ -593,6 +597,20 @@ func (r *RangeFinder) MaxRounds() int { return max(0, r.maxRounds) }
 
 func (r *RangeFinder) SetSimIters(n int) {
 	r.simIters = n
+}
+
+// SetMiniSim sets how many top static plays each mini-sim considers beside
+// the observed play, and how many plies it sims. 0 keeps a default (10, 2).
+func (r *RangeFinder) SetMiniSim(plays, plies int) {
+	r.miniPlays, r.miniPlies = plays, plies
+}
+
+// MiniSimPlays is how many top static plays each mini-sim considers.
+func (r *RangeFinder) MiniSimPlays() int {
+	if r.miniPlays <= 0 {
+		return 10
+	}
+	return r.miniPlays
 }
 
 func (r *RangeFinder) SimIters() int {
@@ -879,6 +897,9 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		}
 		if r.simIters > 0 {
 			simmer.SetMaxIters(r.simIters)
+		}
+		if r.miniPlies > 0 {
+			simmer.SetPlies(r.miniPlies)
 		}
 		r.aiplayers = append(r.aiplayers, simmer)
 	}
@@ -1208,7 +1229,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	}
 
 	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
-		context.Background(), 10, lastOppMove)
+		context.Background(), r.MiniSimPlays(), lastOppMove)
 	if err != nil {
 		return nil, err
 	}

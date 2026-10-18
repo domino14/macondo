@@ -195,6 +195,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceSimIters > 0 {
 			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
 		}
+		p.inferencer.SetMiniSim(p.cfg.InferenceMiniSimPlays, p.cfg.InferenceMiniSimPlies)
 		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
 			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
 		}
