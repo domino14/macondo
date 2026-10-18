@@ -69,6 +69,8 @@ type BotConfig struct {
 	QuickEndgamePlies  int
 	QuickEndgameMargin int
 	QuickEndgameCapMs  int
+	// QuickEndgameNoPrune skips the solver's pruned word graph.
+	QuickEndgameNoPrune bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
@@ -462,6 +464,11 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 	}
 	s.SetThreads(1)
 	s.SetSkipMaterialize(false)
+	if cfg.QuickEndgameNoPrune {
+		// Building a pruned word graph per solve costs more than a 2-ply
+		// search saves with it (+3.6% net-vs-net generation, 10/17/26).
+		s.SetPrunedKWGOptim(false)
+	}
 	// Result-only search: a (-1, 1) root window. Same game results as the
 	// full window on 500 close endgames, at a tenth of the time.
 	s.SetFirstWinOptim(true)

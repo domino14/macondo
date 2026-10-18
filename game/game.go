@@ -93,6 +93,9 @@ type Game struct {
 	// (about 3.9 MB for 50 candidates). Copy() does not carry them over, so
 	// every copy of a game, e.g. one per sim thread, grows its own.
 	mlPlanesBuf, mlScalarsBuf []float32
+	// The uint8 counterparts, for models that take the board as uint8.
+	mlBoardBytesBuf []byte
+	mlBytes         *mlByteBoard
 }
 
 func (g *Game) Config() *config.Config {

@@ -2392,3 +2392,30 @@ diff| 0.002 on 32 random boards). After that the net's compute is the wall:
 ~35k positions/s is ~70 TFLOP/s at ~2 GFLOP per position, near the card's
 fp16 peak. So the 6-layer student now pays: 165k games/h, +46% over the
 original setup.
+
+#### Generation: GPU path, batching, uint8 features (10/17/26)
+
+Engine alone (bench-engine.py, TensorRT, no Triton): student6 33.6k pos/s
+at batch 16, 45k at batch 64; streamopen 26.6k / 35k. CUDA graphs +1-3%,
+builder optimization level 5 nothing, FP8 (ModelOpt PTQ) +2%: its
+matmuls are 1.4x faster but the quantize/dequantize breaks TensorRT's
+fusions (GELU, layer norms, residual adds run as separate kernels). The
+matmuls run at 60-110 TFLOP/s (fp16 accumulate; thin 192-wide matrices).
+
+Top 16 candidates (MACONDO_ML_TOPN=16): student6-u8 389k games/h,
+streamopen-u8 344k (vs 113k for streamopen at 50, fp32 board). Triton
+dynamic batching (max_batch_size 128, 200 us queue delay;
+macondo-nn-tf-student6-u8b) merges ~4.7 requests per run at 24 threads,
+and the machine is then CPU-bound (6P+4E cores): quick endgames 44%,
+features + request 24%, movegen 24% of the generator's CPU.
+
+Quick endgames without the pruned word graph (-quickendgamenoprune true,
+now in gen-nvn.sh; the solver default is unchanged): +3.6%.
+
+Board features built directly as bytes (game/mlbytes.go): the position's
+planes once, then per candidate a copy patched for its tiles, bonuses,
+changed cross-sets and history plane. Identical to the float features on
+every legal move of the two test games (TestByteVectorsMatchFloat, 42k
+moves; old vs new float vectors byte-identical too). student6-u8b, top
+16, 24 threads, 6,000 games, alternating: old 403k / 400k, new 429k /
+424k games/h (+6.2%).

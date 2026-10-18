@@ -325,6 +325,8 @@ func init() {
 				Help: "with -quickendgame: only when |spread| <= this (0 = always); default 60"},
 			{Name: "quickendgamecap", Type: OptInt,
 				Help: "with -quickendgame: per-move cap in ms; default 250"},
+			{Name: "quickendgamenoprune", Type: OptBool, Values: boolValues,
+				Help: "with -quickendgame: no pruned word graph per solve (faster for 2-ply solves; pruning helps deeper ones)"},
 			{Name: "openingplies", Type: OptFloat,
 				Help: "both players: sample each game's first K plies, K ~ round(Exp(this mean)), instead of playing them (0 = off); the turn log gains an openingplies column"},
 			{Name: "openingtemp", Type: OptFloat,

@@ -5,11 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 )
 
 // The producer builds training vectors by replaying a log; the bot builds
@@ -121,5 +124,78 @@ func featureName(j int) string {
 		return fmt.Sprintf("vcratio[%d]", s-63)
 	default:
 		return []string{"turnsSinceOppBingo", "moveScore", "leaveValue", "bagUnseen", "spread"}[s-67]
+	}
+}
+
+// The bot builds the board planes as bytes for uint8 models
+// (game.MLByteVectorsForMoves): a copy of the position's planes patched
+// for each candidate. They must equal the float planes, and the scalars
+// must be the same, for every legal move at every turn.
+func TestByteVectorsMatchFloat(t *testing.T) {
+	for name, rows := range map[string][]string{
+		"sample game":  sampleGameTurns,
+		"endgame game": endgameGameTurns,
+	} {
+		t.Run(name, func(t *testing.T) {
+			hdr := "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n"
+			var turns []Turn
+			sc := NewTurnScanner(strings.NewReader(hdr + strings.Join(rows, "\n") + "\n"))
+			for sc.Scan() {
+				turns = append(turns, sc.Turn())
+			}
+			ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+			gw := ga.newGameWindow(turns[0])
+			ga.games[turns[0].GameID] = gw
+			var history []*move.Move
+			checked := 0
+			for _, tn := range turns {
+				g := gw.game.Game
+				onturn := g.PlayerOnTurn()
+				if err := g.SetRackFor(onturn, tilemapping.RackFromString(tn.Rack, g.Alphabet())); err != nil {
+					t.Fatalf("turn %d: set rack: %v", tn.TurnNumber, err)
+				}
+				gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
+				if err != nil {
+					t.Fatal(err)
+				}
+				gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+				gen.SetGenPass(true)
+				moves := gen.GenAll(g.RackFor(onturn), g.Bag().TilesRemaining() >= game.RackTileLimit)
+				planes, scalars, err := g.MLVectorsForMoves(moves, ga.eqCalc, history)
+				if err != nil {
+					t.Fatalf("turn %d: float vectors: %v", tn.TurnNumber, err)
+				}
+				boards, bscalars, err := g.MLByteVectorsForMoves(moves, ga.eqCalc, history)
+				if err != nil {
+					t.Fatalf("turn %d: byte vectors: %v", tn.TurnNumber, err)
+				}
+				if len(boards) != len(planes) || len(bscalars) != len(scalars) {
+					t.Fatalf("turn %d: lengths %d/%d vs %d/%d", tn.TurnNumber, len(boards), len(bscalars), len(planes), len(scalars))
+				}
+				for j := range planes {
+					if float32(boards[j]) != planes[j] {
+						mi := j / game.NN_N_PLANES
+						t.Fatalf("turn %d move %s: %s: float %v byte %v", tn.TurnNumber,
+							moves[mi].ShortDescription(), featureName(j%game.NN_N_PLANES), planes[j], boards[j])
+					}
+				}
+				for j := range scalars {
+					if bscalars[j] != scalars[j] {
+						t.Fatalf("turn %d: scalar %s: float %v byte path %v", tn.TurnNumber,
+							featureName(game.NN_N_PLANES+j%game.NN_N_SCAL), scalars[j], bscalars[j])
+					}
+				}
+				checked += len(moves)
+				ga.FeedTurn(tn)
+				if len(gw.plies) == 0 || gw.game.Game.Playing() != pb.PlayState_PLAYING {
+					break
+				}
+				history = append(history, gw.plies[len(gw.plies)-1].move)
+			}
+			t.Logf("%d turns, %d candidate moves checked", len(history), checked)
+			if checked < 100 {
+				t.Fatalf("only %d moves checked", checked)
+			}
+		})
 	}
 }

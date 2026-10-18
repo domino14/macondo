@@ -136,7 +136,9 @@ type AutomaticRunnerPlayer struct {
 	QuickEndgamePlies  int
 	QuickEndgameMargin int
 	QuickEndgameCapMs  int
-	OracleInference    bool
+	// QuickEndgameNoPrune: no pruned word graph for the quick solves.
+	QuickEndgameNoPrune bool
+	OracleInference     bool
 }
 
 // Init initializes the runner
@@ -191,6 +193,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			QuickEndgamePlies:            players[idx].QuickEndgamePlies,
 			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
 			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
+			QuickEndgameNoPrune:          players[idx].QuickEndgameNoPrune,
 			OracleInference:              players[idx].OracleInference,
 		}
 

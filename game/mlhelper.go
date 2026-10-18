@@ -86,6 +86,23 @@ func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Mo
 	if len(moves) == 0 {
 		return nil, nil
 	}
+	if g.config.GetBool(config.ConfigTritonUseTriton) {
+		c := client
+		if c == nil {
+			c = g.tritonClient
+		}
+		if c != nil && c.BoardUint8() {
+			boards, scalars, err := g.mlByteVectorsInto(g.mlBoardBytesBuf[:0], g.mlScalarsBuf[:0], moves, leaveCalc, lastMoves)
+			if err != nil {
+				return nil, err
+			}
+			g.mlBoardBytesBuf, g.mlScalarsBuf = boards, scalars
+			return mlInferBatches(len(moves), func(from, to int) (*triton.ModelOutputs, error) {
+				return c.InferUint8(boards[from*NN_N_PLANES:to*NN_N_PLANES],
+					scalars[from*NN_N_SCAL:to*NN_N_SCAL], to-from)
+			})
+		}
+	}
 	allPlaneVectors, allScalarVectors, err := g.mlVectorsInto(g.mlPlanesBuf[:0], g.mlScalarsBuf[:0], moves, leaveCalc, lastMoves)
 	if err != nil {
 		return nil, err
@@ -115,13 +132,34 @@ func (g *Game) MLVectorsForMoves(moves []*move.Move, leaveCalc *equity.Exhaustiv
 func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves []*move.Move,
 	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (planes, scalars []float32, err error) {
 
+	numMoves := len(moves)
+	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*NN_N_PLANES)
+	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*NN_N_SCAL)
+	err = g.forEachMLMove(moves, func(m *move.Move) error {
+		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMoves)
+		if err != nil {
+			return fmt.Errorf("failed to build ML vector for move: %w", err)
+		}
+		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
+		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
+		MLVectorPool.Put(vec) // Return the vector to the pool
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return allPlaneVectors, allScalarVectors, nil
+}
+
+// forEachMLMove calls f with the game in the state the net sees each
+// candidate in: the move played (score, rack and board updated, cross-sets
+// regenerated), the mover still on turn, and the opponent's rack put back
+// into the bag. The game is restored after each call.
+func (g *Game) forEachMLMove(moves []*move.Move, f func(m *move.Move) error) error {
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
 
-	numMoves := len(moves)
-	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*NN_N_PLANES)
-	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*NN_N_SCAL)
 	for _, m := range moves {
 		g.backupState()
 		switch m.Action() {
@@ -164,19 +202,14 @@ func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves 
 		oppRack := g.RackFor(1 - g.PlayerOnTurn())
 		g.bag.PutBack(oppRack.TilesOn())
 
-		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMoves)
-		if err != nil {
-			g.UnplayLastMove() // Unplay before returning the error
-			return nil, nil, fmt.Errorf("failed to build ML vector for move: %w", err)
-		}
-
-		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
-		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
-		MLVectorPool.Put(vec)   // Return the vector to the pool
+		err := f(m)
 		g.onturn = 1 - g.onturn // switch turn back to the original player
 		g.UnplayLastMove()
+		if err != nil {
+			return err
+		}
 	}
-	return allPlaneVectors, allScalarVectors, nil
+	return nil
 }
 
 func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
@@ -188,15 +221,22 @@ func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, nmoves int, pl
 	}
 	log.Debug().Int("num_moves", nmoves).
 		Msg("evaluating moves with Triton")
+	return mlInferBatches(nmoves, func(from, to int) (*triton.ModelOutputs, error) {
+		return client.Infer(planeVectors[from*NN_N_PLANES:to*NN_N_PLANES],
+			scalarVectors[from*NN_N_SCAL:to*NN_N_SCAL], to-from)
+	})
+}
+
+// mlInferBatches runs infer on [0, nmoves) in one request, or, with more
+// candidates than the engine's largest batch, in several, outputs
+// concatenated in order.
+func mlInferBatches(nmoves int, infer func(from, to int) (*triton.ModelOutputs, error)) (*triton.ModelOutputs, error) {
 	if nmoves <= MLMaxBatch {
-		return client.Infer(planeVectors, scalarVectors, nmoves)
+		return infer(0, nmoves)
 	}
-	// More candidates than the engine's largest batch: several requests,
-	// outputs concatenated in order.
 	all := &triton.ModelOutputs{}
 	for _, r := range mlBatchRanges(nmoves, MLMaxBatch) {
-		out, err := client.Infer(planeVectors[r[0]*NN_N_PLANES:r[1]*NN_N_PLANES],
-			scalarVectors[r[0]*NN_N_SCAL:r[1]*NN_N_SCAL], r[1]-r[0])
+		out, err := infer(r[0], r[1])
 		if err != nil {
 			return nil, err
 		}
@@ -327,15 +367,6 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	if len(lastMoves) > 0 {
 		relevantMoves = append(relevantMoves, lastMoves[len(lastMoves)-1]) // Last OPPONENT move
 	}
-	turnsSinceLastOppBingo := 0
-	for i := len(lastMoves) - 1; i >= 0; i -= 2 {
-		if lastMoves[i].Action() == move.MoveTypePlay && lastMoves[i].TilesPlayed() == RackTileLimit {
-			// Bingo played, stop looking for more moves
-			break
-		}
-		turnsSinceLastOppBingo++
-	}
-
 	for lmIdx, lastMove := range relevantMoves {
 		if lastMove.Action() == move.MoveTypePlay {
 			r, c, vertical := lastMove.CoordsAndVertical()
@@ -357,18 +388,28 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 		}
 	}
 
-	// Scalar features
-	scalarsStart := NN_N_PLANES
-	rackVector := vec[scalarsStart : scalarsStart+27]
-	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
+	g.mlScalarsInto(vec[NN_N_PLANES:], m, evalMoveLeaveVal, lastMoves)
+	return &vec, nil
+}
+
+// mlScalarsInto writes the NN_N_SCAL scalar features into sc, which must
+// be zeroed.
+func (g *Game) mlScalarsInto(sc []float32, m *move.Move, evalMoveLeaveVal float64, lastMoves []*move.Move) {
+	rackVector := sc[0:27]
+	unseenVector := sc[27:54]
 
 	// History vectors have three elements each, in order:
 	// score, n tiles played, n tiles exchanged.
-	historyVectors := vec[HistoryStartIdx:HistoryEndIdx]
-	powerTilesVector := vec[PowerTilesStartIdx:PowerTilesEndIdx]
-	vcRatioBag := vec[VCRatioBagStartIdx:VCRatioBagEndIdx]
-	vcRatioRack := vec[VCRatioRackStartIdx:VCRatioRackEndIdx]
-	addlFeatures := vec[AddlFeaturesStartIdx:AddlFeaturesEndIdx]
+	historyVectors := sc[HistoryStartIdx-NN_N_PLANES : HistoryEndIdx-NN_N_PLANES]
+	powerTilesVector := sc[PowerTilesStartIdx-NN_N_PLANES : PowerTilesEndIdx-NN_N_PLANES]
+	vcRatioBag := sc[VCRatioBagStartIdx-NN_N_PLANES : VCRatioBagEndIdx-NN_N_PLANES]
+	vcRatioRack := sc[VCRatioRackStartIdx-NN_N_PLANES : VCRatioRackEndIdx-NN_N_PLANES]
+	addlFeatures := sc[AddlFeaturesStartIdx-NN_N_PLANES : AddlFeaturesEndIdx-NN_N_PLANES]
+	var lastOpp *move.Move
+	if len(lastMoves) > 0 {
+		lastOpp = lastMoves[len(lastMoves)-1]
+	}
+	turnsSinceLastOppBingo := mlTurnsSinceLastOppBingo(lastMoves)
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
@@ -395,8 +436,9 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 			powerTilesVector[5] = float32(bag[i])
 		}
 	}
-	// Skip our own move, just go through last few opp moves:
-	for lmIdx, lastMove := range relevantMoves[1:] {
+	// The last opponent move, if any:
+	if lastMove := lastOpp; lastMove != nil {
+		lmIdx := 0
 		score := ScaleScoreWithTanh(float32(lastMove.Score()), 45.0, 40.0)
 		var tilesPlayed, tilesExchanged float32
 		if lastMove.Action() == move.MoveTypePlay {
@@ -425,5 +467,18 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	addlFeatures[2] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // evaluated move leave value
 	addlFeatures[3] = float32(g.Bag().TilesRemaining()) / 100.0
 	addlFeatures[4] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
-	return &vec, nil
+}
+
+// mlTurnsSinceLastOppBingo counts the opponent's turns (every other entry
+// of lastMoves, most recent last) back to their last bingo.
+func mlTurnsSinceLastOppBingo(lastMoves []*move.Move) int {
+	n := 0
+	for i := len(lastMoves) - 1; i >= 0; i -= 2 {
+		if lastMoves[i].Action() == move.MoveTypePlay && lastMoves[i].TilesPlayed() == RackTileLimit {
+			// Bingo played, stop looking for more moves
+			break
+		}
+		n++
+	}
+	return n
 }

@@ -2852,6 +2852,10 @@ type AutoplayPlayerConfig struct {
 	QuickEndgamePlies  int32 `protobuf:"varint,13,opt,name=quick_endgame_plies,json=quickEndgamePlies,proto3" json:"quick_endgame_plies,omitempty"`
 	QuickEndgameMargin int32 `protobuf:"varint,14,opt,name=quick_endgame_margin,json=quickEndgameMargin,proto3" json:"quick_endgame_margin,omitempty"`
 	QuickEndgameCapMs  int32 `protobuf:"varint,15,opt,name=quick_endgame_cap_ms,json=quickEndgameCapMs,proto3" json:"quick_endgame_cap_ms,omitempty"`
+	// quick_endgame_no_prune skips the pruned word graph the endgame solver
+	// builds per solve. Pruning pays off in deep endgames; for a 2-ply quick
+	// solve building it costs more than it saves (net-vs-net generation).
+	QuickEndgameNoPrune bool `protobuf:"varint,19,opt,name=quick_endgame_no_prune,json=quickEndgameNoPrune,proto3" json:"quick_endgame_no_prune,omitempty"`
 	// fixed_sim_plies, when positive, makes every sim exactly this many plies
 	// deep whenever tiles are left in the bag. Without it a simming bot sims
 	// min_sim_plies in the midgame but `unseen` plies (9..14) once the bag is
@@ -3004,6 +3008,13 @@ func (x *AutoplayPlayerConfig) GetQuickEndgameCapMs() int32 {
 		return x.QuickEndgameCapMs
 	}
 	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetQuickEndgameNoPrune() bool {
+	if x != nil {
+		return x.QuickEndgameNoPrune
+	}
+	return false
 }
 
 func (x *AutoplayPlayerConfig) GetFixedSimPlies() int32 {
@@ -3515,7 +3526,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa5\x06\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xda\x06\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3534,7 +3545,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\x12.\n" +
 	"\x13quick_endgame_plies\x18\r \x01(\x05R\x11quickEndgamePlies\x120\n" +
 	"\x14quick_endgame_margin\x18\x0e \x01(\x05R\x12quickEndgameMargin\x12/\n" +
-	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\x12&\n" +
+	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\x123\n" +
+	"\x16quick_endgame_no_prune\x18\x13 \x01(\bR\x13quickEndgameNoPrune\x12&\n" +
 	"\x0ffixed_sim_plies\x18\x10 \x01(\x05R\rfixedSimPlies\x12!\n" +
 	"\ftriton_model\x18\x11 \x01(\tR\vtritonModel\x12 \n" +
 	"\fsim_leaf_win\x18\x12 \x01(\tR\n" +

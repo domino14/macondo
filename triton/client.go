@@ -151,22 +151,35 @@ func (c *TritonClient) SetDebug(debug bool) {
 	c.debug = debug
 }
 
+// BoardUint8 reports whether the model takes the board as uint8 (known
+// after DetectOutputs); callers can then build it as bytes and use
+// InferUint8.
+func (c *TritonClient) BoardUint8() bool { return c.boardUint8 }
+
 // Infer performs inference using the Triton server.
 func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float32, numMoves int) (*ModelOutputs, error) {
+	if c.boardUint8 {
+		c.boardBuf = boardToUint8(c.boardBuf, boardTensorData)
+		return c.infer(c.boardBuf, "UINT8", scalarTensorData, numMoves)
+	}
+	return c.infer(float32ToByte(boardTensorData), "FP32", scalarTensorData, numMoves)
+}
+
+// InferUint8 is Infer with the board planes already as bytes (0/1), for a
+// model that takes them so (BoardUint8).
+func (c *TritonClient) InferUint8(board []byte, scalarTensorData []float32, numMoves int) (*ModelOutputs, error) {
+	return c.infer(board, "UINT8", scalarTensorData, numMoves)
+}
+
+func (c *TritonClient) infer(boardBytes []byte, boardType string, scalarTensorData []float32, numMoves int) (*ModelOutputs, error) {
 	if c.debug {
 		log.Debug().Msgf("Inferring %d moves", numMoves)
 	}
 
 	boardInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "board",
-		Datatype: "FP32",
+		Datatype: boardType,
 		Shape:    []int64{int64(numMoves), 85, 15, 15},
-	}
-	boardBytes := float32ToByte(boardTensorData)
-	if c.boardUint8 {
-		boardInput.Datatype = "UINT8"
-		c.boardBuf = boardToUint8(c.boardBuf, boardTensorData)
-		boardBytes = c.boardBuf
 	}
 	scalarInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "scalars",

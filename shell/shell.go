@@ -1698,10 +1698,12 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	if v, err := options.IntDefault("quickendgame", 0); err == nil && v > 0 {
 		margin, _ := options.IntDefault("quickendgamemargin", 60)
 		capMs, _ := options.IntDefault("quickendgamecap", 250)
+		noPrune := options.Bool("quickendgamenoprune")
 		for _, p := range []*pb.AutoplayPlayerConfig{expCfg.Player1, expCfg.Player2} {
 			p.QuickEndgamePlies = int32(v)
 			p.QuickEndgameMargin = int32(margin)
 			p.QuickEndgameCapMs = int32(capMs)
+			p.QuickEndgameNoPrune = noPrune
 		}
 	}
 	if v, err := options.Float("openingplies"); err == nil && v > 0 {

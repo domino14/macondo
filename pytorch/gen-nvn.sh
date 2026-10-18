@@ -40,7 +40,7 @@ for i in $(seq 1 "$CHUNKS"); do
       env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
         MACONDO_TRITON_MODEL_NAME="$MODEL" MACONDO_TRITON_MODEL_VERSION="$VER" \
         "$HOME/code/macondo/bin/shell" autoplay -botcode1 FAST_ML_BOT -botcode2 FAST_ML_BOT \
-        -lexicon NWL23 -quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250 \
+        -lexicon NWL23 -quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250 -quickendgamenoprune true \
         -openingplies 2 -openingtemp 3 -openingtopn 50 -openinguniform 0 \
         -numgames "$CHUNK_GAMES" -threads "$THREADS" -block true -experimentid "$name" \
         > "$name.autoplay.log" 2>&1 )

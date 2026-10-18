@@ -69,5 +69,6 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		QuickEndgamePlies:            int(p.QuickEndgamePlies),
 		QuickEndgameMargin:           int(p.QuickEndgameMargin),
 		QuickEndgameCapMs:            int(p.QuickEndgameCapMs),
+		QuickEndgameNoPrune:          p.QuickEndgameNoPrune,
 	}
 }
