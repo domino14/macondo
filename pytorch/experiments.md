@@ -2368,3 +2368,27 @@ feature tensors ~20%, building feature vectors 18%), quick 2-ply endgames
 the board once per position and only per-move deltas), in-process
 inference instead of gRPC, or concurrent requests per game; check where
 tritonserver's own CPU goes before choosing.
+
+#### Generation bottleneck: Triton timings, instance count, uint8 board (10/17/26)
+
+Triton's per-request timings during net-vs-net generation (streamopen, 2
+instances, ~50 moves per request): 7.8 ms queued, 1.1 ms copying the
+3.8 MB fp32 input to the GPU, 1.7 ms running the net. GPU utilization 92%.
+The client waits in Triton's queue; the GPU is the limit.
+
+bench-instances.sh, 3,000 games, 12 threads, idle machine:
+
+| model | instances | games/h |
+|---|---|---|
+| streamopen fp32 board | 2 / 3 / 4 / 6 | 113.0k / 113.7k / 114.1k / 115.4k |
+| streamopen uint8 board | 2 / 4 | 128.5k / 131.3k |
+| student6 uint8 board | 2 | 164.9k |
+
+More instances barely help (they slow each other). Every board plane is 0/1,
+so the board can travel as uint8 (export.py --board-uint8, BOARD_UINT8=1
+copy_model.sh; the Go client reads the input type from the model metadata):
++14%. Outputs match the fp32-board engine to fp16 rounding (max |value
+diff| 0.002 on 32 random boards). After that the net's compute is the wall:
+~35k positions/s is ~70 TFLOP/s at ~2 GFLOP per position, near the card's
+fp16 peak. So the 6-layer student now pays: 165k games/h, +46% over the
+original setup.

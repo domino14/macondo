@@ -24,7 +24,9 @@ BAK="${CKPT%.pt}-bak.pt"
 cp "$CKPT" "$BAK"
 
 # Export the model
-python export.py --ckpt "$BAK" --out "$MODEL_NAME.onnx"
+# BOARD_UINT8=1: the board input is uint8 (export.py --board-uint8; the Go
+# client reads the type from the model metadata).
+python export.py --ckpt "$BAK" --out "$MODEL_NAME.onnx" ${BOARD_UINT8:+--board-uint8}
 python onnx-to-tensorrt.py --onnx "$MODEL_NAME.onnx" --output "$MODEL_NAME.engine"
 
 MODELS_ROOT="../data/strategy/default/models"
@@ -49,9 +51,10 @@ print(" ".join(re.findall(r"name: \"([^\"]+)\"", body)))
         exit 1
     fi
 else
-    python - "$MODEL_NAME" "$MODEL_DIR/config.pbtxt" $OUTPUTS <<'PY'
+    python - "$MODEL_NAME" "$MODEL_DIR/config.pbtxt" "${BOARD_UINT8:+UINT8}" $OUTPUTS <<'PY'
 import sys
-name, path, *outputs = sys.argv[1:]
+name, path, board_type, *outputs = sys.argv[1:]
+board_type = board_type or "FP32"
 out_blocks = ",\n".join(
     f'  {{\n    name: "{o}"\n    data_type: TYPE_FP32\n    dims: [ -1 ]\n  }}' for o in outputs
 )
@@ -61,7 +64,7 @@ max_batch_size: 0
 input [
   {{
     name: "board"
-    data_type: TYPE_FP32
+    data_type: TYPE_{board_type}
     dims: [ -1, 85, 15, 15 ]
   }},
   {{

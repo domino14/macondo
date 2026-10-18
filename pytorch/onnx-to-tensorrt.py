@@ -26,11 +26,22 @@ def to_fp16(model):
     """Convert weights and activations to fp16, keep graph I/O fp32."""
     from onnxconverter_common import float16
 
-    return float16.convert_float_to_float16(
+    model = float16.convert_float_to_float16(
         model,
         keep_io_types=True,
         disable_shape_infer=False,
     )
+    # An integer input (the uint8 board, export.py --board-uint8) reaches
+    # the graph through a Cast to float that the converter leaves at fp32;
+    # cast it straight to fp16 instead.
+    int_inputs = {i.name for i in model.graph.input
+                  if i.type.tensor_type.elem_type != onnx.TensorProto.FLOAT}
+    for node in model.graph.node:
+        if node.op_type == "Cast" and node.input[0] in int_inputs:
+            for a in node.attribute:
+                if a.name == "to" and a.i == onnx.TensorProto.FLOAT:
+                    a.i = onnx.TensorProto.FLOAT16
+    return model
 
 
 def build_engine_from_onnx(

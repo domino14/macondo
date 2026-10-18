@@ -27,12 +27,15 @@ class ModelWrapper(torch.nn.Module):
     'value' output is P(win) - P(loss) from the wdl softmax (classes are
     loss, draw, win), so it keeps the value head's meaning and range."""
 
-    def __init__(self, model, primary="value"):
+    def __init__(self, model, primary="value", board_uint8=False):
         super().__init__()
         self.model = model
         self.primary = primary
+        self.board_uint8 = board_uint8
 
     def forward(self, board, scalars):
+        if self.board_uint8:
+            board = board.float()
         outputs = self.model(board, scalars)
         if self.primary == "wdl":
             p = torch.softmax(outputs["wdl"], dim=1)
@@ -64,16 +67,21 @@ def main():
     p.add_argument("--ckpt", default="best-bak.pt")
     p.add_argument("--out", default="macondo-nn.onnx")
     p.add_argument("--opset", type=int, default=17)
+    # Every board plane is 0/1, so the board can travel as uint8: a quarter
+    # of the bytes through gRPC and the host-to-GPU copy, which take ~40%
+    # of a request's GPU-side time at fp32 (experiments.md, 10/17/26).
+    p.add_argument("--board-uint8", action="store_true")
     args = p.parse_args()
 
     net, arch, hparams = load_net(args.ckpt)
     print(f"loaded {args.ckpt}: arch={arch} hparams={hparams} primary={net.primary}")
 
     # Create dummy inputs that match the model's input shapes
-    dummy_board = torch.randn(1, C, H, W)
+    dummy_board = (torch.randint(0, 2, (1, C, H, W), dtype=torch.uint8) if args.board_uint8
+                   else torch.randn(1, C, H, W))
     dummy_scalars = torch.randn(1, N_SCAL)
 
-    wrapped_model = ModelWrapper(net, net.primary)
+    wrapped_model = ModelWrapper(net, net.primary, args.board_uint8)
 
     # Export the model to ONNX. dynamo=False pins the TorchScript exporter;
     # newer torch versions flip the default and emit a different graph.

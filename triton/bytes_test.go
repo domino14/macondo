@@ -23,3 +23,14 @@ func TestFloat32ToByteIsLittleEndianFP32(t *testing.T) {
 		t.Fatal("empty input should give nil")
 	}
 }
+
+func TestBoardToUint8(t *testing.T) {
+	f := []float32{0, 1, 1, 0, 1}
+	got := boardToUint8(make([]byte, 2), f)
+	if !bytes.Equal(got, []byte{0, 1, 1, 0, 1}) {
+		t.Fatalf("boardToUint8 = %v", got)
+	}
+	if again := boardToUint8(got, f[:3]); len(again) != 3 || &again[0] != &got[0] {
+		t.Fatal("buffer should be reused")
+	}
+}

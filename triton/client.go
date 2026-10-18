@@ -30,7 +30,15 @@ type TritonClient struct {
 	modelName    string
 	modelVersion string
 	outputs      []string // output tensors to request; default just "value"
+	boardUint8   bool     // the model takes the board as uint8 (all planes are 0/1)
+	boardBuf     []byte   // reused uint8 board buffer
 	debug        bool     // Enable debug logging
+}
+
+// modelInfo is what DetectOutputs learns from a model's metadata.
+type modelInfo struct {
+	outputs    []string
+	boardUint8 bool
 }
 
 // connsPerServer bounds the gRPC connections a process opens to one
@@ -44,9 +52,9 @@ var (
 	connMu   sync.Mutex
 	conns    = map[string][]*grpc.ClientConn{}
 	connNext = map[string]int{}
-	// Detected model outputs by url/model/version, so each game does not
-	// ask the server again.
-	outputsByModel = map[string][]string{}
+	// Detected model outputs and board type by url/model/version, so each
+	// game does not ask the server again.
+	infoByModel = map[string]modelInfo{}
 )
 
 func sharedConn(serverURL string) (*grpc.ClientConn, error) {
@@ -100,13 +108,15 @@ func (c *TritonClient) Outputs() []string { return c.outputs }
 // requests "value" plus "spread" when the model exports it (the multi-head
 // nets do; the old CNN does not). The bot's decided-game ranking needs the
 // spread head, so this is called once when the game's client is created.
+// It also notes whether the model takes the board as UINT8 (exported with
+// export.py --board-uint8), so Infer sends a quarter of the bytes.
 func (c *TritonClient) DetectOutputs() error {
 	key := c.serverURL + "/" + c.modelName + "/" + c.modelVersion
 	connMu.Lock()
-	known, ok := outputsByModel[key]
+	known, ok := infoByModel[key]
 	connMu.Unlock()
 	if ok {
-		c.outputs = known
+		c.outputs, c.boardUint8 = known.outputs, known.boardUint8
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -123,9 +133,15 @@ func (c *TritonClient) DetectOutputs() error {
 			outputs = append(outputs, o.Name)
 		}
 	}
-	c.outputs = outputs
+	boardUint8 := false
+	for _, in := range md.Inputs {
+		if in.Name == "board" && in.Datatype == "UINT8" {
+			boardUint8 = true
+		}
+	}
+	c.outputs, c.boardUint8 = outputs, boardUint8
 	connMu.Lock()
-	outputsByModel[key] = outputs
+	infoByModel[key] = modelInfo{outputs, boardUint8}
 	connMu.Unlock()
 	return nil
 }
@@ -146,6 +162,12 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		Datatype: "FP32",
 		Shape:    []int64{int64(numMoves), 85, 15, 15},
 	}
+	boardBytes := float32ToByte(boardTensorData)
+	if c.boardUint8 {
+		boardInput.Datatype = "UINT8"
+		c.boardBuf = boardToUint8(c.boardBuf, boardTensorData)
+		boardBytes = c.boardBuf
+	}
 	scalarInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "scalars",
 		Datatype: "FP32",
@@ -163,7 +185,7 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 		Inputs:       []*grpc_client.ModelInferRequest_InferInputTensor{boardInput, scalarInput},
 		Outputs:      requested,
 	}
-	inferRequest.RawInputContents = append(inferRequest.RawInputContents, float32ToByte(boardTensorData), float32ToByte(scalarTensorData))
+	inferRequest.RawInputContents = append(inferRequest.RawInputContents, boardBytes, float32ToByte(scalarTensorData))
 
 	if c.debug {
 		log.Debug().Msgf("Sending inference request for %d moves", numMoves)
@@ -309,6 +331,19 @@ func float32ToByte(f []float32) []byte {
 		return nil
 	}
 	return unsafe.Slice((*byte)(unsafe.Pointer(&f[0])), 4*len(f))
+}
+
+// boardToUint8 packs the board planes (every value 0 or 1) one byte per
+// value into buf, growing it as needed.
+func boardToUint8(buf []byte, f []float32) []byte {
+	if cap(buf) < len(f) {
+		buf = make([]byte, len(f))
+	}
+	buf = buf[:len(f)]
+	for i, v := range f {
+		buf[i] = uint8(v)
+	}
+	return buf
 }
 
 func byteToFloat32(b []byte) []float32 {
