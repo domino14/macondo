@@ -51,7 +51,16 @@ func newWorker(cfg *config.Config, g *game.Game) (*worker, error) {
 			return nil, err
 		}
 	}
-	btp, err := bot.NewBotTurnPlayerFromGame(g, &bot.BotConfig{Config: *cfg}, pb.BotRequest_HASTY_BOT)
+	// PLAY_BOT swaps the bot (e.g. NO_LEAVE_BOT), for diagnostics only.
+	code := pb.BotRequest_HASTY_BOT
+	if b := os.Getenv("PLAY_BOT"); b != "" {
+		v, ok := pb.BotRequest_BotCode_value[b]
+		if !ok {
+			return nil, fmt.Errorf("unknown PLAY_BOT %q", b)
+		}
+		code = pb.BotRequest_BotCode(v)
+	}
+	btp, err := bot.NewBotTurnPlayerFromGame(g, &bot.BotConfig{Config: *cfg}, code)
 	if err != nil {
 		return nil, err
 	}
