@@ -435,6 +435,13 @@ What is on deb192 and when it changed. Results go in the sections above.
 - Oct 17 21:08: `queue6.sh` armed: stops cap05 at 4,863 pairs, then
   `dl-knobs-late` and `dl-knobs-early` (`bin/decidelab-v4`, b3d8de19,
   180 at once).
+- Oct 18 01:00: cap05 interim, 3,950 pairs: minus baseline -0.10 ± 0.37.
+- Oct 18 01:23: `queue7.sh` armed: after the sweep, the April tau 0.05
+  replication (user's call): `c54ca819` in `~/macondo-april`, April config
+  verbatim, unpaired, alone on the machine, up to 40,000 games (~38,000 for
+  ± 0.5, ~8 days at April's 207 games/h). First look at ~10,000 games:
+  below 51.0% means 52 is outside the interval, stop. 2-game smoke passed
+  (tau 0.05 in use, inferences fed to the sim).
 
 ## Idea queue
 
@@ -450,4 +457,5 @@ What is on deb192 and when it changed. Results go in the sections above.
 5. **More candidate plays.** Both bots already sim 100 candidates, each with
    at least 500 rollouts. First log the static rank of the plays inference
    picks; if they sit near 100, try 200.
-6. **tau 0.05 replication** (above), when out of ideas.
+6. **tau 0.05 replication**: queued (queue7). If it holds at ~52%, port its
+   pieces one at a time into the current code, each a paired match.
