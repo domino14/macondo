@@ -58,6 +58,11 @@ type EndgameMoveResult struct {
 	MoveDescription string
 	Score           int
 	MoveNumber      int
+	// IsEstimated marks a move past the search horizon: the solver played the
+	// position out greedily from where the search stopped, so this is a
+	// plausible continuation rather than a proven one. MoveDescription is left
+	// clean so each client can render the distinction its own way.
+	IsEstimated bool
 }
 
 // GamePhase represents the phase of the game based on tiles remaining in bag.
@@ -117,7 +122,10 @@ type TurnAnalysis struct {
 	OptimalFinalSpread int16 // The final spread with the optimal move (endgame only)
 	CurrentSpread      int   // The spread before this move (endgame only, for blown endgame detection)
 
-	// Whether the played move was optimal
+	// Whether the played move cost nothing measurable: either it is the move
+	// the engine picked, or it ties that move. Several plays can share the best
+	// final spread in an endgame, and a sim can't separate plays whose win
+	// probabilities are within its own noise, so this is not move identity.
 	WasOptimal bool
 
 	// Mistake categorization

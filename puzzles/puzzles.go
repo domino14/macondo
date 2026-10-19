@@ -3,9 +3,7 @@ package puzzles
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"regexp"
-	"runtime"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -17,10 +15,61 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 )
 
-var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag){
+const defaultMargin = 10.0
+
+// tagFn is the type for all puzzle tag functions.
+type tagFn func(ctx *tagCtx) (bool, pb.PuzzleTag)
+
+// tagCtx holds per-turn state shared across tag functions and computeStats.
+type tagCtx struct {
+	g            *game.Game
+	moves        []*move.Move // equity-sorted
+	equityMargin float64
+	scoreMargin  float64
+
+	// lazy cached fields
+	wordsFormedCache []tilemapping.MachineWord
+	wordsFormedErr   error
+	wordsDone        bool
+
+	bestByScore  *move.Move
+	secondScore  int
+	scoreDone    bool
+}
+
+func newTagCtx(g *game.Game, moves []*move.Move, req *pb.PuzzleGenerationRequest) *tagCtx {
+	em := req.GetEquityMargin()
+	if em == 0 {
+		em = defaultMargin
+	}
+	sm := req.GetScoreMargin()
+	if sm == 0 {
+		sm = defaultMargin
+	}
+	return &tagCtx{g: g, moves: moves, equityMargin: em, scoreMargin: sm}
+}
+
+func (ctx *tagCtx) getWords() ([]tilemapping.MachineWord, error) {
+	if !ctx.wordsDone {
+		ctx.wordsFormedCache, ctx.wordsFormedErr = ctx.g.ValidateMove(ctx.moves[0])
+		ctx.wordsDone = true
+	}
+	return ctx.wordsFormedCache, ctx.wordsFormedErr
+}
+
+func (ctx *tagCtx) getBestByScore() (*move.Move, int) {
+	if !ctx.scoreDone {
+		ctx.bestByScore, ctx.secondScore = topTwoByScore(ctx.moves)
+		ctx.scoreDone = true
+	}
+	return ctx.bestByScore, ctx.secondScore
+}
+
+var PuzzleFunctions = []tagFn{
 	EquityPuzzle,
 	BingoPuzzle,
 	OnlyBingoPuzzle,
@@ -29,11 +78,10 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	PowerTilePuzzle,
 	BingoNineOrAbovePuzzle,
 	CELOnlyPuzzle,
+	CELPlusTwosPuzzle,
+	PointsPuzzle,
 }
 
-func GetFunctionName(i interface{}) string {
-	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
-}
 func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
@@ -84,13 +132,18 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			return nil, nil
 		}
 
+		ctx := newTagCtx(g, moves, req)
+
 		tags := []pb.PuzzleTag{}
-		for _, puzzleFunc := range PuzzleFunctions {
-			turnIsPuzzleType, tag := puzzleFunc(g, moves)
+		for _, fn := range PuzzleFunctions {
+			turnIsPuzzleType, tag := fn(ctx)
 			if turnIsPuzzleType {
 				tags = append(tags, tag)
 			}
 		}
+
+		stats := computeStats(ctx)
+
 		for _, bucket := range req.Buckets {
 			if tagsFitInBucket(tags, bucket) {
 				puzzles = append(puzzles, &pb.PuzzleCreationResponse{
@@ -98,7 +151,9 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 					TurnNumber:  int32(evtIdx),
 					Answer:      g.EventFromMove(moves[0]),
 					BucketIndex: int32(bucket.Index),
-					Tags:        tags})
+					Tags:        tags,
+					Stats:       stats,
+				})
 				break
 			}
 		}
@@ -117,21 +172,21 @@ func InitializePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
 	return nil
 }
 
-func EquityPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	return len(moves) >= 2 && moves[0].Equity() > moves[1].Equity()+10, pb.PuzzleTag_EQUITY
+func EquityPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	moves := ctx.moves
+	return len(moves) >= 2 && moves[0].Equity() > moves[1].Equity()+ctx.equityMargin, pb.PuzzleTag_EQUITY
 }
 
-func BingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
-	return moveIsBingo(m), pb.PuzzleTag_BINGO
+func BingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	return moveIsBingo(ctx.moves[0]), pb.PuzzleTag_BINGO
 }
 
-func OnlyBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
+func OnlyBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
 	tag := pb.PuzzleTag_ONLY_BINGO
-	if len(moves) == 0 || !moveIsBingo(moves[0]) {
+	if len(ctx.moves) == 0 || !moveIsBingo(ctx.moves[0]) {
 		return false, tag
 	}
-	for _, m := range moves[1:] {
+	for _, m := range ctx.moves[1:] {
 		if moveIsBingo(m) && m.Action() == move.MoveTypePlay {
 			return false, tag
 		}
@@ -139,19 +194,19 @@ func OnlyBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 	return true, tag
 }
 
-func BlankBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
+func BlankBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	m := ctx.moves[0]
 	return moveIsBingo(m) && moveContainsBlank(m), pb.PuzzleTag_BLANK_BINGO
 }
 
-func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	return !moveIsBingo(moves[0]), pb.PuzzleTag_NON_BINGO
+func NonBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	return !moveIsBingo(ctx.moves[0]), pb.PuzzleTag_NON_BINGO
 }
 
 // XXX: Must be expanded to other languages
-func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	ld := g.Bag().LetterDistribution()
-	for _, tile := range moves[0].Tiles() {
+func PowerTilePuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	ld := ctx.g.Bag().LetterDistribution()
+	for _, tile := range ctx.moves[0].Tiles() {
 		if ld.Score(tile) > 6 {
 			return true, pb.PuzzleTag_POWER_TILE
 		}
@@ -159,26 +214,79 @@ func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 	return false, pb.PuzzleTag_POWER_TILE
 }
 
-func BingoNineOrAbovePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
+func BingoNineOrAbovePuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	m := ctx.moves[0]
 	return moveIsBingo(m) && moveLength(m) >= 9, pb.PuzzleTag_BINGO_NINE_OR_ABOVE
 }
 
-func CELOnlyPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
-	evt := g.EventFromMove(m)
-	wordsFormed, err := g.ValidateMove(m)
+func CELOnlyPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	lex, err := commonWordLexicon(ctx.g.Config())
 	if err != nil {
-		log.Err(err).Msg("cel-only-validation-error")
+		log.Err(err).Msg("cel-only-lexicon-error")
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
-	evt.WordsFormed = convertToVisible(wordsFormed, g.Alphabet())
-	isCEL, err := isCELEvent(evt, g.History(), g.Config())
+	return answerAllIn(ctx, lex, pb.PuzzleTag_CEL_ONLY)
+}
+
+// CELPlusTwosPuzzle is CELOnlyPuzzle widened to accept any two-letter word from
+// the game's own lexicon, matching the word list a puzzle position generated by
+// COMMON_WORD_PLUS_TWOS_BOT is built from. It is a separate tag from CEL_ONLY,
+// whose meaning downstream consumers already depend on.
+func CELPlusTwosPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	lex, err := celPlusTwosLexicon(ctx.g.Config(), ctx.g.LexiconName())
 	if err != nil {
-		log.Err(err).Msg("cel-only-phony-error")
-		return false, pb.PuzzleTag_CEL_ONLY
+		// A game on a different letter distribution than the common-word list
+		// simply cannot earn this tag. That is an ordinary answer for, say, a
+		// German game, not a failure worth an error line on every turn of it.
+		log.Debug().Err(err).Msg("cel-plus-twos-lexicon-unavailable")
+		return false, pb.PuzzleTag_CEL_PLUS_TWOS
 	}
-	return isCEL, pb.PuzzleTag_CEL_ONLY
+	return answerAllIn(ctx, lex, pb.PuzzleTag_CEL_PLUS_TWOS)
+}
+
+// answerAllIn reports whether every word the answer forms is in lex.
+func answerAllIn(ctx *tagCtx, lex lexicon.Lexicon, tag pb.PuzzleTag) (bool, pb.PuzzleTag) {
+	evt := ctx.g.EventFromMove(ctx.moves[0])
+	wordsFormed, err := ctx.getWords()
+	if err != nil {
+		log.Err(err).Str("tag", tag.String()).Msg("cel-validation-error")
+		return false, tag
+	}
+	evt.WordsFormed = convertToVisible(wordsFormed, ctx.g.Alphabet())
+	ok, err := isCELEvent(evt, ctx.g.History(), lex)
+	if err != nil {
+		log.Err(err).Str("tag", tag.String()).Msg("cel-phony-error")
+		return false, tag
+	}
+	return ok, tag
+}
+
+// PointsPuzzle fires when the answer is the top-scoring play by at least score_margin.
+func PointsPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	best, secondScore := ctx.getBestByScore()
+	if best != ctx.moves[0] {
+		return false, pb.PuzzleTag_POINTS
+	}
+	return float64(ctx.moves[0].Score()-secondScore) > ctx.scoreMargin, pb.PuzzleTag_POINTS
+}
+
+// topTwoByScore returns the highest-scoring move and the second-highest score.
+// Does not modify the original slice order.
+func topTwoByScore(moves []*move.Move) (*move.Move, int) {
+	if len(moves) == 0 {
+		return nil, 0
+	}
+	best := moves[0]
+	secondScore := 0
+	for _, m := range moves[1:] {
+		if m.Score() > best.Score() {
+			secondScore = best.Score()
+			best = m
+		} else if m.Score() > secondScore {
+			secondScore = m.Score()
+		}
+	}
+	return best, secondScore
 }
 
 func tagsFitInBucket(tags []pb.PuzzleTag, bucket *pb.PuzzleBucket) bool {
@@ -274,13 +382,41 @@ func moveContainsBlank(m *move.Move) bool {
 	return false
 }
 
-func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	kwg, err := kwg.GetKWG(cfg.WGLConfig(), "ECWL")
-	if err != nil {
-		return false, err
+// celLexicon is the common-word word list an English play is checked against
+// to earn the CEL_ONLY tag. Like the bot filters' copy, it is not the game's
+// lexicon, so nothing else fetches it.
+const celLexicon = "ECWL"
+
+// commonWordLexicon loads the common-word list the CEL tags check against.
+func commonWordLexicon(cfg *config.Config) (lexicon.Lexicon, error) {
+	if err := lexicon.EnsureLexiconFileOnce(celLexicon, ".kwg", cfg.WGLConfig()); err != nil {
+		log.Info().Err(err).Str("lexicon", celLexicon).
+			Msg("could not fetch the common word lexicon")
 	}
+	k, err := kwg.GetKWG(cfg.WGLConfig(), celLexicon)
+	if err != nil {
+		return nil, err
+	}
+	return kwg.Lexicon{KWG: *k}, nil
+}
+
+// celPlusTwosLexicon is commonWordLexicon widened to accept any two-letter word
+// from the game's lexicon. See lexicon.Hybrid for why the twos in particular.
+func celPlusTwosLexicon(cfg *config.Config, gameLexiconName string) (lexicon.Lexicon, error) {
+	common, err := commonWordLexicon(cfg)
+	if err != nil {
+		return nil, err
+	}
+	k, err := kwg.GetKWG(cfg.WGLConfig(), gameLexiconName)
+	if err != nil {
+		return nil, err
+	}
+	return lexicon.NewHybrid(common, kwg.Lexicon{KWG: *k}, 2)
+}
+
+func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, lex lexicon.Lexicon) (bool, error) {
 	for _, word := range event.WordsFormed {
-		phony, err := isPhony(kwg, word, history.Variant)
+		phony, err := isPhony(lex, word, history.Variant)
 		if err != nil || phony {
 			return false, err
 		}
@@ -288,24 +424,21 @@ func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config
 	return true, nil
 }
 
-func isPhony(k *kwg.KWG, word, variant string) (bool, error) {
-	lex := kwg.Lexicon{KWG: *k}
+func isPhony(lex lexicon.Lexicon, word, variant string) (bool, error) {
 	machineWord, err := tilemapping.ToMachineWord(word, lex.GetAlphabet())
 	if err != nil {
 		return false, err
 	}
 	var valid bool
-	switch string(variant) {
-	case string(game.VarWordSmog):
+	if game.IsWordSmog(game.Variant(variant)) {
 		valid = lex.HasAnagram(machineWord)
-	default:
+	} else {
 		valid = lex.HasWord(machineWord)
 	}
 	return !valid, nil
 }
 
 func convertToVisible(words []tilemapping.MachineWord, alph *tilemapping.TileMapping) []string {
-
 	uvstrs := make([]string, len(words))
 	for idx, w := range words {
 		uvstrs[idx] = w.UserVisible(alph)
@@ -346,7 +479,8 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	player.RecalculateBoard()
 
 	moves := player.GenerateMoves(1000000)
-	ok, _ := EquityPuzzle(newGame.Game, moves)
+	ctx := newTagCtx(newGame.Game, moves, &pb.PuzzleGenerationRequest{})
+	ok, _ := EquityPuzzle(ctx)
 
 	newAnsEvt := g.EventFromMove(moves[0])
 	return ok &&

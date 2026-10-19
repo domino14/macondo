@@ -144,6 +144,7 @@ func endgameVarToProto(v *EndgameVariationResult) *pb.EndgameVariation {
 			MoveDescription: m.MoveDescription,
 			Score:           int32(m.Score),
 			MoveNumber:      int32(m.MoveNumber),
+			IsEstimated:     m.IsEstimated,
 		}
 	}
 	return &pb.EndgameVariation{

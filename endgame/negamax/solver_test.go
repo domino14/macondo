@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -244,9 +247,15 @@ func TestPassFirst(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
-	is.Equal(v, int16(-60))
+	// -63 is the true value: solving to 10 plies (7 tiles between the two
+	// racks, so 9 plies covers every line) returns -63 with or without the
+	// heuristics. This test searches only 8 plies, which is not deep enough to
+	// prove it; the greedy playout gets there anyway, where the static leaf
+	// used to report -60.
+	t.Logf("value %d over %d moves, %d of them searched", v, len(seq), s.NumSearchedMoves())
+	is.Equal(v, int16(-63))
 	is.Equal(seq[0].Action(), move.MoveTypePass)
-	is.Equal(len(seq), 6)
+	is.True(len(seq) >= 6)
 }
 
 func TestPolish(t *testing.T) {
@@ -314,7 +323,10 @@ func TestPolishFromGcg(t *testing.T) {
 }
 
 func TestStuckPruning(t *testing.T) {
-	// This is very slow.
+	// This is very slow: solving it exactly needs 11 plies. The greedy playout
+	// reaches the same +72 at 2 plies in a fraction of a second -- see
+	// TestStuckEndgameSolvedShallow in heuristics_test.go, which uses this same
+	// position.
 	t.Skip()
 	is := is.New(t)
 	plies := 11
@@ -505,9 +517,11 @@ func BenchmarkPassFirst(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		v, seq, _ := s.Solve(context.Background(), plies)
 
-		is.Equal(v, int16(-60))
+		// See TestPassFirst: -63 is the true value; 8 plies is not deep enough
+		// to prove it, but the greedy playout gets there anyway.
+		is.Equal(v, int16(-63))
 		is.Equal(seq[0].Action(), move.MoveTypePass)
-		is.Equal(len(seq), 6)
+		is.True(len(seq) >= 6)
 	}
 }
 
@@ -583,4 +597,76 @@ func BenchmarkVsRoyWithPrunedKWG(b *testing.B) {
 func BenchmarkVsRoyWithoutPrunedKWG(b *testing.B) {
 	benchmarkVsRoy(b, false)
 }
+
 // }
+
+// Autoplay runs one game per goroutine, and each game solves its endgames on
+// its own transposition table. Solve several endgames at once, each with its
+// own solver and table, and check every answer matches the known one -- and
+// that the solves really were in flight at the same time.
+func TestConcurrentSolvesIndependentTables(t *testing.T) {
+	is := is.New(t)
+	type position struct {
+		lex     string
+		bvs     board.VsWho
+		plies   int
+		r1, r2  string
+		p1, p2  int
+		want    int16
+		threads int
+	}
+	positions := []position{
+		{"America", board.VsRoy, 8, "WZ", "EFHIKOQ", 427, 331, 116, 1},
+		{"NWL18", board.VsJoey, 14, "DIV", "AEFILMR", 412, 371, 55, 2},
+		{"NWL20", board.VsCanik, 4, "DEHILOR", "BGIV", 389, 384, 11, 1},
+		{"NWL18", board.VsJoel, 4, "EIQSS", "AAFIRTW", 393, 373, 25, 1},
+	}
+	// Each position twice, so pairs of solvers search the same tree at once.
+	positions = append(positions, positions...)
+
+	solvers := make([]*Solver, len(positions))
+	for i, p := range positions {
+		s, err := setUpSolver(p.lex, "english", p.bvs, p.plies, p.r1, p.r2, p.p1, p.p2, 1)
+		is.NoErr(err)
+		s.SetTTable(&TranspositionTable{})
+		s.SetTTableFraction(0.01)
+		s.SetThreads(p.threads)
+		solvers[i] = s
+	}
+
+	vals := make([]int16, len(positions))
+	errs := make([]error, len(positions))
+	took := make([]time.Duration, len(positions))
+	var inFlight, maxInFlight atomic.Int32
+	begin := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range positions {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-begin
+			n := inFlight.Add(1)
+			for {
+				m := maxInFlight.Load()
+				if n <= m || maxInFlight.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			st := time.Now()
+			vals[i], _, errs[i] = solvers[i].Solve(context.Background(), positions[i].plies)
+			took[i] = time.Since(st)
+			inFlight.Add(-1)
+		}(i)
+	}
+	close(begin)
+	wg.Wait()
+
+	for i := range positions {
+		is.NoErr(errs[i])
+		is.Equal(vals[i], positions[i].want)
+		t.Logf("solve %d (%s, %d plies): %d in %v", i, positions[i].lex,
+			positions[i].plies, vals[i], took[i])
+	}
+	t.Logf("max solves in flight at once: %d of %d", maxInFlight.Load(), len(positions))
+	is.True(maxInFlight.Load() > 1)
+}

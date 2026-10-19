@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -137,13 +138,17 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString("      Medium = 8-15 pts spread = 0.5 pts\n")
 	sb.WriteString("      Large  = 16+ pts spread = 1.0 pts\n")
 	sb.WriteString("      Exception: Blown endgame (win→tie/loss) = Large regardless of spread\n")
+	sb.WriteString("      Losses of ≤0.25% win are within sim noise and are not mistakes\n")
 	sb.WriteString("  Mistake Index = Sum of mistake points for all turns\n")
+	sb.WriteString("  Optimal = Turns that cost nothing measurable, so every turn is either\n")
+	sb.WriteString("            optimal or has a mistake category\n")
 	sb.WriteString("\n")
 	sb.WriteString("  Diff Format:\n")
 	sb.WriteString("    PEG with tied win%: Shows \"0.0% (+N)\" where N is spread difference\n")
 	sb.WriteString("    Endgame: Shows spread difference in points\n")
 	sb.WriteString("    Other phases: Shows win probability loss as percentage\n")
 	sb.WriteString("\n")
+	sb.WriteString("  Tie = Optimal by a different move than the one shown (equal value)\n")
 	sb.WriteString("  ⚠️ Phony = Played unchallenged phony\n")
 	sb.WriteString("  ❌ Missed challenge = Failed to challenge opponent's phony\n")
 	sb.WriteString("  💥 Blown endgame = Mistake changed winning position to loss/tie\n")
@@ -183,6 +188,10 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 		} else {
 			optimal = turn.OptimalMoveStr
 		}
+		// A turn can be optimal without being the engine's move, by tying it.
+		// Say so, or the row reads as though the two columns disagree.
+		tiedBest := turn.WasOptimal && played != optimal
+
 		if len([]rune(played)) > 22 {
 			played = string([]rune(played)[:22])
 		}
@@ -190,7 +199,7 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 			optimal = string([]rune(optimal)[:22])
 		}
 
-		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
+		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WinProbLoss, int(turn.SpreadLoss))
 
 		phaseDisplay := turn.Phase.String()
 		if turn.Phase == gameanalysis.PhaseEarlyMid && turn.TilesInBag <= 50 {
@@ -203,6 +212,9 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 		}
 
 		var notes []string
+		if tiedBest {
+			notes = append(notes, "Tie")
+		}
 		if turn.IsPhony {
 			if turn.PhonyChallenged {
 				notes = append(notes, "Phony(off)")
@@ -299,6 +311,27 @@ func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
 	return msg(output), nil
 }
 
+// formatEndgameVariation renders one endgame line, prefixing moves the search
+// did not actually prove with negamax.EstimatedMoveMarker.
+func formatEndgameVariation(title string, v *gameanalysis.EndgameVariationResult) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s (final spread %+d):\n", title, v.FinalSpread)
+	anyEstimated := false
+	for _, m := range v.Moves {
+		marker := ""
+		if m.IsEstimated {
+			marker = negamax.EstimatedMoveMarker
+			anyEstimated = true
+		}
+		fmt.Fprintf(&sb, "  %d) %s%s (%d)\n", m.MoveNumber, marker, m.MoveDescription, m.Score)
+	}
+	if anyEstimated {
+		fmt.Fprintf(&sb, "  (%s = estimated by greedy playout past the search depth)\n",
+			negamax.EstimatedMoveMarker)
+	}
+	return sb.String()
+}
+
 // formatSingleTurnAnalysis formats detailed analysis for a single turn
 func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 	var sb strings.Builder
@@ -336,7 +369,11 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 	// Analysis metrics
 	if turn.WasOptimal {
-		sb.WriteString("✓ Optimal play!\n")
+		if turn.PlayedMove.ShortDescription() != turn.OptimalMove.ShortDescription() {
+			sb.WriteString("✓ Optimal play! (ties the move above)\n")
+		} else {
+			sb.WriteString("✓ Optimal play!\n")
+		}
 	} else {
 		if turn.Phase == gameanalysis.PhaseEndgame {
 			sb.WriteString(fmt.Sprintf("Spread Loss: %d points\n", turn.SpreadLoss))
@@ -349,6 +386,21 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 		if turn.MistakeCategory != "" {
 			sb.WriteString(fmt.Sprintf("Mistake Category: %s\n", turn.MistakeCategory))
+		}
+	}
+
+	// Endgame variations. The solver plays the position out greedily past its
+	// ply limit, so the tail of a line is an estimate rather than a proven
+	// continuation; mark those with "~" the way the endgame command does.
+	if v := turn.PrincipalVariation; v != nil && len(v.Moves) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(formatEndgameVariation("Principal Variation", v))
+		for i, ov := range turn.OtherVariations {
+			if ov == nil || len(ov.Moves) == 0 {
+				continue
+			}
+			sb.WriteString(formatEndgameVariation(
+				fmt.Sprintf("Variation %d", i+2), ov))
 		}
 	}
 
@@ -380,21 +432,18 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 // formatDiff formats the equity/win-probability difference for a turn.
 // isEndgame: true if the turn is in the endgame phase.
-// wasOptimal: true if the played move was optimal.
 // winProbLoss: fractional win-probability difference (0–1).
 // spreadLoss: equity/spread loss when win probs are effectively tied.
-func formatDiff(isEndgame, wasOptimal bool, winProbLoss float64, spreadLoss int) string {
+//
+// What is printed is always what was measured, including the sub-threshold
+// losses that still count as optimal — a play the analyzer scores as optimal
+// should not have to render as an exact zero to look like one.
+func formatDiff(isEndgame bool, winProbLoss float64, spreadLoss int) string {
 	if isEndgame {
-		if wasOptimal {
-			return "+0"
-		}
 		return fmt.Sprintf("%+d", spreadLoss)
 	}
-	if !wasOptimal && spreadLoss > 0 {
+	if spreadLoss > 0 {
 		return fmt.Sprintf("%.1f%% (%+d)", winProbLoss*100, spreadLoss)
-	}
-	if wasOptimal {
-		return "0.0%"
 	}
 	return fmt.Sprintf("%.1f%%", winProbLoss*100)
 }

@@ -1,0 +1,119 @@
+puzzle <open|next|prev|goto|keep|unkeep|kept|answer|info|list> [args...]
+
+Browse a puzzle file made by `puzzlegen -out`. Each puzzle is loaded as the
+current game, so every ordinary command works on it: `s` to redraw the board,
+`gen` to see the top plays, `sim` to simulate. The answer stays hidden until
+you ask for it.
+
+Commands:
+
+    puzzle open <file>
+        Open a puzzle file and show the first puzzle.
+
+    puzzle next        (or: puzzle n)
+    puzzle prev        (or: puzzle p)
+        Step forward or back through the file.
+
+    puzzle goto <N>    (or just: puzzle <N>)
+        Jump to the Nth puzzle.
+
+    puzzle answer
+        Reveal the answer to the puzzle you are on.
+
+    puzzle info
+        Everything the record holds except the answer: every tag, the full
+        game ID, turn, seed, lexicon, CGP, and all 22 stats. This is where
+        the spoilers live -- see What Is Hidden below.
+
+    puzzle list
+        One line per puzzle in the file, with a marker on the current one and
+        a * on the ones you have kept.
+
+    puzzle keep [<file>]
+        Append the puzzle you are on to <file>, which is itself a puzzle file:
+        `puzzle open` reads it back. Name the file once and it is remembered,
+        so the rest of the session is a bare `puzzle keep`. With no file ever
+        named, the keepers go beside the source, named after it --
+        puzzles.jsonl becomes puzzles-kept.jsonl. Keeping the same puzzle
+        twice does nothing.
+
+        Curating a collection again is ordinary, and the derived name advances
+        the round rather than stacking suffixes: puzzles-kept.jsonl gives
+        puzzles-kept2.jsonl, then puzzles-kept3.jsonl.
+
+        Keeping into the file you are browsing is refused; it would grow under
+        you as it is read.
+
+    puzzle unkeep
+        Take the puzzle you are on out of the collection it is in. With a keep
+        file named, that is the keep file. With none named you are reviewing a
+        collection rather than building one, so it is the file you have open --
+        which is how you prune a set you made earlier. The puzzle leaves the
+        file and the browser together.
+
+    puzzle kept
+        Where puzzles are being kept, and how many are there.
+
+What Is Hidden:
+
+    The header above the board tells you what kind of question is being asked
+    and where the position came from. It does not tell you anything about the
+    shape of the answer, because that is most of the puzzle: BINGO says the
+    answer uses all seven tiles, POWER_TILE says a Q or a Z goes down, and
+    NON_BINGO rules out a whole class of play before you have looked.
+
+    So these tags are held back, and counted instead:
+
+        BINGO  ONLY_BINGO  BLANK_BINGO  BINGO_NINE_OR_ABOVE
+        NON_BINGO  POWER_TILE  CEL_ONLY  CEL_PLUS_TWOS
+
+        Puzzle 1 of 4   EQUITY POINTS   (+3 tag(s) in `puzzle info`)
+
+    EQUITY and POINTS stay visible: they say whether there is one clear best
+    play, and whether it is also the top scorer, without describing it. The
+    stats are held back for the same reason -- tiles_played and words_formed
+    give the answer's shape away outright. `puzzle list` hides the same things,
+    since an index that printed every score would spoil the whole file at once.
+
+    `puzzle info` shows all of it, which is the point of it being a separate
+    command.
+
+Keeping The Good Ones:
+
+    Generate a few hundred, browse them, and keep the ones worth keeping. What
+    comes out is an ordinary puzzle file, so it can be browsed, added to from
+    another source file, or handed to anything that reads the format.
+
+        puzzle open puzzles.jsonl
+        puzzle keep favorites.jsonl     <- names the file, keeps puzzle 1
+        puzzle n
+        puzzle n
+        puzzle keep                     <- same file, no need to say so
+        puzzle unkeep                   <- changed your mind
+        puzzle kept                     <- where am I putting these?
+        ...
+        puzzle open favorites.jsonl     <- the collection, on its own
+        puzzle unkeep                   <- and now this prunes favorites.jsonl
+
+A session:
+
+    puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 -filter "tag=NON_BINGO and score>=30 and score_advantage>=10" -max 20 -out puzzles.jsonl
+
+    puzzle open puzzles.jsonl
+        Opened puzzles.jsonl: 20 puzzles.
+        Puzzle 1 of 20   EQUITY POINTS   (+2 tag(s) in `puzzle info`)
+          NWL23  ·  english  ·  seed:p_pkdfz…  turn 15  ·  seed demo2
+        [the board]
+
+    puzzle answer
+        Answer: 8H QUALM (44, rack ACMOQUZ)
+
+    puzzle next
+        Puzzle 2 of 20 ...
+
+Note that `puzzle` replaces whatever game is loaded, the same way `load` does.
+
+Every record in the file also carries the game up to the puzzle position as a
+GCG, in its "gcg" field. It stops before the answer, so it spoils nothing; it
+is there for anyone who wants to see how the position arose, or to feed the
+puzzles to something other than this shell.

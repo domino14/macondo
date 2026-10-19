@@ -19,6 +19,7 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
+	"github.com/domino14/macondo/alphadawg"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
@@ -150,6 +151,13 @@ type GordonGenerator struct {
 
 	// Shadow play state
 	shadow shadowState
+
+	// WordSmog (alpha dawg) mode. See alpha_gen.go. alphaDawg replaces the
+	// gaddag as the dictionary; playedTally is the running multiset of the
+	// main word being built.
+	isWordSmog  bool
+	alphaDawg   *kwg.KWG
+	playedTally alphadawg.Tally
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -189,6 +197,16 @@ func (gen *GordonGenerator) SetMaxCanExchange(m int) {
 // best-first scoring pass. Mirrors MAGPIE's player_set_wmp + the
 // wmp_move_gen_init call inside gen_load_position.
 func (gen *GordonGenerator) SetWMP(w *wmp.WMP) {
+	if gen.isWordSmog {
+		// The word map is built from the classic lexicon, so its existence
+		// checks would prune anchors holding perfectly playable anagrams.
+		// Refuse rather than let a later caller silently re-enable it.
+		return
+	}
+	gen.setWMP(w)
+}
+
+func (gen *GordonGenerator) setWMP(w *wmp.WMP) {
 	gen.wmpData = w
 	// Sub-anchor recording is meaningful only when there's a fast
 	// per-(blocks, tiles) word generator on the consumer side; we
@@ -238,9 +256,15 @@ func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 	gen.playRecorder = TopNPlayRecorder
 	gen.shadow.useShadow = true
 	gen.maxTopMovesSize = n
-	gen.topNPlays = make([]*move.Move, n)
+	// Reuse the existing move objects when the size is unchanged, so callers
+	// that set this before every generation don't allocate a new set each turn.
+	if len(gen.topNPlays) != n {
+		gen.topNPlays = make([]*move.Move, n)
+		for i := range gen.topNPlays {
+			gen.topNPlays[i] = new(move.Move)
+		}
+	}
 	for i := range gen.topNPlays {
-		gen.topNPlays[i] = new(move.Move)
 		gen.topNPlays[i].SetEquity(math.Inf(-1))
 		gen.topNPlays[i].SetEmpty()
 	}
@@ -378,7 +402,7 @@ func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.B
 		for col := 0; col < gen.boardDim; col++ {
 			if gen.board.IsAnchor(row, col, dir) {
 				gen.curAnchorCol = col
-				gen.recursiveGen(col, rack, gen.gaddag.GetRootNodeIndex(), col, col, !gen.vertical, 0, 0, 1)
+				gen.genForAnchor(rack)
 				gen.lastAnchorCol = col
 			}
 		}

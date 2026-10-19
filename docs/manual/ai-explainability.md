@@ -85,10 +85,104 @@ macondo> explain -plies 4 -stop 95 -opprack TESTING
 - `-plies <n>`: Number of simulation plies (default: 5)
 - `-opprack <rack>`: Set opponent's rack for simulation
 - `-stop <n>`: Stop simulation at n% confidence level (default: 99)
+- `-vs <play>`: Explain why the best play beats this one (`off` to disable)
+- `-infer`: Read the opponent's rack from their last play and simulate with and without it
+- `-infer-time <n>`: Seconds to spend inferring (default 20); implies `-infer`
+- `-show-prompt`: Also print the full prompt that was sent
+- `-show-previous-prompt`: Print the last prompt and response, without running anything
 
 For more details, use `help explain` or `help setconfig` within Macondo.
 
-**Note that behind the scenes, Macondo is doing a full simulation and passes a lot of the raw data to an LLM to explain it in plain text.**
+### Reading the opponent's rack
+
+`explain -infer` infers what the opponent is holding from the play they just
+made, then simulates twice — once sampling their rack from that read, once
+ignoring it — and explains the first while using the second to say what the
+read changed:
+
+```
+### What the opponent's last play gave away
+Their last play was run through an inference: every rack they could be holding,
+weighted by how likely it is that a good player would have made that play from
+it. 2622 leaves came out of it, with the top three holding 9% of the weight
+(effective sample size 157.2).
+
+Most likely racks:
+  EST          3.7% of the posterior
+  EIS          3.4% of the posterior
+  ...
+
+Tiles they are likelier or less likely to hold than chance would give them:
+  E    +0.41 tiles more than chance  (24.0% of the read vs 10.4% of the unseen pool, 7 unseen)
+
+What the read changed:
+  The recommendation is D4 BRE(A)DING either way.
+  D4 BRE(A)DING wins 65.25% with the read and 66.96% without it (-1.71).
+```
+
+Deviations are reported in **tiles of a rack**, not as ratios. A tile at three
+times its expected share is startling until you notice that still amounts to a
+twentieth of a tile; the difference a player can act on is "about half a tile
+more vowel-heavy than random".
+
+None of this reaches the explanation unless it earns its place. The read has to
+say something — some tile has to deviate by enough to describe — *and* it has
+to have changed the analysis, either by recommending a different play or by
+moving the recommended play's win% by more than a point. Statistical
+significance alone isn't enough: two well-converged sims have narrow intervals,
+and in a position that is already won the win probabilities saturate and their
+intervals shrink to almost nothing, so a swing from 97.9% to 97.0% clears the
+statistical bar while changing nothing about how to play.
+
+A read that changes which play is best is the most instructive case there is,
+and gets its own treatment: the same position has two different right answers
+depending on whether you believe the read.
+
+Expect `explain -infer` to be slow — a 20-second inference plus two full
+simulations. If there's nothing to infer from, you get an ordinary explanation
+and a note saying why.
+
+### Why is this better than the move I made?
+
+When you step through a loaded game, `explain` compares the best play against
+the play you actually made on that turn, taken from the game history. Instead
+of "here is why this play is good" you get "here is why this play beats yours":
+
+```
+macondo> load ~/games/vs_jesse.gcg
+macondo> turn 12
+macondo> explain
+Comparing against the play you made: 15G I(L)IA (use -vs off to skip)
+```
+
+Your play is simulated even when it wouldn't otherwise have made the cut, so a
+bad move still gets a real answer rather than a shrug, and it gets the same
+follow-up and board analysis the best play gets. Macondo works out the
+head-to-head itself - win%, equity, score, leave value, what the opponent gets
+back, and which follow-up chances each play has that the other doesn't - and
+tells the model when the difference is *not* statistically established, so a
+coin-flip between two plays doesn't get dressed up as a lesson.
+
+Use `-vs <play>` to ask about some other play, and `-vs off` for a plain
+explanation. If the play you made was the best one, Macondo says so and
+compares it against the runner-up instead.
+
+### How it works
+
+Behind the scenes, Macondo runs a full simulation and then does the analysis itself before saying a word to the model:
+
+- **Facts, not tables.** The candidate plays, the leaves, the next two plies, and the sampled follow-up plays are computed as data (`explainer/facts.go`). Judgments the model used to be asked to make - is this a setup? does the top play sacrifice equity for win%? is this really a pre-endgame? - are decided in Go, against the board, and handed over as answers.
+- **Big chances are found, not filtered by probability.** A follow-up is called out when it is a real jump over an ordinary turn *and* comes up often enough to be worth expected points, measured against what a normal next turn is worth in that exact position. A 6% chance at 130 points is the sort of thing a strong player builds a turn around; an 11% chance at 23 is not. Ranking by probability alone buries the first behind the second.
+- **Concept cards.** The Scrabble knowledge lives in `explainer/concepts/`, one card per idea, each with a trigger. A position with a full bag never sees the pre-endgame card; a position with no blank in play never sees the blank-notation card. Only what applies gets sent.
+- **Board dynamics.** The simulation already records every future play it sampled. Macondo buckets those by row and column, so the model can say "this play leaves column A quiet, where a bingo lane runs to the triple" - from measured data rather than from reading a picture of a board.
+
+Because the prompt is assembled rather than written, reading the exact text that produced an explanation is the practical way to debug a bad one. `explain -show-prompt` prints it next to the answer, and `explain -show-previous-prompt` prints the last one and its response — that still works after you have moved on to another position. Both dumps are divided by `========` banners, and each banner labels everything below it up to the next one: Macondo's own notes first, then the tool definitions, the system message and the user message exactly as sent, then the reply. The division is by section rather than by any per-line marker, because the prompt is itself markdown — a heading like `## What to say` is part of the system message and really is sent.
+
+The tool definitions are included because the request carries them in a field of their own rather than in the message text, and their descriptions are substantive: what stops the model inventing a follow-up play is a sentence in `get_our_future_play_metadata`'s description, not anything in the prompt. Sections run in the order the API carries them — tools, system, then messages.
+
+One thing the dumps can't show is the tool-call round trips. The agent SDK owns that loop, so the conversation the model finally answers from also contains its own tool-call messages and the JSON our tools returned.
+
+Set `MACONDO_NO_LLM=1` to print the assembled prompt instead of calling an API at all. `explainer/example/` runs the whole thing end to end on a fixed position.
 
 #### Gemini 2.5 Pro Experimental response:
 

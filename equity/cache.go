@@ -17,7 +17,7 @@ func LeaveCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) 
 	if len(fields) != 3 {
 		return nil, errors.New("cache key missing fields")
 	}
-	return loadKLV(dataloaders.StrategyParamsPath(cfg), fields[2], fields[1])
+	return loadKLV(cfg, fields[2], fields[1])
 }
 
 func PEGCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {

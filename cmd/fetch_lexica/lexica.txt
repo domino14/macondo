@@ -1,0 +1,49 @@
+# Lexicon data files the test suite needs, one per line, as <name><extension>.
+#
+# These are fetched from the same place and by the same code path as the
+# shell's `set lexicon`: the liwords repo's wasm directory. Anything listed
+# here must be published there.
+#
+# To find what belongs in this list, look for lexicon names in _test.go files
+# (both Go string literals and `lex NAME` inside CGP strings) -- and also in
+# non-test code that tests reach, which is how ECWL below gets in: the
+# common-word puzzle tag and the leveled bot filters both load it by name.
+#
+# NOT in this list, because liwords does not publish it: America, which the
+# endgame and movegen tests play real positions with. That one comes from the
+# private word-game-lexica repo.
+#
+# Three other unpublished lexicons appear in test files without being needed:
+# CSW07 only in benchmarks, which `go test` never runs, and CSW12 and TWL06
+# only as strings assigned onto a parsed GCG history so a golden JSON file
+# matches. None of them is ever opened.
+
+# Word graphs, by test usage.
+CSW19.kwg
+CSW21.kwg
+CSW24.kwg
+NWL18.kwg
+NWL20.kwg
+NWL23.kwg
+OSPS49.kwg
+FRA20.kwg
+
+# Loaded by name for the common-word puzzle tag and the leveled bot filters.
+ECWL.kwg
+
+# Alpha dawg, for the WordSmog tests.
+CSW21.kad
+
+# Leave values. A lexicon uses its own when they exist, so every lexicon above
+# that has leaves published gets them here. CSW24 and NWL23 also cover the
+# lexicons with none of their own: CSW07 and CSW12 fall back to CSW24's,
+# TWL06 to NWL23's, and America has none at all.
+CSW19.klv2
+CSW21.klv2
+CSW24.klv2
+NWL18.klv2
+NWL20.klv2
+NWL23.klv2
+OSPS49.klv2
+FRA20.klv2
+super-NWL23.klv2

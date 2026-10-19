@@ -106,6 +106,15 @@ func (g *Game) SetStateStackLength(length int) {
 	}
 }
 
+// StateStackRemaining returns how many more moves can be pushed onto the backup
+// stack before it overflows. Only meaningful in SimulationMode. Callers that
+// play moves beyond a pre-agreed depth (such as the endgame solver's greedy
+// leaf playout) should use this to bound themselves, since the stack is sized
+// by whoever set up the simulation.
+func (g *Game) StateStackRemaining() int {
+	return len(g.stateStack) - g.stackPtr
+}
+
 // UnplayLastMove is a tricky but crucial function for any sort of simming /
 // minimax search / etc. It restores the state after playing a move, without
 // having to store a giant amount of data. The alternative is to store the entire
@@ -166,9 +175,18 @@ func (g *Game) Copy() *Game {
 		maxScorelessTurns: g.maxScorelessTurns,
 		exchangeLimit:     g.exchangeLimit,
 		players:           copyPlayers(g.players),
+		rules:             g.rules,
+		seed:              g.seed,
+		startingPlayerIdx: g.startingPlayerIdx,
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,
+	}
+	// A copy is never itself a paired game -- copies exist to be simmed or
+	// solved on, and those want randomized draws -- so the copied bag must not
+	// come out of here still locked into the original's fixed tile order.
+	if g.pairedBag {
+		copy.bag.SetFixedOrder(false)
 	}
 	// Also set the copy's stack.
 	copy.SetStateStackLength(len(g.stateStack))

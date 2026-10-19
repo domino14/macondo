@@ -261,6 +261,15 @@ func TestPragmaWrongPlace(t *testing.T) {
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
 
+func TestEmptyDescriptionAndTitle(t *testing.T) {
+	// Trailing spaces after #description or #title should not cause a parse error.
+	reader := strings.NewReader("#character-encoding UTF-8\n#description    \n#title    \n#lexicon CSW19\n#player1 p1 Player One\n#player2 p2 Player Two\n")
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, err)
+	assert.Equal(t, "", history.Description)
+	assert.Equal(t, "", history.Title)
+}
+
 func TestIsBingo(t *testing.T) {
 	reader := strings.NewReader(`#character-encoding UTF-8
 #lexicon CSW19
@@ -273,4 +282,89 @@ func TestIsBingo(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, history.Events[0].IsBingo)
 	assert.False(t, history.Events[1].IsBingo)
+}
+
+// TestWriteLastKnownRacks pins the rule for #rack1/#rack2: a game still in
+// progress records the racks so a round-trip keeps them, and a finished game
+// does not, since no one is on turn and the final scoring events already
+// account for the leftover tiles.
+func TestWriteLastKnownRacks(t *testing.T) {
+	is := is.New(t)
+
+	history, err := ParseGCG(DefaultConfig, "./testdata/doug_v_emely.gcg")
+	is.NoErr(err)
+	history.LastKnownRacks = []string{"ACEINRT", ""}
+
+	// As parsed, the game is over: it has final scores.
+	is.True(len(history.FinalScores) > 0)
+	done, err := GameHistoryToGCG(history, true)
+	is.NoErr(err)
+	is.True(!strings.Contains(done, "#rack1"))
+
+	// The same history with its ending removed is a game in progress.
+	history.FinalScores = nil
+	history.PlayState = pb.PlayState_PLAYING
+	inProgress, err := GameHistoryToGCG(history, true)
+	is.NoErr(err)
+	is.True(strings.Contains(inProgress, "#rack1 ACEINRT"))
+	is.True(!strings.Contains(inProgress, "#rack2"))
+
+	// And it survives the round trip, which is the point of writing it.
+	reparsed, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(inProgress))
+	is.NoErr(err)
+	is.Equal(reparsed.LastKnownRacks[0], "ACEINRT")
+}
+
+func TestEventsThatRequireAPrecedingPlay(t *testing.T) {
+	// The parser creates its internal game lazily, on the first
+	// move/pass/exchange/rack token. A gcg whose first event line is a scoring
+	// adjustment has no game to apply that adjustment to, and used to
+	// nil-deref rather than report a parse error. Scrabblecam emits exactly
+	// the end-rack-points case when a game is finalized with no recorded
+	// moves.
+	testcases := []struct {
+		name string
+		gcg  string
+	}{
+		{"end rack points", `#player1 bob Bob
+#player2 alice Alice
+>alice: (AEIOU) +10 10`},
+		{"challenge bonus", `#player1 bob Bob
+#player2 alice Alice
+>alice: AEIOU (challenge) +5 5`},
+		{"last rack penalty", `#player1 bob Bob
+#player2 alice Alice
+>alice: AEIOU (AEIOU) -5 -5`},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			history, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(tc.gcg))
+			assert.Nil(t, history)
+			assert.Equal(t, errEventWithoutPlay, err)
+		})
+	}
+}
+
+func TestPhonyTilesReturnedWithoutGame(t *testing.T) {
+	// A time penalty appends an event without creating the game, so this
+	// case's len(Events) == 0 check does not cover a nil game on its own.
+	reader := strings.NewReader(`#player1 bob Bob
+#player2 alice Alice
+>bob: ABC (time) -10 -10
+>alice: DEF -- -5 0`)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, history)
+	assert.EqualError(t, err, "malformed gcg; phony tiles returned without play")
+}
+
+func TestEndRackPointsAfterPlay(t *testing.T) {
+	// The same end-rack-points line parses fine once a play has created the
+	// game, and still ends it.
+	reader := strings.NewReader(`#player1 bob Bob
+#player2 alice Alice
+>bob: ACDEFGT 8H CAT +10 10
+>bob: (AEIOU) +5 15`)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, err)
+	assert.Equal(t, pb.PlayState_GAME_OVER, history.PlayState)
 }

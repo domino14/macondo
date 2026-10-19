@@ -12,10 +12,12 @@
 package wmp
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"unsafe"
 )
 
@@ -395,13 +397,49 @@ func readForLength(wfl *ForLength, length int, r io.Reader) error {
 
 // WriteToFile writes the WMP to the given filename in MAGPIE-compatible
 // binary format.
+//
+// The write goes to a temporary file in the destination directory and is
+// renamed into place, so a reader never observes a half-written .wmp — an
+// interrupted write leaves a stray temp file rather than a corrupt lexicon
+// that later loads would keep failing on. This matters most on a shared
+// network filesystem where several processes may build the same WMP at
+// once; each writes its own temp file and the rename is atomic.
 func (wmp *WMP) WriteToFile(filename string) error {
-	f, err := os.Create(filename)
+	f, err := os.CreateTemp(filepath.Dir(filename), ".wmp-tmp-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return wmp.Write(f)
+	tmp := f.Name()
+	defer func() {
+		if tmp != "" {
+			f.Close()
+			os.Remove(tmp)
+		}
+	}()
+
+	bw := bufio.NewWriterSize(f, 1<<20)
+	if err := wmp.Write(bw); err != nil {
+		return err
+	}
+	if err := bw.Flush(); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// CreateTemp uses 0600; WMPs are shared read-only data, and other
+	// processes/users need to read them.
+	if err := os.Chmod(tmp, 0644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filename); err != nil {
+		return err
+	}
+	tmp = ""
+	return nil
 }
 
 // Write serializes the WMP to a writer.

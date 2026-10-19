@@ -43,13 +43,21 @@ Optional arguments:
     found so far.
 
 Options:
-    -endgameplies 4
+    -endgameplies 3
 
-    Endgame plies defaults to 4. This is how far to look in the endgames. You may
+    Endgame plies defaults to 3. This is how far to look in the endgames. You may
     not need to look any farther than 2 plies if the spread difference is big
     (since you will likely only lose or win with an out bingo). On the other
     hand, you may want to look deeper if there's a Q or similar tile to draw,
     that may result in one player getting stuck with it.
+
+    The default used to be 4. Whenever the endgame search runs out of plies
+    before the game ends, it now plays the rest out greedily and scores the
+    result, instead of reporting the spread as it stands. That makes shallow
+    searches much closer to correct, so the deepest ply -- which costs more
+    than all the shallower ones put together -- is usually not worth paying
+    for here, and the pre-endgame runs one endgame per candidate play per
+    tile draw. Raise it if you want proven answers rather than good ones.
 
     -threads 8
 

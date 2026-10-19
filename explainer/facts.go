@@ -1,0 +1,1735 @@
+package explainer
+
+import (
+	"fmt"
+	"maps"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
+	"github.com/rs/zerolog/log"
+)
+
+// The point of this file is that the model should never have to do arithmetic
+// or apply a threshold. Everything the prompt used to ask it to work out -
+// "is this a setup?", "is the leave balanced?", "is this a pre-endgame?",
+// "does the top play sacrifice equity for win%?" - is decided here, once, in
+// Go, and handed over as a fact. What is left for the model is choosing which
+// facts matter and saying them well, which is the part it is actually good at.
+
+// Thresholds. These used to live as prose in the prompt ("higher than 10-20%
+// chance ... could be a setup"), which meant the model had to compare numbers
+// and then be told to call a tool to check its work.
+const (
+	// Below 7 tiles in the bag exchanging is no longer permitted, which is
+	// what properly makes a position a pre-endgame.
+	preEndgameBagMax = 6
+	// More than 14 tiles in the bag and it is never a pre-endgame, so this is
+	// where the late-game card stops being worth sending.
+	lateGameBagMax = 14
+	// Below this many tiles in the bag we are in the second half of the game,
+	// where turnover starts to matter.
+	secondHalfBagMax = 30
+
+	// A follow-up play only counts as a setup if our best play is what makes
+	// it possible, and it is both likely enough and big enough to be worth
+	// setting up for.
+	setupMinPct   = 5.0
+	setupMinScore = 35
+
+	// What makes a follow-up worth a sentence is not its probability on its
+	// own - a flat percentage floor throws away exactly the plays a strong
+	// player plays *for*. A 6% shot at 130 points matters enormously; an 11%
+	// shot at 23 does not. So weigh the two against each other: a chance is
+	// big when it is a real jump over an ordinary turn (the ratio) and comes
+	// up often enough for that jump to be worth expected points (the upside).
+	//
+	// The two gates do complementary work, which is why both are here. The
+	// ratio throws out frequent small plays; the upside throws out rare ones
+	// that are only slightly above average. On a real position: a 1.61%
+	// chance at 44 points clears the ratio narrowly and fails the upside by
+	// twenty times over, while a 6% chance at ~127 clears both easily.
+	bigChanceScoreRatio = 1.25
+	bigChanceMinUpside  = 1.0
+
+	// Below this share of the follow-ups left over, there is nothing to
+	// measure a chance against: it *is* the turn. See chanceBaseline.
+	minChanceRestShare = 0.01
+
+	// A bingo chance worth remarking on. The average turn is around 20%.
+	ourBingoPctHigh = 35.0
+	oppBingoPctHigh = 30.0
+
+	// How far apart the candidates' next-score standard deviations have to be
+	// before volatility is a real difference between them rather than noise.
+	volatilitySpreadMin = 4.0
+
+	// Lanes are computed for this many candidates, and a lane has to carry at
+	// least this share of the sampled replies to be worth naming.
+	laneCandidates = 3
+	laneMinPct     = 4.0
+	lanesShown     = 4
+
+	// How much better the opponent's whole next turn has to be after one play
+	// than after another before the two plays differ in defense at all. Below
+	// these, whatever the lanes did, the opponent is left just as well off and
+	// there is no defensive claim to make.
+	defenseMeanMin   = 3.0
+	defenseBigPctMin = 5.0
+	// Expected points a lane has to account for before it is the place the
+	// difference lives, rather than one more lane that moved a little.
+	laneWorthMin = 3.0
+	// One finding is as much board as an explanation should carry.
+	boardFindingsShown = 1
+
+	// A leave-value gap below this is not something the losing play was going
+	// for; it is two leaves that are the same leave.
+	leaveValueMin = 0.5
+
+	// However many plays the caller simmed, only the top few are worth
+	// contrasting. The shell trims to 5 before it gets here; this bounds the
+	// prompt for anyone who doesn't.
+	candidatesShown = 8
+
+	// A tile is worth naming when the read moves the chance they hold one by
+	// this many percentage points. Measuring in expected tiles instead - the
+	// bar this replaced - made the threshold depend on how many tiles the
+	// opponent was holding, since a 3-tile rack has only three slots for any
+	// deviation to live in. A read taking the S from 9% to 34% came out as a
+	// quarter of a tile and was discarded, on a rack where that is a soul
+	// read. The shape of the rack is judged separately, by RackShape.Notable.
+	inferenceOutlierPoints = 15.0
+	// How far the read has to move the recommended play's win% before it is
+	// worth a sentence. Statistical significance isn't enough on its own: two
+	// well-converged sims have narrow intervals, so a third of a point can
+	// clear them while meaning nothing to a player.
+	inferenceMinWinShift = 1.0
+	// Win percentages this close to the ceiling or the floor mean the game is
+	// decided, and the read isn't going to change that whatever it says.
+	inferenceDecidedPct = 5.0
+)
+
+// InferredRacksShown is how many of the most likely leaves belong in a prompt.
+// The tail is a long list of near-identical racks and says nothing the top few
+// don't. Exported because the caller is what asks the rangefinder for them.
+const InferredRacksShown = 5
+
+// Phase is where in the game we are. It decides which advice applies.
+type Phase string
+
+const (
+	PhaseOpening Phase = "opening"
+	PhaseMidgame Phase = "midgame"
+	// PhaseLateMidgame is the stretch where the endgame is coming but the
+	// position is not yet a pre-endgame. Naming it keeps the model from
+	// reaching for pre-endgame language too early.
+	PhaseLateMidgame Phase = "late midgame (endgame approaching)"
+	PhasePreEndgame  Phase = "pre-endgame"
+)
+
+// FollowupFact is one of our sampled follow-up plays, with the judgments the
+// model used to have to make about it already made.
+type FollowupFact struct {
+	*stats.FollowupFamily
+	// WayRequirements runs parallel to Ways. Each entry is "none", "requires
+	// opponent play", or "requires us to play <best play> first". The last is
+	// what actually makes a setup a setup: the follow-up doesn't exist unless
+	// we make this play.
+	WayRequirements []string `json:"way_requirements"`
+	// IsSetup means our best play creates this opportunity.
+	IsSetup bool `json:"is_setup"`
+	// IsBigChance means the play is far bigger than an ordinary next turn and
+	// comes up often enough for that to be worth playing for, whether or not
+	// our play is what created it.
+	IsBigChance bool `json:"is_big_chance"`
+	// Upside is expected points above a next turn without this chance in it:
+	// how often the play comes up times how much bigger it is than the turns
+	// where it doesn't. See judgeChances for why the comparison is against
+	// those turns rather than against the mean of all of them.
+	Upside float64 `json:"upside"`
+	// Baseline is what those turns are worth.
+	Baseline float64 `json:"baseline"`
+}
+
+// AvgScore is the score across the ways of making this play, weighted by how
+// often each came up. A grouped play's MaxScore is only its luckiest route,
+// so judging the play by it would overstate what it is worth.
+func (f *FollowupFact) AvgScore() float64 {
+	total, weight := 0.0, 0.0
+	for _, w := range f.Ways {
+		total += w.Pct * float64(w.Score)
+		weight += w.Pct
+	}
+	if weight == 0 {
+		return float64(f.MaxScore)
+	}
+	return total / weight
+}
+
+// FollowupCluster is one opportunity, and every play that takes it. Plays that
+// start on the same square and run through the same tiles already on the board
+// are the same chance reached by different draws - 2F (QUAD)RUPLE, RUPLY,
+// RUPED and RUPOLE are one hook and four ways of filling it.
+//
+// The distinction is the whole reason this type exists. Judged one at a time
+// those four are 4.91%, 4.81%, 3.49% and 2.58% - each individually too rare to
+// build a turn around, and each rejected. Together they are 15.79% of the time
+// for an average of 48.6 points, which is the single biggest thing about the
+// position. A chance split across spellings is still one chance.
+type FollowupCluster struct {
+	// Anchor is where the opportunity is: the tiles it runs through and the
+	// lane they are in, like "(QUAD) in row 2", or a bare square when there is
+	// nothing on the board to name it by.
+	Anchor string `json:"anchor"`
+	// Through is the letters already on the board that every play here runs
+	// through, empty when the opportunity is an open square rather than a hook.
+	Through string `json:"through"`
+	// Plays are the ways of taking it, most likely first.
+	Plays []*FollowupFact `json:"plays"`
+	// Pct, MinScore and MaxScore cover the cluster as a whole.
+	Pct      float64 `json:"pct"`
+	AvgScore float64 `json:"avg_score"`
+	MinScore int     `json:"min_score"`
+	MaxScore int     `json:"max_score"`
+
+	IsSetup     bool    `json:"is_setup"`
+	IsBigChance bool    `json:"is_big_chance"`
+	Upside      float64 `json:"upside"`
+	// Baseline is what our next turn is worth when this chance does not come
+	// up, which is what Upside is measured over. It is not the play's mean
+	// next turn: a chance that comes up often is a large part of that mean,
+	// and measuring it against a number it dominates hides it. See
+	// chanceBaseline.
+	Baseline float64 `json:"baseline"`
+}
+
+// labelWords is how many of a cluster's plays get named in its label before it
+// gives up and counts the rest. Every play is listed underneath anyway; this is
+// only what a reader sees first.
+const labelWords = 3
+
+// Label names the cluster. One play is named by itself. Several sharing a hook
+// are named by the hook - "(QUAD) in row 2" says what the chance is. Several
+// sharing only a square have no hook to name, and a bare "J9" says nothing at
+// all, so those are named by their words: "J9 CAPERED / PEASCOD".
+func (c *FollowupCluster) Label() string {
+	if len(c.Plays) == 1 {
+		return c.Plays[0].Play
+	}
+	if c.Through != "" {
+		return c.Anchor
+	}
+	words := []string{}
+	for _, p := range c.Plays {
+		if len(words) == labelWords {
+			words = append(words, fmt.Sprintf("+%d more", len(c.Plays)-labelWords))
+			break
+		}
+		if fields := strings.Fields(p.Play); len(fields) > 1 {
+			words = append(words, fields[1])
+		}
+	}
+	return c.Anchor + " " + strings.Join(words, " / ")
+}
+
+// Grouped reports whether this is several plays rather than one.
+func (c *FollowupCluster) Grouped() bool { return len(c.Plays) > 1 }
+
+// Worthwhile reports whether the cluster is worth a sentence.
+func (c *FollowupCluster) Worthwhile() bool { return c.IsSetup || c.IsBigChance }
+
+// NeededDraws is every draw that reaches any play in the cluster, in the order
+// the plays came in and without repeats.
+func (c *FollowupCluster) NeededDraws() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range c.Plays {
+		for _, d := range p.NeededDraws {
+			if !seen[d] {
+				seen[d] = true
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// Requirement is what has to happen before the cluster's likeliest play is
+// available.
+func (c *FollowupCluster) Requirement() string {
+	if len(c.Plays) == 0 {
+		return "none"
+	}
+	return c.Plays[0].Requirement()
+}
+
+// Requirement is what has to happen before the play's most likely route is
+// available.
+func (f *FollowupFact) Requirement() string {
+	if len(f.WayRequirements) == 0 {
+		return "none"
+	}
+	return f.WayRequirements[0]
+}
+
+// Worthwhile reports whether the follow-up is worth a sentence: either our
+// play creates it, or it is big enough and likely enough to matter.
+func (f *FollowupFact) Worthwhile() bool {
+	return f.IsSetup || f.IsBigChance
+}
+
+// LaneComparison is where one candidate's sampled opponent replies land, and
+// how good those replies were board-wide.
+type LaneComparison struct {
+	Play  string
+	Best  bool
+	Stats *stats.LaneStats
+	Reply ReplyProfile
+}
+
+// ReplyProfile is how good the opponent's next turn is after a candidate,
+// taking the whole board at once. The lanes say where their replies landed;
+// this says whether the replies were any good, and it is the only thing a
+// claim about defense can rest on. The opponent answers somewhere every turn,
+// so a lane falling quiet redistributes their plays - on its own it takes
+// nothing away from them.
+type ReplyProfile struct {
+	// MeanScore and BingoPct are the simulation's own figures, so they agree
+	// with the ply table.
+	MeanScore float64 `json:"mean_score"`
+	BingoPct  float64 `json:"bingo_pct"`
+	// BigPct is the share of replies worth stats.BigReplyScore or more - what
+	// an open board actually costs, as against a point or two on the mean. It
+	// is measured over the logged replies, the sample the lanes come from.
+	BigPct float64 `json:"big_pct"`
+	Known  bool    `json:"known"`
+}
+
+// DefenseVerdict is what the board-wide reply profiles say about two plays.
+type DefenseVerdict int
+
+const (
+	// DefenseUnknown is a pair we can't compare, DefenseFlat one where the
+	// opponent does about as well either way - whatever the lanes look like.
+	DefenseUnknown DefenseVerdict = iota
+	DefenseFlat
+	// DefenseTighter means the first play holds the opponent to less;
+	// DefenseLooser means it gives them more.
+	DefenseTighter
+	DefenseLooser
+)
+
+// BoardMechanism is how a lane came to be quiet after one play and busy after
+// another, when the two plays' own squares settle it. Which play sits in the
+// lane does not on its own say which way the traffic went - a play in a lane
+// can take the one scoring spot in it or hand the opponent something to hook
+// onto - so the mechanism is read off the geometry and the measured shares
+// together, never off the geometry alone.
+type BoardMechanism int
+
+const (
+	MechanismNone BoardMechanism = iota
+	// MechanismTakesSpot: the play that leaves the lane quiet is played in
+	// that lane itself. It used the spot up.
+	MechanismTakesSpot
+	// MechanismCrosses: the play that leaves the lane quiet puts tiles across
+	// it from the perpendicular lane.
+	MechanismCrosses
+	// MechanismOpens: the lane is busy only after the play whose own tiles run
+	// through it, so the replies there may be answering those tiles rather
+	// than anything the other play failed to stop.
+	MechanismOpens
+)
+
+// BoardFinding is one thing the board actually does: where the opponent's
+// scoring lived, what the recommended play does to it, and what that was worth
+// across the whole board.
+//
+// The prompt used to carry the lane tables themselves and a set of rules for
+// reading them. That was the wrong shape. Every play makes some lane quieter
+// than some other play, so a table of lane shares is raw material for a
+// defensive story about any play at all, and the rules were an invitation to
+// go looking. What ships now is the conclusion, already gated: no finding
+// means the board is not the reason, and there is nothing left to narrate.
+type BoardFinding struct {
+	Rival string `json:"rival"`
+	// Tighter is true when the best play is the one holding the opponent down.
+	Tighter bool `json:"tighter"`
+	// Best and RivalReply are the two board-wide profiles the finding rests on.
+	Best       ReplyProfile `json:"best"`
+	RivalReply ReplyProfile `json:"rival_reply"`
+	// Lane is where the difference lives, empty when no single lane carries
+	// enough of it to name. The shares and means are that lane's, after each
+	// of the two plays.
+	Lane                string  `json:"lane,omitempty"`
+	BestPct, RivalPct   float64 `json:"-"`
+	BestMean, RivalMean float64 `json:"-"`
+	// Mechanism is how the lane got that way, and MechanismPlay is the play
+	// whose own tiles are in it - the one taking the spot, or the one the
+	// replies are hooking onto.
+	Mechanism     BoardMechanism `json:"mechanism"`
+	MechanismPlay string         `json:"mechanism_play,omitempty"`
+}
+
+// CompareDefense is the gate on every positional claim in the prompt. Two
+// plays differ in defense when the opponent's whole next turn differs: a lower
+// mean, or fewer of the big replies that openness is really about.
+func CompareDefense(best, rival ReplyProfile) DefenseVerdict {
+	if !best.Known || !rival.Known {
+		return DefenseUnknown
+	}
+	meanGap, bigGap := best.MeanScore-rival.MeanScore, best.BigPct-rival.BigPct
+	switch {
+	case meanGap <= -defenseMeanMin || bigGap <= -defenseBigPctMin:
+		return DefenseTighter
+	case meanGap >= defenseMeanMin || bigGap >= defenseBigPctMin:
+		return DefenseLooser
+	}
+	return DefenseFlat
+}
+
+// InferenceFacts is what the opponent's last play gave away, and whether it
+// changed anything. Both halves matter: a read that says something startling
+// about their rack but leaves the recommendation untouched is a curiosity, not
+// a lesson, and neither half is worth prompt on its own.
+type InferenceFacts struct {
+	Summary *rangefinder.InferenceSummary `json:"summary"`
+	// Outliers are the tiles the read actually says something about, ordered
+	// by how far it moved them.
+	Outliers []rangefinder.TileDeviation `json:"outliers"`
+	// ShapeRead is set when the read is about the makeup of the rack rather
+	// than about any one tile. It is a separate finding because it can be the
+	// only one: a read can leave every letter within a tenth of a tile of
+	// chance and still say, unmistakably, that they kept consonants.
+	ShapeRead *rangefinder.RackShape `json:"shape_read,omitempty"`
+
+	// Baseline is the same plays simmed without the read, so we can say what
+	// the read changed rather than only what it concluded.
+	Baseline []montecarlo.CandidateStats `json:"-"`
+	// BaselineBest is the play we would have recommended knowing nothing.
+	BaselineBest *montecarlo.CandidateStats `json:"baseline_best"`
+	// BaselineOfBest is the recommended play's own showing in that sim, which
+	// is what WinPctShift is measured against. Nil if it wasn't simmed there.
+	BaselineOfBest *montecarlo.CandidateStats `json:"baseline_of_best"`
+
+	// ChangedTopPlay is the strongest thing a read can do: recommend a
+	// different play than we would have made without it.
+	ChangedTopPlay bool `json:"changed_top_play"`
+	// WinPctShift is the recommended play's win% with the read minus without.
+	WinPctShift float64 `json:"win_pct_shift"`
+	// Established is true when that shift is outside both sims' confidence
+	// intervals. The two runs stop independently, so they aren't equally
+	// sampled - non-overlapping intervals still means a real difference, but
+	// the size of it shouldn't be read too precisely.
+	Established bool `json:"established"`
+	// Decisive is Established plus a practical significance test. A shift can
+	// be statistically real and mean nothing: in a position already won, win
+	// probabilities saturate, their intervals shrink to almost nothing, and a
+	// swing from 97.9% to 97.0% clears the statistical bar while changing
+	// nothing about how to play. Decisive is what gates the subject.
+	Decisive bool `json:"decisive"`
+
+	// Informative is true when the posterior deviates from chance enough to
+	// be worth a sentence.
+	Informative bool `json:"informative"`
+	// Matters gates the whole subject. An uninformative read, or one that
+	// moves nothing, is not mentioned at all.
+	Matters bool `json:"matters"`
+}
+
+// Deltas is the head-to-head arithmetic between the best play and the one it
+// is being contrasted with. Every figure is best minus rival, so a positive
+// number is the best play's advantage.
+type Deltas struct {
+	WinPct     float64 `json:"win_pct"`
+	Equity     float64 `json:"equity"`
+	Score      int     `json:"score"`
+	LeaveValue float64 `json:"leave_value"`
+	// The opponent's reply, one ply out: a negative OppMeanScore means the
+	// best play holds them to less.
+	OppMeanScore float64 `json:"opp_mean_score"`
+	OppStdev     float64 `json:"opp_stdev"`
+	OppBingoPct  float64 `json:"opp_bingo_pct"`
+	// Our own next turn, two plies out.
+	OurMeanScore float64 `json:"our_mean_score"`
+	OurBingoPct  float64 `json:"our_bingo_pct"`
+	// BestUpside and RivalUpside are the expected points each play's big
+	// follow-up chances add to its next turn, over a next turn without them.
+	// The gap between them is often the whole reason one play wins, and it is
+	// invisible in every other figure here.
+	BestUpside  float64 `json:"best_upside"`
+	RivalUpside float64 `json:"rival_upside"`
+	// ChancesShare and OrdinaryShare split OurMeanScore into the part that is
+	// the two plays' big chances and the part that is their ordinary turns.
+	// They add to OurMeanScore, which is the whole point of them: without the
+	// split, the mean difference and the upside difference read as two
+	// separate arguments for the same play when they are one argument counted
+	// twice. SplitKnown is false when a play has no second ply to split.
+	ChancesShare  float64 `json:"chances_share"`
+	OrdinaryShare float64 `json:"ordinary_share"`
+	SplitKnown    bool    `json:"split_known"`
+	// Established is true when the two win% confidence intervals don't
+	// overlap. When it is false the simulation has not actually shown one
+	// play to be better, and saying so would be overclaiming.
+	Established bool `json:"established"`
+}
+
+// Comparison answers "why is this better than the move I made?". The play in
+// question is normally the one the player actually made, taken from the game
+// history; it can also be named outright.
+type Comparison struct {
+	// Play is what we were asked to contrast the best play with.
+	Play string `json:"play"`
+	// FromHistory is true when it is the move the player actually made, as
+	// opposed to one they named.
+	FromHistory bool `json:"from_history"`
+	// WasBest is true when the play we were asked about *is* the top play. It
+	// then has nothing to be contrasted with, so Rival below is the runner-up
+	// instead and there is still something to learn.
+	WasBest bool `json:"was_best"`
+
+	// Rival is the candidate actually contrasted against.
+	Rival          *montecarlo.CandidateStats `json:"rival"`
+	RivalPlayStats *stats.PlayStats           `json:"-"`
+	RivalFollowups []*FollowupFact            `json:"rival_followups"`
+	// RivalChances is RivalFollowups gathered into opportunities.
+	RivalChances []*FollowupCluster `json:"rival_chances"`
+	// TypicalNextScore is what our next turn averages after the rival, and
+	// ChanceBaseline is what it is worth when none of the rival's chances come
+	// up. See judgeChances.
+	TypicalNextScore float64 `json:"typical_next_score"`
+	ChanceBaseline   float64 `json:"chance_baseline"`
+
+	Deltas Deltas `json:"deltas"`
+
+	// RivalStrengths is every measure the reader's play leads on. Empty means
+	// it leads on none of them, which is a finding of its own.
+	RivalStrengths []string `json:"rival_strengths"`
+
+	// OnlyBest and OnlyRival are the worthwhile follow-up plays each side has
+	// that the other doesn't - the concrete "what you gave up" list.
+	OnlyBest  []*FollowupFact `json:"only_best"`
+	OnlyRival []*FollowupFact `json:"only_rival"`
+}
+
+// Flags are the yes/no answers that decide which concept cards get sent. Every
+// one of them replaces a paragraph that used to ship on every single call.
+type Flags map[string]bool
+
+// knownFlags is every flag a concept card may trigger on. A card whose trigger
+// isn't here would silently never ship, and a flag nothing triggers on is work
+// we're throwing away, so tests check the cards against this list in both
+// directions.
+var knownFlags = []string{
+	"always",
+	"behind_early",
+	"bingo_matters",
+	"comparison_was_best",
+	"equity_sacrifice",
+	"has_big_chance",
+	"has_comparison",
+	"has_grouped_followup",
+	"has_lane_data",
+	"has_inference",
+	"has_needed_draw",
+	"has_setup",
+	"inference_changed_play",
+	"leave_matters",
+	"opp_bingo_pct_high",
+	"pre_endgame",
+	"turnover_relevant",
+	"uses_blank",
+	"volatility_matters",
+}
+
+// PositionFacts is everything we know about the position, computed rather than
+// described.
+type PositionFacts struct {
+	Rack        string
+	Lexicon     string
+	BagCount    int
+	UnseenCount int
+	OppRackSize int
+	Spread      int
+	Phase       Phase
+
+	UnseenVowels     int
+	UnseenConsonants int
+	UnseenBlanks     int
+	UnseenPowerTiles []string
+
+	Iterations int
+	Candidates []montecarlo.CandidateStats
+	Best       *montecarlo.CandidateStats
+
+	PlayStats *stats.PlayStats
+	Followups []*FollowupFact
+	// Chances is Followups gathered into opportunities: the plays that take the
+	// same hook are one chance, and are judged and reported as one. Ordered by
+	// upside, biggest first.
+	Chances []*FollowupCluster
+	Lanes   []*LaneComparison
+	// BoardFindings is what the board does, already decided. Empty means the
+	// board is not a reason for the play, and nothing about it is sent.
+	BoardFindings []*BoardFinding
+	// TypicalNextScore is what our next turn averages after the best play,
+	// chances and all.
+	TypicalNextScore float64
+	// ChanceBaseline is what that turn is worth when none of the chances come
+	// up, which is what every chance is measured against - see judgeChances.
+	// The gap between the two is what the chances are worth.
+	ChanceBaseline float64
+
+	// BestByEquity is the candidate with the highest equity, which is not
+	// always the one with the highest win%.
+	BestByEquity *montecarlo.CandidateStats
+
+	// Comparison is set when we were asked why the best play beats some other
+	// play - usually the one the player actually made.
+	Comparison *Comparison
+
+	// Inference is set when the position was analyzed with a read on the
+	// opponent's rack. It is nil unless `explain -infer` asked for one.
+	Inference *InferenceFacts
+
+	Flags Flags
+}
+
+// ComparisonRequest names a play the best one should be contrasted with.
+type ComparisonRequest struct {
+	Move *move.Move
+	// FromHistory distinguishes "the move you actually made", which we found
+	// ourselves, from one the user named.
+	FromHistory bool
+}
+
+// InferenceInput is a read on the opponent's rack, together with the same
+// plays simmed without it. Both are needed: the read on its own can't say
+// what it changed.
+type InferenceInput struct {
+	Summary *rangefinder.InferenceSummary
+	// Baseline is CandidateStats from a sim run with inference off, best
+	// win% first.
+	Baseline []montecarlo.CandidateStats
+}
+
+// BuildFacts assembles the fact pack for the current position from a finished
+// simulation, and keeps it as what the tools answer from. It must be called
+// after the sim has stopped. A non-nil req asks for a head-to-head against
+// that play; the simulation must already have evaluated it, which is what
+// Simmer.AvoidPruningMoves is for. A non-nil inf adds what a read on the
+// opponent's rack changed, if anything.
+func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats,
+	req *ComparisonRequest, inf *InferenceInput) (*PositionFacts, error) {
+	if a.game == nil {
+		return nil, fmt.Errorf("no game set")
+	}
+	candidates := sim.CandidateStats()
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no simmed plays")
+	}
+	candidates, compareIdx := trimCandidates(candidates, a.findCandidate(candidates, req))
+
+	f := &PositionFacts{
+		Lexicon:    a.game.LexiconName(),
+		Iterations: sim.Iterations(),
+		Candidates: candidates,
+		Best:       &candidates[0],
+		Flags:      Flags{},
+	}
+	a.addPositionFacts(f)
+
+	f.BestByEquity = &candidates[0]
+	for i := range candidates {
+		if candidates[i].Equity > f.BestByEquity.Equity {
+			f.BestByEquity = &candidates[i]
+		}
+	}
+
+	var err error
+	if f.PlayStats, err = ss.CalculatePlayStatsData(f.Best.Play); err != nil {
+		return nil, fmt.Errorf("failed to analyze follow-up plays: %w", err)
+	}
+	f.TypicalNextScore = typicalNextScore(f.Best)
+	followups, err := a.analyzeFollowups(f.Best.Play, f.TypicalNextScore, f.PlayStats)
+	if err != nil {
+		return nil, err
+	}
+	f.SetFollowups(followups)
+	if compareIdx >= 0 {
+		if f.Comparison, err = a.buildComparison(f, req, compareIdx, ss); err != nil {
+			return nil, err
+		}
+	}
+	f.Lanes = laneComparisons(ss, candidates, f.rivalPlay())
+	f.BoardFindings = buildBoardFindings(f.Lanes, f.rivalPlay())
+	f.Inference = buildInference(f, inf)
+
+	f.Flags = computeFlags(f)
+	a.facts = f
+	return f, nil
+}
+
+// findCandidate locates the play we were asked to compare against. Matching is
+// on the move rather than its notation: on an empty board a vertical opener is
+// a transposition of its horizontal twin, and the simulation only ever holds
+// one of the two.
+func (a *Analyzer) findCandidate(candidates []montecarlo.CandidateStats, req *ComparisonRequest) int {
+	if req == nil || req.Move == nil {
+		return -1
+	}
+	checkTrans := a.game.Board().IsEmpty()
+	for i := range candidates {
+		if candidates[i].Move != nil && candidates[i].Move.Equals(req.Move, checkTrans, true) {
+			return i
+		}
+	}
+	// AvoidPruningMoves should have put it in the sim, so this means the
+	// caller didn't ask for it, or the play doesn't fit this position.
+	log.Warn().Str("play", req.Move.ShortDescription()).
+		Msg("play to compare against was not simulated; skipping the comparison")
+	return -1
+}
+
+// trimCandidates keeps the top few plays for contrast, plus - wherever it
+// ranked - the one we were asked to compare against.
+func trimCandidates(candidates []montecarlo.CandidateStats, compareIdx int) ([]montecarlo.CandidateStats, int) {
+	if len(candidates) <= candidatesShown {
+		return candidates, compareIdx
+	}
+	kept := append([]montecarlo.CandidateStats{}, candidates[:candidatesShown]...)
+	if compareIdx >= candidatesShown {
+		kept = append(kept, candidates[compareIdx])
+		compareIdx = len(kept) - 1
+	}
+	return kept, compareIdx
+}
+
+// rivalPlay is the play the board-dynamics section should cover on top of the
+// top candidates, or "" when there is no comparison.
+func (f *PositionFacts) rivalPlay() string {
+	if f.Comparison == nil || f.Comparison.Rival == nil {
+		return ""
+	}
+	return f.Comparison.Rival.Play
+}
+
+// buildComparison works out the head-to-head between the best play and the one
+// we were asked about, giving the latter the same follow-up analysis the best
+// play gets - otherwise there is no way to say what it gave up.
+func (a *Analyzer) buildComparison(f *PositionFacts, req *ComparisonRequest, idx int,
+	ss *stats.SimStats) (*Comparison, error) {
+
+	c := &Comparison{
+		Play:        f.Candidates[idx].Play,
+		FromHistory: req.FromHistory,
+		WasBest:     idx == 0,
+	}
+	rivalIdx := idx
+	if c.WasBest {
+		// They already found the top play, so contrast with the runner-up
+		// instead: there is still something to learn from what it beat.
+		if len(f.Candidates) < 2 {
+			return c, nil
+		}
+		rivalIdx = 1
+	}
+	c.Rival = &f.Candidates[rivalIdx]
+
+	var err error
+	if c.RivalPlayStats, err = ss.CalculatePlayStatsData(c.Rival.Play); err != nil {
+		return nil, fmt.Errorf("failed to analyze follow-up plays for %s: %w", c.Rival.Play, err)
+	}
+	// The rival's follow-ups are judged against the rival, and against what an
+	// ordinary turn is worth after *it*: a setup is a setup relative to the
+	// play that would create it, and a chance is big relative to what else
+	// that play leads to.
+	c.TypicalNextScore = typicalNextScore(c.Rival)
+	if c.RivalFollowups, err = a.analyzeFollowups(c.Rival.Play, c.TypicalNextScore,
+		c.RivalPlayStats); err != nil {
+		return nil, err
+	}
+	c.RivalChances = clusterFollowups(c.RivalFollowups, c.Rival.Play, c.TypicalNextScore)
+	c.ChanceBaseline = chancesBaseline(c.RivalChances, c.TypicalNextScore)
+	c.Deltas = a.deltas(f, c.Rival, c.RivalPlayStats)
+	c.Deltas.BestUpside = totalUpside(f.Chances)
+	c.Deltas.RivalUpside = totalUpside(c.RivalChances)
+	// Each play's upside is the gap between its own mean next turn and its own
+	// chanceless one, so the difference between the two upsides is that much
+	// of the next-turn difference, and the rest of it is the plays' ordinary
+	// turns. Taking the ordinary part as the remainder rather than as its own
+	// subtraction keeps the split adding up to the figure above it even when a
+	// baseline has been clamped.
+	c.Deltas.ChancesShare = c.Deltas.BestUpside - c.Deltas.RivalUpside
+	c.Deltas.OrdinaryShare = c.Deltas.OurMeanScore - c.Deltas.ChancesShare
+	c.Deltas.SplitKnown = f.TypicalNextScore > 0 && c.TypicalNextScore > 0
+	c.OnlyBest, c.OnlyRival = followupDiff(f.Followups, c.RivalFollowups)
+	c.RivalStrengths = rivalStrengths(f, c)
+	return c, nil
+}
+
+// rivalStrengths is what the reader's play actually had going for it, worked
+// out rather than left to be guessed. Explaining a play they lost with means
+// saying what they were going for, and a model asked for that with only the
+// losing figures in front of it will supply something plausible - "it was
+// going for the bigger score" about a play that scored seven fewer. Every
+// measure the rival genuinely leads on is here, and if it leads on none, that
+// is the honest answer and it is said instead.
+func rivalStrengths(f *PositionFacts, c *Comparison) []string {
+	d, out := c.Deltas, []string{}
+	if d.Score < 0 {
+		out = append(out, fmt.Sprintf("it scores %d more (%d vs %d)",
+			-d.Score, c.Rival.Score, f.Best.Score))
+	}
+	if d.LeaveValue < -leaveValueMin {
+		out = append(out, fmt.Sprintf("it keeps a leave worth %.2f more (%s vs %s)",
+			-d.LeaveValue, dashIfEmpty(c.Rival.Leave), dashIfEmpty(f.Best.Leave)))
+	}
+	if d.OppMeanScore > 0 {
+		out = append(out, fmt.Sprintf("it holds the opponent to %.1f fewer next turn", d.OppMeanScore))
+	}
+	if d.RivalUpside > d.BestUpside {
+		out = append(out, fmt.Sprintf("its follow-up chances are worth %.1f more",
+			d.RivalUpside-d.BestUpside))
+	}
+	if d.OurBingoPct < 0 {
+		out = append(out, fmt.Sprintf("we bingo %.1f%% more often next turn", -d.OurBingoPct))
+	}
+	return out
+}
+
+// buildInference works out whether the read on the opponent's rack is worth
+// telling the player about. Two things have to be true. The posterior has to
+// deviate from chance by enough to describe - a flat one tells us nothing -
+// and it has to have changed the analysis, either by recommending a different
+// play or by moving the recommended play's win% outside both sims' intervals.
+// A read that is interesting but changes nothing is a curiosity.
+func buildInference(f *PositionFacts, in *InferenceInput) *InferenceFacts {
+	if in == nil || in.Summary == nil {
+		return nil
+	}
+	inf := &InferenceFacts{Summary: in.Summary}
+	if in.Summary.Shape.Notable() {
+		inf.ShapeRead = in.Summary.Shape
+	}
+	for _, t := range in.Summary.Tiles {
+		if abs(t.HoldsPct-t.ChanceHoldsPct) >= inferenceOutlierPoints {
+			inf.Outliers = append(inf.Outliers, t)
+		}
+	}
+	inf.Informative = len(inf.Outliers) > 0 || inf.ShapeRead != nil
+
+	inf.Baseline = in.Baseline
+	if len(inf.Baseline) > 0 {
+		inf.BaselineBest = &inf.Baseline[0]
+		inf.ChangedTopPlay = !samePlay(f.Best, inf.BaselineBest)
+		for i := range inf.Baseline {
+			if samePlay(f.Best, &inf.Baseline[i]) {
+				inf.BaselineOfBest = &inf.Baseline[i]
+				break
+			}
+		}
+	}
+	if b := inf.BaselineOfBest; b != nil {
+		inf.WinPctShift = f.Best.WinPct - b.WinPct
+		shift := abs(inf.WinPctShift)
+		inf.Established = shift > f.Best.WinPctCI+b.WinPctCI
+		// A won game is won with or without the read. Once both figures are
+		// up against the ceiling (or the floor) what is left of the win
+		// probability is jitter in its last decimal places, and its interval
+		// has shrunk to match - the same reason the simmer refuses to rank
+		// plays by win probability in that regime.
+		inf.Decisive = inf.Established && shift >= inferenceMinWinShift &&
+			!gameDecided(f.Best.WinPct, b.WinPct)
+	}
+
+	inf.Matters = inf.Informative && (inf.ChangedTopPlay || inf.Decisive)
+	return inf
+}
+
+// gameDecided reports whether both win percentages are so lopsided that the
+// game is over either way.
+func gameDecided(a, b float64) bool {
+	bothWon := a > 100-inferenceDecidedPct && b > 100-inferenceDecidedPct
+	bothLost := a < inferenceDecidedPct && b < inferenceDecidedPct
+	return bothWon || bothLost
+}
+
+// samePlay compares two candidates by the move rather than its notation,
+// since the two sims render the same play from the same board and a string
+// compare would work - but the move is what actually identifies it.
+func samePlay(a, b *montecarlo.CandidateStats) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Move != nil && b.Move != nil {
+		return a.Move.Equals(b.Move, false, true)
+	}
+	return a.Play == b.Play
+}
+
+// totalUpside adds up what a play's big follow-up chances are worth. Chances
+// that didn't clear the bar contribute nothing: a long tail of slightly
+// above-average plays isn't what anyone means by upside.
+func totalUpside(cs []*FollowupCluster) float64 {
+	total := 0.0
+	for _, c := range cs {
+		if c.IsBigChance {
+			total += c.Upside
+		}
+	}
+	return total
+}
+
+// deltas is best minus rival throughout, so a positive number always reads as
+// the best play's advantage.
+func (a *Analyzer) deltas(f *PositionFacts, rival *montecarlo.CandidateStats,
+	rivalStats *stats.PlayStats) Deltas {
+
+	best := f.Best
+	d := Deltas{
+		WinPct: best.WinPct - rival.WinPct,
+		Equity: best.Equity - rival.Equity,
+		Score:  best.Score - rival.Score,
+		// Non-overlapping 99% intervals. When they do overlap the simulation
+		// has not shown one play to be better, and the explanation should not
+		// pretend otherwise.
+		Established: best.WinPct-best.WinPctCI > rival.WinPct+rival.WinPctCI,
+	}
+	bestLeave, bestErr := a.EvaluateLeave(best.Leave)
+	rivalLeave, rivalErr := a.EvaluateLeave(rival.Leave)
+	if bestErr == nil && rivalErr == nil {
+		d.LeaveValue = bestLeave - rivalLeave
+	}
+	d.OppMeanScore, d.OppStdev, d.OppBingoPct = plyDelta(best, rival, 1)
+	d.OurMeanScore, _, d.OurBingoPct = plyDelta(best, rival, 2)
+	return d
+}
+
+func plyDelta(best, rival *montecarlo.CandidateStats, ply int) (mean, stdev, bingo float64) {
+	b, r := plyStats(best, ply), plyStats(rival, ply)
+	if b == nil || r == nil {
+		return 0, 0, 0
+	}
+	return b.MeanScore - r.MeanScore, b.Stdev - r.Stdev, b.BingoPct - r.BingoPct
+}
+
+func plyStats(c *montecarlo.CandidateStats, ply int) *montecarlo.CandidatePlyStats {
+	for i := range c.Plies {
+		if c.Plies[i].Ply == ply {
+			return &c.Plies[i]
+		}
+	}
+	return nil
+}
+
+// followupDiff lists the worthwhile follow-ups each play has that the other's
+// sample doesn't show. This is the concrete "what you gave up" list, and it is
+// about what the simulation sampled - a play missing from one side's table is
+// not proof that it is impossible there.
+func followupDiff(best, rival []*FollowupFact) (onlyBest, onlyRival []*FollowupFact) {
+	key := func(f *FollowupFact) string { return foldKey(f.Play, true) }
+	seen := func(fs []*FollowupFact) map[string]bool {
+		m := map[string]bool{}
+		for _, f := range fs {
+			m[key(f)] = true
+		}
+		return m
+	}
+	inBest, inRival := seen(best), seen(rival)
+	for _, f := range best {
+		if f.Worthwhile() && !inRival[key(f)] {
+			onlyBest = append(onlyBest, f)
+		}
+	}
+	for _, f := range rival {
+		if f.Worthwhile() && !inBest[key(f)] {
+			onlyRival = append(onlyRival, f)
+		}
+	}
+	return onlyBest, onlyRival
+}
+
+// addPositionFacts fills in the rack, the score, and what is left unseen -
+// the same things the shell's `gamestate` prose covers, as data.
+func (a *Analyzer) addPositionFacts(f *PositionFacts) {
+	g := a.game
+	ld := g.Bag().LetterDistribution()
+
+	f.BagCount = g.Bag().TilesRemaining()
+	f.OppRackSize = int(g.RackFor(g.NextPlayer()).NumTiles())
+	f.UnseenCount = f.BagCount + f.OppRackSize
+	f.Rack = g.RackFor(g.PlayerOnTurn()).TilesOn().UserVisible(g.Alphabet())
+	f.Spread = g.CurrentSpread()
+
+	switch {
+	case f.BagCount <= preEndgameBagMax:
+		f.Phase = PhasePreEndgame
+	case f.BagCount <= lateGameBagMax:
+		f.Phase = PhaseLateMidgame
+	case g.Board().IsEmpty():
+		f.Phase = PhaseOpening
+	default:
+		f.Phase = PhaseMidgame
+	}
+
+	// Unseen means the bag plus whatever the opponent is holding: from our
+	// side of the table those are the same thing.
+	unseen := append(g.Bag().Peek(), g.RackFor(g.NextPlayer()).TilesOn()...)
+	for _, tile := range unseen {
+		switch {
+		case tile == 0:
+			f.UnseenBlanks++
+		case tile.IsVowel(ld):
+			f.UnseenVowels++
+		default:
+			f.UnseenConsonants++
+		}
+		if ld.Score(tile) > 5 || tile == 0 || tile.UserVisible(ld.TileMapping(), false) == "S" {
+			f.UnseenPowerTiles = append(f.UnseenPowerTiles, tile.UserVisible(ld.TileMapping(), false))
+		}
+	}
+	sort.Strings(f.UnseenPowerTiles)
+}
+
+// analyzeFollowups works out, for each sampled follow-up play, whether it is
+// available anyway or whether something has to happen first - most importantly
+// whether it only exists because of the play we're recommending. That last
+// case is the difference between a setup and a coincidence, and it can only be
+// answered by putting the play on the board and looking.
+func (a *Analyzer) analyzeFollowups(bestPlay string, typicalScore float64,
+	ps *stats.PlayStats) ([]*FollowupFact, error) {
+
+	// Play our best play once and reuse the resulting position for every
+	// follow-up, rather than replaying it per play as the old tool did.
+	normalizedBestPlay := stats.Normalize(strings.TrimSpace(bestPlay))
+	ourBestPlay, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(normalizedBestPlay), false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse our best play %s: %w", normalizedBestPlay, err)
+	}
+	after := a.game.Copy()
+	if err := after.PlayMove(ourBestPlay, false, 0); err != nil {
+		return nil, fmt.Errorf("failed to play our best play %s: %w", normalizedBestPlay, err)
+	}
+	// After our play it is the opponent's turn, so our rack is the other
+	// player's.
+	ourRack := after.RackLettersFor(1 - after.PlayerOnTurn())
+
+	out := make([]*FollowupFact, 0, len(ps.OurFollowups))
+	for _, fam := range ps.OurFollowups {
+		fact := &FollowupFact{FollowupFamily: fam}
+		for _, way := range fam.Ways {
+			if !fam.TilePlay {
+				// Nothing has to happen first for an exchange or a pass. The
+				// follow-up table only holds tile plays today; this keeps the
+				// coordinate parsing below from ever seeing one anyway.
+				fact.WayRequirements = append(fact.WayRequirements, "none")
+				continue
+			}
+			fact.WayRequirements = append(fact.WayRequirements,
+				a.requirementFor(bestPlay, ourRack, after, way))
+		}
+		fact.IsSetup = fact.Requirement() == requiresBestPlay(bestPlay) &&
+			fam.Pct >= setupMinPct && fam.MaxScore >= setupMinScore
+		out = append(out, fact)
+	}
+	// The plays are weighed as a set, since each of them is a share of the
+	// same distribution of next turns. clusterFollowups weighs the same
+	// distribution again, cut into opportunities rather than into spellings.
+	judgeChances(judgeable(out), typicalScore)
+	return out, nil
+}
+
+func requiresBestPlay(bestPlay string) string {
+	return "requires us to play " + strings.TrimSpace(bestPlay) + " first"
+}
+
+// bigChance decides whether a follow-up is one of the plays worth building a
+// turn around, and by how much. meanScore is what our next turn averages after
+// this play, so every chance is judged against the alternative the player
+// actually faces rather than against a fixed number of points.
+//
+// The old rule here was a flat "at least 10% of the time and at least 40
+// points", which quietly discarded the most interesting plays on the board: a
+// 6% chance at 130 failed it, while an 11% chance at 23 passed. Weighing size
+// against frequency is the whole point.
+func bigChance(f *FollowupFact, meanScore float64) (upside float64, big bool) {
+	return bigChanceOf(f.Pct, f.AvgScore(), meanScore)
+}
+
+// bigChanceOf is the same judgment on bare numbers, so that a cluster of plays
+// taking one opportunity is weighed exactly as a single play is. It weighs the
+// chance on its own, which is how judgeChances seeds itself; the figures that
+// reach the prompt come from there, with every chance taken out at once.
+func bigChanceOf(pct, score, meanScore float64) (upside float64, big bool) {
+	if meanScore <= 0 {
+		// No baseline to judge against - the sim didn't look far enough
+		// ahead - so claim nothing.
+		return 0, false
+	}
+	baseline := chanceBaseline(pct, score, meanScore)
+	return upsideOver(pct, score, baseline), isBigChance(pct, score, baseline)
+}
+
+// upsideOver is expected points: how often the chance comes up times how much
+// bigger it is than a turn without it.
+func upsideOver(pct, score, baseline float64) float64 {
+	return pct / 100 * (score - baseline)
+}
+
+// isBigChance is the pair of gates, against whatever baseline the caller has
+// decided a turn without this chance is worth.
+func isBigChance(pct, score, baseline float64) bool {
+	return score >= baseline*bigChanceScoreRatio &&
+		upsideOver(pct, score, baseline) >= bigChanceMinUpside
+}
+
+// judged is one thing being weighed as a chance: a single follow-up play, or a
+// cluster of plays taking one opportunity between them. Both are a share of
+// the same distribution of next turns, so both are weighed by the same rule.
+type judged interface {
+	// shareAndScore is how often this comes up, as a percentage of our
+	// sampled follow-ups, and what it scores when it does.
+	shareAndScore() (pct, score float64)
+	judge(baseline, upside float64, big bool)
+}
+
+func (f *FollowupFact) shareAndScore() (float64, float64) { return f.Pct, f.AvgScore() }
+
+func (f *FollowupFact) judge(baseline, upside float64, big bool) {
+	f.Baseline, f.Upside, f.IsBigChance = baseline, upside, big
+}
+
+func (c *FollowupCluster) shareAndScore() (float64, float64) { return c.Pct, c.AvgScore }
+
+func (c *FollowupCluster) judge(baseline, upside float64, big bool) {
+	c.Baseline, c.Upside, c.IsBigChance = baseline, upside, big
+}
+
+func judgeable[T judged](items []T) []judged {
+	out := make([]judged, len(items))
+	for i := range items {
+		out[i] = items[i]
+	}
+	return out
+}
+
+// judgeChances weighs a play's follow-ups against the turns where none of its
+// chances came up, marks the ones worth building a turn around, and returns
+// what those chanceless turns are worth.
+//
+// One baseline serves every chance, and that is the point of doing this to the
+// set rather than to each chance in turn. A chance taken out of the mean on
+// its own is still being measured against turns that contain every *other*
+// chance, so two big hooks each hide behind the other: two 40%-at-60-points
+// hooks over 20-point junk report five points of upside apiece when the pair
+// is worth thirty-two. Taking them out together is what makes the upsides add
+// up, and they add up exactly - to the mean minus the baseline, the whole gap
+// between the turn this play gets and the turn it would get with none of its
+// chances in it.
+//
+// The set has to be seeded with the one-at-a-time judgment rather than with
+// the mean, or the case this all exists for never starts. Judged against a
+// mean it makes up most of, a 63% hook does not qualify; nothing is excluded,
+// the baseline never moves, and the loop converges on the bug. Seeding
+// marginally breaks the deadlock, and from there the set only grows - taking a
+// chance out lowers the baseline, and a lower baseline can only let more in -
+// so this settles in at most one round per chance.
+func judgeChances(cs []judged, meanScore float64) float64 {
+	if meanScore <= 0 {
+		for _, c := range cs {
+			c.judge(0, 0, false)
+		}
+		return 0
+	}
+
+	big := make([]bool, len(cs))
+	for i, c := range cs {
+		pct, score := c.shareAndScore()
+		_, big[i] = bigChanceOf(pct, score, meanScore)
+	}
+
+	baseline := meanScore
+	for range len(cs) + 1 {
+		baseline = jointBaseline(cs, big, meanScore)
+		changed := false
+		for i, c := range cs {
+			pct, score := c.shareAndScore()
+			if b := isBigChance(pct, score, baseline); b != big[i] {
+				big[i], changed = b, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	for i, c := range cs {
+		pct, score := c.shareAndScore()
+		c.judge(baseline, upsideOver(pct, score, baseline), big[i])
+	}
+	return baseline
+}
+
+// jointBaseline is what our next turn is worth in the samples where none of
+// the chances came up: the mean with all of them taken out at once.
+func jointBaseline(cs []judged, big []bool, meanScore float64) float64 {
+	share, weighted := 0.0, 0.0
+	for i, c := range cs {
+		if !big[i] {
+			continue
+		}
+		pct, score := c.shareAndScore()
+		share += pct / 100
+		weighted += pct / 100 * score
+	}
+	return residualMean(share, weighted, meanScore)
+}
+
+// chanceBaseline is what our next turn is worth in the samples where this
+// chance does not come up: the mean of every other follow-up.
+//
+// Judging a chance against the play's overall mean is circular, and the
+// circularity bites hardest exactly where it matters most. The mean already
+// contains the chance, weighted by how often it comes up, so a chance that
+// comes up most of the time *is* the mean and can never be a quarter bigger
+// than it. On a real position - N10 ME(E)T keeping Q, with a 56-point Q hook
+// available 63% of the time - the mean next turn was 48.6, the ratio gate
+// asked for 60.7, and the biggest thing on the board scored zero. The rival
+// play's rare 6.9% hook passed the same gate comfortably, because being rare
+// is what leaves a play's own baseline alone. Reliability was being punished.
+//
+// Taking the chance back out of the mean is what "an ordinary turn" was always
+// meant to be. The mean is a weighted average of the chance and everything
+// else, so everything else falls straight out of it, and upside becomes a
+// quantity worth printing: how much this play's follow-up is worth *because*
+// of the chance, over a world without it. Rare chances barely move their own
+// baseline and are judged as they always were.
+func chanceBaseline(pct, score, meanScore float64) float64 {
+	return residualMean(pct/100, pct/100*score, meanScore)
+}
+
+// residualMean takes a share of the follow-ups out of the mean and returns
+// what the rest of them average. share is how much of the distribution is
+// being removed and weighted is what that share contributes to the mean.
+//
+// The arithmetic is one line because the mean is a weighted average of the
+// part being removed and the part being kept, so the part being kept falls
+// straight out of it. What it cannot do is separate signal from sample: when
+// almost everything is taken out, the few percent left over carry the whole
+// answer, and it gets noisy. The gates stay right in that case - a chance
+// that is most of the turn towers over whatever is left - but the printed
+// number is worth less than it looks.
+func residualMean(share, weighted, meanScore float64) float64 {
+	rest := 1 - share
+	if rest < minChanceRestShare {
+		// The chances are the whole turn. There is no "otherwise" left to
+		// compare them against, and meanScore is by then their own score, so
+		// nothing will clear the ratio - which is right: what this play is
+		// worth is the mean, and the mean is already reported.
+		return meanScore
+	}
+	baseline := (meanScore - weighted) / rest
+	// Percentages and the mean come from different tallies of the same
+	// simulation, so a dominant chance can drive this slightly out of range.
+	return min(max(baseline, 0), meanScore)
+}
+
+// reCoord is a board coordinate: a row number and a column letter, in either
+// order. Anything else came from a play that isn't a placement, and a
+// coordinate parser will quietly return the top-left square for it.
+var reCoord = regexp.MustCompile(`^(?:[0-9]{1,2}[A-Z]|[A-Z][0-9]{1,2})$`)
+
+// anchorOf identifies the opportunity a follow-up takes, and names it.
+//
+// The identity is where the *playthrough* sits - which tiles already on the
+// board the play runs through, and where they are - never where the play
+// starts. A front extension moves its own starting square: with ZOIC on the
+// board, CENO(ZOIC) and SAPRO(ZOIC) begin four and five squares to its left
+// and would look like different opportunities keyed on the coordinate, when
+// they are one hook taken two ways. Keying on ZOIC itself, they group, and so
+// do HI(THERMOS)T and NE(THERMOS)T, which extend in both directions at once.
+//
+// A play with no playthrough has nothing to hang on to, so its starting square
+// is the opportunity. That groups plays making unrelated words on one open
+// square, which is right: it is one place on the board, reached by one leave.
+func anchorOf(play string, tilePlay bool) (key, label, through string) {
+	fields := strings.Fields(strings.TrimSpace(play))
+	// Exchanges and passes are not places on a board and never group. They
+	// also split into fields like a play does - "(exch AEI)" looks like a
+	// coordinate and a word - so this has to be settled before any parsing.
+	if !tilePlay || len(fields) < 2 || !reCoord.MatchString(strings.ToUpper(fields[0])) {
+		p := strings.TrimSpace(play)
+		return p, p, ""
+	}
+	coord := strings.ToUpper(fields[0])
+	row, col, vertical := move.FromBoardGameCoords(coord, false)
+
+	// Walk the word a square at a time, noting the letters already on the
+	// board and how far in the first of them lies.
+	var runs strings.Builder
+	offset, square, depth := -1, 0, 0
+	for _, r := range fields[1] {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		default:
+			if depth > 0 || r == '.' {
+				if offset < 0 {
+					offset = square
+				}
+				runs.WriteRune(r)
+			}
+			square++
+		}
+	}
+	if runs.Len() == 0 {
+		return coord, coord, ""
+	}
+
+	// Where the playthrough begins, in board coordinates rather than in the
+	// play's own.
+	index := row
+	if vertical {
+		row += offset
+		index = col
+	} else {
+		col += offset
+	}
+	return fmt.Sprintf("%t/%d/%d/%s", vertical, row, col, runs.String()),
+		fmt.Sprintf("(%s) in %s", runs.String(), stats.LaneLabel(vertical, index)),
+		runs.String()
+}
+
+// SetFollowups records the sampled follow-ups and gathers them into the
+// opportunities they take. The two are always set together - the flat list is
+// the table, the clusters are what gets judged and reported - and going
+// through here is what keeps them from disagreeing.
+//
+// Best and TypicalNextScore have to be set first: a chance is only big or
+// small relative to what an ordinary turn after this play is worth.
+func (f *PositionFacts) SetFollowups(fs []*FollowupFact) {
+	f.Followups = fs
+	f.Chances = clusterFollowups(fs, f.Best.Play, f.TypicalNextScore)
+	f.ChanceBaseline = chancesBaseline(f.Chances, f.TypicalNextScore)
+}
+
+// clusterFollowups gathers the follow-ups that take the same opportunity and
+// judges each opportunity whole. Sizing them one play at a time asks the wrong
+// question: what a player wants to know is how often the hook pays, not how
+// often it pays with a particular spelling.
+//
+// Ordering is by weight, and within a cluster the likeliest play leads, so the
+// explanation names the play a reader is most likely to actually make.
+func clusterFollowups(fs []*FollowupFact, bestPlay string, typical float64) []*FollowupCluster {
+	byAnchor := map[string]*FollowupCluster{}
+	order := []string{}
+	for _, f := range fs {
+		key, label, through := anchorOf(f.Play, f.TilePlay)
+		c, ok := byAnchor[key]
+		if !ok {
+			c = &FollowupCluster{Anchor: label, Through: through, MinScore: f.MinScore}
+			byAnchor[key] = c
+			order = append(order, key)
+		}
+		c.Plays = append(c.Plays, f)
+		c.Pct += f.Pct
+		c.MinScore = min(c.MinScore, f.MinScore)
+		c.MaxScore = max(c.MaxScore, f.MaxScore)
+	}
+
+	out := make([]*FollowupCluster, 0, len(order))
+	for _, anchor := range order {
+		c := byAnchor[anchor]
+		sort.SliceStable(c.Plays, func(i, j int) bool { return c.Plays[i].Pct > c.Plays[j].Pct })
+		c.AvgScore = clusterAvgScore(c)
+		// A setup stays a setup however many spellings take it, and a hook that
+		// no single spelling reaches often enough is still a setup once they
+		// are counted together.
+		c.IsSetup = c.Requirement() == requiresBestPlay(bestPlay) &&
+			c.Pct >= setupMinPct && c.MaxScore >= setupMinScore
+		out = append(out, c)
+	}
+	judgeChances(judgeable(out), typical)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Upside > out[j].Upside })
+	return out
+}
+
+// chancesBaseline is what a play's turns are worth when none of its chances
+// come up. Every cluster carries it - they are all judged against the same one
+// - so this is only reaching for it where the rendering needs it once.
+func chancesBaseline(cs []*FollowupCluster, meanScore float64) float64 {
+	if len(cs) == 0 {
+		return meanScore
+	}
+	return cs[0].Baseline
+}
+
+// clusterAvgScore is the score across every play in the cluster, weighted by
+// how often each came up - the same reasoning as FollowupFact.AvgScore, one
+// level up. The maximum would be the luckiest spelling of the luckiest draw.
+func clusterAvgScore(c *FollowupCluster) float64 {
+	total, weight := 0.0, 0.0
+	for _, p := range c.Plays {
+		total += p.Pct * p.AvgScore()
+		weight += p.Pct
+	}
+	if weight == 0 {
+		return float64(c.MaxScore)
+	}
+	return total / weight
+}
+
+// typicalNextScore is what our next turn averages after a play: the mean of
+// our own scores two plies out. It is the total, chances included, which is
+// why chanceBaseline takes a chance back out of it before judging that chance.
+func typicalNextScore(c *montecarlo.CandidateStats) float64 {
+	if p := plyStats(c, 2); p != nil {
+		return p.MeanScore
+	}
+	return 0
+}
+
+// requirementFor asks whether a follow-up play works on the board as it stands
+// and on the board after our best play, imagining we drew whatever the
+// simulation says it needs. A play that only comes out right after our play is
+// one our play set up.
+func (a *Analyzer) requirementFor(bestPlay, ourRack string, after *game.Game, way *stats.FollowupWay) string {
+	npfields := strings.Fields(stats.Normalize(way.Play))
+	if len(npfields) < 2 {
+		// Exchanges and passes need nothing.
+		return "none"
+	}
+	rackLetters := ourRack
+	for _, char := range way.NeededDraw {
+		if (char >= 'A' && char <= 'Z') || char == '?' {
+			rackLetters += string(char)
+		}
+	}
+
+	if !scoresAs(after.CreateAndScorePlacementMove(npfields[0], npfields[1], rackLetters, false))(way.Score) {
+		// It doesn't even work after our play, so the opponent must add
+		// something first.
+		return "requires opponent play"
+	}
+	if !scoresAs(a.game.CreateAndScorePlacementMove(npfields[0], npfields[1], rackLetters, false))(way.Score) {
+		return requiresBestPlay(bestPlay)
+	}
+	return "none"
+}
+
+// scoresAs curries the "did this move come out legal, and did it score what
+// the simulation saw?" check, which we run against two different boards.
+func scoresAs(m *move.Move, err error) func(int) bool {
+	return func(want int) bool {
+		return err == nil && m != nil && m.Score() == want
+	}
+}
+
+// laneComparisons computes where replies land after the top few candidates,
+// plus alsoPlay if it isn't already among them - that is how the play the
+// player made gets into the board-dynamics section however low it ranked. The
+// best play stays first; laneDifferences contrasts everything against it.
+func laneComparisons(ss *stats.SimStats, candidates []montecarlo.CandidateStats, alsoPlay string) []*LaneComparison {
+	plays := []string{}
+	for i := range candidates {
+		if i >= laneCandidates {
+			break
+		}
+		plays = append(plays, candidates[i].Play)
+	}
+	if alsoPlay != "" && !slices.Contains(plays, alsoPlay) {
+		plays = append(plays, alsoPlay)
+	}
+
+	out := []*LaneComparison{}
+	for i, play := range plays {
+		ls, err := ss.CalculateLaneStats(play, 0)
+		if err != nil {
+			// Lane data is a bonus; a position is still explainable without
+			// it, and the board-dynamics card simply won't ship.
+			log.Err(err).Str("play", play).Msg("could not compute lane stats")
+			continue
+		}
+		out = append(out, &LaneComparison{
+			Play:  play,
+			Best:  i == 0,
+			Stats: ls,
+			Reply: replyProfile(findCandidate(candidates, play), ls),
+		})
+	}
+	return out
+}
+
+// replyProfile puts the simulation's figures for the opponent's reply together
+// with the shape of the logged replies. The mean and the bingo rate come from
+// the sim rather than from the log, which is capped: two numbers for the same
+// quantity that disagree by a point would be worse than useless in a prompt
+// that prints the ply table too.
+func replyProfile(c *montecarlo.CandidateStats, ls *stats.LaneStats) ReplyProfile {
+	p := ReplyProfile{}
+	if c == nil || ls == nil || ls.Total == 0 {
+		return p
+	}
+	ps := plyStats(c, 1)
+	if ps == nil {
+		return p
+	}
+	p.MeanScore, p.BingoPct = ps.MeanScore, ps.BingoPct
+	p.BigPct = float64(ls.BigReplies*100) / float64(ls.Total)
+	p.Known = true
+	return p
+}
+
+// boardFlags records only that we have board data at all. Whether the board is
+// worth talking about is decided by whether buildBoardFindings found anything,
+// not by a flag: an empty section is a stronger instruction than any card.
+func (f *PositionFacts) boardFlags() Flags {
+	fl := Flags{}
+	for _, lc := range f.Lanes {
+		if lc.Stats != nil && len(lc.Stats.Lanes) > 0 {
+			fl["has_lane_data"] = true
+		}
+	}
+	return fl
+}
+
+// buildBoardFindings keeps the comparisons where the opponent is genuinely
+// left worse off - or genuinely better off - and throws the rest away.
+//
+// One finding is the cap, and against the reader's own play by preference.
+// The candidates below the top are near-duplicates of each other, so a second
+// finding is usually the same lane described again in the same words, and the
+// mean and big-reply share of every candidate are in the ply table anyway.
+func buildBoardFindings(lanes []*LaneComparison, rivalPlay string) []*BoardFinding {
+	if len(lanes) < 2 || lanes[0].Stats == nil {
+		return nil
+	}
+	best := lanes[0]
+	rivals := slices.Clone(lanes[1:])
+	slices.SortStableFunc(rivals, func(a, b *LaneComparison) int {
+		switch {
+		case a.Play == rivalPlay && b.Play != rivalPlay:
+			return -1
+		case b.Play == rivalPlay && a.Play != rivalPlay:
+			return 1
+		}
+		return 0
+	})
+	out := []*BoardFinding{}
+	for _, rival := range rivals {
+		v := CompareDefense(best.Reply, rival.Reply)
+		if v != DefenseTighter && v != DefenseLooser {
+			continue
+		}
+		fi := &BoardFinding{
+			Rival: rival.Play, Tighter: v == DefenseTighter,
+			Best: best.Reply, RivalReply: rival.Reply,
+		}
+		attachLane(fi, best, rival)
+		out = append(out, fi)
+		if len(out) == boardFindingsShown {
+			break
+		}
+	}
+	return out
+}
+
+// attachLane finds the lane the difference lives in, if one does. It has to
+// point the same way as the board-wide figures: a lane that goes quiet while
+// the opponent ends up better off is their scoring moving, and naming it would
+// hand back exactly the story the finding exists to replace.
+func attachLane(fi *BoardFinding, best, rival *LaneComparison) {
+	var pick *stats.LaneStat
+	var pickBest, pickRival *stats.LaneStat
+	var widest float64
+	for _, l := range candidateLanes(best, rival) {
+		b, r := best.Stats.Lane(l.Vertical, l.Index), rival.Stats.Lane(l.Vertical, l.Index)
+		// Expected points out of the lane, which is the only way a share and a
+		// mean can be compared: a lane taking a fifth of the replies for 20 is
+		// a smaller part of their turn than one taking a twentieth for 90.
+		// A tighter finding wants the lane the best play took away from them,
+		// a looser one the lane it handed over, so the sign has to agree with
+		// the board-wide verdict either way.
+		gain := laneWorth(r) - laneWorth(b)
+		if !fi.Tighter {
+			gain = -gain
+		}
+		if gain >= laneWorthMin && gain > widest {
+			pick, pickBest, pickRival, widest = l, b, r, gain
+		}
+	}
+	if pick == nil {
+		return
+	}
+	fi.Lane = pick.Label
+	fi.BestPct, fi.BestMean = lanePct(pickBest), laneMean(pickBest)
+	fi.RivalPct, fi.RivalMean = lanePct(pickRival), laneMean(pickRival)
+
+	// Which play is quiet in the lane decides what the geometry means. A play
+	// whose tiles are in a lane that then falls silent has taken the scoring
+	// spot in it; a play whose tiles are in a lane that is busy only after it
+	// has given the opponent something to play off.
+	quiet, busy := best, rival
+	if fi.RivalPct < fi.BestPct {
+		quiet, busy = rival, best
+	}
+	qf, bf := footprintOf(quiet), footprintOf(busy)
+	switch {
+	case qf.Touches(pick.Vertical, pick.Index):
+		fi.MechanismPlay = quiet.Play
+		fi.Mechanism = MechanismCrosses
+		if qf.Vertical == pick.Vertical && qf.Index == pick.Index {
+			fi.Mechanism = MechanismTakesSpot
+		}
+	case bf.Touches(pick.Vertical, pick.Index):
+		fi.MechanismPlay, fi.Mechanism = busy.Play, MechanismOpens
+	}
+}
+
+// candidateLanes is every lane either play's replies used enough of to be
+// worth weighing.
+func candidateLanes(comparisons ...*LaneComparison) []*stats.LaneStat {
+	out := []*stats.LaneStat{}
+	seen := map[string]bool{}
+	for _, lc := range comparisons {
+		if lc.Stats == nil {
+			continue
+		}
+		for i, l := range lc.Stats.Lanes {
+			if i >= lanesShown || l.Pct < laneMinPct {
+				break
+			}
+			if !seen[l.Label] {
+				seen[l.Label] = true
+				out = append(out, l)
+			}
+		}
+	}
+	return out
+}
+
+// laneWorth is the expected points the opponent takes out of a lane.
+func laneWorth(l *stats.LaneStat) float64 {
+	if l == nil {
+		return 0
+	}
+	return l.Pct / 100 * l.MeanScore
+}
+
+// computeFlags turns the fact pack into the yes/no answers that select concept
+// cards. A flag that is false means a whole paragraph of prompt never gets
+// sent.
+func computeFlags(f *PositionFacts) Flags {
+	fl := Flags{}
+	for _, name := range knownFlags {
+		fl[name] = false
+	}
+	fl["always"] = true
+
+	// The card explains where the pre-endgame line actually falls, so it ships
+	// for the whole late stretch, not only past the line.
+	fl["pre_endgame"] = f.BagCount <= lateGameBagMax
+	fl["behind_early"] = f.Spread < 0 && f.BagCount > lateGameBagMax
+
+	// Turnover is only worth raising in the second half, and only when there
+	// is something left in the bag worth racing to.
+	secondHalf := f.BagCount <= secondHalfBagMax
+	fl["turnover_relevant"] = secondHalf &&
+		(f.UnseenBlanks == 2 || len(f.UnseenPowerTiles) > 0)
+
+	fl["leave_matters"] = f.Best.Leave != ""
+	fl["uses_blank"] = f.Best.UsesBlank
+
+	// Setups and big chances are judged per opportunity, not per play: four
+	// spellings of one hook are one thing to talk about, and each is too rare
+	// on its own to clear a bar the four of them clear together.
+	// The rival's chances count too. They are rendered in the head to head
+	// whether or not the best play has any, so a chance that belongs to the
+	// play the reader made would otherwise be put in front of the model with
+	// none of the guidance on how to talk about it.
+	chances := f.Chances
+	if f.Comparison != nil {
+		chances = append(slices.Clip(chances), f.Comparison.RivalChances...)
+	}
+	for _, ch := range chances {
+		if ch.IsSetup {
+			fl["has_setup"] = true
+		}
+		if ch.IsBigChance {
+			fl["has_big_chance"] = true
+		}
+	}
+	for _, fu := range f.Followups {
+		if fu.IsSetup {
+			fl["has_setup"] = true
+		}
+		if fu.Grouped() {
+			fl["has_grouped_followup"] = true
+		}
+		for _, d := range fu.NeededDraws {
+			if d != "" {
+				fl["has_needed_draw"] = true
+			}
+		}
+	}
+
+	ourBingoHigh, oppBingoHigh := false, false
+	if f.PlayStats != nil {
+		ourBingoHigh = f.PlayStats.OurBingoPct >= ourBingoPctHigh
+		oppBingoHigh = f.PlayStats.OppBingoPct >= oppBingoPctHigh
+	}
+	// The opponent card is about reading their side of the table, so it needs
+	// its own trigger rather than folding into the bingo card.
+	fl["opp_bingo_pct_high"] = oppBingoHigh
+	fl["bingo_matters"] = f.Best.IsBingo || ourBingoHigh || oppBingoHigh
+
+	// Volatility only matters if the candidates actually differ in it, and
+	// only the next two plies are close enough to reason about. Each ply is
+	// compared against itself across candidates, not against other plies.
+	for ply := 1; ply <= 2; ply++ {
+		var minStdev, maxStdev float64
+		seen := false
+		for _, c := range f.Candidates {
+			for _, p := range c.Plies {
+				if p.Ply != ply {
+					continue
+				}
+				if !seen {
+					minStdev, maxStdev, seen = p.Stdev, p.Stdev, true
+					continue
+				}
+				minStdev = min(minStdev, p.Stdev)
+				maxStdev = max(maxStdev, p.Stdev)
+			}
+		}
+		if seen && maxStdev-minStdev >= volatilitySpreadMin {
+			fl["volatility_matters"] = true
+		}
+	}
+
+	fl["equity_sacrifice"] = f.BestByEquity != nil && f.BestByEquity.Play != f.Best.Play
+
+	maps.Copy(fl, f.boardFlags())
+
+	if f.Comparison != nil && f.Comparison.Rival != nil {
+		fl["has_comparison"] = true
+		fl["comparison_was_best"] = f.Comparison.WasBest
+	}
+
+	// A read is only a subject when it says something and that something
+	// changed the answer. Otherwise the model never learns there was one.
+	if f.Inference != nil && f.Inference.Matters {
+		fl["has_inference"] = true
+		fl["inference_changed_play"] = f.Inference.ChangedTopPlay
+	}
+	return fl
+}

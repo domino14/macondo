@@ -3,7 +3,9 @@ package rangefinder
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +58,11 @@ func TestInferTilePlay(t *testing.T) {
 
 	rangeFinder := &RangeFinder{}
 	rangeFinder.Init(game, calcs, DefaultConfig)
+	// Single-stage: this test covers the posterior and its displays, and
+	// giving round 0 the whole budget keeps what it sees independent of how
+	// many refinement rounds happened to fit. TestInferRefinementRounds
+	// covers the loop.
+	rangeFinder.SetMaxRounds(0)
 
 	f, err := os.Create("/tmp/inferlog")
 	is.NoErr(err)
@@ -64,7 +71,7 @@ func TestInferTilePlay(t *testing.T) {
 
 	rangeFinder.PrepareFinder(nil)
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 5*time.Second)
+		context.Background(), 10*time.Second)
 	defer cancel()
 
 	err = rangeFinder.Infer(timeout)
@@ -74,6 +81,165 @@ func TestInferTilePlay(t *testing.T) {
 	fmt.Println("analyze inferences")
 	fmt.Println(rangeFinder.AnalyzeInferences(true))
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
+
+	// Query a specific leave from the complete posterior.
+	is.True(rangeFinder.inference.Complete)
+
+	// SetMaxRounds(0) means exactly that: everything measured here came from
+	// round 0's prior sampling.
+	is.Equal(rangeFinder.refinedCount, 0)
+	is.Equal(len(rangeFinder.roundLog), 0)
+
+	top := rangeFinder.inference.InferredRacks[0]
+	topStr := tilemapping.MachineWord(top.Leave).UserVisible(game.Alphabet())
+	analysis, err := rangeFinder.AnalyzeLeave(topStr)
+	is.NoErr(err)
+	fmt.Println(analysis)
+	is.True(strings.Contains(analysis, "posterior"))
+
+	// An imputed leave gets the full calculation walkthrough: per-subleave φ
+	// table plus the chain from prior and ℓ̂ to the normalized weight. A
+	// measured leave gets its own prior × mean likelihood chain.
+	var imputedStr, measuredStr string
+	for _, ir := range rangeFinder.inference.InferredRacks {
+		str := tilemapping.MachineWord(ir.Leave).UserVisible(game.Alphabet())
+		if ml := rangeFinder.measured[leaveKey(ir.Leave)]; ml == nil || ml.count == 0 {
+			if imputedStr == "" {
+				imputedStr = str
+			}
+		} else if measuredStr == "" {
+			measuredStr = str
+		}
+		if imputedStr != "" && measuredStr != "" {
+			break
+		}
+	}
+	if measuredStr != "" {
+		measuredAnalysis, err := rangeFinder.AnalyzeLeave(measuredStr)
+		is.NoErr(err)
+		fmt.Println(measuredAnalysis)
+		is.True(strings.Contains(measuredAnalysis, "[MEASURED ×"))
+		is.True(strings.Contains(measuredAnalysis, "measured: evaluated"))
+		is.True(strings.Contains(measuredAnalysis, "weight = prior × mean likelihood ÷ max"))
+		is.True(strings.Contains(measuredAnalysis, "imputation model comparison"))
+		is.True(strings.Contains(measuredAnalysis, "measured/imputed likelihood ratio"))
+	}
+	if imputedStr != "" {
+		imputedAnalysis, err := rangeFinder.AnalyzeLeave(imputedStr)
+		is.NoErr(err)
+		fmt.Println(imputedAnalysis)
+		is.True(strings.Contains(imputedAnalysis, "[IMPUTED]"))
+		is.True(strings.Contains(imputedAnalysis, "Σφ"))
+		is.True(strings.Contains(imputedAnalysis, "weight = prior × ℓ̂ ÷ max"))
+	}
+
+	// Lowercase input is treated as regular (capitalized) tiles, not as
+	// blank designations — `infer leave zit` used to panic.
+	lower, err := rangeFinder.AnalyzeLeave(strings.ToLower(topStr))
+	is.NoErr(err)
+	is.Equal(lower, analysis)
+
+	// Wrong leave length errors out.
+	_, err = rangeFinder.AnalyzeLeave("A")
+	is.True(err != nil)
+}
+
+// TestInferRefinementRounds covers the measure–impute–recalibrate loop
+// end-to-end: leaves drawn from the imputed posterior, evaluated with real
+// mini-sims, and folded back in as exact weights.
+//
+// The leave space has to be large for the assertions to be deterministic. In
+// a small one, round 0 alone can measure nearly everything worth measuring,
+// and refinement then correctly does nothing — it stops on "unmeasured mass
+// below the floor" or finds no candidates left at all, and refinedCount is
+// legitimately 0. Four tiles played out of a full bag leaves thousands of
+// candidates, so there is always something for the loop to draw.
+func TestInferRefinementRounds(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	lex := "NWL23"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "p1", RealName: "Alice"},
+		{Nickname: "p2", RealName: "Bob"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout,
+		"English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("HELPXYZ", g.Alphabet()))
+	_, err = g.PlayScoringMove("H8", "HELP", true)
+	is.NoErr(err)
+
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	is.NoErr(rf.PrepareFinder(nil))
+	is.Equal(rf.inference.RackLength, 3)
+	is.True(countMultisets(rf.inferenceBagMap, rf.inference.RackLength) > 1000)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	is.NoErr(rf.Infer(ctx))
+	fmt.Println(rf.AnalyzeInferences(false))
+
+	is.True(rf.inference.Complete)
+	is.True(rf.refinedCount > 0)
+	is.True(len(rf.roundLog) > 0)
+
+	for _, st := range rf.roundLog {
+		is.True(st.drawn > 0)
+		is.True(st.evaluated > 0)
+		is.True(st.distinct <= st.drawn) // repeats fold into the weight
+		is.True(st.seLogRatio >= 0)
+		is.True(!math.IsNaN(st.logRatio))
+		is.True(!math.IsNaN(st.seLogRatio))
+		is.True(st.unmeasured >= 0 && st.unmeasured <= 1)
+		// A batch too small to have a meaningful interval must never declare
+		// convergence: with one leaf the ratio fits exactly, leaving a zero
+		// residual and a zero standard error.
+		if st.converged {
+			is.True(st.evaluated >= refineMinBatch)
+		}
+	}
+
+	// Refinement only ever draws leaves that are still unmeasured, so every
+	// evaluation it makes lands on a distinct leave stamped with its round.
+	refined := 0
+	for _, ml := range rf.measured {
+		if ml.round > 0 {
+			is.True(ml.count > 0)
+			is.True(ml.sumU > 0)
+			refined++
+		}
+	}
+	is.Equal(refined, rf.refinedCount)
+
+	// A refined leave carries the model's pre-measurement prediction, which
+	// is the only out-of-sample estimate for it that survives the refit.
+	predicted := 0
+	for _, ml := range rf.measured {
+		if ml.round > 0 && ml.predicted > 0 {
+			predicted++
+		}
+	}
+	is.True(predicted > 0)
+
+	// Those leaves carry exact weights in the posterior, and the display says
+	// which round found them. Not every refined leave has a row: one measured
+	// to be impossible is excluded outright, and one whose weight lands under
+	// the negligible-mass cutoff is dropped, so this is a subset.
+	rows := rf.rankedRacks()
+	tagged := 0
+	for _, row := range rows {
+		if row.measured && row.round > 0 {
+			is.True(strings.Contains(row.source(), roundLabel(row.round)))
+			tagged++
+		}
+	}
+	is.True(tagged > 0)
+	is.True(tagged <= rf.refinedCount)
 }
 
 func TestInferExchange(t *testing.T) {
@@ -211,4 +377,214 @@ func TestInferSingle(t *testing.T) {
 
 	_, err = rangeFinder.inferSingle(0, 0, nil)
 	is.NoErr(err)
+}
+
+// The temperature follows the bag unless something pinned it. The boundaries
+// are the ones the replays were cut on.
+func TestTauSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		bag  int
+		want float64
+	}{
+		{0, 0.3}, {7, 0.3}, {8, 0.1}, {20, 0.1}, {21, SoftmaxTemperature}, {86, SoftmaxTemperature},
+	} {
+		if got := tauForBag(tc.bag); got != tc.want {
+			t.Fatalf("bag %d: tau %v, want %v", tc.bag, got, tc.want)
+		}
+	}
+	r := &RangeFinder{}
+	if r.Tau() != SoftmaxTemperature {
+		t.Fatalf("nothing set: %v", r.Tau())
+	}
+	r.scheduleTau(14)
+	if r.Tau() != 0.14 {
+		t.Fatalf("the fitted curve is the default: %v", r.Tau())
+	}
+	r.SetTauSchedule(TauSteps)
+	r.scheduleTau(3)
+	if r.Tau() != 0.3 {
+		t.Fatalf("schedule: %v", r.Tau())
+	}
+	r.SetTau(0.05)
+	if r.Tau() != 0.05 {
+		t.Fatalf("pinned value must win over the schedule: %v", r.Tau())
+	}
+	r.SetTau(0)
+	r.SetTauSchedule(TauFixed)
+	r.scheduleTau(3)
+	if r.Tau() != SoftmaxTemperature {
+		t.Fatalf("schedule off again: %v", r.Tau())
+	}
+}
+
+// The fitted curve hits its knots, interpolates between them in log tau,
+// falls as the bag fills, and holds its end values outside them.
+func TestTauFitted(t *testing.T) {
+	for _, k := range fittedTauKnots {
+		if got := tauFittedForBag(k.bag); math.Abs(got-k.tau) > 1e-12 {
+			t.Fatalf("bag %d: tau %v, want knot %v", k.bag, got, k.tau)
+		}
+	}
+	if got, want := tauFittedForBag(25), math.Sqrt(0.075*0.047); math.Abs(got-want) > 1e-12 {
+		t.Fatalf("bag 25: %v, want geometric midpoint %v", got, want)
+	}
+	for bag := 2; bag < 86; bag++ {
+		if tauFittedForBag(bag+1) >= tauFittedForBag(bag) {
+			t.Fatalf("not falling at bag %d", bag)
+		}
+	}
+	if tauFittedForBag(1) != 2.5 || tauFittedForBag(100) != 0.021 {
+		t.Fatalf("ends: %v %v", tauFittedForBag(1), tauFittedForBag(100))
+	}
+	r := &RangeFinder{}
+	r.SetTauSchedule(TauFitted)
+	r.scheduleTau(14)
+	if r.Tau() != 0.14 {
+		t.Fatalf("fitted schedule: %v", r.Tau())
+	}
+}
+
+// Read through the posterior, an exchange gets what a placement gets: a
+// complete posterior over kept leaves of the right size, in which the leave
+// actually kept has weight, measured leaves blended with the model.
+func TestInferExchangePosterior(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AENSTUU", g.Alphabet()))
+	uu, err := tilemapping.ToMachineLetters("UU", g.Alphabet())
+	is.NoErr(err)
+	aenst, err := tilemapping.ToMachineLetters("AENST", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(move.NewExchangeMove(uu, aenst, g.Alphabet()), true, 0))
+
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	rf.SetThreads(2)
+	rf.SetBudget(40)
+	rf.SetExchangePosterior(true)
+	aelnoqt, err := tilemapping.ToMachineLetters("AELNOQT", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(rf.PrepareFinder(aelnoqt))
+	is.Equal(rf.inference.RackLength, 5)
+	is.Equal(rf.tuning.measuredPrior, exchangeMeasuredPrior)
+	is.NoErr(rf.Infer(context.Background()))
+
+	is.True(rf.inference.Complete)
+	is.True(len(rf.measured) > 0)
+	is.True(rf.SimCount() <= 40)
+	for _, ir := range rf.inference.InferredRacks {
+		is.Equal(len(ir.Leave), 5)
+	}
+	is.True(rf.ScoreLeave(aenst).InPosterior)
+}
+
+// Exchanges are read by leave value unless another reading is asked for.
+func TestExchangeModeDefault(t *testing.T) {
+	r := &RangeFinder{}
+	r.Init(nil, nil, nil)
+	r.lastOppMove = move.NewExchangeMove(nil, nil, nil)
+	if r.exchangeMode != ExchangeValue || r.exchangeByPosterior() {
+		t.Fatal("exchanges are read by leave value by default")
+	}
+	r.SetExchangePosterior(true)
+	if !r.exchangeByPosterior() {
+		t.Fatal("asked for the sim posterior")
+	}
+	r.SetExchangePosterior(false)
+	if r.exchangeMode != ExchangeSampler {
+		t.Fatal("asked for the old sampler")
+	}
+}
+
+// A one-tile play early in the game doubles the scheduled temperature; a
+// pinned tau or scale turns that off.
+func TestOneTileTauScale(t *testing.T) {
+	is := is.New(t)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AEINRST", g.Alphabet()))
+	// Two plays so the one being read is a single tile hooked onto the first.
+	m, err := g.CreateAndScorePlacementMove("8D", "STAINER", "AEINRST", false)
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(m, true, 0))
+	g.SetRackFor(1, tilemapping.RackFromString("ADEILRS", g.Alphabet()))
+	m, err = g.CreateAndScorePlacementMove("8D", ".......S", "ADEILRS", false)
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(m, true, 0))
+
+	bag := g.Bag().TilesRemaining()
+	is.True(bag >= oneTileTauMinBag)
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	is.NoErr(rf.PrepareFinder(g.RackFor(g.PlayerOnTurn()).TilesOn()))
+	is.Equal(rf.inference.RackLength, 6)
+	is.Equal(rf.Tau(), oneTileTauScale*tauFittedForBag(bag))
+
+	rf.SetTau(0.05)
+	is.Equal(rf.Tau(), 0.05)
+	rf.SetTau(0)
+	rf.SetTauScale(1)
+	is.Equal(rf.Tau(), tauFittedForBag(bag))
+}
+
+// Read by value, an exchange gets a complete posterior over kept leaves with
+// no sims, and a strong kept leave is lifted above its prior while a weak one
+// falls below.
+func TestInferExchangeByValue(t *testing.T) {
+	is := is.New(t)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "Joel", RealName: "Joel"},
+		{Nickname: "Nigel", RealName: "Nigel"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("AENSTUU", g.Alphabet()))
+	uu, err := tilemapping.ToMachineLetters("UU", g.Alphabet())
+	is.NoErr(err)
+	aenst, err := tilemapping.ToMachineLetters("AENST", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(g.PlayMove(move.NewExchangeMove(uu, aenst, g.Alphabet()), true, 0))
+
+	rf := &RangeFinder{}
+	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
+	rf.SetThreads(2)
+	rf.SetExchangeMode(ExchangeValue)
+	aelnoqt, err := tilemapping.ToMachineLetters("AELNOQT", g.Alphabet())
+	is.NoErr(err)
+	is.NoErr(rf.PrepareFinder(aelnoqt))
+	is.NoErr(rf.Infer(context.Background()))
+
+	is.True(rf.inference.Complete)
+	is.Equal(rf.SimCount(), uint64(0))
+	is.Equal(len(rf.inference.InferredRacks), countMultisets(rf.inferenceBagMap, 5))
+	strong := rf.ScoreLeave(aenst)
+	is.True(strong.LiftBits > 1)
+	iiuuv, err := tilemapping.ToMachineLetters("IIUUV", g.Alphabet())
+	is.NoErr(err)
+	is.True(rf.ScoreLeave(iiuuv).LiftBits < 0)
 }

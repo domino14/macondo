@@ -32,6 +32,22 @@ const NPlies = 5
 // text-based writer  → one line  per vector
 // Format:  "0.000 1.000 0.125 …\n"
 // ─────────────────────────────────────────────────────────────────────────────
+// inSplit says whether a game (by its ID hash) is emitted under the held-out
+// split settings: with holdoutMod 0 every game is; otherwise the games whose
+// hash is 0 mod holdoutMod form the "val" side and the rest the "train" side.
+// The hash is the game's own, so a streamed training scan and a separate
+// validation scan partition the games no matter how they are ordered.
+func inSplit(hash uint64, holdoutMod int, split string) bool {
+	if holdoutMod <= 0 {
+		return true
+	}
+	held := hash%uint64(holdoutMod) == 0
+	if split == "val" {
+		return held
+	}
+	return !held
+}
+
 func writeVectorText(w *bufio.Writer, vec []float32) error {
 	for i, f := range vec {
 		if i > 0 {
@@ -74,12 +90,34 @@ func BinaryWriteMLVector(w *bufio.Writer, vec outputVector) error {
 	return err
 }
 
+// lexiconName is the lexicon the logged games were played in (-lexicon). It
+// sets the leave values and cross-sets in the features, so it must match the
+// games.
+var lexiconName = "NWL23"
+
 // ─────────────────────────────────────────────────────────────────────────────
 // main streaming loop
 // ─────────────────────────────────────────────────────────────────────────────
 func main() {
 	var profile bool
+	var labeler string
+	var perGame bool
+	var pickMax, picks int
+	var holdoutMod int
+	var split string
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
+	flag.StringVar(&lexiconName, "lexicon", lexiconName,
+		"the lexicon the games were played in (leave values, cross-sets); English letter distribution only")
+	flag.StringVar(&labeler, "labeler", "table",
+		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end)")
+	flag.BoolVar(&perGame, "per-game", false,
+		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
+			"instead of every position")
+	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
+	flag.IntVar(&picks, "picks", 1, "with -per-game: distinct turns drawn per game (each emitted as its own position)")
+	flag.IntVar(&holdoutMod, "holdout-mod", 0,
+		"hold out the games whose ID hashes to 0 mod this (e.g. 20 = 5%); with -split, emit only one side (0 = no split)")
+	flag.StringVar(&split, "split", "train", "with -holdout-mod: 'train' emits the non-held-out games, 'val' the held-out ones")
 	flag.Parse()
 
 	ex, err := os.Executable()
@@ -89,7 +127,7 @@ func main() {
 	exPath := filepath.Dir(ex)
 
 	cfg := &config.Config{}
-	args := os.Args[1:]
+	args := flag.Args()
 	cfg.Load(args)
 	log.Info().Msgf("Loaded config: %v", cfg.SanitizedSettings())
 	cfg.AdjustRelativePaths(exPath)
@@ -140,7 +178,17 @@ func main() {
 	emitted := 0 // counter
 
 	numWorkers := runtime.NumCPU()
-	log.Info().Msgf("Lookahead: %d plies", NPlies)
+	switch labeler {
+	case "table":
+		log.Info().Msgf("Lookahead: %d plies", NPlies)
+	case "result":
+		log.Info().Msg("Value target: the mover's real game result")
+	default:
+		log.Fatal().Msgf("unknown -labeler %q", labeler)
+	}
+	if perGame {
+		log.Info().Msgf("Emitting %d position(s) per game, turns drawn from 1..%d", picks, pickMax)
+	}
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
 	resultsChan := make(chan outputVector, numWorkers)
@@ -153,13 +201,18 @@ func main() {
 		go func(jobChan <-chan Turn) {
 			defer workersWg.Done()
 			assembler := NewGameAssembler(NPlies)
+			assembler.valueFromResult = labeler == "result"
+			if perGame {
+				assembler.pickMax = pickMax
+				assembler.picks = picks
+			}
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)
 				for _, vec := range vecs {
 					resultsChan <- vec
 				}
 			}
-			totalGames.Add(int64(len(assembler.games)))
+			totalGames.Add(assembler.gamesProcessed)
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)
@@ -201,8 +254,15 @@ func main() {
 		for scanner.Scan() {
 			turn := scanner.Turn()
 			hash := xxhash.Sum64String(turn.GameID)
+			if !inSplit(hash, holdoutMod, split) {
+				continue
+			}
 			workerIndex := hash % uint64(numWorkers)
 			jobChans[workerIndex] <- turn
+		}
+		if err := scanner.Err(); err != nil {
+			// A malformed log used to end the run silently with zero games.
+			log.Fatal().Err(err).Msg("reading the turn log")
 		}
 		for _, ch := range jobChans {
 			close(ch)

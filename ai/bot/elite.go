@@ -57,20 +57,16 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 				p.Game.RackFor(p.Game.NextPlayer()).Add(t)
 			}
 		}
-		// Just some sort of estimate
-		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles())
-	} else if unseen > 7 && unseen <= 8 {
+		// Just some sort of estimate. One less than the tiles left to play:
+		// the endgame solver's greedy leaf playout finishes the game from
+		// wherever the search stops, so the deepest iteration -- by far the
+		// most expensive one -- earns much less than it used to.
+		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()) - 1
+	} else if unseen == 8 && (p.fixedSimPlies <= 0 || HasPreendgame(p.botType)) {
 		usePreendgame = true
-	} else if unseen > 8 && unseen <= 14 {
-		moves = p.GenerateMoves(80)
-		simPlies = unseen
 	} else {
-		moves = p.GenerateMoves(40)
-		if p.minSimPlies > 2 {
-			simPlies = p.minSimPlies
-		} else {
-			simPlies = 2
-		}
+		moves = p.GenerateMoves(100)
+		simPlies = simPliesFor(unseen, p.minSimPlies, p.fixedSimPlies)
 	}
 	simThreads := p.simThreads
 	if p.simThreads == 0 {
@@ -95,6 +91,23 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		return nonEndgameBest(ctx, p, simPlies, moves)
 	}
 
+}
+
+// simPliesFor is the sim depth with `unseen` tiles (bag plus the opponent's
+// rack) not on our rack, for unseen > 7. By default the midgame sims
+// max(2, minPlies) plies and the late game, with 2..7 tiles in the bag,
+// sims `unseen` plies. A positive fixedPlies overrides both: every sim is
+// exactly that deep, so an "N-ply" bot is N-ply for the whole game.
+func simPliesFor(unseen, minPlies, fixedPlies int) int {
+	switch {
+	case fixedPlies > 0:
+		return fixedPlies
+	case unseen <= 14:
+		return unseen
+	case minPlies > 2:
+		return minPlies
+	}
+	return 2
 }
 
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
@@ -177,14 +190,12 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	switch {
 	case ourSpread >= 100:
 		p.preendgamer.SetEndgamePlies(2)
-	case ourSpread >= 80:
+	case ourSpread >= 75:
 		p.preendgamer.SetEndgamePlies(3)
-	case ourSpread >= 60:
-		p.preendgamer.SetEndgamePlies(4)
 	case ourSpread >= 50:
-		p.preendgamer.SetEndgamePlies(5)
+		p.preendgamer.SetEndgamePlies(4)
 	default:
-		p.preendgamer.SetEndgamePlies(7)
+		p.preendgamer.SetEndgamePlies(5)
 	}
 	p.preendgamer.SetIterativeDeepening(true)
 	if p.cfg.UseOppRacksInAnalysis {
@@ -209,7 +220,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// use montecarlo if we have it.
 	logger := zerolog.Ctx(ctx)
 
-	if !hasSimming(p.botType) {
+	if !HasSimming(p.botType) {
 		return moves[0], nil
 	}
 	var inferTimeout context.Context
@@ -230,6 +241,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
 			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
 		}
+		p.inferencer.SetBudget(p.cfg.InferenceBudget)
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)
@@ -241,10 +253,19 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			}
 			logger.Info().Float64("tau", p.inferencer.Tau()).
 				Int("timeSecs", inferTimeSecs).
+				Int("budget", p.cfg.InferenceBudget).
 				Int("simIters", p.inferencer.SimIters()).
 				Msg("inference-tau")
-			inferTimeout, cancel = context.WithTimeout(context.Background(),
-				time.Duration(inferTimeSecs)*time.Second)
+			if p.cfg.InferenceBudget > 0 {
+				// Bounded by leaves measured rather than by the clock, so the
+				// answer no longer depends on how busy the machine was. The
+				// rangefinder stops itself; handing it a deadline as well would
+				// put the timing right back in.
+				inferTimeout, cancel = context.WithCancel(context.Background())
+			} else {
+				inferTimeout, cancel = context.WithTimeout(context.Background(),
+					time.Duration(inferTimeSecs)*time.Second)
+			}
 			defer cancel()
 			err = p.inferencer.Infer(inferTimeout)
 			if err != nil {
@@ -269,10 +290,16 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && inferenceRan {
-		nInferred := len(p.inferencer.Inferences().InferredRacks)
-		if nInferred > InferencesSimLimit {
+		inferences := p.inferencer.Inferences()
+		nInferred := len(inferences.InferredRacks)
+		if inferences.Complete {
+			// Complete posterior over every feasible leave: sample it
+			// directly, no count threshold or random fallback needed.
+			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
+			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
+		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
-			p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
+			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceWeightedRandomRacks)
 		} else {
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
 		}
@@ -302,4 +329,3 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
 }
-

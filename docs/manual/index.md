@@ -16,6 +16,7 @@ will be quite different.
 Below we have some more specific manuals for various topics.
 
 - [Autoplay](/macondo/manual/autoplay.html)
+- [Puzzles](/macondo/manual/puzzles.html)
 - [Some tips](/macondo/manual/tips.html)
 - [Preendgame](/macondo/manual/preendgame.html)
 - [AI Explainability](/macondo/manual/ai-explainability.html)

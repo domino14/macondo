@@ -1,0 +1,70 @@
+# Run ledger
+
+One line per model or experiment in the value-net program, newest last.
+The narrative and the numbers' provenance are in `experiments.md`; this is
+the map. Every match is 100,000 game pairs vs HastyBot, NWL23 unless noted,
+FastMlBot ranking HastyBot's top 50 plays by the net; "± " is the 95%
+interval half-width of the per-pair win share (1.96 standard errors; the
+SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread is FastMlBot's average final spread per game.
+
+## Data sets (turn logs in `~/data`, gzipped)
+
+| name | games | how generated | used by |
+|---|---|---|---|
+| file 5 (`autoplay-softmax-v-hasty-5`) | ~? | June 2025 temperature bot vs HastyBot, NWL18 | heads2 (table labels) |
+| fresh | 27M | temperature bot vs HastyBot, NWL18, greedy endgames (deleted 9/27) | fresh |
+| nwl23 a+b+c | 54M | temperature bot (top 50, softmax T=1 while bag>60) vs HastyBot, NWL23, quick 2-ply endgames | nwl23, nwl23s, nwl23st, stream |
+| open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; quick endgames | open, streamopen |
+| open2 | 27M | same as open, generated 9/28 | streamopen |
+
+Labels in every run since `result`: the mover's true game result (WDL) and
+spread to the end, one position per game drawn uniformly from turns 1..30
+(from the last sampled ply for openings games), empty-bag draws skipped.
+The producer replays half of all games transposed.
+
+## Models
+
+| tag | date | data | recipe change under test | steps | paired win rate | spread | notes |
+|---|---|---|---|---|---|---|---|
+| tf | 9/19 | file 5, table labels | transformer instead of CNN | 79.5k | 52.33 ± 0.22 | | = CNN plateau (52.5) |
+| 1head | 9/20 | file 5 | value head only, 25k steps | 25k | 50.98 ± 0.18 | -9.3 | short-run control |
+| heads | 9/20 | file 5 | + spread/wdl/opp heads, nominal weights | 25k | 51.76 ± 0.18 | -5.8 | heads help at equal steps |
+| heads2 | 9/21 | file 5 | gradient-balanced aux heads (share 0.15) | 79.5k | 53.19 ± 0.18 (NWL18), 53.31 ± 0.18 (NWL23) | -2.7 | best before spatial heads |
+| gen1 | 9/22 | file 5 | rollout labels (16x2-ply, net at leaf) | | 52.03 ± 0.18 | -4.6 | uniform opp racks: optimistic |
+| result | 9/22 | 5.4M pos | true result, one pos/game | | 50.98 ± 0.18 | -10.7 | too little data |
+| fresh | 9/24 | fresh 27M (20M pos) | true result, WDL primary | 49k | 53.10 ± 0.18 | -2.6 | |
+| nwl23 | 9/26 | nwl23 54M (36.4M pos) | + quick endgames, NWL23, more games | 53k | 53.13 ± 0.18 | -1.4 | more games: no gain |
+| **nwl23s** | 9/27 | nwl23 (36.4M pos) | **+ four per-square placement heads** (share 0.1) | 53k | **57.17 ± 0.18** (replication 57.13 ± 0.40) | +1.2 | archive `~/data/results/nwl23s-spatial-heads` |
+| nwl23s + decided rule | 9/28 | same model | bot ranks decided games by expected final spread | | 57.00 ± 0.18 | +8.5 | rule is win-neutral, +7.3 spread; on for every match since |
+| nwl23st | 9/28 | nwl23 (36.4M pos) | + per-batch transpose 0.5 | 53k | 57.30 ± 0.18 | +9.1 | +0.30 over decided-rule nwl23s (2.3 SE, p ~ 0.02); dropped at the time as not significant, see the 10/1 correction |
+| open | 9/28 | open 27M (17.9M pos) | sampled-openings games (clean labels), cache | 25k | 56.07 ± 0.18 | +7.2 | half the positions and steps of nwl23s; not a verdict on the scheme |
+| **stream** | 9/29-30 | nwl23 54M, streamed | 6 passes, fresh turn per game per pass, no cache | 101k | **57.55 ± 0.18** | +9.3 | best so far; +0.55 (SE 0.13, 4 SE) over nwl23s + decided rule (twice the steps, fresh positions) |
+| **streamopen** | 9/30-10/1 | open+open2 54M, streamed | same as stream on openings games (batch 256x8 --compile) | ~100k | **57.65 ± 0.18** | +9.5 | +0.10 (SE 0.13) vs stream: the opening scheme makes no measurable difference |
+| streamopen top 100 | 10/1 | same model | bot ranks the top 100 plays instead of 50 (`MACONDO_ML_TOPN=100`) | | 57.64 ± 0.18 | +9.0 | no gain over 50 candidates (57.65), at 1.9x the match time; keep 50 |
+| streamopen + energy extras | 10/4 | same model | top 50 + 10 lowest/10 highest ΔE plays outside it (`MACONDO_ML_ENERGY_EXTRA=10`) | | 57.44 ± 0.18 | +9.2 | no gain (-0.21, 1.6 SE); extras unfloored |
+| simft | 10/9 | streamopen + 485k sim-label groups | fine-tune 10k steps, listwise rank loss (SE-aware teacher, tau 2, weight 1) | 10k | 57.48 ± 0.18 | +8.8 | -0.17 vs streamopen; no gain |
+| simft2 | 10/10 | same | rank-share 1 (gradient-balanced), tau 1 | 10k | 57.18 ± 0.18 | +8.4 | -0.47 (3.6 SE): full-list ranking hurts |
+| own | 10/10-11 | open+open2 54M, streamed | streamopen recipe from scratch + 2 ownership heads (self_own/opp_own, `-ownership`, `MACONDO_OWNERSHIP=1`) | 101k | 57.65 ± 0.18 | +9.3 | identical to streamopen (57.65): ownership adds nothing |
+| simft3 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | pair loss (best vs each, gap/SE weight), rank-share 1, tau 1, 5070 Ti | 10k | 56.97 ± 0.18 | +6.3 | -0.68 (5.2 SE) vs streamopen: worse |
+| simft4 | 10/15 | streamopen + 1.26M sim groups (top 16, full labels) | top-4 listwise loss (SE-aware target on the sim's top 4), rank-share 1, tau 1, 5070 Ti | 10k | 57.52 ± 0.18 | +8.9 | -0.13 (1 SE) vs streamopen: level; sim distillation closed |
+| nvnft | 10/16 | streamopen + 3M net-vs-net games (streamopen self-play) 50/50 with 3M open2 games | fine-tune 11k steps, lr 1e-4, final weights, 5070 Ti (4,180 pos/s) | 11k | 57.07 ± 0.18 | +8.9 | -0.49 (3.8 SE) vs hastyft: worse vs Hasty, but beats hastyft head to head 50.30 ± 0.16 (3.7 SE) and streamopen 50.37 ± 0.16 (4.6 SE) |
+| hastyft | 10/16 | streamopen + 3M fresh HastyBot games (control) 50/50 with the same 3M open2 games | same as nvnft | 11k | 57.56 ± 0.18 | +9.2 | -0.09 vs streamopen: level (more Hasty data, no change) |
+| nvnscr | 10/16 | 3M net-vs-net games only, from scratch | streamopen recipe, 20k steps (~20 passes), best val; shared the GPU with a match 11:45-14:45 | 20k | 54.45 ± 0.18 | +5.0 | -0.94 vs hastyscr (vs Hasty); loses head to head too, 49.64 ± 0.17 (4 SE) |
+| hastyscr | 10/16 | 3M HastyBot games only, from scratch (control) | same as nvnscr | 20k | 55.39 ± 0.18 | +5.9 | the Hasty-games control: better vs Hasty |
+| student6 | 10/16-17 | MAGPIE's distillation of streamopen (6 layers, jvc56/MAGPIE@569cfe09) | imported (import_magpie_student.py, parity 4e-7), TensorRT fp16 | | 55.80 ± 0.18 | +7.1 | -1.85 vs streamopen vs Hasty; streamopen head to head 48.07 ± 0.17; generation only +6% faster (bottleneck is not the GPU) |
+
+## Bot changes that affect matches
+
+| date | change | effect |
+|---|---|---|
+| 9/24 | quick 2-ply endgame search in autoplay bots (margin 60) | game generation only |
+| 9/28 | decided-game rule (`ai/bot/mlrank.go`): when the best value is beyond ±0.97, near-ties ranked by spread after the play + predicted spread change; Triton client requests the spread head | win rate unchanged, +7.3 spread/game; every match from nwl23st on |
+
+## Tools
+
+- `cmd/mlproducer`: turn log -> training frames (`-labeler result -per-game`; `-picks K`; `-holdout-mod M -split train|val`).
+- `pytorch/training.py`: trainer (cache mode and stream mode); `gen-openings.sh` (games) and `run-stream.sh` (training) drivers, `watch-tf-heads.sh` deploy and match (the step-by-step recipe is `TRAINING.md`; the drivers of earlier runs are in git history, see `SHELVED.md`). `run-stream.sh` probes the fastest of batch 128x16 / 256x8 / 256x8 `--compile` (same effective batch 2048) before training; `probe-<tag>-*.log` keep the timings.
+- `cmd/mlreads` + `pytorch/reads_gallery.py`: where the net departs from equity, adjudicated by the 5-ply sim (`-ranks FILE`: histogram of the equity rank of the net's chosen plays); gallery https://claude.ai/artifact/1dy3cwMCdmcMwdYU2N5mSD.
+- `pytorch/pairs-stats.py`: paired match statistics; `autoanalyze` in the shell prints the same.
+
+Reproduction notes: `pytorch/results/nwl23s-spatial-heads/` (the spatial-heads result) and `pytorch/results/streamed/` (stream, streamopen).

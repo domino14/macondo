@@ -132,7 +132,6 @@ type TranspositionTable struct {
 	zobrist *zobrist.Zobrist
 }
 
-
 // SetSingleThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
 func (t *TranspositionTable) SetSingleThreadedMode() {}
 

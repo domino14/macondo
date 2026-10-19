@@ -22,7 +22,9 @@ const (
 	MaxPossiblePlaythroughBlocks = (15 / 2) + 1
 	// MaxWMPMoveGenAnchors is the size of the per-anchor scratch
 	// table indexed by (playthrough_blocks, tiles_to_play).
-	MaxWMPMoveGenAnchors = (RackSize + 1) * MaxPossiblePlaythroughBlocks
+	// playthrough_blocks ranges 0..MaxPossiblePlaythroughBlocks
+	// inclusive, so the table needs one extra row.
+	MaxWMPMoveGenAnchors = (RackSize + 1) * (MaxPossiblePlaythroughBlocks + 1)
 )
 
 // EquityMinValue is the sentinel returned for "no anchor seen yet"

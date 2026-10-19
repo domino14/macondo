@@ -20,16 +20,19 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/domino14/word-golib/cache"
+	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/alphadawg"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/explainer"
@@ -90,6 +93,8 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 		return true, fmt.Sprintf("%v", rule)
 	case "board":
 		return true, opts.BoardLayoutName
+	case "variant":
+		return true, string(opts.Variant)
 	default:
 		return false, "No such option: " + key
 	}
@@ -107,7 +112,7 @@ func (sc *ShellController) ShowConfig(key string) (bool, string) {
 }
 
 func (opts *ShellOptions) ToDisplayText() string {
-	keys := []string{"lexicon", "challenge", "lower", "board"}
+	keys := []string{"lexicon", "challenge", "lower", "board", "variant"}
 	out := strings.Builder{}
 	out.WriteString("Settings:\n")
 	for _, key := range keys {
@@ -211,9 +216,18 @@ type ShellController struct {
 	volunteerCancel context.CancelFunc
 
 	// Local analysis persistence
-	gameSource    string                  // source identifier for the currently loaded game
+	gameSource    string                      // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 
+	// Puzzle set opened by the `puzzle` command
+	puzzleSet  []*pgRecord
+	puzzleFile string
+	puzzleIdx  int
+
+	// Where `puzzle keep` files the puzzles worth keeping, and which ones are
+	// already there. Keyed by pgKeepKey.
+	puzzleKeepFile string
+	puzzleKept     map[string]bool
 }
 
 type Mode int
@@ -361,6 +375,23 @@ func (sc *ShellController) setExhaustiveLeaveCalculator() error {
 	return nil
 }
 
+// fetchLeaves downloads a leave-values file unless it is already on disk.
+// Nothing here is required: an older lexicon may have no leaves published at
+// all, and only a handful have a SuperCrosswordGame set, so a file that isn't
+// there is reported as the ordinary fact it is rather than as an error.
+func fetchLeaves(cfg *wglconfig.Config, name, description string) {
+	err := dataloaders.EnsureKLV(name, cfg)
+	switch {
+	case err == nil:
+	case errors.Is(err, dataloaders.ErrNotPublished):
+		log.Info().Str("leaves", name+dataloaders.LeavesExtension).
+			Msgf("no %s are published; skipping", description)
+	default:
+		log.Info().Err(err).Str("leaves", name+dataloaders.LeavesExtension).
+			Msgf("could not fetch %s", description)
+	}
+}
+
 func (sc *ShellController) Set(key string, args []string) (string, error) {
 	var err error
 	var ret string
@@ -384,6 +415,16 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				if err != nil {
 					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
+				// Fetch this lexicon's leave values if they aren't on disk,
+				// both the normal and the SuperCrosswordGame set. Like the WMP
+				// build below, this is worth waiting for during an interactive
+				// lexicon switch: without its own leaves a lexicon falls back
+				// to a relative's, and without any it plays greedily.
+				lexName := sc.options.Lexicon.Name
+				fetchLeaves(sc.config.WGLConfig(), lexName,
+					"leave values for "+lexName)
+				fetchLeaves(sc.config.WGLConfig(), "super-"+lexName,
+					"SuperCrosswordGame leave values for "+lexName)
 				// Build WMP if not already on disk (build-on-miss is intentional
 				// here since the user is doing an interactive lexicon switch).
 				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
@@ -407,6 +448,20 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				}
 			}
 			_, ret = sc.options.Show("board")
+		}
+	case "variant":
+		if sc.IsPlaying() {
+			msg := "Cannot change the variant while a game is active (try `unload` to quit game)"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetVariant(args[0])
+			if err == nil && game.IsWordSmog(sc.options.Variant) {
+				// WordSmog plays out of an alpha dawg; fetch it now rather
+				// than at game creation time, since this is the interactive
+				// moment where waiting for a download is acceptable.
+				err = alphadawg.EnsureKAD(sc.options.Lexicon.Name, sc.config.WGLConfig())
+			}
+			_, ret = sc.options.Show("variant")
 		}
 	case "challenge":
 		err = sc.options.SetChallenge(args[0])
@@ -448,7 +503,6 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	}
 }
 
-
 func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
@@ -475,7 +529,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
-	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
 	if err != nil {
 		return err
 	}
@@ -893,7 +947,7 @@ func (sc *ShellController) initializeVariationTree() {
 	// For each turn in the main line, create a node with the full history
 	for turnNum := 0; turnNum < len(history.Events); turnNum++ {
 		// Create a copy of the full game (with complete history)
-		sc.game.PlayToTurn(originalTurn) // Restore full history position
+		sc.game.PlayToTurn(originalTurn)               // Restore full history position
 		fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
 		botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
 
@@ -1077,18 +1131,28 @@ func (sc *ShellController) loadGameHistoryFromWeb(url string) (*pb.GameHistory, 
 	return gcgio.ParseGCGFromReader(sc.config, resp.Body)
 }
 
+// expandHomePath expands a leading "~" or "~/" to the user's home directory.
+// The shell has no OS shell in front of it, so a tilde arrives verbatim and
+// every path the user types has to go through here. A path that cannot be
+// expanded comes back unchanged, so callers report what the user actually
+// typed.
+func expandHomePath(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	usr, err := user.Current()
+	if err != nil || usr.HomeDir == "" {
+		return path
+	}
+	if path == "~" {
+		return usr.HomeDir
+	}
+	return filepath.Join(usr.HomeDir, path[2:])
+}
+
 // loadGameHistoryFromFile loads a game from a local GCG file
 func (sc *ShellController) loadGameHistoryFromFile(path string) (*pb.GameHistory, error) {
-	if strings.HasPrefix(path, "~/") {
-		usr, err := user.Current()
-		if err != nil {
-			return nil, err
-		}
-		dir := usr.HomeDir
-		path = filepath.Join(dir, path[2:])
-	}
-
-	return gcgio.ParseGCG(sc.config, path)
+	return gcgio.ParseGCG(sc.config, expandHomePath(path))
 }
 
 // lexiconFromCGP extracts the lexicon name from the ops field of a CGP string
@@ -1231,15 +1295,26 @@ func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping, bd *boar
 		bd.MoveDescriptionWithPlaythrough(m), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
-func (sc *ShellController) endgameSequenceString(moves []*move.Move) string {
+// endgameSequenceString renders the endgame's best sequence. numSearched is how
+// many of the leading moves the search actually solved; anything past that came
+// from the greedy playout and is marked as an estimate.
+func (sc *ShellController) endgameSequenceString(moves []*move.Move, numSearched int) string {
 	var sb strings.Builder
 	bd := sc.game.Board().Copy()
 	sb.WriteString("Best move: ")
 	sb.WriteString(bd.MoveDescriptionWithPlaythrough(moves[0]) + "\n")
 	sb.WriteString("Best sequence:\n")
 	for idx, m := range moves {
-		fmt.Fprintf(&sb, "%d) %v (%d)\n", idx+1, bd.MoveDescriptionWithPlaythrough(m), m.Score())
+		marker := ""
+		if idx >= numSearched {
+			marker = negamax.EstimatedMoveMarker
+		}
+		fmt.Fprintf(&sb, "%d) %s%v (%d)\n", idx+1, marker, bd.MoveDescriptionWithPlaythrough(m), m.Score())
 		bd.PlaceMoveTiles(m)
+	}
+	if numSearched < len(moves) {
+		fmt.Fprintf(&sb, "(%s = estimated by greedy playout past the search depth)\n",
+			negamax.EstimatedMoveMarker)
 	}
 	return sb.String()
 }
@@ -1602,6 +1677,14 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	if options.Bool("deterministic") {
 		expCfg.Deterministic = true
 	}
+	if options.Bool("gamepairs") {
+		expCfg.GamePairs = true
+	}
+	if v, err2 := options.IntDefault("seed", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.Seed = uint64(v)
+	}
 
 	// Per-player overrides. Apply only if the flag was explicitly set.
 	if expCfg.Player1 == nil {
@@ -1612,6 +1695,29 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 	applyPlayerOverrides(expCfg.Player1, options, "1")
 	applyPlayerOverrides(expCfg.Player2, options, "2")
+	if v, err := options.IntDefault("quickendgame", 0); err == nil && v > 0 {
+		margin, _ := options.IntDefault("quickendgamemargin", 60)
+		capMs, _ := options.IntDefault("quickendgamecap", 250)
+		noPrune := options.Bool("quickendgamenoprune")
+		for _, p := range []*pb.AutoplayPlayerConfig{expCfg.Player1, expCfg.Player2} {
+			p.QuickEndgamePlies = int32(v)
+			p.QuickEndgameMargin = int32(margin)
+			p.QuickEndgameCapMs = int32(capMs)
+			p.QuickEndgameNoPrune = noPrune
+		}
+	}
+	if v, err := options.Float("openingplies"); err == nil && v > 0 {
+		expCfg.OpeningPliesMean = v
+		expCfg.OpeningTemperature = 3
+		if t, err := options.Float("openingtemp"); err == nil && t > 0 {
+			expCfg.OpeningTemperature = t
+		}
+		topN, _ := options.IntDefault("openingtopn", 50)
+		expCfg.OpeningTopN = int32(topN)
+		if u, err := options.Float("openinguniform"); err == nil && u > 0 {
+			expCfg.OpeningUniformProb = u
+		}
+	}
 
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)
@@ -1639,6 +1745,12 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
 		p.MinSimPlies = int32(v)
 	}
+	if v, err := options.IntDefault("fixedsimplies"+suffix, -1); err == nil && v >= 0 {
+		p.FixedSimPlies = int32(v)
+	}
+	if v := options.String("tritonmodel" + suffix); v != "" {
+		p.TritonModel = v
+	}
 	if v, err := options.IntDefault("simthreads"+suffix, -1); err == nil && v >= 0 {
 		p.SimThreads = int32(v)
 	}
@@ -1653,6 +1765,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	}
 	if v, err := options.IntDefault("maxleaves"+suffix, -1); err == nil && v >= 0 {
 		p.InferenceMaxEnumeratedLeaves = int32(v)
+	}
+	if v, err := options.IntDefault("inferencebudget"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceBudget = int32(v)
 	}
 	if options.Bool("oracle" + suffix) {
 		p.OracleInference = true
@@ -1691,6 +1806,22 @@ func extractFields(line string) (*shellcmd, error) {
 	options := CmdOptions{}
 	// handle options
 
+	// A declared boolean flag does not take a value unless one is written out,
+	// so `analyze-batch -continue /path/to/games` reads the path as an
+	// argument rather than swallowing it as the flag's value.
+	spec := commandSpecs[cmd]
+	takesFollowingValue := func(name, next string) bool {
+		if spec == nil {
+			return true
+		}
+		opt := spec.lookupOption(name)
+		if opt == nil || opt.Type != OptBool {
+			return true
+		}
+		next = strings.ToLower(next)
+		return next == "true" || next == "false"
+	}
+
 	lastWasOption := false
 	lastOption := ""
 	for idx := 1; idx < len(fields); idx++ {
@@ -1708,7 +1839,12 @@ func extractFields(line string) (*shellcmd, error) {
 		}
 		if lastWasOption {
 			lastWasOption = false
-			options[lastOption] = append(options[lastOption], fields[idx])
+			if takesFollowingValue(lastOption, fields[idx]) {
+				options[lastOption] = append(options[lastOption], fields[idx])
+			} else {
+				options[lastOption] = append(options[lastOption], "true")
+				args = append(args, fields[idx])
+			}
 		} else {
 			args = append(args, fields[idx])
 		}
@@ -1834,6 +1970,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.generate(cmd)
 	case "autoplay":
 		return sc.autoplay(cmd)
+	case "puzzlegen":
+		return sc.puzzlegen(cmd)
+	case "puzzle":
+		return sc.puzzle(cmd)
 	case "sim":
 		return sc.sim(cmd)
 	case "infer":

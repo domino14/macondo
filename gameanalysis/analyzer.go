@@ -42,6 +42,21 @@ const (
 	spreadMediumBlowout = 30
 )
 
+// Search depths for the analyzer's exact solvers. Pinned here rather than left
+// to the solvers' own defaults, so that retuning those for interactive or bot
+// use does not silently change what analysis reports.
+const (
+	// analyzerEndgamePlies is the depth of the single endgame solve per turn.
+	// Analysis wants a proven answer and runs offline, so it can afford more
+	// than the interactive default.
+	analyzerEndgamePlies = 7
+
+	// analyzerPEGEndgamePlies is the depth of each endgame solved inside a
+	// pre-endgame. The pre-endgame runs one per candidate play per tile draw,
+	// so this multiplies out quickly.
+	analyzerPEGEndgamePlies = 4
+)
+
 // AnalysisConfig holds configuration for game analysis
 type AnalysisConfig struct {
 	// Early/mid game (>7 tiles in bag)
@@ -71,10 +86,10 @@ type AnalysisConfig struct {
 // DefaultAnalysisConfig returns sensible defaults
 func DefaultAnalysisConfig() *AnalysisConfig {
 	return &AnalysisConfig{
-		SimPlaysEarlyMid:        40,
+		SimPlaysEarlyMid:        100,
 		SimPliesEarlyMid:        5,
 		SimStopEarlyMid:         99,
-		SimPlaysEarlyPreEndgame: 80,
+		SimPlaysEarlyPreEndgame: 100,
 		SimPliesEarlyPreEndgame: 10,
 		SimStopEarlyPreEndgame:  99,
 		PEGEarlyCutoff:          true,
@@ -211,16 +226,45 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 		return nil, err
 	}
 
-	// Categorize the mistake (authoritative call — runs after all flags are set)
-	analysis.MistakeCategory = categorizeMistake(analysis)
+	// Grade the turn (authoritative call — runs after all flags are set)
+	finalizeGrade(analysis)
 
 	return analysis, nil
+}
+
+// finalizeGrade records the mistake category and, from it, whether the play was
+// optimal. Up to this point WasOptimal means "is the move the engine picked",
+// which each phase analyzer needs while it works out what the play cost. That
+// is too strict as a verdict: an endgame can have several moves sharing the
+// best final spread, and a sim cannot separate plays whose win probabilities
+// sit inside its own noise. Both cases come out of categorizeMistake as "cost
+// nothing", so a turn is optimal exactly when it has no mistake to report --
+// which also means every turn in a game is either optimal or categorized.
+func finalizeGrade(analysis *TurnAnalysis) {
+	analysis.MistakeCategory = categorizeMistake(analysis)
+	analysis.WasOptimal = analysis.MistakeCategory == ""
 }
 
 // AnalyzeGame analyzes every move in a game and returns the results
 func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*GameAnalysisResult, error) {
 	if history == nil {
 		return nil, errors.New("game history is nil")
+	}
+	if len(history.Players) < 2 {
+		return nil, fmt.Errorf("game has %d players, expected 2", len(history.Players))
+	}
+
+	// Resolve the -player name filter before doing any work. A filter that
+	// matches neither player is an error, not an empty analysis: silently
+	// reporting zero turns for every game looks exactly like a working run
+	// that found nothing.
+	nameFilterIdx := -1
+	if a.analysisCfg.OnlyPlayerByName != "" {
+		nameFilterIdx = playerIndexByName(history.Players, a.analysisCfg.OnlyPlayerByName)
+		if nameFilterIdx == -1 {
+			return nil, fmt.Errorf("no player named %q in this game (players: %s)",
+				a.analysisCfg.OnlyPlayerByName, describePlayers(history.Players))
+		}
 	}
 
 	result := &GameAnalysisResult{
@@ -266,8 +310,8 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	// Determine which player to analyze
 	shouldAnalyzePlayer := func(playerIndex int) bool {
 		// Check name filter first
-		if a.analysisCfg.OnlyPlayerByName != "" {
-			return history.Players[playerIndex].Nickname == a.analysisCfg.OnlyPlayerByName
+		if nameFilterIdx != -1 {
+			return playerIndex == nameFilterIdx
 		}
 		// Then check player index filter
 		if a.analysisCfg.OnlyPlayer == -1 {
@@ -329,6 +373,113 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	a.calculatePlayerSummaries(result)
 
 	return result, nil
+}
+
+// playerIndexByName finds the player a -player name filter refers to, or -1.
+// A GCG nickname is a single whitespace-free token (`#player1 nick Real Name`),
+// so a filter like "Eric Smith" can only ever be a real name; both fields are
+// matched, case-insensitively, so the user does not have to know which form
+// the file used.
+func playerIndexByName(players []*pb.PlayerInfo, name string) int {
+	name = strings.TrimSpace(name)
+	for i, p := range players {
+		if p == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(p.Nickname), name) ||
+			strings.EqualFold(strings.TrimSpace(p.RealName), name) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Coverage says whether an already-computed analysis answers what an
+// AnalysisConfig asks for. An analysis restricted to one player does not
+// answer a question about both, and reusing it would quietly report half a
+// game as the whole of it.
+type Coverage int
+
+const (
+	// CoverageComplete: the analysis covers every player the config asks for.
+	CoverageComplete Coverage = iota
+	// CoveragePartial: some requested player has no analyzed turns.
+	CoveragePartial
+	// CoverageUnknown: the answer depends on the game's player list, which
+	// the caller did not supply. Ask again with it.
+	CoverageUnknown
+)
+
+// Covers reports whether r already answers what cfg asks for. players is the
+// game's player list; pass nil if it is not loaded yet, and handle
+// CoverageUnknown by loading it and asking again.
+//
+// A player with no analyzed turns is how a stored result records "this player
+// was filtered out", since every player in a real game takes at least one turn.
+func (r *GameAnalysisResult) Covers(cfg *AnalysisConfig, players []*pb.PlayerInfo) Coverage {
+	analyzed := func(i int) bool {
+		return i >= 0 && i < len(r.PlayerSummaries) &&
+			r.PlayerSummaries[i] != nil && r.PlayerSummaries[i].TurnsPlayed > 0
+	}
+	bothAnalyzed := func() Coverage {
+		if analyzed(0) && analyzed(1) {
+			return CoverageComplete
+		}
+		return CoveragePartial
+	}
+
+	if cfg.OnlyPlayerByName == "" {
+		if cfg.OnlyPlayer == 0 || cfg.OnlyPlayer == 1 {
+			if analyzed(cfg.OnlyPlayer) {
+				return CoverageComplete
+			}
+			return CoveragePartial
+		}
+		return bothAnalyzed()
+	}
+
+	if len(players) > 0 {
+		// The player list is authoritative, including about a name that
+		// belongs to neither player: re-analyzing is what surfaces that.
+		idx := playerIndexByName(players, cfg.OnlyPlayerByName)
+		if idx != -1 && analyzed(idx) {
+			return CoverageComplete
+		}
+		return CoveragePartial
+	}
+
+	// Summaries carry nicknames only, so a filter naming a player in full
+	// cannot be resolved from a stored analysis alone.
+	for i, s := range r.PlayerSummaries {
+		if s != nil && strings.EqualFold(strings.TrimSpace(s.PlayerName),
+			strings.TrimSpace(cfg.OnlyPlayerByName)) {
+			if analyzed(i) {
+				return CoverageComplete
+			}
+			return CoveragePartial
+		}
+	}
+	return CoverageUnknown
+}
+
+// describePlayers renders the players of a game for error messages, showing
+// both names when they differ so the reader can see what -player would accept.
+func describePlayers(players []*pb.PlayerInfo) string {
+	names := make([]string, 0, len(players))
+	for _, p := range players {
+		if p == nil {
+			continue
+		}
+		name := p.Nickname
+		if p.RealName != "" && !strings.EqualFold(p.RealName, p.Nickname) {
+			name = fmt.Sprintf("%s (%s)", p.Nickname, p.RealName)
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // isAnalyzableEvent returns true if the event represents a move that can be analyzed
@@ -702,18 +853,15 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
 	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
 
-	// When all plays are near 0% or 100% win probability, win prob loss is
-	// meaningless. Use equity difference as a spread-based tiebreaker instead,
-	// mirroring how PEG handles tied win probabilities.
-	if !analysis.WasOptimal && playedFound {
-		nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
-		nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
-		if nearZero || nearOne {
-			optimalEquity := simmedPlays[0].EquityMean()
-			equityDiff := optimalEquity - playedEquity
-			if equityDiff > 0.5 {
-				analysis.SpreadLoss = int16(equityDiff + 0.5)
-			}
+	// When both plays being compared are near 0% or 100% win probability, win
+	// prob loss is meaningless. Use equity difference as a spread-based
+	// tiebreaker instead, mirroring how PEG handles tied win probabilities.
+	if !analysis.WasOptimal && playedFound &&
+		tiebreakByEquity(analysis.OptimalWinProb, analysis.PlayedWinProb) {
+		optimalEquity := simmedPlays[0].EquityMean()
+		equityDiff := optimalEquity - playedEquity
+		if equityDiff > 0.5 {
+			analysis.SpreadLoss = int16(equityDiff + 0.5)
 		}
 	}
 
@@ -726,6 +874,25 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	analysis.TopSimPlays = extractTopSimPlays(simmedPlays, analysis.PlayedMove, checkTrans, 5)
 
 	return nil
+}
+
+// tiebreakByEquity reports whether the win probabilities of the optimal and
+// played moves are too saturated to tell them apart, so that the comparison
+// should fall back to equity.
+//
+// The optimal play is the maximum of the field, so a near-zero optimal win prob
+// means every play is hopeless and win% genuinely carries no signal. A
+// near-one optimal win prob says nothing about the rest of the field, though:
+// the played move can still have a real losing chance, and that difference is
+// exactly what the analysis is trying to measure. So the near-one case has to
+// check the played move too — the same conjunction the sim's autostopper uses
+// over the top and bottom unignored plays.
+func tiebreakByEquity(optimalWinProb, playedWinProb float64) bool {
+	if optimalWinProb < blowoutWinProbThreshold {
+		return true
+	}
+	return optimalWinProb > 1-blowoutWinProbThreshold &&
+		playedWinProb > 1-blowoutWinProbThreshold
 }
 
 // extractTopSimPlays returns at most maxTop plays plus ensuring the played move is included.
@@ -795,6 +962,7 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	pegSolver.Init(g, gd)
 
 	// Set options
+	pegSolver.SetEndgamePlies(analyzerPEGEndgamePlies)
 	pegSolver.SetEarlyCutoffOptim(a.analysisCfg.PEGEarlyCutoff)
 	pegSolver.SetAvoidPrune([]*move.Move{analysis.PlayedMove})
 
@@ -1012,8 +1180,7 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	defer cancel()
 
 	// Solve
-	plies := 7 // default endgame plies
-	bestSpread, principalVariation, err := endgameSolver.Solve(endgameCtx, plies)
+	bestSpread, principalVariation, err := endgameSolver.Solve(endgameCtx, analyzerEndgamePlies)
 	if err != nil {
 		return fmt.Errorf("endgame solve failed: %w", err)
 	}
@@ -1056,8 +1223,11 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
 	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
-	// Extract enriched endgame data: principal variation and other variations
-	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread)
+	// Extract enriched endgame data: principal variation and other variations.
+	// Everything past the searched prefix is the greedy playout's continuation,
+	// so mark it rather than presenting it as solved.
+	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread,
+		endgameSolver.NumSearchedMoves())
 	variations := endgameSolver.Variations()
 	otherVars := make([]*EndgameVariationResult, 0, len(variations))
 	for _, v := range variations {
@@ -1068,15 +1238,17 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 		for i := 0; i < v.NumMoves(); i++ {
 			moves[i] = v.Moves[i]
 		}
-		otherVars = append(otherVars, pvLineToResult(moves, v.Score()))
+		otherVars = append(otherVars, pvLineToResult(moves, v.Score(), v.NumSearchedMoves()))
 	}
 	analysis.OtherVariations = otherVars
 
 	return nil
 }
 
-// pvLineToResult converts a slice of moves and final spread into an EndgameVariationResult.
-func pvLineToResult(moves []*move.Move, finalSpread int16) *EndgameVariationResult {
+// pvLineToResult converts a slice of moves and final spread into an
+// EndgameVariationResult. numSearched is how many leading moves the search
+// itself proved; the rest came from the greedy playout and are marked estimated.
+func pvLineToResult(moves []*move.Move, finalSpread int16, numSearched int) *EndgameVariationResult {
 	moveResults := make([]*EndgameMoveResult, 0, len(moves))
 	for i, m := range moves {
 		if m == nil {
@@ -1086,6 +1258,7 @@ func pvLineToResult(moves []*move.Move, finalSpread int16) *EndgameVariationResu
 			MoveDescription: strings.TrimSpace(m.ShortDescription()),
 			Score:           m.Score(),
 			MoveNumber:      i + 1,
+			IsEstimated:     i >= numSearched,
 		})
 	}
 	return &EndgameVariationResult{

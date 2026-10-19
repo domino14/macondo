@@ -3,23 +3,27 @@ package explainer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
 // PlayMetadata represents metadata about a Scrabble play
 type PlayMetadata struct {
-	Play           string `json:"play"`
+	Play string `json:"play"`
+	// WordFormed is the whole word the play makes, the tiles already on the
+	// board included. Empty for exchanges and passes.
+	WordFormed     string `json:"word_formed,omitempty"`
 	Score          int    `json:"score"`
 	TilesUsed      int    `json:"tiles_used"`
 	IsBingo        bool   `json:"is_bingo"`
@@ -36,6 +40,28 @@ type FuturePlayMetadata struct {
 	NeededDraw         []string `json:"needed_draw"`         // tiles needed from bag
 	RequiresOtherPlay  string   `json:"requires_opp_play"`   // opponent play needed first
 	ProbabilityPercent float64  `json:"probability_percent"` // likelihood of this play
+	IsSetup            bool     `json:"is_setup"`
+}
+
+// FuturePlayFamily describes a play that can be made in more than one way,
+// because a blank can stand in for different tiles. The combined percentage is
+// the one to quote: each individual way is only part of the chance of making
+// the play.
+type FuturePlayFamily struct {
+	Play              string   `json:"play"`
+	CombinedPercent   float64  `json:"combined_probability_percent"`
+	ScoreRange        string   `json:"score_range"`
+	NeededDrawOptions []string `json:"needed_draw_options"` // any one of these unlocks the play
+	IsSetup           bool     `json:"is_setup"`
+}
+
+// FuturePlayLookup is the result of looking a follow-up play up in the sim
+// stats: every way of making it, plus the combined figures when there is more
+// than one.
+type FuturePlayLookup struct {
+	Asked  string // the specific way the model named, if it named one
+	Family *FuturePlayFamily
+	Ways   []*FuturePlayMetadata
 }
 
 // GetOurPlayMetadataTool analyzes metadata for a current play
@@ -52,7 +78,9 @@ func (t *GetOurPlayMetadataTool) Name() string {
 }
 
 func (t *GetOurPlayMetadataTool) Description() string {
-	return "Get metadata about a play including score, tiles used, vowel/consonant balance, and whether it's a bingo"
+	return "Get metadata about a play including score, tiles used, vowel/consonant balance, and whether it's a bingo. " +
+		"Use this whenever you want to talk about a play's leave balance, vowel/consonant counts, or tiles used - " +
+		"do not count or calculate those yourself."
 }
 
 func (t *GetOurPlayMetadataTool) Parameters() map[string]interfaces.ParameterSpec {
@@ -73,13 +101,19 @@ func (t *GetOurPlayMetadataTool) Execute(ctx context.Context, args string) (stri
 	var params struct {
 		PlayString string `json:"play_string"`
 	}
+	// Every error out of here names the play that caused it. The agent SDK
+	// logs a tool failure as the tool's name and the error text and nothing
+	// else - not the arguments - so an error that doesn't carry its own input
+	// leaves you working out which of four concurrent calls it was. It also
+	// goes back to the model as the tool's result, which is the other reason
+	// to say what was asked about.
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
 	metadata, err := t.analyzer.GetPlayMetadata(params.PlayString)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("play %q: %w", params.PlayString, err)
 	}
 
 	result, err := json.Marshal(metadata)
@@ -103,15 +137,19 @@ func (t *GetOurFuturePlayMetadataTool) Name() string {
 }
 
 func (t *GetOurFuturePlayMetadataTool) Description() string {
-	return "Get metadata about a potential future play including required tile draws, setup requirements, and probability"
+	return "Get metadata about one of our potential follow-up plays: the tile draws it needs, whether anything has " +
+		"to be played first, whether it is a setup, and how likely it is. " +
+		"Only plays listed in the 'Our follow-up play' table can be looked up, and they must be spelled exactly as they " +
+		"appear there (a lowercase letter means that tile is the blank)."
 }
 
 func (t *GetOurFuturePlayMetadataTool) Parameters() map[string]interfaces.ParameterSpec {
 	return map[string]interfaces.ParameterSpec{
 		"play_string": {
-			Type:        "string",
-			Description: "The future play string to analyze (e.g., '8H QUIXOTIC')",
-			Required:    true,
+			Type: "string",
+			Description: "The future play string to analyze, copied exactly from the 'Our follow-up play' table " +
+				"(e.g., '8H QUIXOTIC', or '1H (Z)WIEBAcK' where the lowercase c is the blank)",
+			Required: true,
 		},
 	}
 }
@@ -125,15 +163,45 @@ func (t *GetOurFuturePlayMetadataTool) Execute(ctx context.Context, args string)
 		PlayString string `json:"play_string"`
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
-	metadata, err := t.analyzer.GetFuturePlayMetadata(params.PlayString)
+	lookup, err := t.analyzer.LookupFuturePlay(params.PlayString)
+	var notFound *PlayNotFoundError
+	if errors.As(err, &notFound) {
+		// Not an error as far as the model is concerned: tell it which plays
+		// it can actually ask about so it doesn't guess at the spelling again.
+		log.Info().Str("play", params.PlayString).Msg("future play not in follow-up table")
+		return notFound.ToolMessage(), nil
+	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("future play %q: %w", params.PlayString, err)
 	}
 
-	result, err := json.Marshal(metadata)
+	var result []byte
+	if lookup.Family == nil {
+		result, err = json.Marshal(lookup.Ways[0])
+	} else {
+		// There is more than one way to make this play, differing in which
+		// tile is the blank. Hand back all of them however the model asked,
+		// so it can't mistake one way's chance for the play's chance.
+		result, err = json.Marshal(struct {
+			Note       string                `json:"note"`
+			AskedAbout string                `json:"asked_about,omitempty"`
+			Family     *FuturePlayFamily     `json:"family"`
+			Ways       []*FuturePlayMetadata `json:"ways"`
+		}{
+			Note: fmt.Sprintf("There are %d different ways to make this play, differing in which tile is "+
+				"played as the blank. Each way scores differently and needs a different draw. The chance of "+
+				"making the play at all is the family's combined_probability_percent (%.2f%%) - quote that, "+
+				"not an individual way's probability_percent. Name a specific way only by its exact play "+
+				"string, where a lowercase letter is the blank.",
+				len(lookup.Ways), lookup.Family.CombinedPercent),
+			AskedAbout: lookup.Asked,
+			Family:     lookup.Family,
+			Ways:       lookup.Ways,
+		})
+	}
 	if err != nil {
 		return "", err
 	}
@@ -176,26 +244,39 @@ func (t *EvaluateLeaveTool) Execute(ctx context.Context, args string) (string, e
 		Leave string `json:"leave"`
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
 	value, err := t.analyzer.EvaluateLeave(params.Leave)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("leave %q: %w", params.Leave, err)
 	}
 
 	return strconv.FormatFloat(value, 'f', 3, 64), nil
 }
 
-// Analyzer provides the actual analysis logic
+// Analyzer holds the game and the facts we computed about the position, and
+// answers the tools' questions from them. Nothing here parses the prompt.
 type Analyzer struct {
-	// This will eventually integrate with the game state and simulation
-	gameState                 string
-	simResults                string
-	simDetails                string
-	winningPlay               string
-	winningStats              string
+	// mu serializes the tools. The agent SDK runs every tool call in a batch
+	// in its own goroutine, and what they call underneath is not built for
+	// that: scoring a vertical play transposes the shared board in place and
+	// transposes it back (game.CreateAndScorePlacementMove), so one lookup
+	// can be reading the board sideways while another is scoring. That is not
+	// theoretical - it is how "D3 OI(LI)ER" came back as "a played-through
+	// marker was specified, but there is no tile at the given location" while
+	// a second vertical play was being scored beside it, and it can as easily
+	// return a plausible wrong score with no error at all. The lazy leave
+	// calculator below is a second, quieter race in the same batch.
+	//
+	// Only the tool entry points take this. BuildFacts touches the same game
+	// but runs to completion before the SDK starts any goroutine, so the go
+	// statement already orders it, and locking it would deadlock against the
+	// EvaluateLeave it calls. The tools are microseconds next to a model
+	// round trip, so serializing them costs nothing worth measuring.
+	mu                        sync.Mutex
 	game                      *bot.BotTurnPlayer
+	facts                     *PositionFacts
 	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
 	config                    *config.Config
 }
@@ -209,17 +290,24 @@ func (a *Analyzer) SetConfig(cfg *config.Config) {
 	a.config = cfg
 }
 
-// SetGameContext sets the current game context for analysis
-func (a *Analyzer) SetGameContext(gameState, simResults, simDetails, winningPlay, winningStats string) {
-	a.gameState = gameState
-	a.simResults = simResults
-	a.simDetails = simDetails
-	a.winningPlay = winningPlay
-	a.winningStats = winningStats
+// SetGame sets the position under analysis.
+func (a *Analyzer) SetGame(tp *bot.BotTurnPlayer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.game = tp
+	a.facts = nil
+	a.exhaustiveLeaveCalculator = nil
+}
+
+// Facts returns the fact pack built for the current position, if any.
+func (a *Analyzer) Facts() *PositionFacts {
+	return a.facts
 }
 
 // EvaluateLeave evaluates the value of a leave
 func (a *Analyzer) EvaluateLeave(leave string) (float64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	log.Info().Str("leave", leave).Msg("evaluating leave")
 	if a.exhaustiveLeaveCalculator == nil {
 		if a.config == nil {
@@ -254,44 +342,84 @@ func (a *Analyzer) EvaluateLeave(leave string) (float64, error) {
 	return value, nil
 }
 
-// GetPlayMetadata analyzes a play and returns metadata
-func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
-	// Check if this is an exchange or pass move
+// DottedPlay converts a play from the playthrough notation the tables use,
+// 5D (S)PIC(A), into the dotted form the move parser wants, 5D .PIC. - the
+// parenthesized tiles are the ones already on the board. Exchanges and passes
+// come back unchanged apart from their wrapping parentheses. Input that is
+// already dotted is left alone.
+func DottedPlay(playString string) string {
 	trimmed := strings.TrimSpace(playString)
-	var dottedPlayStr string
 
 	// Handle exchange moves like "(exch Q)" or "exch Q" or "exchange Q"
 	if strings.HasPrefix(trimmed, "(exch ") || strings.HasPrefix(trimmed, "(exchange ") {
 		// Remove outer parentheses for exchange moves
-		dottedPlayStr = strings.Trim(trimmed, "()")
-	} else if trimmed == "pass" || strings.HasPrefix(trimmed, "exch ") || strings.HasPrefix(trimmed, "exchange ") {
-		// Already in correct format
-		dottedPlayStr = trimmed
-	} else {
-		// For placement moves, convert characters inside parentheses to dots
-		// (parentheses indicate tiles already on the board)
-		var sb strings.Builder
-		inParens := false
-		for _, ch := range playString {
-			if ch == '(' {
-				inParens = true
-				continue
-			} else if ch == ')' {
-				inParens = false
-				continue
-			}
-			if !inParens {
-				sb.WriteRune(ch)
-			} else {
-				sb.WriteRune('.')
-			}
+		return strings.Trim(trimmed, "()")
+	}
+	if trimmed == "pass" || trimmed == "(Pass)" ||
+		strings.HasPrefix(trimmed, "exch ") || strings.HasPrefix(trimmed, "exchange ") {
+		if trimmed == "(Pass)" {
+			return "pass"
 		}
-		dottedPlayStr = sb.String()
+		return trimmed
 	}
 
-	m, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(dottedPlayStr), false)
+	var sb strings.Builder
+	inParens := false
+	for _, ch := range trimmed {
+		switch {
+		case ch == '(':
+			inParens = true
+		case ch == ')':
+			inParens = false
+		case inParens:
+			sb.WriteRune('.')
+		default:
+			sb.WriteRune(ch)
+		}
+	}
+	return sb.String()
+}
+
+// WordFormed is the whole word a play makes, playthrough included: L5
+// (BEL)FRIED makes BELFRIED, 2J TOQUE makes TOQUE. The letters outside the
+// parentheses are only the ones that came off the rack, so a play named by
+// those alone is a different word - a reader told about "FRIED" has been told
+// about a play that does not exist.
+//
+// It reads the word out of the notation, which every play in the fact pack
+// carries: they are all written by MoveDescriptionWithPlaythrough. A dotted
+// play is not one of those - it can only arrive as input - and its board
+// letters are not in the string to recover, so it gets "", as do exchanges
+// and passes, which are not words.
+func WordFormed(play string) string {
+	fields := strings.Fields(strings.TrimSpace(play))
+	if len(fields) != 2 || !reCoord.MatchString(strings.ToUpper(fields[0])) {
+		return ""
+	}
+	word := strings.ToUpper(fields[1])
+	if strings.Contains(word, ".") {
+		return ""
+	}
+	return parenRepl.Replace(word)
+}
+
+// GetPlayMetadata analyzes a play and returns metadata
+func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	m, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(DottedPlay(playString)), false)
 	if err != nil {
 		return nil, err
+	}
+
+	// The word off the board rather than out of the notation: the model can
+	// ask about a play in dotted form, where the played-through letters are
+	// not in the string at all.
+	word := ""
+	if m.Action() == move.MoveTypePlay {
+		if words, err := a.game.Board().FormedWords(m); err == nil && len(words) > 0 {
+			word = words[0].UserVisible(a.game.Alphabet())
+		}
 	}
 
 	// Parse basic info from play string
@@ -322,6 +450,7 @@ func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
 
 	md := &PlayMetadata{
 		Play:           playString,
+		WordFormed:     word,
 		Score:          m.Score(),
 		TilesUsed:      tilesUsed,
 		IsBingo:        isBingo,
@@ -333,194 +462,155 @@ func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
 	return md, nil
 }
 
-// GetFuturePlayMetadata analyzes a potential future play by parsing winningStats
-func (a *Analyzer) GetFuturePlayMetadata(playString string) (*FuturePlayMetadata, error) {
-	if a.winningStats == "" {
-		return nil, fmt.Errorf("no winning stats available")
-	}
-	log.Info().Str("play", playString).Msg("analyzing future play metadata")
-	// get only the Our follow-up play section
-	sections := strings.Split(a.winningStats, "### Our follow-up play")
-	if len(sections) < 2 {
-		return nil, fmt.Errorf("no 'Our follow-up play' section found in winning stats")
-	}
-	followupSection := sections[1]
-
-	lines := strings.Split(followupSection, "\n")
-	normalizedBestPlay := stats.Normalize(a.winningPlay)
-
-	// Skip header lines and find the play
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Skip empty lines and header lines
-		if line == "" || strings.HasPrefix(line, "Play") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "Bingo probability") {
-			continue
-		}
-
-		// Parse the line format: "Play    Needed Draw   Score    Count    % of time"
-		// The play might be multiple words like "J7 QAT" or "D11 (U)MIAQ"
-
-		// line has a very specific format. %-20s%-14s%-9s%-9s%-16s
-		// see playStatsStr in heatmap.go
-		// This is very fragile, we just need tests.
-
-		playName := strings.TrimSpace(line[0:19])
-
-		fields := strings.Fields(line[19:])
-		if len(fields) == 3 {
-			// needed draw is empty.
-			fields = append([]string{""}, fields...)
-		}
-		if len(fields) != 4 {
-			return nil, fmt.Errorf("unexpected format in winning stats line: %s", line)
-		}
-
-		neededDraw := fields[0]
-		score := fields[1]
-		// count := fields[2]
-		percent := fields[3]
-
-		p := strings.TrimSpace(playName)
-		// Check if this matches our requested play (trim spaces)
-		if p != strings.TrimSpace(playString) {
-			continue
-		}
-		normalizedPlay := stats.Normalize(playString)
-		drawLetters := []string{}
-		reqOtherPlay := "none"
-		isBingo := false
-
-		scoreInt, err := strconv.Atoi(score)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse score: %w", err)
-		}
-
-		if strings.HasPrefix(p, "exchange ") || p == "pass" {
-
-		} else {
-			drawStr := strings.Trim(neededDraw, "{}")
-			// Split individual letters
-			for _, char := range drawStr {
-				if char >= 'A' && char <= 'Z' {
-					drawLetters = append(drawLetters, string(char))
-				}
-			}
-
-			// Determine if it's a bingo by counting tiles played (ignoring parentheses content)
-			fields := strings.Fields(normalizedPlay)
-			if len(fields) < 2 {
-				return nil, fmt.Errorf("invalid play string format: %s", playString)
-			}
-			tilesUsed := len(fields[1]) - strings.Count(fields[1], ".")
-			isBingo = tilesUsed == 7
-
-			// Check if there's a required opponent play
-			npfields := strings.Fields(normalizedPlay)
-
-			// Try to create the move to see if it's valid. Temporarily play
-			// move and set our rack to imagine we drew the required letters.
-
-			ourBestPlay, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(normalizedBestPlay), false)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse our best play %s: %w", normalizedBestPlay, err)
-			}
-			gcopy := a.game.Copy()
-			err = gcopy.PlayMove(ourBestPlay, false, 0)
-			if err != nil {
-				return nil, fmt.Errorf("failed to play our best play %s: %w", normalizedBestPlay, err)
-			}
-
-			rackLetters := gcopy.RackLettersFor(1 - gcopy.PlayerOnTurn())
-			for _, l := range drawLetters {
-				rackLetters += l
-			}
-
-			m, err := gcopy.CreateAndScorePlacementMove(npfields[0], npfields[1], rackLetters, false)
-			if err != nil || m.Score() != scoreInt {
-				mscore := 0
-				if m != nil {
-					mscore = m.Score()
-				}
-				log.Err(err).Str("fields", npfields[0]+","+npfields[1]).
-					Int("score", mscore).
-					Msg("failed to parse move or score mismatch, assuming opponent play needed")
-				reqOtherPlay = "requires opponent play"
-			}
-
-			// Try to parse this move on the original game state. If it fails, this means that it
-			// requires US to play first to begin with (potential setup play)
-			m, err = a.game.CreateAndScorePlacementMove(npfields[0], npfields[1], rackLetters, false)
-			if err != nil || m.Score() != scoreInt {
-				mscore := 0
-				if m != nil {
-					mscore = m.Score()
-				}
-				log.Err(err).Str("fields", npfields[0]+","+npfields[1]).
-					Int("score", mscore).
-					Msg("failed to parse move or score mismatch, assuming our best play needed")
-				if reqOtherPlay == "none" {
-					reqOtherPlay = "requires us to play " + normalizedBestPlay + " first"
-				}
-			}
-
-		}
-
-		probability, err := strconv.ParseFloat(percent, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse probability: %w", err)
-		}
-
-		log.Info().Str("play", playString).Interface("needed_draw", drawLetters).
-			Int("score", scoreInt).Float64("probability", probability).Bool("is_bingo", isBingo).
-			Str("requires_other_play", reqOtherPlay).
-			Msg("analyzed future play metadata")
-
-		return &FuturePlayMetadata{
-			Play:               playString,
-			Score:              scoreInt,
-			IsBingo:            isBingo,
-			NeededDraw:         drawLetters,
-			RequiresOtherPlay:  reqOtherPlay,
-			ProbabilityPercent: probability,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("play %s not found in winning stats", playString)
+// PlayNotFoundError is returned when a play is not one of the sampled
+// follow-up plays. It carries the plays we do know about so that the tool can
+// hand them back to the model instead of letting it guess at spellings.
+type PlayNotFoundError struct {
+	Play      string
+	Available []string
 }
 
-// BuildPrompt constructs the full prompt with the game situation
-func (a *Analyzer) BuildPrompt(templatePath, quirkyPath string) (string, error) {
-	// Read templates
-	mainPrompt, err := os.ReadFile(templatePath)
+func (e *PlayNotFoundError) Error() string {
+	return fmt.Sprintf("play %s not found in winning stats (available: %s)",
+		e.Play, strings.Join(e.Available, ", "))
+}
+
+// ToolMessage is what we hand back to the LLM. It is deliberately not an
+// error; a plain result that lists the valid plays lets the model correct
+// itself in a single turn instead of retrying the same lookup.
+func (e *PlayNotFoundError) ToolMessage() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%q is not one of the follow-up plays sampled by the simulation, "+
+		"so there is no data for it. Only the plays listed below can be looked up; "+
+		"copy one of them exactly as written. Note that a lowercase letter means that "+
+		"tile is the blank, so it is a different play from its uppercase spelling.\n",
+		strings.TrimSpace(e.Play))
+	for _, p := range e.Available {
+		fmt.Fprintf(&sb, "  - %s\n", p)
+	}
+	return sb.String()
+}
+
+var parenRepl = strings.NewReplacer("(", "", ")", "", " ", "")
+
+// foldKey canonicalizes a play string for fuzzy matching. Case is meaningful
+// in play notation (a lowercase letter is the blank), so folding it can match
+// several distinct plays; callers must be prepared to get more than one row.
+func foldKey(play string, dropParens bool) string {
+	key := strings.ToUpper(strings.TrimSpace(play))
+	if dropParens {
+		return parenRepl.Replace(key)
+	}
+	return strings.Join(strings.Fields(key), " ")
+}
+
+// matchFollowup finds the play the model is asking about. It returns the
+// family it belongs to, plus the index of the exact way if the model named one
+// rather than the grouped play. An exact match wins outright; otherwise we
+// relax the comparison, first on case (the model tends to uppercase the blank,
+// turning sKIWEAR into SKIWEAR) and then on playthrough parentheses.
+func matchFollowup(fams []*FollowupFact, playString string) (*FollowupFact, int) {
+	for _, tier := range []func(string) string{
+		strings.TrimSpace,
+		func(p string) string { return foldKey(p, false) },
+		func(p string) string { return foldKey(p, true) },
+	} {
+		want := tier(playString)
+		for _, fam := range fams {
+			if tier(fam.Play) == want {
+				return fam, -1
+			}
+			for j, way := range fam.Ways {
+				if tier(way.Play) == want {
+					return fam, j
+				}
+			}
+		}
+	}
+	return nil, -1
+}
+
+// GetFuturePlayMetadata analyzes a potential future play. If the play can be
+// made in more than one way it returns the most likely one; use
+// LookupFuturePlay to see every way.
+func (a *Analyzer) GetFuturePlayMetadata(playString string) (*FuturePlayMetadata, error) {
+	lookup, err := a.LookupFuturePlay(playString)
 	if err != nil {
-		return "", fmt.Errorf("failed to read main prompt: %w", err)
+		return nil, err
+	}
+	return lookup.Ways[0], nil
+}
+
+// LookupFuturePlay looks a follow-up play up in the facts computed for this
+// position. It returns a *PlayNotFoundError if the play isn't one the
+// simulation sampled.
+func (a *Analyzer) LookupFuturePlay(playString string) (*FuturePlayLookup, error) {
+	// This one only reads the facts today, but it is a tool entry point and
+	// takes the lock like the rest of them: the next thing it needs from the
+	// board should not have to rediscover why that matters.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	log.Info().Str("play", playString).Msg("analyzing future play metadata")
+	if a.facts == nil {
+		return nil, errors.New("no analysis available for this position")
+	}
+	fams := a.facts.Followups
+
+	fam, wayIdx := matchFollowup(fams, playString)
+	if fam == nil {
+		available := []string{}
+		for _, f := range fams {
+			available = append(available, f.Play)
+			if f.Grouped() {
+				for _, w := range f.Ways {
+					available = append(available, w.Play)
+				}
+			}
+		}
+		return nil, &PlayNotFoundError{Play: playString, Available: available}
 	}
 
-	situationTemplate, err := os.ReadFile("explainer/situation_template.md")
-	if err != nil {
-		return "", fmt.Errorf("failed to read situation template: %w", err)
+	lookup := &FuturePlayLookup{}
+	if wayIdx >= 0 {
+		lookup.Asked = fam.Ways[wayIdx].Play
 	}
-
-	quirkyPrompt := ""
-	if quirkyPath != "" {
-		quirkyBytes, _ := os.ReadFile(quirkyPath)
-		quirkyPrompt = string(quirkyBytes)
+	if fam.Grouped() {
+		// A grouped play has no notation of its own - the blank has to land
+		// somewhere - so the ways, not the family, are what we can analyze.
+		lookup.Family = &FuturePlayFamily{
+			Play:              fam.Play,
+			CombinedPercent:   fam.Pct,
+			ScoreRange:        scoreRange(fam.MinScore, fam.MaxScore),
+			NeededDrawOptions: fam.NeededDraws,
+			IsSetup:           fam.IsSetup,
+		}
 	}
+	for i, way := range fam.Ways {
+		req := "none"
+		if i < len(fam.WayRequirements) {
+			req = fam.WayRequirements[i]
+		}
+		lookup.Ways = append(lookup.Ways, &FuturePlayMetadata{
+			Play:               way.Play,
+			Score:              way.Score,
+			IsBingo:            way.Bingo,
+			NeededDraw:         splitDraw(way.NeededDraw),
+			RequiresOtherPlay:  req,
+			ProbabilityPercent: way.Pct,
+			IsSetup:            fam.IsSetup,
+		})
+	}
+	return lookup, nil
+}
 
-	// Build situation text from template
-	situation := string(situationTemplate)
-	situation = strings.ReplaceAll(situation, "{game_state}", a.gameState)
-	situation = strings.ReplaceAll(situation, "{sim_results}", a.simResults)
-	situation = strings.ReplaceAll(situation, "{sim_details}", a.simDetails)
-	situation = strings.ReplaceAll(situation, "{best_play}", a.winningPlay)
-	situation = strings.ReplaceAll(situation, "{winning_play_stats}", a.winningStats)
-
-	// Replace placeholders in main prompt
-	prompt := string(mainPrompt)
-	prompt = strings.ReplaceAll(prompt, "{situation}", situation)
-	prompt = strings.ReplaceAll(prompt, "{quirky}", quirkyPrompt)
-	prompt = strings.ReplaceAll(prompt, "{best_play}", a.winningPlay)
-
-	return prompt, nil
+// splitDraw turns a draw like "SE" into the individual tiles that make it up.
+// A ? is the blank.
+func splitDraw(draw string) []string {
+	out := []string{}
+	for _, char := range draw {
+		if (char >= 'A' && char <= 'Z') || char == '?' {
+			out = append(out, string(char))
+		}
+	}
+	return out
 }

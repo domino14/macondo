@@ -14,9 +14,14 @@ setconfig <key> <value> - Set a configuration value and save to config file
   - debug: Enable debug logging (true/false)
   - data-path: Path to data directory
   - default-lexicon: Default lexicon to use (e.g., NWL23, CSW19)
-  - genai-provider: AI provider for explainer (gemini/openai/deepseek)
+  - genai-provider: AI provider for explainer (gemini/openai/openrouter/deepseek)
   - openai-base-url: Override OpenAI API endpoint (e.g. http://127.0.0.1:1234/v1 for LM Studio)
   - gemini-api-key: API key for Gemini
   - openai-api-key: API key for OpenAI
+  - openrouter-api-key: API key for OpenRouter (sk-or-v1-...)
   - gemini-model: Gemini model name
   - openai-model: OpenAI model name
+  - openrouter-model: OpenRouter model, named vendor/model (see `help explain`)
+
+  OpenRouter keeps its own key and model rather than borrowing the OpenAI ones,
+  so setting it up does not disturb an OpenAI key you are already using.

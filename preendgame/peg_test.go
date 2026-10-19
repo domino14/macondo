@@ -305,10 +305,13 @@ func BenchmarkSlowPEG(b *testing.B) {
 	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
 	ctx := context.Background()
-	peg.SetEndgamePlies(5)
+	peg.SetEndgamePlies(4)
 	peg.SetIterativeDeepening(true)
 	b.ResetTimer()
-	// ~135.7 seconds on themonolith
+	// ~135.7 seconds on themonolith, back when this ran at 5 endgame plies
+	// with a static leaf evaluation. Not comparable to runs after the greedy
+	// leaf playout landed and this dropped to 4 plies; re-measure before
+	// treating it as a baseline.
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)
@@ -319,12 +322,14 @@ func BenchmarkSlowPEG(b *testing.B) {
 }
 
 // Test a complex pre-endgame with 1 in the bag.
-// There are several winning moves, one of them being a pass. Note that we
-// need to look forward a bit more (increase endgame plies to at least 7) since there is a Q
-// stick situation that isn't handled properly otherwise.
+// There are several winning moves, one of them being a pass. There is a Q stick
+// situation here, so the endgame has to look far enough ahead to see it. Five
+// plies is the shallowest depth that gets this right: at four the Q stick is
+// invisible and four extra moves are credited with winning all 8 draws, and at
+// three one genuine winner is missed. Five, six and seven all agree, so five it
+// is -- 33s versus 128s at seven.
 
 func TestComplicated1PEG(t *testing.T) {
-	t.Skip()
 	is := is.New(t)
 	// https://www.cross-tables.com/annotated.php?u=42794#26#
 	// note: the game above has the wrong rack for Matt. EEILOSS gives the 100% win pass.
@@ -338,7 +343,7 @@ func TestComplicated1PEG(t *testing.T) {
 	peg := new(Solver)
 
 	err = peg.Init(g.Game, gd)
-	peg.maxEndgamePlies = 7
+	peg.maxEndgamePlies = 5
 	is.NoErr(err)
 
 	ctx := context.Background()
@@ -362,7 +367,7 @@ func TestPolishPEGEarlyCutoff(t *testing.T) {
 	peg := new(Solver)
 
 	err = peg.Init(g.Game, gd)
-	peg.maxEndgamePlies = 5
+	peg.maxEndgamePlies = 4
 	peg.earlyCutoffOptim = true
 	peg.iterativeDeepening = false
 	is.NoErr(err)
@@ -513,7 +518,7 @@ func TestTwoInBagSingleMove(t *testing.T) {
 
 	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
-	peg.maxEndgamePlies = 3
+	peg.maxEndgamePlies = 2
 	peg.iterativeDeepening = false
 	m := move.NewScoringMoveSimple(10, "6F", ".X.", "AEFGST", g.Alphabet())
 	peg.solveOnlyMoves = []*move.Move{m}

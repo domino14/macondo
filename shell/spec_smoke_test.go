@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+func TestPuzzlegenSpecValidation(t *testing.T) {
+	tests := []struct {
+		line        string
+		wantErr     bool
+		errContains string
+	}{
+		{"puzzlegen woogles xWG4z96MUe", false, ""},
+		{"puzzlegen gcg ./game.gcg -filter \"tag=BINGO\"", false, ""},
+		{"puzzlegen selfplay -numgames 5 -lexicon CSW24", false, ""},
+		{"puzzlegen woogles xWG4z96MUe -equity-margin 15", false, ""},
+		{"puzzlegen woogles xWG4z96MUe -bogus foo", true, "unknown option"},
+		{"puzzlegen selfplay -numgames abc", true, "invalid int"},
+		{"puzzlegen xt 58369", false, ""},
+		{"puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -seed abc", false, ""},
+		{"puzzlegen selfplay -show board,cgp -out p.jsonl -gcgdir ./g -max 20", false, ""},
+		{"puzzlegen selfplay -max abc", true, "invalid int"},
+	}
+	for _, tt := range tests {
+		cmd, err := extractFields(tt.line)
+		if err != nil {
+			t.Fatalf("parse %q: %v", tt.line, err)
+		}
+		err = validateSpecOptions(cmd)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateSpecOptions(%q) err=%v, wantErr=%v", tt.line, err, tt.wantErr)
+			continue
+		}
+		if tt.errContains != "" && (err == nil || !strings.Contains(err.Error(), tt.errContains)) {
+			t.Errorf("validateSpecOptions(%q) err=%v, want it to contain %q", tt.line, err, tt.errContains)
+		}
+	}
+}
+
 func TestPegSpecValidation(t *testing.T) {
 	tests := []struct {
 		line        string
@@ -17,7 +50,10 @@ func TestPegSpecValidation(t *testing.T) {
 		{"peg -skip-deep-pass false", false, ""},
 		{"peg -only-solve X -only-solve Y", false, ""},
 		{"peg -endgameplies abc", true, "invalid int"},
-		{"peg -skip-loss maybe", true, "invalid bool"},
+		// A boolean flag does not take a non-boolean value: -skip-loss is set
+		// and "maybe" is left as an argument, which peg itself rejects as an
+		// unknown subcommand. This is what lets `-flag /some/path` work.
+		{"peg -skip-loss maybe", false, ""},
 		{"peg -skip-non-emptyers true", true, "unknown option"},
 		{"peg -skip-non-emptying true", true, "-max-tiles-left 0"}, // deprecated → helpful message
 		{"peg stop", false, ""},

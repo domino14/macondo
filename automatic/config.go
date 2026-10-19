@@ -52,19 +52,26 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		return AutomaticRunnerPlayer{BotCode: pb.BotRequest_HASTY_BOT}
 	}
 	arp := AutomaticRunnerPlayer{
-		BotCode:              p.BotCode,
-		LeaveFile:            p.LeaveFile,
-		PEGFile:              p.PegFile,
-		MinSimPlies:          int(p.MinSimPlies),
-		SimThreads:           int(p.SimThreads),
-		StochasticStaticEval: p.StochasticStaticEval,
-		InferenceTau:                p.InferenceTau,
-		InferenceTimeSecs:           int(p.InferenceTimeSecs),
-		InferenceSimIters:           int(p.InferenceSimIters),
+		BotCode:                      p.BotCode,
+		LeaveFile:                    p.LeaveFile,
+		PEGFile:                      p.PegFile,
+		MinSimPlies:                  int(p.MinSimPlies),
+		FixedSimPlies:                int(p.FixedSimPlies),
+		TritonModel:                  p.TritonModel,
+		SimThreads:                   int(p.SimThreads),
+		StochasticStaticEval:         p.StochasticStaticEval,
+		InferenceTau:                 p.InferenceTau,
+		InferenceTimeSecs:            int(p.InferenceTimeSecs),
+		InferenceSimIters:            int(p.InferenceSimIters),
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
-		OracleInference:             p.OracleInference,
-		EndgameThreads:              int(p.EndgameThreads),
-		PreendgameThreads:           int(p.PreendgameThreads),
+		InferenceBudget:              int(p.InferenceBudget),
+		OracleInference:              p.OracleInference,
+		QuickEndgamePlies:            int(p.QuickEndgamePlies),
+		QuickEndgameMargin:           int(p.QuickEndgameMargin),
+		QuickEndgameCapMs:            int(p.QuickEndgameCapMs),
+		QuickEndgameNoPrune:          p.QuickEndgameNoPrune,
+		EndgameThreads:               int(p.EndgameThreads),
+		PreendgameThreads:            int(p.PreendgameThreads),
 	}
 	if p.BotCode == pb.BotRequest_CUSTOM_BOT && p.ExternalEngineBinary != "" {
 		arp.ExternalEngine = &externalengine.Config{

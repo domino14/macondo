@@ -104,7 +104,7 @@ func init() {
 		Name:  "peg",
 		Verbs: []string{"stop", "output"},
 		Options: []Option{
-			{Name: "endgameplies", Type: OptInt, Default: 4,
+			{Name: "endgameplies", Type: OptInt, Default: 3,
 				Help: "how many plies to search in each endgame"},
 			{Name: "maxtime", Type: OptInt, Default: 0,
 				Help: "max solve time in seconds; 0 = unlimited"},
@@ -157,6 +157,7 @@ func init() {
 			{Name: "prevent-slowroll", Type: OptBool, Values: boolValues},
 			{Name: "disable-negascout", Type: OptBool, Values: boolValues},
 			{Name: "null-window", Type: OptBool, Values: boolValues},
+			{Name: "heuristics", Type: OptBool, Default: true, Values: boolValues},
 			{Name: "log", Type: OptBool, Values: boolValues},
 			{Name: "also-solve-var", Type: OptString},
 		},
@@ -185,14 +186,18 @@ func init() {
 
 	registerSpec(&CommandSpec{
 		Name:  "infer",
-		Verbs: []string{"log", "details", "output"},
+		Verbs: []string{"log", "details", "output", "leave", "ranks"},
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
-			{Name: "tau", Type: OptFloat},
+			{Name: "tau", Type: OptFloat,
+				Help: "pin the inference softmax temperature for the whole game (default 0.05)"},
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},
+			{Name: "budget", Type: OptInt,
+				Help: "leaves to measure, instead of a time limit; matches autoplay's -inferencebudget"},
+			{Name: "rounds", Type: OptInt},
 		},
 	})
 
@@ -260,9 +265,18 @@ func init() {
 		Name: "autoanalyze",
 		Options: []Option{
 			{Name: "export", Type: OptString},
+			{Name: "half", Type: OptInt,
+				Help: "for -gamepairs runs: which seating of the pair to export, 1 or 2 (default 1)"},
 			{Name: "letterdist", Type: OptString},
 			{Name: "lex", Type: OptString},
 			{Name: "boardlayout", Type: OptString},
+			{Name: "divergence", Type: OptBool, Values: boolValues,
+				Help: "for -gamepairs runs: show where each pair's two halves chose differently"},
+			{Name: "turnlog", Type: OptString,
+				Help: "per-turn log to read plays from (default: the file next to the game log)"},
+			{Name: "limit", Type: OptInt, Help: "how many divergent pairs to describe (default 10)"},
+			{Name: "inference", Type: OptBool, Values: boolValues,
+				Help: "grade a per-turn log's inferences against the racks the opponent really held"},
 		},
 	})
 
@@ -281,6 +295,10 @@ func init() {
 			{Name: "pegfile2", Type: OptString},
 			{Name: "minsimplies1", Type: OptInt},
 			{Name: "minsimplies2", Type: OptInt},
+			{Name: "fixedsimplies1", Type: OptInt, Help: "player 1: every sim exactly this many plies, late game included"},
+			{Name: "fixedsimplies2", Type: OptInt, Help: "player 2: every sim exactly this many plies, late game included"},
+			{Name: "tritonmodel1", Type: OptString, Help: "player 1's ML bot queries this Triton model (version 1)"},
+			{Name: "tritonmodel2", Type: OptString, Help: "player 2's ML bot queries this Triton model (version 1)"},
 			{Name: "numgames", Type: OptInt},
 			{Name: "stochastic1", Type: OptBool, Values: boolValues},
 			{Name: "stochastic2", Type: OptBool, Values: boolValues},
@@ -288,6 +306,45 @@ func init() {
 			{Name: "genseeds", Type: OptBool, Values: boolValues},
 			{Name: "deterministic", Type: OptBool, Values: boolValues},
 			{Name: "seedfile", Type: OptString},
+			{Name: "gamepairs", Type: OptBool, Values: boolValues,
+				Help: "play each seed twice with the bots swapping seats; numgames counts pairs"},
+			{Name: "seed", Type: OptInt, Help: "master seed for the run; replays the same games"},
+			{Name: "experimentid", Type: OptString, Help: "ID used for the output file names"},
+			{Name: "outputdir", Type: OptString, Help: "directory for the output files"},
+			{Name: "simthreads1", Type: OptInt, Help: "threads for player 1's sim; must be 1 for game pairs"},
+			{Name: "simthreads2", Type: OptInt, Help: "threads for player 2's sim; must be 1 for game pairs"},
+			{Name: "tau1", Type: OptFloat,
+				Help: "player 1: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
+			{Name: "tau2", Type: OptFloat,
+				Help: "player 2: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
+			{Name: "quickendgame", Type: OptInt,
+				Help: "both players: play close endgames with a quick N-ply result-only search, (-1,1) window (0 = off)"},
+			{Name: "quickendgamemargin", Type: OptInt,
+				Help: "with -quickendgame: only when |spread| <= this (0 = always); default 60"},
+			{Name: "quickendgamecap", Type: OptInt,
+				Help: "with -quickendgame: per-move cap in ms; default 250"},
+			{Name: "quickendgamenoprune", Type: OptBool, Values: boolValues,
+				Help: "with -quickendgame: no pruned word graph per solve (faster for 2-ply solves; pruning helps deeper ones)"},
+			{Name: "openingplies", Type: OptFloat,
+				Help: "both players: sample each game's first K plies, K ~ round(Exp(this mean)), instead of playing them (0 = off); the turn log gains an openingplies column"},
+			{Name: "openingtemp", Type: OptFloat,
+				Help: "with -openingplies: softmax temperature over static equity, in points; default 3"},
+			{Name: "openingtopn", Type: OptInt,
+				Help: "with -openingplies: plays the softmax draws from; default 50"},
+			{Name: "openinguniform", Type: OptFloat,
+				Help: "with -openingplies: probability a sampled ply is uniform over every legal play and exchange; default 0"},
+			{Name: "inferencetime1", Type: OptInt},
+			{Name: "inferencetime2", Type: OptInt},
+			{Name: "inferenceiters1", Type: OptInt},
+			{Name: "inferenceiters2", Type: OptInt},
+			{Name: "maxleaves1", Type: OptInt},
+			{Name: "maxleaves2", Type: OptInt},
+			{Name: "inferencebudget1", Type: OptInt,
+				Help: "leaves measured per inference; replaces the time cap (0 = use time)"},
+			{Name: "inferencebudget2", Type: OptInt,
+				Help: "leaves measured per inference; replaces the time cap (0 = use time)"},
+			{Name: "oracle1", Type: OptBool, Values: boolValues},
+			{Name: "oracle2", Type: OptBool, Values: boolValues},
 			{Name: "extbinary1", Type: OptString},
 			{Name: "extbinary2", Type: OptString},
 			{Name: "extargs1", Type: OptString},
@@ -297,6 +354,30 @@ func init() {
 			{Name: "pegthreads1", Type: OptInt},
 			{Name: "pegthreads2", Type: OptInt},
 		},
+	})
+
+	registerSpec(&CommandSpec{
+		Name:  "puzzlegen",
+		Verbs: []string{"woogles", "gcg", "xt", "selfplay"},
+		Options: []Option{
+			{Name: "filter", Type: OptString, Help: `predicate over tags/stats, e.g. "tag=BINGO and words_formed>=3"`},
+			{Name: "equity-margin", Type: OptFloat, Default: 10.0, Help: "equity margin for EQUITY/POINTS detection"},
+			{Name: "score-margin", Type: OptFloat, Default: 10.0, Help: "score margin for POINTS detection"},
+			{Name: "eqloss-limit", Type: OptInt, Default: 1000, Help: "max cumulative equity loss per game before skipping (unlimited for common-word selfplay bots)"},
+			{Name: "lexicon", Type: OptString, Help: "override lexicon (default: from game, or config default for selfplay)"},
+			{Name: "numgames", Type: OptInt, Default: 1, Help: "selfplay only: number of games to play"},
+			{Name: "bot", Type: OptString, Values: botCodes, Help: "selfplay only: bot code for both players (default HASTY_BOT)"},
+			{Name: "seed", Type: OptString, Help: "selfplay only: seed the bag so a run is reproducible"},
+			{Name: "show", Type: OptString, Values: pgShowSections, Help: "sections to print: line,board,cgp,answer,stats,all (default line)"},
+			{Name: "out", Type: OptString, Help: "append each matched puzzle to this file as JSON Lines"},
+			{Name: "gcgdir", Type: OptString, Help: "write each matched puzzle's game to this directory as a .gcg"},
+			{Name: "max", Type: OptInt, Help: "stop once this many puzzles have matched (0 = no limit)"},
+		},
+	})
+
+	registerSpec(&CommandSpec{
+		Name:  "puzzle",
+		Verbs: []string{"open", "next", "prev", "goto", "keep", "unkeep", "kept", "answer", "info", "list"},
 	})
 
 	// speedtest accepts sim-style options.
@@ -318,6 +399,18 @@ func init() {
 			{Name: "stop", Type: OptInt, Values: stopValues},
 			{Name: "threads", Type: OptInt},
 			{Name: "opprack", Type: OptString},
+			{Name: "vs", Type: OptString,
+				Help: `play to explain the best one against, or "off"; defaults to the play you made this turn`},
+			{Name: "model", Type: OptString,
+				Help: "model to use for this explanation only, leaving the config alone"},
+			{Name: "show-prompt", Type: OptBool,
+				Help: "also print the full prompt that was sent to the model"},
+			{Name: "show-previous-prompt", Type: OptBool,
+				Help: "print the last prompt and response instead of explaining anything"},
+			{Name: "infer", Type: OptBool, Values: boolValues,
+				Help: "read the opponent's rack from their last play, and sim with and without it"},
+			{Name: "infer-time", Type: OptInt,
+				Help: "seconds to spend inferring (default 20); implies -infer"},
 		},
 	})
 
@@ -328,7 +421,8 @@ func init() {
 	registerSpec(&CommandSpec{
 		Name: "set",
 		ArgsFunc: func(_ *ShellController) []string {
-			return []string{"lexicon", "challenge", "variation", "board", "lowercase"}
+			return []string{"lexicon", "challenge", "board", "variant", "lower",
+				"ttable-mem-fraction"}
 		},
 	})
 	registerSpec(&CommandSpec{

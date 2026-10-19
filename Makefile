@@ -29,6 +29,9 @@ analyzer_worker:
 inferdiag:
 	go build -trimpath -o bin/inferdiag cmd/inferdiag/main.go
 
+taufit:
+	go build -trimpath -o bin/taufit cmd/taufit/main.go
+
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 

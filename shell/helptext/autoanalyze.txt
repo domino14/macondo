@@ -19,3 +19,78 @@ in-depth file. It will export as gid.gcg in the current directory.
 
 The letterdist will default to english if not specified.
 The boardlayout will default to CrosswordGame if not specified.
+
+Game pairs:
+
+For a run made with `autoplay -gamepairs`, autoanalyze adds a "Game pairs"
+section, which is the part to read. The two games of a pair are played from
+one bag with the seats swapped, so they are not independent results and the
+per-game figures above that section overstate the uncertainty. The pair
+section adds each pair's two margins together instead, which cancels the
+tiles and the first-move advantage, and tests those sums. It reports what the
+pairing bought, typically worth several times the number of games.
+
+Its p-values come from a sign-flip test over the pairs, which assumes only
+the symmetry the design already guarantees. Pairs that come out exactly even
+are kept, since a pair that plays out identically is a real result of no
+difference and dropping it would exaggerate the average.
+
+Add -divergence to find out where the two halves of each pair parted ways:
+
+    autoanalyze /tmp/games-auto.txt -divergence
+    autoanalyze /tmp/games-auto.txt -divergence -limit 30
+
+Both halves of a pair are dealt the same tiles, so the only thing that can
+make them differ is a bot choosing differently. For each divergent pair this
+prints the turn they first disagreed on, the rack they both held, and what
+each bot played with it.
+
+A bot playing itself should report no divergences at all, and every pair
+should be an exact tie. Two different bots should diverge often -- pairs that
+never diverge are ties that tell you nothing.
+
+If a pair's halves turn out to hold different racks, that is flagged loudly:
+it means the bag went out of step, so the run is comparing luck again rather
+than strategy.
+
+    -limit N        describe N divergent pairs (default 10); the counts and
+                    the turn statistics always cover all of them
+    -turnlog PATH   read plays from this per-turn log instead of the file
+                    next to the game log
+
+Inference quality:
+
+When a run includes an inferring bot, the per-turn log records how good each
+inference was. Autoplay knows the opponent's real rack, so every inference can
+be graded against it: what probability the posterior placed on the leave the
+opponent actually held, and what the unseen tile counts alone would have said.
+
+    autoanalyze /tmp/auto.txt -inference
+
+Note this one reads the per-turn log (auto.txt), not the per-game log, since
+that is where the turns are.
+
+The number to watch is bits per inference, log2(posterior/prior). Zero means
+inference did no better than counting tiles; positive means it learned
+something about the opponent's rack; negative means it was misled. Being a log
+score, hedging cannot inflate it -- reporting the prior back scores exactly
+zero. Averaging it over a run gives one figure to compare tau values or
+inference budgets by.
+
+A log score has a long left tail, so the report also gives the median and the
+tenth percentiles: one badly wrong inference can outweigh a dozen good ones in
+the mean. Inferences that gave the true leave no weight at all are counted
+separately, since that is the costly failure -- the simmer then never samples
+the truth.
+
+The per-turn columns behind this. A run with an inferring bot carries them on
+every row, empty on the rows the other bot played, so the log stays a table:
+
+    inferCount      leaves in the posterior
+    trueLeave       what the opponent actually kept
+    truePost        posterior probability of that leave
+    truePrior       hypergeometric prior of that leave
+    liftBits        log2(truePost/truePrior)
+    trueRank        that leave's rank in the posterior
+    inferLeaves     how many leaves the posterior covers
+    trueMeasured    whether a mini-sim evaluated it, or it was imputed
