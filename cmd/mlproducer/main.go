@@ -13,14 +13,11 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"github.com/cespare/xxhash"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -94,8 +91,8 @@ func BinaryWriteMLVector(w *bufio.Writer, vec outputVector) error {
 }
 
 // lexiconName is the lexicon the logged games were played in (-lexicon). It
-// sets the leave values and cross-sets in the features and the word graph
-// of the endgame search, so it must match the games.
+// sets the leave values and cross-sets in the features, so it must match the
+// games.
 var lexiconName = "NWL23"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,13 +102,12 @@ func main() {
 	var profile bool
 	var labeler string
 	var perGame bool
-	var pickMax, picks, endgamePlies int
+	var pickMax, picks int
 	var holdoutMod int
 	var split string
-	var endgameTimeout time.Duration
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&lexiconName, "lexicon", lexiconName,
-		"the lexicon the games were played in (leave values, cross-sets, endgame search); English letter distribution only")
+		"the lexicon the games were played in (leave values, cross-sets); English letter distribution only")
 	flag.StringVar(&labeler, "labeler", "table",
 		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end)")
 	flag.BoolVar(&perGame, "per-game", false,
@@ -122,11 +118,6 @@ func main() {
 	flag.IntVar(&holdoutMod, "holdout-mod", 0,
 		"hold out the games whose ID hashes to 0 mod this (e.g. 20 = 5%); with -split, emit only one side (0 = no split)")
 	flag.StringVar(&split, "split", "train", "with -holdout-mod: 'train' emits the non-held-out games, 'val' the held-out ones")
-	flag.IntVar(&endgamePlies, "endgame-plies", 0,
-		"label emitted positions whose bag was already empty by a quick endgame search of this many plies "+
-			"(greedy playout at the leaves) instead of the logged game's outcome; 0 = off")
-	flag.DurationVar(&endgameTimeout, "endgame-timeout", 30*time.Second,
-		"abandon an endgame search after this long and keep the logged label")
 	flag.Parse()
 
 	ex, err := os.Executable()
@@ -198,23 +189,12 @@ func main() {
 	if perGame {
 		log.Info().Msgf("Emitting %d position(s) per game, turns drawn from 1..%d", picks, pickMax)
 	}
-	var gd *kwg.KWG
-	if endgamePlies > 0 {
-		gd, err = kwg.GetKWG(DefaultConfig.WGLConfig(), lexiconName)
-		if err != nil {
-			log.Fatal().Err(err).Msg("loading kwg for endgame search")
-		}
-		// One table, shared by every worker's searches (its entries are
-		// lock-free); a small slice of memory is plenty for 2-ply searches.
-		negamax.GlobalTranspositionTable.Reset(0.02, 15)
-		log.Info().Msgf("Endgame positions labeled by a %d-ply quick search", endgamePlies)
-	}
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
 	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
-	var totalGames, totalSolved, totalTimeouts atomic.Int64
+	var totalGames atomic.Int64
 	for i := 0; i < numWorkers; i++ {
 		jobChans[i] = make(chan Turn, 128)
 		workersWg.Add(1)
@@ -226,9 +206,6 @@ func main() {
 				assembler.pickMax = pickMax
 				assembler.picks = picks
 			}
-			assembler.endgamePlies = endgamePlies
-			assembler.endgameTimeout = endgameTimeout
-			assembler.kwg = gd
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)
 				for _, vec := range vecs {
@@ -236,8 +213,6 @@ func main() {
 				}
 			}
 			totalGames.Add(assembler.gamesProcessed)
-			totalSolved.Add(assembler.solved)
-			totalTimeouts.Add(assembler.endgameTimeouts)
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)
@@ -333,8 +308,6 @@ func main() {
 
 	out.Flush() // flush any buffered lines
 	log.Info().Int64("totalGames", totalGames.Load()).
-		Int64("endgameSolved", totalSolved.Load()).
-		Int64("endgameTimeouts", totalTimeouts.Load()).
 		Int64("vectorsEmitted", int64(emitted)).
 		Msg("Finished processing turns")
 }

@@ -91,7 +91,7 @@ What it does (the defaults are the shipped recipe):
    `torch.compile` (always an effective batch of 2,048). Set
    `BATCH=128 ACCUM=16` to skip it.
 3. **Training.** `PASSES=6` scans of the logs piped through
-   `bin/mlproducer -lexicon $LEXICON -labeler result -per-game -endgame-plies 2`
+   `bin/mlproducer -lexicon $LEXICON -labeler result -per-game`
    into `training.py`, which trains:
    - the transformer (8 layers, width 192, 6 attention heads, 3.7M
      parameters);

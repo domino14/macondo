@@ -3,29 +3,23 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"math/rand"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/cespare/xxhash"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/word-golib/cache"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -47,18 +41,6 @@ type GameAssembler struct {
 	// (the same signal as TargetWDL) and the spread target the spread
 	// change to the end of the game, instead of the horizon lookup.
 	valueFromResult bool
-	// endgamePlies > 0 labels an emitted position whose bag was already
-	// empty by a quick endgame search (that many plies, greedy playout at
-	// the leaves) from the opponent's reply, instead of by how the logged
-	// game happened to play out.
-	endgamePlies int
-	kwg          *kwg.KWG
-	solved       int64
-	// A search that runs past this is abandoned and the position keeps
-	// its logged label; 2-ply searches take milliseconds, so this only
-	// guards against degenerate positions.
-	endgameTimeout  time.Duration
-	endgameTimeouts int64
 	// Which positions to emit. With pickMax > 0, one turn per game is
 	// drawn uniformly from 1..pickMax up front and only that position gets
 	// a feature vector; otherwise every position is emitted.
@@ -82,14 +64,6 @@ type ply struct {
 	mover  int        // player index who moved
 	spread float32    // raw spread after the move, from the mover's side
 	bag    int        // tiles unseen after the move (bag + opponent's rack)
-	solved *posLabel  // endgame-search label (value, spread change), mover's side
-}
-
-// posLabel is a value and spread label for one position, from the mover's
-// side.
-type posLabel struct {
-	value  float32 // the mover's result, in [-1, 1]
-	spread float32 // the mover's spread change, in points
 }
 
 // Sliding window of recent positions for one game.
@@ -105,7 +79,6 @@ type gameWindow struct {
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
-	es      *negamax.Solver // endgame search, created on first use
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -217,8 +190,7 @@ type outputVector struct {
 	gameID      string
 	turn        int
 	mover       int
-	spreadNow   float32   // raw spread at the position, mover's side
-	solved      *posLabel // set when endgame-search-labeled
+	spreadNow   float32 // raw spread at the position, mover's side
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -374,10 +346,7 @@ func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
 		} else if wdl > 0 {
 			copy(spatialPlane(vec.predictions, SpatialSelfWin), spatialPlane(vec.predictions, SpatialSelfNext))
 		}
-		if vec.solved != nil {
-			vec.predictions[TargetValue] = vec.solved.value
-			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(vec.solved.spread)
-		} else if ga.valueFromResult {
+		if ga.valueFromResult {
 			vec.predictions[TargetValue] = wdl
 			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(final - vec.spreadNow)
 		}
@@ -499,9 +468,8 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 	}
 	// With one position per game, a drawn turn that lands in the endgame
 	// (bag already empty) emits nothing: the bot hands the endgame to the
-	// solver and never consults the net there. (fixedPick, the test hook,
-	// bypasses this so endgame labeling can be tested.)
-	wanted := gw.pick == 0 || (gw.wants(t.TurnNumber) && (t.TilesRemaining > 0 || ga.fixedPick > 0))
+	// solver and never consults the net there.
+	wanted := gw.pick == 0 || (gw.wants(t.TurnNumber) && t.TilesRemaining > 0)
 	if wanted {
 		leaveVal := ga.eqCalc.LeaveValue(rack.TilesOn())
 		p.state, err = gw.game.BuildMLVector(m, leaveVal, gw.moveHistory())
@@ -515,23 +483,6 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 		// If it's an exchange, we need to re-add the exchanged tiles to the bag.
 		// This is so that the game state is not corrupted for the next player.
 		gw.game.Bag().PutBack(m.Tiles())
-	}
-
-	// Endgame label: the bag was empty before this move, so both racks are
-	// known and a quick search from the opponent's reply beats whatever the
-	// logged game did from here.
-	if wanted && ga.endgamePlies > 0 && t.TilesRemaining == 0 && gw.game.Playing() == pb.PlayState_PLAYING {
-		lbl, err := ga.solveEndgame(gw, mover, rack)
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			ga.endgameTimeouts++
-			log.Warn().Msgf("endgame search timed out on game %s turn %d; keeping the logged label", t.GameID, t.TurnNumber)
-		case err != nil:
-			log.Fatal().Msgf("Failed to endgame-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
-		default:
-			p.solved = &lbl
-			ga.solved++
-		}
 	}
 
 	// Undo the switch of the player on turn.
@@ -591,7 +542,6 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 		turn:        pNow.turn.TurnNumber,
 		mover:       pNow.mover,
 		spreadNow:   pNow.spread,
-		solved:      pNow.solved,
 	}
 	pNow.state = nil // owned by the output now
 	ov.predictions[TargetValue] = bogowin
@@ -620,73 +570,4 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	}
 
 	return ov, true
-}
-
-// endgameLabel turns the mover's current spread and the search's value
-// (the opponent's spread change to the end of the game) into the mover's
-// label: their result and their spread change.
-func endgameLabel(moverSpreadNow float32, oppChange int16) posLabel {
-	change := -float32(oppChange)
-	lbl := posLabel{spread: change}
-	switch final := moverSpreadNow + change; {
-	case final > 0:
-		lbl.value = 1
-	case final < 0:
-		lbl.value = -1
-	}
-	return lbl
-}
-
-// solveEndgame labels the position the game is in (just after `mover`'s
-// play with the bag empty; mover on turn holding `leave`, opponent's tiles
-// in the bag) by a quick endgame search from the opponent's reply:
-// endgamePlies plies of negamax with a greedy playout at the leaves. The
-// search's value is the opponent's spread change to the end of the game.
-// The game is left as it was found.
-func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapping.Rack) (posLabel, error) {
-	g := gw.game.Game
-	opp := 1 - mover
-	spreadNow := float32(g.SpreadFor(mover))
-	// ThrowRacksIn clears rack objects in place, so keep the leave's tiles,
-	// not the rack, for the restore.
-	leaveTiles := leave.TilesOn()
-	setRackFromBag(gw, opp) // exactly the opponent's tiles
-	g.SetPlayerOnTurn(opp)
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(ga.endgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
-	g.SetEndgameMode(true)
-	defer func() {
-		g.SetEndgameMode(false)
-		g.SetBackupMode(game.NoBackup)
-		g.ThrowRacksIn()
-		rack := tilemapping.NewRack(g.Alphabet())
-		rack.Set(leaveTiles)
-		if err := g.SetRackForOnly(mover, rack); err != nil {
-			panic(err)
-		}
-		g.SetPlayerOnTurn(mover)
-	}()
-
-	if gw.es == nil {
-		gen := movegen.NewGordonGenerator(ga.kwg, g.Board(), g.Bag().LetterDistribution())
-		gw.es = new(negamax.Solver)
-		if err := gw.es.Init(gen, g); err != nil {
-			return posLabel{}, err
-		}
-		gw.es.SetThreads(1)
-		gw.es.SetFirstWinOptim(false) // we want the spread, not just the sign
-		gw.es.SetSkipMaterialize(true)
-		gw.es.SetNegascoutOptim(true)
-	}
-	ctx := context.Background()
-	if ga.endgameTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, ga.endgameTimeout)
-		defer cancel()
-	}
-	v, _, err := gw.es.QuickAndDirtySolve(ctx, ga.endgamePlies, 0)
-	if err != nil {
-		return posLabel{}, err
-	}
-	return endgameLabel(spreadNow, v), nil
 }

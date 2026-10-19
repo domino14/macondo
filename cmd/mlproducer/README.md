@@ -32,20 +32,12 @@ is fast.
 This is the sampling to use with a whole-game target, which every position
 of a game would otherwise share.
 
-`-endgame-plies N`: an emitted position whose bag was already empty before
-the move (so both racks are known) is labeled by a quick endgame search
-from the opponent's reply, N plies of negamax with a greedy playout at the
-leaves (`negamax.QuickAndDirtySolve`, the pre-endgame solver's path),
-instead of by how the logged game happened to play out. `value` is the
-sign of the mover's spread change to the end, `spread` that change. A
-position whose move empties the bag keeps its logged-outcome label. About
-0.1 s for a full-rack position at 2 plies, milliseconds after that.
-
 `wdl` (the mover's final result), `opp_bingo` and `opp_score` come from the
 real game in every mode; a game's frames are held until it ends.
 
-The rollout labeler (`-labeler rollout`) and the ownership planes
-(`-ownership`) were shelved and removed; see pytorch/SHELVED.md.
+The rollout labeler (`-labeler rollout`), the ownership planes
+(`-ownership`) and the endgame labeler (`-endgame-plies`) were shelved and
+removed; see pytorch/SHELVED.md.
 
 #### Responsibilities for game_assembler
 

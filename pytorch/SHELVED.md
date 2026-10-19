@@ -32,6 +32,28 @@ each line's end, instead of a real game result.
   last version also fixed a deal-order bug (the opponent was dealt short
   with a nearly empty bag).
 
+## Endgame-search labels
+
+Relabel a training position whose bag was already empty with a quick
+N-ply endgame search (`-endgame-plies 2`) instead of the logged game's
+greedy outcome.
+
+- **Result:** it worked as a label. Over 500 logged endgames it matched a
+  4-ply solve's outcome 99.6% of the time, and at the start of endgames
+  97.0% against 96.2% for the greedy log, with a spread error of 5.1
+  against 8.1. The "result" and "fresh" runs used it (about 8% of their
+  positions).
+- **Why it went:** the shipped recipe draws one position per game
+  (`-per-game`) and never draws one with an empty bag, since the bot
+  doesn't ask the net then; with `-per-game` the flag did nothing. And the
+  games themselves now play close endgames with the same quick search
+  (autoplay `-quickendgame`), so their logged outcomes are already
+  accurate.
+- **Code:** `-endgame-plies`, `-endgame-timeout` and `solveEndgame` in
+  `cmd/mlproducer`, with their tests (`endgame_test.go`).
+- **To retry:** only useful when training on every position of a game,
+  endgame positions included.
+
 ## Ising board-shape energy
 
 A pairwise maximum-entropy (Ising) model of which squares are occupied,

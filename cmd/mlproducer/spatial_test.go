@@ -67,11 +67,12 @@ func sameSquares(a, b map[int]bool) bool {
 func TestSpatialTargets(t *testing.T) {
 	gid := strings.Split(sampleGameTurns[0], ",")[1]
 	transpose := shouldTranspose(gid)
-	for _, turn := range []int{2, 3, 5, 12, 20, 22} { // the helper discards turn 1
+	for _, turn := range []int{1, 2, 3, 5, 12, 20, 22} {
 		ga := NewGameAssembler(NPlies)
 		ga.valueFromResult = true
 		ga.pickMax = 30
-		got := feedGameWithPick(t, ga, turn)
+		ga.fixedPick = turn
+		got := feedGame(t, ga)
 		if len(got) != 1 {
 			t.Fatalf("turn %d: emitted %d vectors, want 1", turn, len(got))
 		}
@@ -117,18 +118,23 @@ func TestSpatialTargets(t *testing.T) {
 }
 
 // TestSpatialTargetsAtGameEnd: a position whose mover never moves again
-// (the opponent's reply ends the game) has an empty self-next plane.
+// (the opponent's reply ends the game) has an empty self-next plane. The
+// bag is empty there, which per-game mode never emits, so this scans every
+// position (table mode) and takes that one.
 func TestSpatialTargetsAtGameEnd(t *testing.T) {
 	gid := strings.Split(sampleGameTurns[0], ",")[1]
 	transpose := shouldTranspose(gid)
 	last := len(sampleGameTurns) // 24: turn 23's reply is the final move
 	ga := NewGameAssembler(NPlies)
 	ga.valueFromResult = true
-	ga.pickMax = 30
-	ga.fixedPick = last - 1 // bypasses the empty-bag skip
-	got := feedGame(t, ga)
+	var got []outputVector
+	for _, v := range feedGame(t, ga) {
+		if v.turn == last-1 {
+			got = append(got, v)
+		}
+	}
 	if len(got) != 1 {
-		t.Fatalf("emitted %d vectors, want 1", len(got))
+		t.Fatalf("emitted %d vectors for turn %d, want 1", len(got), last-1)
 	}
 	v := got[0]
 	wantOpp := squaresOf(t, sampleGameTurns[last-1], transpose)
