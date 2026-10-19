@@ -50,7 +50,7 @@ func TestTurnScannerOpeningColumn(t *testing.T) {
 }
 
 func TestPerGamePickStartsAtOpening(t *testing.T) {
-	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	ga := NewGameAssembler(NPlies)
 	ga.pickMax = 30
 	for _, k := range []int{0, 1, 3, 8, 30, 31} {
 		lo := max(1, k)
@@ -78,7 +78,7 @@ func TestPerGameSeveralPicks(t *testing.T) {
 	// Two picks per game: two positions at distinct turns, both with the
 	// game's result label; an empty-bag draw still emits nothing.
 	for trial := 0; trial < 20; trial++ {
-		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga := NewGameAssembler(NPlies)
 		ga.valueFromResult = true
 		ga.pickMax = 22 // the sample game's last non-empty-bag turn
 		ga.picks = 2
@@ -96,7 +96,7 @@ func TestPerGameSeveralPicks(t *testing.T) {
 		}
 	}
 	// More picks than eligible turns: every turn in the range, once.
-	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	ga := NewGameAssembler(NPlies)
 	ga.valueFromResult = true
 	ga.pickMax = 5
 	ga.picks = 9
@@ -135,7 +135,7 @@ func TestPicksDifferAcrossScans(t *testing.T) {
 	// see different positions of a game (20 scans, one draw each: not all equal).
 	seen := map[int]bool{}
 	for i := 0; i < 20; i++ {
-		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga := NewGameAssembler(NPlies)
 		ga.valueFromResult = true
 		ga.pickMax = 22
 		for _, v := range feedGame(t, ga) {

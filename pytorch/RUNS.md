@@ -62,8 +62,8 @@ The producer replays half of all games transposed.
 
 ## Tools
 
-- `cmd/mlproducer`: turn log -> training frames (`-labeler result -per-game -endgame-plies 2`; `-picks K`; `-holdout-mod M -split train|val`).
-- `pytorch/training.py`: trainer (cache mode and stream mode); `run-spatial.sh`, `run-openings.sh`, `run-stream.sh` drivers; `train-fresh.sh` + `watch-tf-heads.sh` deploy and match. `run-stream.sh` probes the fastest of batch 128x16 / 256x8 / 256x8 `--compile` (same effective batch 2048) before training; `probe-<tag>-*.log` keep the timings.
+- `cmd/mlproducer`: turn log -> training frames (`-labeler result -per-game`; `-picks K`; `-holdout-mod M -split train|val`).
+- `pytorch/training.py`: trainer (cache mode and stream mode); `gen-openings.sh` (games) and `run-stream.sh` (training) drivers, `watch-tf-heads.sh` deploy and match (the step-by-step recipe is `TRAINING.md`; the drivers of earlier runs are in git history, see `SHELVED.md`). `run-stream.sh` probes the fastest of batch 128x16 / 256x8 / 256x8 `--compile` (same effective batch 2048) before training; `probe-<tag>-*.log` keep the timings.
 - `cmd/mlreads` + `pytorch/reads_gallery.py`: where the net departs from equity, adjudicated by the 5-ply sim (`-ranks FILE`: histogram of the equity rank of the net's chosen plays); gallery https://claude.ai/artifact/1dy3cwMCdmcMwdYU2N5mSD.
 - `pytorch/pairs-stats.py`: paired match statistics; `autoanalyze` in the shell prints the same.
 

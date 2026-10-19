@@ -1,5 +1,10 @@
 # nwl23s: transformer value net with per-square placement heads
 
+> **A record of one run, not a how-to.** This file pins the commits, data,
+> settings and results of exactly this experiment, so it can be audited or
+> re-run as it was. To train a model, again or for another lexicon, follow
+> [`TRAINING.md`](../../TRAINING.md).
+
 Result (2026-09-27): a value net trained with four auxiliary per-square
 "placement" heads beats HastyBot at 57% in paired play, against 53% for the
 same net, same data, same recipe without them. See RESULTS.md for the final
@@ -135,7 +140,10 @@ the same mechanism as KataGo's ownership head. The unweighted trunk gradient
 of each spatial head grew from ~2% of the WDL head's at step 500 to ~15% by
 step 5,500 as the trunk started to represent what they ask for.
 
-## Reproducing
+## Re-running exactly this run
+
+(For a new model, use `TRAINING.md` instead; the drivers named here were
+removed later and are in git history at the commits below.)
 
 1. Check out `10710e5b`; `make`; build `bin/mlproducer`.
 2. Generate the games (or use the archived `~/data/nwl23{a,b,c}.txt.gz`).

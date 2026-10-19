@@ -32,7 +32,8 @@ the *games* alone earlier gained nothing (27M → 54M: 53.10% → 53.13%).
 The decided-game ranking rule in the bot (`ai/bot/mlrank.go`) changes the
 win rate by nothing and the average spread by +7.3 per game; every match
 since 9/28 has it on. Sampled openings are kept because no label then
-depends on a random move. The ideas that did not help are logged in `RUNS.md`.
+depends on a random move. The ideas that did not help, and how to get their code back, are in
+`SHELVED.md`.
 
 ## Before you start
 
@@ -65,8 +66,8 @@ with a quick 2-ply search. Two batches of 27M (the shipped model used
 `open` and `open2`):
 
     cd ~/code/macondo/pytorch
-    GEN=1 TRAIN=0 TAG=${L}open  GAMES=27000000 THREADS=16 ./run-openings.sh
-    GEN=1 TRAIN=0 TAG=${L}open2 GAMES=27000000 THREADS=16 ./run-openings.sh
+    TAG=${L}open  GAMES=27000000 THREADS=16 ./gen-openings.sh
+    TAG=${L}open2 GAMES=27000000 THREADS=16 ./gen-openings.sh
 
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
 logs the producer reads) and `games-*.txt` (one line per game). About
@@ -90,7 +91,7 @@ What it does (the defaults are the shipped recipe):
    `torch.compile` (always an effective batch of 2,048). Set
    `BATCH=128 ACCUM=16` to skip it.
 3. **Training.** `PASSES=6` scans of the logs piped through
-   `bin/mlproducer -lexicon $LEXICON -labeler result -per-game -endgame-plies 2`
+   `bin/mlproducer -lexicon $LEXICON -labeler result -per-game`
    into `training.py`, which trains:
    - the transformer (8 layers, width 192, 6 attention heads, 3.7M
      parameters);
@@ -133,7 +134,7 @@ Judge it head to head against its parent, not only against HastyBot: for
 NWL23 it lost 0.5 points against HastyBot but beat its parent 50.37% ±
 0.16. A head-to-head match, 100k pairs:
 
-    M1=macondo-nn-tf-${L}nvnft M2=macondo-nn-tf-${L}stream ./queue-ml-v-ml.sh
+    M1=macondo-nn-tf-${L}nvnft M2=macondo-nn-tf-${L}stream ./match-ml-v-ml.sh
 
 ## 4. Ship it
 

@@ -75,6 +75,8 @@ trains from an existing cache (first `--val-size` rows are validation).
 `--total-steps` is the cosine length and the stop point; `--snapshot-every`
 keeps intermediate checkpoints.
 
-`run-gen1.sh` is the unattended generation-1 pipeline (rollout labels ->
-5 epochs -> deploy -> paired match); `watch-tf-heads.sh` is the deploy +
-match step on its own; `pairs-stats.py` summarizes a game-pairs CSV.
+`watch-tf-heads.sh` is the deploy + match step on its own; `pairs-stats.py`
+summarizes a game-pairs CSV. The shipped models' recipes are in `results/`
+(`streamed/` for `macondo-tf`, `selfplay/` for `macondo-tf-selfplay`); ideas
+that were tried and dropped, and how to get their code back, are in
+`SHELVED.md`; every run is in `RUNS.md`.

@@ -31,10 +31,9 @@ ACCUM=${ACCUM:-16}
 VAL_SIZE=${VAL_SIZE:-150000}
 SHUFFLE=${SHUFFLE:-1024}
 DEVICE=${DEVICE:-auto}
-# PRODUCER_EXTRA adds producer flags (e.g. -ownership, with MACONDO_OWNERSHIP=1
-# exported for the trainer).
+# PRODUCER_EXTRA adds producer flags.
 export LEXICON=${LEXICON:-NWL23}
-PRODUCER="../bin/mlproducer -lexicon $LEXICON -labeler result -per-game -endgame-plies 2 -holdout-mod $HOLDOUT_MOD ${PRODUCER_EXTRA:-}"
+PRODUCER="../bin/mlproducer -lexicon $LEXICON -labeler result -per-game -holdout-mod $HOLDOUT_MOD ${PRODUCER_EXTRA:-}"
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
 # Training never shares the GPU with a match or with served models.
@@ -98,11 +97,10 @@ fi
 GPU_MEM=${GPU_MEM:-4096}
 
 STEPS=${STEPS:-$(python -c "print(max(100, $ROWS_PER_PASS * $PASSES // ($BATCH * $ACCUM) // 1000 * 1000))")}
-# Fine-tuning (e.g. pytorch/plan-sim-distill.md): LR/WARMUP override the
-# trainer's defaults, TRAIN_EXTRA adds trainer flags (--init-ckpt,
-# --sim-groups, ...), and DEPLOY_FINAL=1 deploys the last step's weights
-# instead of the best-validation checkpoint (a fine-tune's val WDL loss need
-# not improve while its ranking does).
+# Fine-tuning (e.g. results/selfplay/REPRO.md): LR/WARMUP override the
+# trainer's defaults, TRAIN_EXTRA adds trainer flags (--init-ckpt, ...), and
+# DEPLOY_FINAL=1 deploys the last step's weights instead of the
+# best-validation checkpoint.
 LR_ARGS=""
 [ -n "${LR:-}" ] && LR_ARGS="$LR_ARGS --lr $LR"
 [ -n "${WARMUP:-}" ] && LR_ARGS="$LR_ARGS --warmup $WARMUP"
@@ -141,7 +139,7 @@ if [ "$TRAIN_RC" = 0 ]; then
     # pass ends: the feeder's producer then hits a closed pipe, which is
     # not a failure. Stop it and ignore its exit.
     pkill -P "$FEEDER" 2>/dev/null; kill "$FEEDER" 2>/dev/null
-    pkill -f "[m]lproducer -lexicon $LEXICON -labeler result -per-game -endgame-plies 2 -holdout-mod $HOLDOUT_MOD" 2>/dev/null
+    pkill -f "[m]lproducer -lexicon $LEXICON -labeler result -per-game -holdout-mod $HOLDOUT_MOD" 2>/dev/null
     wait $FEEDER 2>/dev/null
     FEED_RC=0
 else

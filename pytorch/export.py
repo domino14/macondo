@@ -17,7 +17,7 @@ from training import build_model, load_state_dict_compat, C, H, W, N_SCAL
 # is the predicted spread change (decided-game ranking, the simmer's equity
 # stat); `opp_bingo_prob` (P(opponent bingos next turn)) and `opp_score`
 # (opponent's next score, points) are for display (mleval). The other heads
-# (spatial, ownership) are training-only regularizers.
+# (spatial) are training-only regularizers.
 EXPORTED_HEADS = ["value", "spread", "opp_bingo_prob", "opp_score"]
 
 

@@ -119,7 +119,6 @@ type AutomaticRunnerPlayer struct {
 	MinSimPlies          int
 	FixedSimPlies        int
 	TritonModel          string
-	SimLeafWin           string
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau pins the softmax temperature for P(play | leave). Leave it
@@ -182,7 +181,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			MinSimPlies:                  players[idx].MinSimPlies,
 			FixedSimPlies:                players[idx].FixedSimPlies,
 			TritonModel:                  players[idx].TritonModel,
-			SimLeafWin:                   players[idx].SimLeafWin,
 			SimThreads:                   players[idx].SimThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,
 			InferenceTau:                 players[idx].InferenceTau,

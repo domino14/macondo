@@ -67,11 +67,12 @@ func sameSquares(a, b map[int]bool) bool {
 func TestSpatialTargets(t *testing.T) {
 	gid := strings.Split(sampleGameTurns[0], ",")[1]
 	transpose := shouldTranspose(gid)
-	for _, turn := range []int{2, 3, 5, 12, 20, 22} { // the helper discards turn 1
-		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	for _, turn := range []int{1, 2, 3, 5, 12, 20, 22} {
+		ga := NewGameAssembler(NPlies)
 		ga.valueFromResult = true
 		ga.pickMax = 30
-		got := feedGameWithPick(t, ga, turn)
+		ga.fixedPick = turn
+		got := feedGame(t, ga)
 		if len(got) != 1 {
 			t.Fatalf("turn %d: emitted %d vectors, want 1", turn, len(got))
 		}
@@ -117,18 +118,23 @@ func TestSpatialTargets(t *testing.T) {
 }
 
 // TestSpatialTargetsAtGameEnd: a position whose mover never moves again
-// (the opponent's reply ends the game) has an empty self-next plane.
+// (the opponent's reply ends the game) has an empty self-next plane. The
+// bag is empty there, which per-game mode never emits, so this scans every
+// position (table mode) and takes that one.
 func TestSpatialTargetsAtGameEnd(t *testing.T) {
 	gid := strings.Split(sampleGameTurns[0], ",")[1]
 	transpose := shouldTranspose(gid)
 	last := len(sampleGameTurns) // 24: turn 23's reply is the final move
-	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	ga := NewGameAssembler(NPlies)
 	ga.valueFromResult = true
-	ga.pickMax = 30
-	ga.fixedPick = last - 1 // bypasses the empty-bag skip
-	got := feedGame(t, ga)
+	var got []outputVector
+	for _, v := range feedGame(t, ga) {
+		if v.turn == last-1 {
+			got = append(got, v)
+		}
+	}
 	if len(got) != 1 {
-		t.Fatalf("emitted %d vectors, want 1", len(got))
+		t.Fatalf("emitted %d vectors for turn %d, want 1", len(got), last-1)
 	}
 	v := got[0]
 	wantOpp := squaresOf(t, sampleGameTurns[last-1], transpose)
@@ -137,60 +143,5 @@ func TestSpatialTargetsAtGameEnd(t *testing.T) {
 	}
 	if n := len(planeSquares(spatialPlane(v.predictions, SpatialSelfNext))); n != 0 {
 		t.Errorf("self-next plane has %d squares after the game ended, want 0", n)
-	}
-}
-
-// TestOwnershipTargets checks the ownership planes against the logged
-// plays: from the position after turn T, the mover's plane holds the
-// squares of the mover's later plays and the opponent's plane those of the
-// opponent's, and the two never overlap. Without -ownership the vector
-// keeps its old length.
-func TestOwnershipTargets(t *testing.T) {
-	gid := strings.Split(sampleGameTurns[0], ",")[1]
-	transpose := shouldTranspose(gid)
-	for _, turn := range []int{2, 3, 12, 22} {
-		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
-		ga.valueFromResult = true
-		ga.pickMax = 30
-		ga.ownership = true
-		got := feedGameWithPick(t, ga, turn)
-		if len(got) != 1 {
-			t.Fatalf("turn %d: emitted %d vectors, want 1", turn, len(got))
-		}
-		v := got[0]
-		if want := NumTargets + NumSpatialWithOwnership*SpatialCells; len(v.predictions) != want {
-			t.Fatalf("turn %d: %d predictions, want %d", turn, len(v.predictions), want)
-		}
-		// Rows are 0-based: row `turn` is the opponent's reply (turn+1),
-		// then they alternate.
-		wantOpp, wantSelf := map[int]bool{}, map[int]bool{}
-		for r := turn; r < len(sampleGameTurns); r++ {
-			dst := wantOpp
-			if (r-turn)%2 == 1 {
-				dst = wantSelf
-			}
-			for sq := range squaresOf(t, sampleGameTurns[r], transpose) {
-				dst[sq] = true
-			}
-		}
-		gotSelf := planeSquares(spatialPlane(v.predictions, SpatialSelfOwn))
-		gotOpp := planeSquares(spatialPlane(v.predictions, SpatialOppOwn))
-		if !sameSquares(gotSelf, wantSelf) {
-			t.Errorf("turn %d: self-own %d squares, want %d", turn, len(gotSelf), len(wantSelf))
-		}
-		if !sameSquares(gotOpp, wantOpp) {
-			t.Errorf("turn %d: opp-own %d squares, want %d", turn, len(gotOpp), len(wantOpp))
-		}
-		for sq := range gotSelf {
-			if gotOpp[sq] {
-				t.Errorf("turn %d: square %d owned by both", turn, sq)
-			}
-		}
-	}
-	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
-	ga.valueFromResult = true
-	ga.pickMax = 30
-	if got := feedGameWithPick(t, ga, 5); len(got) != 1 || len(got[0].predictions) != NumPredictions {
-		t.Errorf("without -ownership: want one vector of %d predictions", NumPredictions)
 	}
 }

@@ -2865,12 +2865,7 @@ type AutoplayPlayerConfig struct {
 	// triton_model, when set, makes this player's ML bot query that Triton
 	// model (version 1) instead of the global triton-model-name, so two ML
 	// bots with different nets can play each other. Needs Triton enabled.
-	TritonModel string `protobuf:"bytes,17,opt,name=triton_model,json=tritonModel,proto3" json:"triton_model,omitempty"`
-	// sim_leaf_win sets how this player's sim scores the end of a simulated
-	// line: "" or "table" (the win-percentage table), "base" (logistic model
-	// fitted on our games), "energy" (that model plus board-energy terms).
-	// Overrides MACONDO_SIM_LEAFWIN for this player.
-	SimLeafWin    string `protobuf:"bytes,18,opt,name=sim_leaf_win,json=simLeafWin,proto3" json:"sim_leaf_win,omitempty"`
+	TritonModel   string `protobuf:"bytes,17,opt,name=triton_model,json=tritonModel,proto3" json:"triton_model,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3027,13 +3022,6 @@ func (x *AutoplayPlayerConfig) GetFixedSimPlies() int32 {
 func (x *AutoplayPlayerConfig) GetTritonModel() string {
 	if x != nil {
 		return x.TritonModel
-	}
-	return ""
-}
-
-func (x *AutoplayPlayerConfig) GetSimLeafWin() string {
-	if x != nil {
-		return x.SimLeafWin
 	}
 	return ""
 }
@@ -3526,7 +3514,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xda\x06\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xcc\x06\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3548,9 +3536,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\x123\n" +
 	"\x16quick_endgame_no_prune\x18\x13 \x01(\bR\x13quickEndgameNoPrune\x12&\n" +
 	"\x0ffixed_sim_plies\x18\x10 \x01(\x05R\rfixedSimPlies\x12!\n" +
-	"\ftriton_model\x18\x11 \x01(\tR\vtritonModel\x12 \n" +
-	"\fsim_leaf_win\x18\x12 \x01(\tR\n" +
-	"simLeafWin\"\xd2\x05\n" +
+	"\ftriton_model\x18\x11 \x01(\tR\vtritonModelJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

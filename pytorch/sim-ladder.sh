@@ -13,10 +13,12 @@
 #         (pairs-stats.py games-sim2*.txt). Default: 2-ply then 3-ply,
 #         1,250 pairs each.
 #   OUT   ~/data/simbench
+#   LEXICON (NWL23)
 cd "$(dirname "$0")"
 REPO=$(cd .. && pwd)
 RUNS=${RUNS:-"2:1250:sim2 3:1250:sim3"}
 OUT=${OUT:-$HOME/data/simbench}
+LEXICON=${LEXICON:-NWL23}
 mkdir -p "$OUT"
 log() { echo "$(date '+%F %T') $*"; }
 cd "$REPO"
@@ -28,8 +30,8 @@ for run in $RUNS; do
     THREADS=14
     pgrep -f "[b]in/shell autoplay.*FAST_ML_BOT" >/dev/null && THREADS=10
     EXP=$tag-v-hasty-pairs
-    log "starting fixed $p-ply SIMMING_BOT_NO_EG vs HASTY_BOT, NWL23, $pairs pairs, $THREADS game threads ($EXP)"
-    nice ./bin/shell autoplay -botcode1 SIMMING_BOT_NO_EG -botcode2 HASTY_BOT -lexicon NWL23 \
+    log "starting fixed $p-ply SIMMING_BOT_NO_EG vs HASTY_BOT, $LEXICON, $pairs pairs, $THREADS game threads ($EXP)"
+    nice ./bin/shell autoplay -botcode1 SIMMING_BOT_NO_EG -botcode2 HASTY_BOT -lexicon $LEXICON \
         -fixedsimplies1 $p -simthreads1 1 -numgames $pairs -gamepairs true -threads $THREADS \
         -block true -experimentid $EXP -outputdir "$OUT" > "$OUT/$EXP.log" 2>&1 < /dev/null
     log "$EXP done: $(python3 pytorch/pairs-stats.py "$OUT/games-$EXP.txt" | tail -1)"

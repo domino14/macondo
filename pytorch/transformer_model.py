@@ -110,7 +110,10 @@ class ScrabbleTransformerNet(nn.Module):
 
         self.heads = Heads(128)
         # Per-square spatial heads: one linear layer shared by the 225 square
-        # tokens, read after the final norm. Never exported.
+        # tokens, read after the final norm. Never exported. n_spatial is
+        # only ever 4 now; it stays a parameter so the archived ownership
+        # checkpoints (hparams n_spatial=6, a shelved experiment) still
+        # rebuild for export.
         self.n_spatial = n_spatial
         self.heads_spatial = nn.Linear(d, n_spatial)
 

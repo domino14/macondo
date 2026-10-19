@@ -1,6 +1,7 @@
 // simlabel labels positions with a Monte Carlo sim's verdict on every
-// candidate play, for distilling the sim into the value net
-// (pytorch/plan-sim-distill.md).
+// candidate play, to measure how often a bot's choice matches the sim's
+// (check). It was built to distill the sim into the value net; that
+// experiment is shelved (pytorch/SHELVED.md).
 //
 //	simlabel select -turns open.txt.gz -tag open -out positions.jsonl -val positions-val.jsonl
 //	simlabel sim -in positions.jsonl -out labels.jsonl -threads 64
@@ -21,7 +22,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: simlabel select|sim|check|frames [flags]   (-h for flags)")
+		fmt.Fprintln(os.Stderr, "usage: simlabel select|sim|check [flags]   (-h for flags)")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -31,10 +32,8 @@ func main() {
 		simMain(os.Args[2:])
 	case "check":
 		checkMain(os.Args[2:])
-	case "frames":
-		framesMain(os.Args[2:])
 	default:
-		fmt.Fprintf(os.Stderr, "unknown mode %q: want select, sim, check or frames\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "unknown mode %q: want select, sim or check\n", os.Args[1])
 		os.Exit(2)
 	}
 }
