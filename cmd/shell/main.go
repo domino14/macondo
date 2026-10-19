@@ -99,7 +99,7 @@ func main() {
 
 	serveAddr := os.Getenv("MACONDO_SERVE")
 	if serveAddr == "" {
-		serveAddr = ":8080"
+		serveAddr = ":8180"
 	}
 	go func() {
 		if err := automatic.StartServer(serveAddr); err != nil {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"time"
 
 	"github.com/domino14/word-golib/kwg"
@@ -16,9 +17,11 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/ai/externalengine"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -41,6 +44,9 @@ type GameRunner struct {
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
 	order              [2]int
+	// threads is the number of concurrent games in the parent autoplay run.
+	// Used to divide the TT memory fraction and default endgame thread counts.
+	threads int
 
 	// gamePairs makes each seeded game draw tiles from a fixed bag order, so
 	// that the same seed played twice with the seats swapped deals both bots
@@ -137,6 +143,11 @@ type AutomaticRunnerPlayer struct {
 	// QuickEndgameNoPrune: no pruned word graph for the quick solves.
 	QuickEndgameNoPrune bool
 	OracleInference     bool
+	ExternalEngine      *externalengine.Config // nil unless BotCode == CUSTOM_BOT
+	// EndgameThreads / PreendgameThreads: threads inside a single solve.
+	// 0 means "default" — the runner resolves it to max(1, NumCPU/concurrentGames).
+	EndgameThreads    int
+	PreendgameThreads int
 }
 
 // Init initializes the runner
@@ -167,11 +178,55 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 	r.gaddag = gd
 	r.alphabet = r.gaddag.GetAlphabet()
 
+	// Create one transposition table shared by both players in this game.
+	// Players take turns and never solve concurrently, so sharing is safe.
+	// Sized at totalFraction/threads so N concurrent games sum to ~totalFraction.
+	concurrentGames := r.threads
+	if concurrentGames < 1 {
+		concurrentGames = 1
+	}
+	totalFraction := r.config.GetFloat64(config.ConfigTtableMemFraction)
+	perGameFraction := totalFraction / float64(concurrentGames)
+	// Default per-solve thread count: spread CPU across concurrent games.
+	defaultSolveThreads := max(1, runtime.NumCPU()/concurrentGames)
+
+	// One TT per game, shared across both players (allocated lazily by each
+	// bot's first Solve, but we pre-create it here so both players use the
+	// same instance).
+	gameTT := &negamax.TranspositionTable{}
+
 	for idx := range players {
 		leavefile := players[idx].LeaveFile
 		pegfile := players[idx].PEGFile
 		botcode := players[idx].BotCode
 		log.Info().Msgf("botcode %v", botcode)
+
+		if botcode == pb.BotRequest_CUSTOM_BOT {
+			if players[idx].ExternalEngine == nil {
+				return fmt.Errorf("player %d: CUSTOM_BOT requires ExternalEngine config", idx)
+			}
+			ep, err := externalengine.NewFromGame(r.game, r.config, *players[idx].ExternalEngine)
+			if err != nil {
+				return err
+			}
+			r.aiplayers[idx] = ep
+			continue
+		}
+
+		// Resolve per-solve thread counts: use explicit value from config if
+		// set, otherwise spread CPU evenly across concurrent games.
+		simThreads := players[idx].SimThreads
+		if simThreads == 0 {
+			simThreads = defaultSolveThreads
+		}
+		egThreads := players[idx].EndgameThreads
+		if egThreads == 0 {
+			egThreads = defaultSolveThreads
+		}
+		pegThreads := players[idx].PreendgameThreads
+		if pegThreads == 0 {
+			pegThreads = defaultSolveThreads
+		}
 
 		conf := &bot.BotConfig{
 			Config:                       *r.config,
@@ -180,7 +235,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			MinSimPlies:                  players[idx].MinSimPlies,
 			FixedSimPlies:                players[idx].FixedSimPlies,
 			TritonModel:                  players[idx].TritonModel,
-			SimThreads:                   players[idx].SimThreads,
+			SimThreads:                   simThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,
 			InferenceTau:                 players[idx].InferenceTau,
 			InferenceTimeSecs:            players[idx].InferenceTimeSecs,
@@ -192,6 +247,10 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
 			QuickEndgameNoPrune:          players[idx].QuickEndgameNoPrune,
 			OracleInference:              players[idx].OracleInference,
+			EndgameTTable:                gameTT,
+			EndgameTTableFraction:        perGameFraction,
+			EndgameThreads:               egThreads,
+			PreendgameThreads:            pegThreads,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
@@ -285,10 +344,10 @@ func (r *GameRunner) genStochasticStaticTurn(playerIdx int) *move.Move {
 	return aiturnplayer.GenStochasticStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
 }
 
-func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
 	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
 		// For HastyBot we only need to generate one single best static turn.
-		return r.genBestStaticTurn(playerIdx)
+		return r.genBestStaticTurn(playerIdx), nil
 	}
 	maxTime := MaxTimePerTurn
 	endgame := r.game.Bag().TilesRemaining() == 0
@@ -298,7 +357,10 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 	}
 	var ctx context.Context
 	var cancel context.CancelFunc
-	if r.game.PairedBagMode() && !endgame {
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_CUSTOM_BOT {
+		// The external engine process manages its own time.
+		ctx, cancel = context.WithCancel(context.Background())
+	} else if r.game.PairedBagMode() && !endgame {
 		// A wall-clock budget makes the bot's choice depend on how busy the
 		// machine happened to be, which is the sort of noise game pairs exist
 		// to get rid of. A sim stops on its own iteration cutoff, so dropping
@@ -311,17 +373,25 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 	}
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
-	if err != nil {
-		log.Err(err).Msg("generating best move for bot")
+	if err != nil && r.aiplayers[playerIdx].GetBotType() != pb.BotRequest_CUSTOM_BOT {
+		// A built-in bot that fails (a solver error, say) plays its best
+		// static move, so the game still finishes and counts. An external
+		// engine failing is a broken setup, and stops the game.
+		log.Err(err).Int("playerIdx", playerIdx).Msg("bot-error-playing-static-move")
+		return r.genBestStaticTurn(playerIdx), nil
 	}
-	return m
+	return m, err
 }
 
 // sampleOpeningMove picks this turn's move under the opening config instead
 // of asking the bot: a uniform draw over every legal play (UniformProb), else
 // a softmax over static equity across the TopN best plays.
 func (r *GameRunner) sampleOpeningMove(playerIdx int) *move.Move {
-	ai := r.aiplayers[playerIdx].(*bot.BotTurnPlayer)
+	// Any static-capable player can sample: the built-in bots and the
+	// external engine (which keeps a static generator of its own).
+	ai := r.aiplayers[playerIdx].(interface {
+		GenerateMoves(int) []*move.Move
+	})
 	if r.opening.UniformProb > 0 && r.openingRng.Float64() < r.opening.UniformProb {
 		all := ai.GenerateMoves(math.MaxInt32)
 		return all[r.openingRng.Intn(len(all))]
@@ -342,10 +412,14 @@ func (r *GameRunner) sampleOpeningMove(playerIdx int) *move.Move {
 // PlayBestTurn generates the best move for the player and plays it on the board.
 func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	var bestPlay *move.Move
+	var err error
 	if r.game.Turn() < r.openingPlies {
 		bestPlay = r.sampleOpeningMove(playerIdx)
 	} else {
-		bestPlay = r.genBestMoveForBot(playerIdx)
+		bestPlay, err = r.genBestMoveForBot(playerIdx)
+		if err != nil {
+			return fmt.Errorf("player %d: %w", playerIdx, err)
+		}
 	}
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
@@ -370,7 +444,7 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	err := r.game.PlayMove(bestPlay, addToHistory, 0)
+	err = r.game.PlayMove(bestPlay, addToHistory, 0)
 	if err != nil {
 		return err
 	}

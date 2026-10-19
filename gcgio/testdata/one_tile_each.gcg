@@ -1,0 +1,29 @@
+#character-encoding UTF-8
+#lexicon NWL23
+#description Bag empty, one tile on each rack, macondo to move. Endgame plies estimate = 1, which multi-threaded endgame searches reject ("use at least 2 plies").
+#player1 quackle Quackle
+#player2 macondo Macondo
+>quackle: AEKNOWY 8D WONKY +38 38
+>macondo: AGMOSVW 7C VOW +23 23
+>quackle: AEGOOST 9D TOEA +26 64
+>macondo: AEGMMNS 10F GEM +25 48
+>quackle: DEGNOSS H10 .ONDES +30 94
+>macondo: ?AEMNSV 14G V.rSEMAN +78 126
+>quackle: DFGGLSZ M13 Z.G +26 120
+>macondo: AAIOQRU J10 QUAI. +34 160
+>quackle: DFGLNOS 11J .NFOLD +20 140
+>macondo: AIORRRU 15K RI.OR +30 190
+>quackle: EGILPST K5 PESTLI.G +86 226
+>macondo: ABFIORU J6 FOU +31 221
+>quackle: CINORTT L1 CORTIN +32 258
+>macondo: AABEILR 12J ..A +18 239
+>quackle: AAEIPTT 1E APATETI. +86 344
+>macondo: ABEILRT O4 LIBRATE. +86 325
+>quackle: ADEEUUX 2B EXUDE +39 383
+>macondo: ADHIIJY B4 JIHADI +35 360
+>quackle: ACERRSU C2 .U +18 401
+>macondo: ?BEEHNY A8 EBoNY +52 412
+>quackle: ACELRRS 3I CAR.EL +22 423
+>macondo: EHI 1A EH +20 432
+>quackle: RS B4 ......S +23 446
+#rack2 I

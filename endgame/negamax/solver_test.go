@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -541,3 +544,78 @@ func BenchmarkVsRoyWithoutPrunedKWG(b *testing.B) {
 }
 
 // }
+
+// Autoplay runs one game per goroutine, and each game solves its endgames on
+// its own transposition table. Solve several endgames at once, each with its
+// own solver and table, and check every answer matches the known one -- and
+// that the solves really were in flight at the same time.
+func TestConcurrentSolvesIndependentTables(t *testing.T) {
+	is := is.New(t)
+	type position struct {
+		lex     string
+		bvs     board.VsWho
+		plies   int
+		r1, r2  string
+		p1, p2  int
+		want    int16
+		threads int
+	}
+	// Cheap positions (a few seconds each at most), so the test stays quick
+	// on a small CI runner.
+	base := []position{
+		{"NWL20", board.VsCanik, 4, "DEHILOR", "BGIV", 389, 384, 11, 1},
+		{"NWL18", board.VsJoel, 4, "EIQSS", "AAFIRTW", 393, 373, 25, 2},
+	}
+	// Each position four times, so several solvers search the same tree at
+	// once.
+	var positions []position
+	for range 4 {
+		positions = append(positions, base...)
+	}
+
+	solvers := make([]*Solver, len(positions))
+	for i, p := range positions {
+		s, err := setUpSolver(p.lex, "english", p.bvs, p.plies, p.r1, p.r2, p.p1, p.p2, 1)
+		is.NoErr(err)
+		s.SetTTable(&TranspositionTable{})
+		s.SetTTableFraction(0.01)
+		s.SetThreads(p.threads)
+		solvers[i] = s
+	}
+
+	vals := make([]int16, len(positions))
+	errs := make([]error, len(positions))
+	took := make([]time.Duration, len(positions))
+	var inFlight, maxInFlight atomic.Int32
+	begin := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range positions {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-begin
+			n := inFlight.Add(1)
+			for {
+				m := maxInFlight.Load()
+				if n <= m || maxInFlight.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			st := time.Now()
+			vals[i], _, errs[i] = solvers[i].Solve(context.Background(), positions[i].plies)
+			took[i] = time.Since(st)
+			inFlight.Add(-1)
+		}(i)
+	}
+	close(begin)
+	wg.Wait()
+
+	for i := range positions {
+		is.NoErr(errs[i])
+		is.Equal(vals[i], positions[i].want)
+		t.Logf("solve %d (%s, %d plies): %d in %v", i, positions[i].lex,
+			positions[i].plies, vals[i], took[i])
+	}
+	t.Logf("max solves in flight at once: %d of %d", maxInFlight.Load(), len(positions))
+	is.True(maxInFlight.Load() > 1)
+}
