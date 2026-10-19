@@ -29,7 +29,7 @@ B="$D/playability-bin"
 [ -x "$B" ] || (cd "$SRC" && go build -o "$B" ./cmd/playability)
 log "lexicon $LEX ($LD), dir $D, $SHARDS shards, binary $B"
 
-have() { ls "$1"/$2 2>/dev/null | wc -l; }
+have() { ls "$1"/$2 2>/dev/null | wc -l || true; }
 
 n=$(have "$D/gen" 'shard-*.gob.gz')
 if [ "$n" -lt "$SHARDS" ]; then
