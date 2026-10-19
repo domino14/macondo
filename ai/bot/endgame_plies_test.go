@@ -14,8 +14,7 @@ import (
 
 // One tile on each rack, bag empty: the endgame plies estimate is 1, which
 // the multi-threaded searches used to reject ("use at least 2 plies"), so
-// the bot returned no move at all. The endgame solves with NumCPU threads,
-// so this reproduces on any machine with 2+ cores.
+// the bot returned no move at all whenever it solved with 2+ threads.
 func TestEndgameOneTileEach(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
@@ -23,14 +22,17 @@ func TestEndgameOneTileEach(t *testing.T) {
 	is.NoErr(err)
 	hist, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/one_tile_each.gcg")
 	is.NoErr(err)
-	g, err := game.NewFromHistory(hist, rules, len(hist.Events))
-	is.NoErr(err)
-	is.Equal(g.Bag().TilesRemaining(), 0)
-	is.Equal(g.RackLettersFor(g.PlayerOnTurn()), "I")
-	is.Equal(g.RackLettersFor(g.NextPlayer()), "R")
-	btp, err := NewBotTurnPlayerFromGame(g, &BotConfig{Config: *DefaultConfig}, pb.BotRequest_SIMMING_BOT)
-	is.NoErr(err)
-	m, err := btp.BestPlay(context.Background())
-	is.NoErr(err)
-	is.Equal(m.ShortDescription(), " 9K .I") // goes out
+	for _, threads := range []int{1, 2, 4} {
+		g, err := game.NewFromHistory(hist, rules, len(hist.Events))
+		is.NoErr(err)
+		is.Equal(g.Bag().TilesRemaining(), 0)
+		is.Equal(g.RackLettersFor(g.PlayerOnTurn()), "I")
+		is.Equal(g.RackLettersFor(g.NextPlayer()), "R")
+		btp, err := NewBotTurnPlayerFromGame(g, &BotConfig{Config: *DefaultConfig}, pb.BotRequest_SIMMING_BOT)
+		is.NoErr(err)
+		btp.SetEndgameThreads(threads)
+		m, err := btp.BestPlay(context.Background())
+		is.NoErr(err)
+		is.Equal(m.ShortDescription(), " 9K .I") // goes out
+	}
 }

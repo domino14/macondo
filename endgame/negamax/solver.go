@@ -333,8 +333,9 @@ type Solver struct {
 	bestPVValue             int16
 	preventSlowroll         bool
 
-	ttable      *TranspositionTable
-	abdadaTable *ABDADATable
+	ttable         *TranspositionTable
+	ttableFraction float64 // if > 0, overrides config value in Reset
+	abdadaTable    *ABDADATable
 
 	currentIDDepths []int
 	requestedPlies  int
@@ -401,7 +402,9 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 		// Refuse rather than silently solving with classic moves.
 		return errors.New("the endgame solver does not support WordSmog yet")
 	}
-	s.ttable = GlobalTranspositionTable
+	if s.ttable == nil {
+		s.ttable = &TranspositionTable{}
+	}
 	s.stmMovegen = m
 	s.game = g
 
@@ -426,6 +429,20 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 // SetLogStream only prints coherent logs for single-threaded endgames for now.
 func (s *Solver) SetLogStream(l io.Writer) {
 	s.logStream = l
+}
+
+// SetTTable injects an external transposition table. Must be called before Init
+// or immediately after; the injected table survives Init (Init only allocates
+// a new table when s.ttable == nil).
+func (s *Solver) SetTTable(t *TranspositionTable) {
+	s.ttable = t
+}
+
+// SetTTableFraction sets the memory fraction used when the TT is Reset inside
+// Solve. When > 0 this overrides the config value, allowing per-game tables
+// to be sized at (totalFraction / numConcurrentGames).
+func (s *Solver) SetTTableFraction(f float64) {
+	s.ttableFraction = f
 }
 
 func (s *Solver) Movegen() movegen.MoveGenerator {
@@ -2086,7 +2103,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		s.ttable.SetSingleThreadedMode()
 	}
 	if s.transpositionTableOptim {
-		s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
+		fraction := s.ttableFraction
+		if fraction == 0 {
+			fraction = s.game.Config().GetFloat64(config.ConfigTtableMemFraction)
+		}
+		s.ttable.Reset(fraction, s.game.Board().Dim())
 	}
 	// Invalidate the stuck-fraction memo along with the transposition table.
 	s.stuckGen++

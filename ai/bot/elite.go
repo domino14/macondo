@@ -74,6 +74,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		Int("endgamePlies", endgamePlies).
 		Bool("useEndgame", useEndgame).
 		Int("unseen", unseen).
+		Str("rack", p.Game.RackLettersFor(p.Game.PlayerOnTurn())).
 		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
 		Bool("stochasticStaticEval", p.cfg.StochasticStaticEval).
 		Int("consideredMoves", len(moves)).Msg("elite-player")
@@ -127,6 +128,11 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
+	// Ensure the bot has its own TT (lazily allocated for the shell / interactive
+	// path; already set for autoplay where GameRunner injects a per-game table).
+	if p.endgameTTable == nil {
+		p.endgameTTable = &negamax.TranspositionTable{}
+	}
 	// make a copy of the game.
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
@@ -136,17 +142,27 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
-	p.endgamer.SetThreads(runtime.NumCPU())
+	// Inject the bot's TT and fraction override (SetTTable after Init so it
+	// overrides any lazy allocation Init may have done).
+	p.endgamer.SetTTable(p.endgameTTable)
+	p.endgamer.SetTTableFraction(p.cfg.EndgameTTableFraction)
+	egThreads := p.endgameThreads
+	if egThreads == 0 {
+		egThreads = runtime.NumCPU()
+	}
+	p.endgamer.SetThreads(egThreads)
 	// Use auto mode: picks ABDADA for 300+ moves, otherwise LazySMP
 	p.endgamer.SetParallelAlgorithm(negamax.ParallelAlgoAuto)
 	p.endgamer.SetPreventSlowroll(true)
+	start := time.Now()
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {
 		return nil, err
 	}
 	p.lastCalculatedDetails = p.endgamer.ShortDetails()
 
-	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
+	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).
+		Dur("took", time.Since(start)).Int("threads", egThreads).Msg("endgame-solve-done")
 	return seq[0], nil
 }
 
@@ -160,10 +176,23 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Ensure the bot has its own TT (shared with the endgame solver — they
+	// never run simultaneously within a turn).
+	if p.endgameTTable == nil {
+		p.endgameTTable = &negamax.TranspositionTable{}
+	}
 	err = p.preendgamer.Init(p.Game, gd)
 	if err != nil {
 		return nil, err
 	}
+	// Inject the bot's TT and thread count.
+	p.preendgamer.SetTTable(p.endgameTTable)
+	p.preendgamer.SetTTableFraction(p.cfg.EndgameTTableFraction)
+	pegThreads := p.preendgameThreads
+	if pegThreads == 0 {
+		pegThreads = runtime.NumCPU()
+	}
+	p.preendgamer.SetThreads(pegThreads)
 	// If we're down by a lot, we will probably need to bingo out, so set
 	// endgame plies to only a couple
 	ourSpread := math.Abs(float64(p.Game.SpreadFor(p.Game.PlayerOnTurn())))
@@ -185,12 +214,15 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	}
 	p.preendgamer.SetEarlyCutoffOptim(true)
 
+	start := time.Now()
 	moves, err := p.preendgamer.Solve(ctx)
 	if err != nil {
 		log.Err(err).Msg("preendgamer-solve-error")
 		return nil, err
 	}
 	p.lastCalculatedDetails = p.preendgamer.ShortDetails()
+	logger.Info().Str("best", moves[0].Play.ShortDescription()).
+		Dur("took", time.Since(start)).Int("threads", pegThreads).Msg("preendgame-solve-done")
 
 	return moves[0].Play, nil
 
