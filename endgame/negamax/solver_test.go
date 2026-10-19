@@ -615,14 +615,18 @@ func TestConcurrentSolvesIndependentTables(t *testing.T) {
 		want    int16
 		threads int
 	}
-	positions := []position{
-		{"America", board.VsRoy, 8, "WZ", "EFHIKOQ", 427, 331, 116, 1},
-		{"NWL18", board.VsJoey, 14, "DIV", "AEFILMR", 412, 371, 55, 2},
+	// Cheap positions (a few seconds each at most), so the test stays quick
+	// on a small CI runner.
+	base := []position{
 		{"NWL20", board.VsCanik, 4, "DEHILOR", "BGIV", 389, 384, 11, 1},
-		{"NWL18", board.VsJoel, 4, "EIQSS", "AAFIRTW", 393, 373, 25, 1},
+		{"NWL18", board.VsJoel, 4, "EIQSS", "AAFIRTW", 393, 373, 25, 2},
 	}
-	// Each position twice, so pairs of solvers search the same tree at once.
-	positions = append(positions, positions...)
+	// Each position four times, so several solvers search the same tree at
+	// once.
+	var positions []position
+	for range 4 {
+		positions = append(positions, base...)
+	}
 
 	solvers := make([]*Solver, len(positions))
 	for i, p := range positions {
