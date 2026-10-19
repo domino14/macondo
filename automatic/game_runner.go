@@ -376,10 +376,13 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
 	}
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
-	if err != nil && r.aiplayers[playerIdx].GetBotType() != pb.BotRequest_CUSTOM_BOT {
+	if bt := r.aiplayers[playerIdx].GetBotType(); err != nil &&
+		bt != pb.BotRequest_CUSTOM_BOT && bt != pb.BotRequest_FAST_ML_BOT {
 		// A built-in bot that fails (a solver error, say) plays its best
 		// static move, so the game still finishes and counts. An external
-		// engine failing is a broken setup, and stops the game.
+		// engine or the ML bot failing is a broken setup (for the ML bot, an
+		// unserved model, which would otherwise quietly play HastyBot's
+		// moves), and stops the run.
 		log.Err(err).Int("playerIdx", playerIdx).Msg("bot-error-playing-static-move")
 		return r.genBestStaticTurn(playerIdx), nil
 	}
