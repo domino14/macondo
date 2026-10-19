@@ -59,7 +59,7 @@ if ! ./copy_model.sh "$MODEL" "$CKPT"; then
     log "NOT RUNNING MATCH: copy_model.sh failed"
     exit 1
 fi
-VER_DIR=$(ls -d "$REPO/data/strategy/default/models/$MODEL"/[0-9]* | sort -V | tail -1)
+VER_DIR=$(ls -d "${MODELS_ROOT:-$REPO/data/strategy/default/models}/$MODEL"/[0-9]* | sort -V | tail -1)
 VER=$(basename "$VER_DIR")
 log "installed version $VER at $VER_DIR"
 
