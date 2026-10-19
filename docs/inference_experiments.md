@@ -495,6 +495,13 @@ seed 20261020, 2-ply then 5-ply. Smoke (64 pairs): 2-ply 53.1% ± 6.9 at
 ~545 games/h, 5-ply 53.1% ± 6.5 at ~150 games/h (both batch-tail bound).
 ETA: 2-ply ~1 day, 5-ply ~3-4 days after.
 
+**2-ply result (Oct 19 14:25, 927 min): 53.51% ± 0.60** paired over 7,500
+pairs, spread +8.33 ± 1.06; quarters 54.3 / 53.9 / 52.0 / 52.9 at 5,130
+pairs, so no drift. Against the 2-ply inference baseline (50.55% ± 0.62)
+inference has about 3.0 points of headroom and captures ~0.5 of it, about
+15%, which matches decidelab's "reads close ~15% of the gap". 5-ply started
+14:25 (124 pairs at 15:44: 56.5% ± 4.9).
+
 ## Running log
 
 What is on deb192 and when it changed. Results go in the sections above.
@@ -557,3 +564,5 @@ What is on deb192 and when it changed. Results go in the sections above.
    picks; if they sit near 100, try 200.
 6. **tau 0.05 replication**: queued (queue7). If it holds at ~52%, port its
    pieces one at a time into the current code, each a paired match.
+- Oct 19 14:25 (deb128): `oracle-2ply` done, 53.51% ± 0.60 (above); `oracle-5ply` started.
+- Oct 19 15:44 (deb192): replica 6,374 games, 50.55% ± 1.23; running on to 10,000.
