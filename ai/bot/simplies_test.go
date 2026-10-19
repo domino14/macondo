@@ -16,3 +16,16 @@ func TestSimPliesFor(t *testing.T) {
 		}
 	}
 }
+
+func TestEndgamePliesFor(t *testing.T) {
+	for _, c := range []struct{ unseen, onRack, want int }{
+		{7, 7, 13}, {3, 4, 6}, {1, 2, 2},
+		// One tile each: the estimate is 1, which a multi-threaded solve
+		// rejects ("use at least 2 plies").
+		{1, 1, 2},
+	} {
+		if got := endgamePliesFor(c.unseen, c.onRack); got != c.want {
+			t.Errorf("endgamePliesFor(%d, %d) = %d, want %d", c.unseen, c.onRack, got, c.want)
+		}
+	}
+}

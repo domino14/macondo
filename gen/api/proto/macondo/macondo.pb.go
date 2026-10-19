@@ -2866,10 +2866,22 @@ type AutoplayPlayerConfig struct {
 	// model (version 1) instead of the global triton-model-name, so two ML
 	// bots with different nets can play each other. Needs Triton enabled.
 	TritonModel string `protobuf:"bytes,17,opt,name=triton_model,json=tritonModel,proto3" json:"triton_model,omitempty"`
+	// external_engine_binary is the path to the external engine binary.
+	// Only used when bot_code == CUSTOM_BOT.
+	ExternalEngineBinary string `protobuf:"bytes,20,opt,name=external_engine_binary,json=externalEngineBinary,proto3" json:"external_engine_binary,omitempty"`
+	// external_engine_args are optional extra arguments prepended before the
+	// standard --gcg/--lexicon/--rack flags.
+	ExternalEngineArgs []string `protobuf:"bytes,21,rep,name=external_engine_args,json=externalEngineArgs,proto3" json:"external_engine_args,omitempty"`
+	// endgame_threads sets the number of threads used inside a single endgame
+	// solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+	EndgameThreads int32 `protobuf:"varint,22,opt,name=endgame_threads,json=endgameThreads,proto3" json:"endgame_threads,omitempty"`
+	// preendgame_threads sets the number of threads used inside a single
+	// pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+	PreendgameThreads int32 `protobuf:"varint,23,opt,name=preendgame_threads,json=preendgameThreads,proto3" json:"preendgame_threads,omitempty"`
 	// inference_tau_cap caps the inference temperature, pinned or scheduled.
 	// The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
 	// 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
-	InferenceTauCap float64 `protobuf:"fixed64,20,opt,name=inference_tau_cap,json=inferenceTauCap,proto3" json:"inference_tau_cap,omitempty"`
+	InferenceTauCap float64 `protobuf:"fixed64,24,opt,name=inference_tau_cap,json=inferenceTauCap,proto3" json:"inference_tau_cap,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3028,6 +3040,34 @@ func (x *AutoplayPlayerConfig) GetTritonModel() string {
 		return x.TritonModel
 	}
 	return ""
+}
+
+func (x *AutoplayPlayerConfig) GetExternalEngineBinary() string {
+	if x != nil {
+		return x.ExternalEngineBinary
+	}
+	return ""
+}
+
+func (x *AutoplayPlayerConfig) GetExternalEngineArgs() []string {
+	if x != nil {
+		return x.ExternalEngineArgs
+	}
+	return nil
+}
+
+func (x *AutoplayPlayerConfig) GetEndgameThreads() int32 {
+	if x != nil {
+		return x.EndgameThreads
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetPreendgameThreads() int32 {
+	if x != nil {
+		return x.PreendgameThreads
+	}
+	return 0
 }
 
 func (x *AutoplayPlayerConfig) GetInferenceTauCap() float64 {
@@ -3525,7 +3565,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xf8\x06\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xb8\b\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3547,8 +3587,12 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\x123\n" +
 	"\x16quick_endgame_no_prune\x18\x13 \x01(\bR\x13quickEndgameNoPrune\x12&\n" +
 	"\x0ffixed_sim_plies\x18\x10 \x01(\x05R\rfixedSimPlies\x12!\n" +
-	"\ftriton_model\x18\x11 \x01(\tR\vtritonModel\x12*\n" +
-	"\x11inference_tau_cap\x18\x14 \x01(\x01R\x0finferenceTauCapJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
+	"\ftriton_model\x18\x11 \x01(\tR\vtritonModel\x124\n" +
+	"\x16external_engine_binary\x18\x14 \x01(\tR\x14externalEngineBinary\x120\n" +
+	"\x14external_engine_args\x18\x15 \x03(\tR\x12externalEngineArgs\x12'\n" +
+	"\x0fendgame_threads\x18\x16 \x01(\x05R\x0eendgameThreads\x12-\n" +
+	"\x12preendgame_threads\x18\x17 \x01(\x05R\x11preendgameThreads\x12*\n" +
+	"\x11inference_tau_cap\x18\x18 \x01(\x01R\x0finferenceTauCapJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

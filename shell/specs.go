@@ -346,6 +346,14 @@ func init() {
 				Help: "leaves measured per inference; replaces the time cap (0 = use time)"},
 			{Name: "oracle1", Type: OptBool, Values: boolValues},
 			{Name: "oracle2", Type: OptBool, Values: boolValues},
+			{Name: "extbinary1", Type: OptString},
+			{Name: "extbinary2", Type: OptString},
+			{Name: "extargs1", Type: OptString},
+			{Name: "extargs2", Type: OptString},
+			{Name: "egthreads1", Type: OptInt},
+			{Name: "egthreads2", Type: OptInt},
+			{Name: "pegthreads1", Type: OptInt},
+			{Name: "pegthreads2", Type: OptInt},
 		},
 	})
 

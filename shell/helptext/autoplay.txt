@@ -56,7 +56,9 @@ Config fields:
                        configured default.
     numGames           Number of games to play. Defaults to effectively unlimited.
     threads            Number of parallel game threads. Defaults to NumCPU.
-                       Set to 1 if either bot uses endgame or pre-endgame solving.
+                       Endgame and pre-endgame bots are fine here: each game
+                       solves on its own transposition table, sized at
+                       ttable-mem-fraction / threads.
     outputDir          Directory for output files. Defaults to current directory.
     block              If true, wait for all games to complete before returning.
 
@@ -80,7 +82,8 @@ Per-player fields (player1 / player2):
                          SIMMING_INFER_BOT, SIMMING_INFER_BOT_NO_EG,
                          HASTY_PLUS_ENDGAME_BOT,
                          LEVEL1_COMMON_WORD_BOT ... LEVEL4_COMMON_WORD_BOT,
-                         LEVEL1_PROBABILISTIC ... LEVEL5_PROBABILISTIC
+                         LEVEL1_PROBABILISTIC ... LEVEL5_PROBABILISTIC,
+                         CUSTOM_BOT (an external engine; see below)
     leaveFile          Custom leave file (.klv2) inside data/strategy/<lexicon>/.
     pegFile            Pre-endgame adjustment file (.json) in the same dir.
     minSimPlies        Minimum Monte Carlo sim plies (default 2 for simming bots).
@@ -97,6 +100,13 @@ Per-player fields (player1 / player2):
                        Lower = assume opponent plays more optimally.
                        Higher = allow more weight to sub-optimal plays.
                        Try 0.008–0.03 for strong opponents.
+    endgameThreads     Threads inside one endgame solve
+                       (default: NumCPU / threads).
+    preendgameThreads  Threads inside one pre-endgame solve
+                       (default: NumCPU / threads).
+    externalEngineBinary  CUSTOM_BOT only: the engine to run each turn.
+    externalEngineArgs    CUSTOM_BOT only: extra arguments, before the
+                       standard ones.
 
 CLI overrides:
 
@@ -132,6 +142,38 @@ Available override flags:
     -simthreads2 N        Override player2 sim threads
     -tau1 F               Override player1 inference tau
     -tau2 F               Override player2 inference tau
+    -egthreads1 N         Player 1's threads per endgame solve
+    -egthreads2 N         Player 2's threads per endgame solve
+    -pegthreads1 N        Player 1's threads per pre-endgame solve
+    -pegthreads2 N        Player 2's threads per pre-endgame solve
+    -extbinary1 PATH      Player 1's external engine (with -botcode1 CUSTOM_BOT)
+    -extbinary2 PATH      Player 2's external engine (with -botcode2 CUSTOM_BOT)
+    -extargs1 "ARGS"      Extra arguments for player 1's engine, split on spaces
+    -extargs2 "ARGS"      Extra arguments for player 2's engine, split on spaces
+
+External engines:
+
+A CUSTOM_BOT seat runs an external program once per turn:
+
+    <binary> <externalEngineArgs...> --gcg=<file> --lexicon=<name> --rack=<tiles>
+
+The GCG file holds the game so far. The program prints its move as the last
+line of stdout, one JSON object:
+
+    {"action":"place","position":"8H","tiles":"NASTIER"}
+    {"action":"exchange","tiles":"QV"}
+    {"action":"pass"}
+
+Lowercase letters in "tiles" are blanks. The engine keeps its own time; the
+turn has no deadline. Arguments are split on spaces, so a value with a space
+in it (a Quackle player name, say) needs a wrapper script:
+
+    #!/bin/sh
+    exec quackle-evaluator --datadir=/path/to/quackle/data \
+        --player="Speedy Player" "$@"
+
+    autoplay -botcode1 SIMMING_BOT -botcode2 CUSTOM_BOT \
+        -extbinary2 ./speedy.sh -numgames 100 -threads 8 -block
 
 Deterministic workflow example:
 

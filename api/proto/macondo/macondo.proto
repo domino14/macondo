@@ -505,10 +505,22 @@ message AutoplayPlayerConfig {
   // (shelved, see pytorch/SHELVED.md).
   reserved 18;
   reserved "sim_leaf_win";
+  // external_engine_binary is the path to the external engine binary.
+  // Only used when bot_code == CUSTOM_BOT.
+  string external_engine_binary = 20;
+  // external_engine_args are optional extra arguments prepended before the
+  // standard --gcg/--lexicon/--rack flags.
+  repeated string external_engine_args = 21;
+  // endgame_threads sets the number of threads used inside a single endgame
+  // solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+  int32 endgame_threads = 22;
+  // preendgame_threads sets the number of threads used inside a single
+  // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+  int32 preendgame_threads = 23;
   // inference_tau_cap caps the inference temperature, pinned or scheduled.
   // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
   // 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
-  double inference_tau_cap = 20;
+  double inference_tau_cap = 24;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
