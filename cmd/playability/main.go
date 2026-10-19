@@ -1,0 +1,46 @@
+// playability estimates how much knowing each word is worth.
+//
+//	playability gen    HastyBot self-play; per-word and per-alphagram regrets,
+//	                   written in resumable shards
+//	playability score  merges the shards into per-word and per-alphagram tables
+//
+// See playability/regret.go for the definition.
+package main
+
+import (
+	"fmt"
+	"os"
+	"runtime/pprof"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+)
+
+func main() {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: "15:04:05"})
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: playability gen|score [flags]")
+		os.Exit(2)
+	}
+	if f := os.Getenv("PLAY_CPUPROFILE"); f != "" {
+		pf, err := os.Create(f)
+		if err == nil {
+			pprof.StartCPUProfile(pf)
+			defer pprof.StopCPUProfile()
+		}
+	}
+	var err error
+	switch os.Args[1] {
+	case "gen":
+		err = runGen(os.Args[2:])
+	case "score":
+		err = runScore(os.Args[2:])
+	default:
+		err = fmt.Errorf("unknown subcommand %q", os.Args[1])
+	}
+	if err != nil {
+		pprof.StopCPUProfile()
+		log.Fatal().Err(err).Msg("playability")
+	}
+}
