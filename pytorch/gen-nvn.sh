@@ -7,8 +7,8 @@
 # whose .gz exists is skipped, `touch ~/data/nvn/STOP` stops after the
 # current chunk.
 #
-#   TAG (nvn), MODEL (macondo-nn-tf-streamopen), VER (1), CHUNKS (12),
-#   CHUNK_GAMES (250000), THREADS (12)
+#   TAG (nvn), MODEL (macondo-tf), VER (1), CHUNKS (12),
+#   CHUNK_GAMES (250000), THREADS (12), LEXICON (NWL23)
 #
 # Smoke test 10/11 (3070 Ti, 12 threads): 2,000 games in 222 s, ~32k/hour.
 set -o pipefail
@@ -21,6 +21,7 @@ VER=${VER:-1}
 CHUNKS=${CHUNKS:-12}
 CHUNK_GAMES=${CHUNK_GAMES:-250000}
 THREADS=${THREADS:-12}
+LEXICON=${LEXICON:-NWL23}
 OUT=$HOME/data/nvn
 mkdir -p "$OUT"
 rm -f "$OUT/STOP"
@@ -40,7 +41,7 @@ for i in $(seq 1 "$CHUNKS"); do
       env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
         MACONDO_TRITON_MODEL_NAME="$MODEL" MACONDO_TRITON_MODEL_VERSION="$VER" \
         "$HOME/code/macondo/bin/shell" autoplay -botcode1 FAST_ML_BOT -botcode2 FAST_ML_BOT \
-        -lexicon NWL23 -quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250 -quickendgamenoprune true \
+        -lexicon "$LEXICON" -quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250 -quickendgamenoprune true \
         -openingplies 2 -openingtemp 3 -openingtopn 50 -openinguniform 0 \
         -numgames "$CHUNK_GAMES" -threads "$THREADS" -block true -experimentid "$name" \
         > "$name.autoplay.log" 2>&1 )

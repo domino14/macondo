@@ -16,6 +16,10 @@ uv pip install numpy onnx onnxruntime "tensorrt==11.2.1.2" pycuda polygraphy tor
 
 #### Running pipeline
 
+The current recipe, step by step and for any English-alphabet lexicon, is
+in `TRAINING.md`. The notes below are the original CNN-era pipeline.
+
+
 - Go to `cmd/mlproducer` and do `go build`
 - Collect lots of data with autoplay and copy /tmp/autoplay.txt somewhere
 - Activate your venv then `cat /tmp/autoplay.txt | ../cmd/mlproducer/mlproducer | python3 training.py`

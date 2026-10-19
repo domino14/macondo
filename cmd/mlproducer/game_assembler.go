@@ -121,7 +121,7 @@ type gameWindow struct {
 // are rollout-labeled (`plies` plies, `rollouts` samples) with probability
 // `sample`; otherwise the label is the table lookup after `horizon` plies.
 func NewGameAssembler(horizon int, shared *RolloutShared, plies, rollouts int, sample float64) *GameAssembler {
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL23", DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator(lexiconName, DefaultConfig, "")
 	if err != nil {
 		log.Fatal().Msgf("Failed to create exhaustive leave calculator: %v", err)
 	}
@@ -317,8 +317,9 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 // need per game.
 func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 	gw := &gameWindow{}
-	// The lexicon doesn't matter below; just choose any random one.
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23",
+	// The lexicon sets the cross-sets, which are features: it must be the
+	// one the games were played in.
+	rules, err := game.NewBasicGameRules(DefaultConfig, lexiconName,
 		board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
 		panic(err)

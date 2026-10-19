@@ -87,7 +87,8 @@ top 50 static-equity candidates by win probability:
 Win rates are 100k game pairs, ties counted half, with a 95% interval. The
 self-play net exploits HastyBot a little less but beats its parent head to
 head. Training runs and matches are logged in `pytorch/RUNS.md` and
-`pytorch/experiments.md`.
+`pytorch/experiments.md`. To rebuild them, or train one for another lexicon
+(English letter distribution), follow `pytorch/TRAINING.md`.
 
 To pick one for a whole session, set `triton-model-name` (e.g.
 `MACONDO_TRITON_MODEL_NAME=macondo-tf-selfplay`). In `autoplay`,

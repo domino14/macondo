@@ -93,6 +93,11 @@ func BinaryWriteMLVector(w *bufio.Writer, vec outputVector) error {
 	return err
 }
 
+// lexiconName is the lexicon the logged games were played in (-lexicon). It
+// sets the leave values and cross-sets in the features and the word graph
+// of the endgame search, so it must match the games.
+var lexiconName = "NWL23"
+
 // ─────────────────────────────────────────────────────────────────────────────
 // main streaming loop
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,6 +114,8 @@ func main() {
 	var split string
 	var endgameTimeout time.Duration
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
+	flag.StringVar(&lexiconName, "lexicon", lexiconName,
+		"the lexicon the games were played in (leave values, cross-sets, endgame search); English letter distribution only")
 	flag.StringVar(&labeler, "labeler", "table",
 		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end); "+
 			"rollout: mean of N sampled K-ply rollouts scored by the net (needs Triton)")
@@ -209,7 +216,7 @@ func main() {
 	case "result":
 		log.Info().Msg("Value target: the mover's real game result")
 	case "rollout":
-		shared, err = NewRolloutShared(cfg, "NWL23")
+		shared, err = NewRolloutShared(cfg, lexiconName)
 		if err != nil {
 			log.Fatal().Err(err).Msg("rollout labeler setup")
 		}
@@ -224,7 +231,7 @@ func main() {
 	}
 	var gd *kwg.KWG
 	if endgamePlies > 0 {
-		gd, err = kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL23")
+		gd, err = kwg.GetKWG(DefaultConfig.WGLConfig(), lexiconName)
 		if err != nil {
 			log.Fatal().Err(err).Msg("loading kwg for endgame search")
 		}

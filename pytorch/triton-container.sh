@@ -2,10 +2,10 @@
 # (Re)create the local Triton container: explicit model control, the best
 # model loaded at start, host ports 8100-8102 (8000-8002 are taken by the
 # liwords docker stack here; macondo's default elsewhere is 8001).
-#   MODEL (macondo-nn-tf-streamopen), IMAGE (tritonserver:26.08-py3)
+#   MODEL (macondo-tf), IMAGE (tritonserver:26.08-py3)
 # Stops whatever the container is serving: not during a match or generation.
 set -eu
-MODEL=${MODEL:-macondo-nn-tf-streamopen}
+MODEL=${MODEL:-macondo-tf}
 IMAGE=${IMAGE:-nvcr.io/nvidia/tritonserver:26.08-py3}
 docker rm -f macondo-triton >/dev/null 2>&1 || true
 docker run -d --name macondo-triton --restart unless-stopped --gpus all \
