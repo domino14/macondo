@@ -1,5 +1,8 @@
 # Plan: features borrowed from Scribblez (eigen7, state at 2026-07-31)
 
+> Historical plan, kept for its reasoning. What came of each item is in
+> `RUNS.md`; the ideas that were dropped, and their code, are in `SHELVED.md`.
+
 Source: holistic read of Scribblez at commit 52458bcf. Its spatial input is
 plane-for-plane ours (85 planes: 26 letters, blank, 26+26 cross-checks, 4
 premiums, 2 placement planes). Its labels are now what ours are (WLD 3-logit

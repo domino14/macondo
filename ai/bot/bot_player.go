@@ -41,9 +41,7 @@ type BotConfig struct {
 	FixedSimPlies int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation
 	// queries (version 1) instead of the game's global one.
-	TritonModel string
-	// SimLeafWin overrides MACONDO_SIM_LEAFWIN for this bot (see simLeafWin).
-	SimLeafWin           string
+	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau overrides the default softmax temperature for inference.
@@ -317,13 +315,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return p.GenerateMoves(1)[0], nil
 		}
 		// Fast ML bot uses a different method
-		var moves []*move.Move
-		if k := mlEnergyExtra(); k > 0 {
-			all := p.GenerateMoves(math.MaxInt32)
-			moves = withEnergyExtras(all, mlCandidates(), k, p.Board(), loadEnergyModel(p.Config().WGLConfig().DataPath))
-		} else {
-			moves = p.GenerateMoves(mlCandidates())
-		}
+		moves := p.GenerateMoves(mlCandidates())
 
 		if len(moves) == 1 {
 			return moves[0], nil

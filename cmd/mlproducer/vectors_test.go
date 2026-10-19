@@ -45,7 +45,7 @@ func checkVectors(t *testing.T, rows []string) {
 	gid := turns[0].GameID
 
 	// Training vectors, by turn.
-	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	table := NewGameAssembler(NPlies)
 	want := map[int]outputVector{}
 	for _, tn := range turns {
 		for _, v := range table.FeedTurn(tn) {
@@ -66,7 +66,7 @@ func checkVectors(t *testing.T, rows []string) {
 			continue // last turn of a finished game: never a training position
 		}
 		// Replay to just before this turn, then do what the game runner does.
-		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga := NewGameAssembler(NPlies)
 		var history []*move.Move
 		gw := ga.newGameWindow(turns[0])
 		ga.games[gid] = gw
@@ -143,7 +143,7 @@ func TestByteVectorsMatchFloat(t *testing.T) {
 			for sc.Scan() {
 				turns = append(turns, sc.Turn())
 			}
-			ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+			ga := NewGameAssembler(NPlies)
 			gw := ga.newGameWindow(turns[0])
 			ga.games[turns[0].GameID] = gw
 			var history []*move.Move

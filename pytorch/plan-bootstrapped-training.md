@@ -1,5 +1,8 @@
 # Plan: bootstrapped labels + auxiliary heads for the value net
 
+> Historical plan, kept for its reasoning. What came of each item is in
+> `RUNS.md`; the ideas that were dropped, and their code, are in `SHELVED.md`.
+
 Written 2026-09-19, after the transformer matched the CNN at the board
 (52.33% ± 0.22 vs HastyBot over 100k pairs; CNN 52.5%). Two very different
 architectures converging on the same number means the ceiling is in the

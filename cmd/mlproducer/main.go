@@ -104,11 +104,7 @@ var lexiconName = "NWL23"
 func main() {
 	var profile bool
 	var labeler string
-	var plies, rollouts int
-	var sample float64
-	var labelsOut string
 	var perGame bool
-	var ownership bool
 	var pickMax, picks, endgamePlies int
 	var holdoutMod int
 	var split string
@@ -117,14 +113,11 @@ func main() {
 	flag.StringVar(&lexiconName, "lexicon", lexiconName,
 		"the lexicon the games were played in (leave values, cross-sets, endgame search); English letter distribution only")
 	flag.StringVar(&labeler, "labeler", "table",
-		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end); "+
-			"rollout: mean of N sampled K-ply rollouts scored by the net (needs Triton)")
+		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end)")
 	flag.BoolVar(&perGame, "per-game", false,
 		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
-			"instead of every position; with -labeler rollout this replaces -sample")
+			"instead of every position")
 	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
-	flag.BoolVar(&ownership, "ownership", false,
-		"add two ownership planes after the four spatial targets: squares empty in the position that the mover / the opponent covers before the game ends")
 	flag.IntVar(&picks, "picks", 1, "with -per-game: distinct turns drawn per game (each emitted as its own position)")
 	flag.IntVar(&holdoutMod, "holdout-mod", 0,
 		"hold out the games whose ID hashes to 0 mod this (e.g. 20 = 5%); with -split, emit only one side (0 = no split)")
@@ -134,10 +127,6 @@ func main() {
 			"(greedy playout at the leaves) instead of the logged game's outcome; 0 = off")
 	flag.DurationVar(&endgameTimeout, "endgame-timeout", 30*time.Second,
 		"abandon an endgame search after this long and keep the logged label")
-	flag.IntVar(&plies, "plies", 2, "rollout labeler: plies per rollout (K)")
-	flag.IntVar(&rollouts, "rollouts", 16, "rollout labeler: rollouts per position (N)")
-	flag.Float64Var(&sample, "sample", 0.25, "rollout labeler: fraction of positions to label and emit")
-	flag.StringVar(&labelsOut, "labels-out", "", "rollout labeler: also write gameID,turn,value,spread per labeled position to this CSV")
 	flag.Parse()
 
 	ex, err := os.Executable()
@@ -197,32 +186,12 @@ func main() {
 	out := bufio.NewWriterSize(os.Stdout, bufSize)
 	emitted := 0 // counter
 
-	var labelsFile *os.File
-	var labelsW *bufio.Writer
-	if labelsOut != "" {
-		labelsFile, err = os.Create(labelsOut)
-		if err != nil {
-			log.Fatal().Err(err).Msg("creating labels file")
-		}
-		labelsW = bufio.NewWriterSize(labelsFile, bufSize)
-		labelsW.WriteString("gameID,turn,value,spread\n")
-	}
-
 	numWorkers := runtime.NumCPU()
-	var shared *RolloutShared
 	switch labeler {
 	case "table":
 		log.Info().Msgf("Lookahead: %d plies", NPlies)
 	case "result":
 		log.Info().Msg("Value target: the mover's real game result")
-	case "rollout":
-		shared, err = NewRolloutShared(cfg, lexiconName)
-		if err != nil {
-			log.Fatal().Err(err).Msg("rollout labeler setup")
-		}
-		log.Info().Msgf("Rollout labeler: %d plies x %d rollouts, sampling %.0f%% of positions, model %s v%s at %s",
-			plies, rollouts, sample*100, cfg.GetString(config.ConfigTritonModelName),
-			cfg.GetString(config.ConfigTritonModelVersion), cfg.GetString(config.ConfigTritonURL))
 	default:
 		log.Fatal().Msgf("unknown -labeler %q", labeler)
 	}
@@ -245,20 +214,19 @@ func main() {
 	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
-	var totalGames, totalLabeled, totalSolved, totalTimeouts atomic.Int64
+	var totalGames, totalSolved, totalTimeouts atomic.Int64
 	for i := 0; i < numWorkers; i++ {
 		jobChans[i] = make(chan Turn, 128)
 		workersWg.Add(1)
 		go func(jobChan <-chan Turn) {
 			defer workersWg.Done()
-			assembler := NewGameAssembler(NPlies, shared, plies, rollouts, sample)
+			assembler := NewGameAssembler(NPlies)
 			assembler.valueFromResult = labeler == "result"
 			if perGame {
 				assembler.pickMax = pickMax
 				assembler.picks = picks
 			}
 			assembler.endgamePlies = endgamePlies
-			assembler.ownership = ownership
 			assembler.endgameTimeout = endgameTimeout
 			assembler.kwg = gd
 			for turn := range jobChan {
@@ -268,7 +236,6 @@ func main() {
 				}
 			}
 			totalGames.Add(assembler.gamesProcessed)
-			totalLabeled.Add(assembler.labeled)
 			totalSolved.Add(assembler.solved)
 			totalTimeouts.Add(assembler.endgameTimeouts)
 		}(jobChans[i])
@@ -333,9 +300,6 @@ func main() {
 			panic(err) // production: handle/propagate
 		}
 		emitted++
-		if labelsW != nil && vec.label != nil {
-			fmt.Fprintf(labelsW, "%s,%d,%.5f,%.2f\n", vec.gameID, vec.turn, vec.label.value, vec.label.spread)
-		}
 		if emitted%flushEvery == 0 { // ═══ flush here ═══
 			if err := out.Flush(); err != nil {
 				panic(err)
@@ -368,12 +332,7 @@ func main() {
 	log.Info().Msg("Flushing remaining vectors to output")
 
 	out.Flush() // flush any buffered lines
-	if labelsW != nil {
-		labelsW.Flush()
-		labelsFile.Close()
-	}
 	log.Info().Int64("totalGames", totalGames.Load()).
-		Int64("rolloutLabeled", totalLabeled.Load()).
 		Int64("endgameSolved", totalSolved.Load()).
 		Int64("endgameTimeouts", totalTimeouts.Load()).
 		Int64("vectorsEmitted", int64(emitted)).

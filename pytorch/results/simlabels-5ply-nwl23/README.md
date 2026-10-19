@@ -3,7 +3,7 @@
 Archive: `~/data/results/simlabels-5ply-nwl23/` on the home machine (hard
 links to `~/data/simdistill/`); a second copy of the labels stays on deb192
 in `~/macondo/simdistill/`. Made for the sim distillation
-(`pytorch/plan-sim-distill.md`), kept for other uses.
+(shelved, see `pytorch/SHELVED.md`), kept for other uses.
 
 ## What it is
 

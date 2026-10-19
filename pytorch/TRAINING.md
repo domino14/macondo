@@ -32,7 +32,8 @@ the *games* alone earlier gained nothing (27M → 54M: 53.10% → 53.13%).
 The decided-game ranking rule in the bot (`ai/bot/mlrank.go`) changes the
 win rate by nothing and the average spread by +7.3 per game; every match
 since 9/28 has it on. Sampled openings are kept because no label then
-depends on a random move. The ideas that did not help are logged in `RUNS.md`.
+depends on a random move. The ideas that did not help, and how to get their code back, are in
+`SHELVED.md`.
 
 ## Before you start
 

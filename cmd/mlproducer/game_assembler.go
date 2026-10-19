@@ -17,7 +17,6 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
@@ -44,8 +43,6 @@ type GameAssembler struct {
 	winpcts        [][]float32
 	gamesProcessed int64
 
-	// Rollout labeling (nil = table lookup after `horizon` real plies).
-	labeler *RolloutLabeler
 	// valueFromResult makes the value target the mover's real result
 	// (the same signal as TargetWDL) and the spread target the spread
 	// change to the end of the game, instead of the horizon lookup.
@@ -62,20 +59,15 @@ type GameAssembler struct {
 	// guards against degenerate positions.
 	endgameTimeout  time.Duration
 	endgameTimeouts int64
-	// Which positions to label and emit. With pickMax > 0, one turn per
-	// game is drawn uniformly from 1..pickMax up front and only that
-	// position gets a feature vector (and a rollout label); otherwise every
-	// position is emitted, subject to `sample` when rollout-labeling.
+	// Which positions to emit. With pickMax > 0, one turn per game is
+	// drawn uniformly from 1..pickMax up front and only that position gets
+	// a feature vector; otherwise every position is emitted.
 	pickMax   int
 	fixedPick int // tests: the turn to pick for every game instead of drawing one
 	// picks is how many distinct turns per game are drawn in per-game mode
 	// (0 or 1 = one). Each is emitted like the single pick; the game's
 	// outcome labels are shared, the positions are not.
 	picks int
-	// ownership adds the two ownership planes (SpatialSelfOwn, SpatialOppOwn).
-	ownership bool
-	sample    float64
-	labeled   int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -88,11 +80,16 @@ type ply struct {
 	move   *move.Move
 	state  *[]float32 // feature vector after the move; nil when not built
 	mover  int        // player index who moved
-	hist   int        // index of this move in gameWindow.history
 	spread float32    // raw spread after the move, from the mover's side
 	bag    int        // tiles unseen after the move (bag + opponent's rack)
-	label  *rolloutLabel
-	solved *rolloutLabel // endgame-search label (value, spread change), mover's side
+	solved *posLabel  // endgame-search label (value, spread change), mover's side
+}
+
+// posLabel is a value and spread label for one position, from the mover's
+// side.
+type posLabel struct {
+	value  float32 // the mover's result, in [-1, 1]
+	spread float32 // the mover's spread change, in points
 }
 
 // Sliding window of recent positions for one game.
@@ -102,11 +99,9 @@ type gameWindow struct {
 	// turns-since-opponent-bingo counts back over this, and the bot at play
 	// time has the whole game, so the window alone would cap it at 3.
 	history []*move.Move
-	movers  []int // who played each move of history
 	game    turnplayer.BaseTurnPlayer
-	ai      *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
-	pick    int                              // the first drawn turn to emit, or 0 for all
-	picks   []int                            // every drawn turn (per-game mode), ascending
+	pick    int   // the first drawn turn to emit, or 0 for all
+	picks   []int // every drawn turn (per-game mode), ascending
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
@@ -117,10 +112,9 @@ type gameWindow struct {
 // Constructor
 // ──────────────────────────────────────────────────────────────────────────────
 
-// NewGameAssembler builds an assembler. With a non-nil `shared`, positions
-// are rollout-labeled (`plies` plies, `rollouts` samples) with probability
-// `sample`; otherwise the label is the table lookup after `horizon` plies.
-func NewGameAssembler(horizon int, shared *RolloutShared, plies, rollouts int, sample float64) *GameAssembler {
+// NewGameAssembler builds an assembler whose value label is the table
+// lookup after `horizon` plies (unless valueFromResult is set).
+func NewGameAssembler(horizon int) *GameAssembler {
 	els, err := equity.NewExhaustiveLeaveCalculator(lexiconName, DefaultConfig, "")
 	if err != nil {
 		log.Fatal().Msgf("Failed to create exhaustive leave calculator: %v", err)
@@ -140,10 +134,6 @@ func NewGameAssembler(horizon int, shared *RolloutShared, plies, rollouts int, s
 		games:   make(map[string]*gameWindow),
 		eqCalc:  els,
 		winpcts: winPcts,
-		sample:  sample,
-	}
-	if shared != nil {
-		ga.labeler = NewRolloutLabeler(shared, plies, rollouts, els)
 	}
 	return ga
 }
@@ -186,16 +176,6 @@ const (
 	NumSpatialTargets
 )
 
-// With -ownership, two more planes follow the four: every square that is
-// empty in the position and that the mover (or the opponent) covers before
-// the game ends, KataGo's ownership head for this game. A square nobody
-// fills is 0 in both.
-const (
-	SpatialSelfOwn = NumSpatialTargets + iota // empty now, covered later by the mover
-	SpatialOppOwn                             // empty now, covered later by the opponent
-	NumSpatialWithOwnership
-)
-
 const SpatialCells = 15 * 15
 
 // NumPredictions is the length of outputVector.predictions: the scalar
@@ -208,22 +188,9 @@ func spatialPlane(preds []float32, k int) []float32 {
 	return preds[off : off+SpatialCells]
 }
 
-// numPredictions is the length of this assembler's prediction vectors.
-func (ga *GameAssembler) numPredictions() int {
-	if ga.ownership {
-		return NumTargets + NumSpatialWithOwnership*SpatialCells
-	}
-	return NumPredictions
-}
-
 // markPlacement sets to 1 every square that m places a tile on. Exchanges,
 // passes, and played-through tiles mark nothing.
 func markPlacement(plane []float32, m *move.Move) {
-	forEachPlaced(m, func(sq int) { plane[sq] = 1 })
-}
-
-// forEachPlaced calls f with every square m places a tile on.
-func forEachPlaced(m *move.Move, f func(sq int)) {
 	if m == nil || m.Action() != move.MoveTypePlay {
 		return
 	}
@@ -240,7 +207,7 @@ func forEachPlaced(m *move.Move, f func(sq int)) {
 		if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
 			log.Fatal().Msgf("placement out of bounds at (%d, %d) for %s", curR, curC, m.ShortDescription())
 		}
-		f(curR*15 + curC)
+		plane[curR*15+curC] = 1
 	}
 }
 
@@ -250,10 +217,8 @@ type outputVector struct {
 	gameID      string
 	turn        int
 	mover       int
-	hist        int           // index in the game's history of the move just played
-	spreadNow   float32       // raw spread at the position, mover's side
-	label       *rolloutLabel // set when rollout-labeled, for the labels file
-	solved      *rolloutLabel // set when endgame-search-labeled
+	spreadNow   float32   // raw spread at the position, mover's side
+	solved      *posLabel // set when endgame-search-labeled
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -268,10 +233,8 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 	p := ga.updateBoardAndExtractFeatures(gw, t)
 
 	// 2) Push into sliding window (and the full history).
-	p.hist = len(gw.history)
 	gw.plies = append(gw.plies, p)
 	gw.history = append(gw.history, p.move)
-	gw.movers = append(gw.movers, p.mover)
 
 	// 3) Emit when window deep enough.
 	if len(gw.plies) > ga.horizon {
@@ -313,8 +276,8 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 }
 
 // newGameWindow starts the replay of a game whose first turn is t: a fresh
-// game between t's player and the other one, plus whatever the labelers
-// need per game.
+// game between t's player and the other one, and its drawn turn(s) in
+// per-game mode.
 func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 	gw := &gameWindow{}
 	// The lexicon sets the cross-sets, which are features: it must be the
@@ -336,13 +299,6 @@ func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 		panic(err)
 	}
 	gw.game = *tp
-	if ga.labeler != nil {
-		gw.ai, err = aiturnplayer.NewAIStaticTurnPlayerFromGame(gw.game.Game, DefaultConfig, ga.labeler.calcs)
-		if err != nil {
-			panic(err)
-		}
-		gw.game.SetStateStackLength(ga.labeler.StackLength())
-	}
 	if ga.fixedPick > 0 {
 		gw.pick = ga.fixedPick
 	} else if ga.pickMax > 0 {
@@ -400,16 +356,6 @@ func (gw *gameWindow) wants(turn int) bool {
 // side (and, with valueFromResult, makes that the value target) and hands
 // them all back. Only valid once the game is over.
 func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
-	// Ownership: which move (and player) first covered each square.
-	var filledAt, filledBy [SpatialCells]int
-	if ga.ownership {
-		for sq := range filledAt {
-			filledAt[sq] = -1
-		}
-		for j, m := range gw.history {
-			forEachPlaced(m, func(sq int) { filledAt[sq], filledBy[sq] = j, gw.movers[j] })
-		}
-	}
 	for i := range gw.pending {
 		vec := &gw.pending[i]
 		final := float32(gw.game.SpreadFor(vec.mover))
@@ -427,18 +373,6 @@ func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
 			copy(spatialPlane(vec.predictions, SpatialOppWin), spatialPlane(vec.predictions, SpatialOppNext))
 		} else if wdl > 0 {
 			copy(spatialPlane(vec.predictions, SpatialSelfWin), spatialPlane(vec.predictions, SpatialSelfNext))
-		}
-		if ga.ownership {
-			self, opp := spatialPlane(vec.predictions, SpatialSelfOwn), spatialPlane(vec.predictions, SpatialOppOwn)
-			for sq, at := range filledAt {
-				if at > vec.hist { // empty in the position, covered later
-					if filledBy[sq] == vec.mover {
-						self[sq] = 1
-					} else {
-						opp[sq] = 1
-					}
-				}
-			}
 		}
 		if vec.solved != nil {
 			vec.predictions[TargetValue] = vec.solved.value
@@ -600,19 +534,6 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 		}
 	}
 
-	// Rollout label, from exactly this state: mover on turn holding the
-	// leave, opponent's rack in the bag.
-	if wanted && ga.labeler != nil && (gw.pick > 0 || rand.Float64() < ga.sample) {
-		lbl, ok, err := ga.labeler.Label(gw.game.Game, gw.ai, mover, m, gw.moveHistory())
-		if err != nil {
-			log.Fatal().Msgf("Failed to rollout-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
-		}
-		if ok {
-			p.label = &lbl
-			ga.labeled++
-		}
-	}
-
 	// Undo the switch of the player on turn.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
 	return p
@@ -620,17 +541,10 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 
 // makeTrainingVector builds the training vector for plies[now] using
 // plies[next] (the opponent's reply) and plies[future] (the horizon). ok is
-// false when the position is not emitted: no feature vector was built, or
-// a rollout labeler is on and the position was not labeled; the state
-// vector, if any, goes back to the pool.
+// false when no feature vector was built, so the position is not emitted.
 func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future int) (outputVector, bool) {
 	pNow, pNext, pFuture := &gw.plies[now], &gw.plies[next], &gw.plies[future]
 	if pNow.state == nil {
-		return outputVector{}, false
-	}
-	if ga.labeler != nil && pNow.label == nil {
-		game.MLVectorPool.Put(pNow.state)
-		pNow.state = nil
 		return outputVector{}, false
 	}
 
@@ -672,20 +586,14 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	(*pNow.state)[len(*pNow.state)-1] = game.NormalizeSpreadForML(pNow.spread)
 	ov := outputVector{
 		features:    pNow.state,
-		predictions: make([]float32, ga.numPredictions()),
+		predictions: make([]float32, NumPredictions),
 		gameID:      pNow.turn.GameID,
 		turn:        pNow.turn.TurnNumber,
 		mover:       pNow.mover,
-		hist:        pNow.hist,
 		spreadNow:   pNow.spread,
-		label:       pNow.label,
 		solved:      pNow.solved,
 	}
 	pNow.state = nil // owned by the output now
-	if pNow.label != nil {
-		bogowin = pNow.label.value
-		spreadDiff = pNow.label.spread
-	}
 	ov.predictions[TargetValue] = bogowin
 	ov.predictions[TargetSpread] = game.NormalizeSpreadForML(spreadDiff)
 	// TargetWDL is filled in by release once the game is over.
@@ -717,9 +625,9 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 // endgameLabel turns the mover's current spread and the search's value
 // (the opponent's spread change to the end of the game) into the mover's
 // label: their result and their spread change.
-func endgameLabel(moverSpreadNow float32, oppChange int16) rolloutLabel {
+func endgameLabel(moverSpreadNow float32, oppChange int16) posLabel {
 	change := -float32(oppChange)
-	lbl := rolloutLabel{spread: change}
+	lbl := posLabel{spread: change}
 	switch final := moverSpreadNow + change; {
 	case final > 0:
 		lbl.value = 1
@@ -735,7 +643,7 @@ func endgameLabel(moverSpreadNow float32, oppChange int16) rolloutLabel {
 // endgamePlies plies of negamax with a greedy playout at the leaves. The
 // search's value is the opponent's spread change to the end of the game.
 // The game is left as it was found.
-func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapping.Rack) (rolloutLabel, error) {
+func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapping.Rack) (posLabel, error) {
 	g := gw.game.Game
 	opp := 1 - mover
 	spreadNow := float32(g.SpreadFor(mover))
@@ -763,7 +671,7 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 		gen := movegen.NewGordonGenerator(ga.kwg, g.Board(), g.Bag().LetterDistribution())
 		gw.es = new(negamax.Solver)
 		if err := gw.es.Init(gen, g); err != nil {
-			return rolloutLabel{}, err
+			return posLabel{}, err
 		}
 		gw.es.SetThreads(1)
 		gw.es.SetFirstWinOptim(false) // we want the spread, not just the sign
@@ -778,7 +686,7 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 	}
 	v, _, err := gw.es.QuickAndDirtySolve(ctx, ga.endgamePlies, 0)
 	if err != nil {
-		return rolloutLabel{}, err
+		return posLabel{}, err
 	}
 	return endgameLabel(spreadNow, v), nil
 }

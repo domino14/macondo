@@ -5,7 +5,6 @@ It has two components:
 - turn_scanner scans a file with turns, one per row. This file can be produced using the macondo `autoplay` command. It is saved by default to `/tmp/autoplay.txt`.
 
 - game_assembler assembles games and does the hard work of actually turning it into features for a model. A more in-depth description below.
-- rollout labels positions by sampled rollouts with the value net at the leaf (see below).
 
 #### Labels
 
@@ -22,23 +21,14 @@ reads them.
 with the spread after `NPlies` (5) real plies; `spread` is the spread change
 over those plies. Every position is emitted.
 
-`-labeler rollout -plies K -rollouts N -sample F`: for a fraction F of
-positions, `value` is the mean over N rollouts of K plies of static best
-play (random draws for both sides) scored by the net at the leaf; `spread`
-is the real K-ply change plus the net's predicted change at the leaf. Only
-sampled positions are emitted. Needs Triton (`MACONDO_TRITON_URL`,
-`MACONDO_TRITON_MODEL_NAME`, `MACONDO_TRITON_MODEL_VERSION`) serving a model
-with `value` and `spread` outputs. `-labels-out f.csv` also writes
-`gameID,turn,value,spread` per labeled position.
-
 `-labeler result`: `value` is the mover's real game result (-1/0/1, the
 same signal as `wdl`) and `spread` the spread change to the end of the
-game. No table, no rollouts.
+game. No table.
 
 `-per-game [-pick-max 30]`: emit one position per game, its turn drawn
 uniformly from 1..pick-max when the game starts (a game shorter than the
 draw emits nothing). Only that position gets a feature vector, so the scan
-is fast, and with `-labeler rollout` only that position is rolled out.
+is fast.
 This is the sampling to use with a whole-game target, which every position
 of a game would otherwise share.
 
@@ -53,6 +43,9 @@ position whose move empties the bag keeps its logged-outcome label. About
 
 `wdl` (the mover's final result), `opp_bingo` and `opp_score` come from the
 real game in every mode; a game's frames are held until it ends.
+
+The rollout labeler (`-labeler rollout`) and the ownership planes
+(`-ownership`) were shelved and removed; see pytorch/SHELVED.md.
 
 #### Responsibilities for game_assembler
 

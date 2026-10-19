@@ -57,7 +57,6 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		MinSimPlies:                  int(p.MinSimPlies),
 		FixedSimPlies:                int(p.FixedSimPlies),
 		TritonModel:                  p.TritonModel,
-		SimLeafWin:                   p.SimLeafWin,
 		SimThreads:                   int(p.SimThreads),
 		StochasticStaticEval:         p.StochasticStaticEval,
 		InferenceTau:                 p.InferenceTau,

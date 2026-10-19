@@ -1,5 +1,8 @@
 # Plan: next ideas for the value net (10/9/26)
 
+> Historical plan, kept for its reasoning. What came of each item is in
+> `RUNS.md`; the ideas that were dropped, and their code, are in `SHELVED.md`.
+
 Baseline throughout: streamopen, 57.65% ± 0.18 vs HastyBot (100k pairs).
 Every idea is judged the same way: 100k pairs vs HastyBot, and head to head
 vs the current best (`-tritonmodel1/2`) when it looks like a gain.

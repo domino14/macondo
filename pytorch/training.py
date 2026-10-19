@@ -39,12 +39,6 @@ N_TARGETS = len(TARGETS)
 # mover's own next move land, and each conjoined with that player winning.
 # Training-only heads; the export never includes them.
 SPATIAL = ["opp_next", "self_next", "opp_win", "self_win"]
-# MACONDO_OWNERSHIP=1: two more planes (the producer's -ownership): the
-# squares empty in the position that the mover / the opponent covers before
-# the game ends. Frames, caches and checkpoints then have six planes.
-OWNERSHIP = os.environ.get("MACONDO_OWNERSHIP") == "1"
-if OWNERSHIP:
-    SPATIAL += ["self_own", "opp_own"]
 N_SPATIAL = len(SPATIAL)
 N_SPATIAL_FLOATS = N_SPATIAL * H * W  # 900
 ALL_HEADS = TARGETS + SPATIAL
@@ -73,8 +67,6 @@ DEFAULT_WEIGHTS = {
     "opp_win": 0.25,
     "self_win": 0.25,
 }
-if OWNERSHIP:
-    DEFAULT_WEIGHTS.update(self_own=0.25, opp_own=0.25)
 
 # Diagonal transpose: the one board symmetry that keeps words readable. It
 # swaps the horizontal cross-check planes (27..52) with the vertical ones
@@ -96,142 +88,6 @@ def transpose_batch(board, spatial, prob, generator=None):
     spatial_t = spatial.transpose(2, 3)
     f = flip.view(-1, 1, 1, 1)
     return torch.where(f, board_t, board), torch.where(f, spatial_t, spatial)
-
-
-# ────────────────────────────────────────────────────────────────────
-class SimGroups:
-    """Random access to a sim group file (cmd/simlabel frames): one record
-    per position, the sim's labels for its candidates and their packed net
-    inputs (frame cache rows). Indexed once; records are read on demand."""
-
-    def __init__(self, path):
-        self.path = path
-        self.mm = np.memmap(path, dtype=np.uint8, mode="r")
-        self.offsets = []
-        off, size = 0, len(self.mm)
-        while off + 4 <= size:
-            (nb,) = struct.unpack_from("<I", self.mm, off)
-            if off + 4 + nb > size:
-                break  # a truncated last record
-            self.offsets.append(off + 4)
-            off += 4 + nb
-        if not self.offsets:
-            raise ValueError(f"{path}: no sim groups")
-        rec = self.mm[self.offsets[0] : self.offsets[0] + 12].tobytes()
-        if rec[:4] != b"SGRP" or struct.unpack_from("<H", rec, 6)[0] != CACHE_ROW_BYTES:
-            raise ValueError(f"{path}: not a sim group file for {CACHE_ROW_BYTES}-byte rows")
-
-    def __len__(self):
-        return len(self.offsets)
-
-    def get(self, i):
-        o = self.offsets[i]
-        n, _, result, _ = struct.unpack_from("<HHhh", self.mm, o + 4)
-        p = o + 12
-        f = lambda k: np.frombuffer(self.mm, np.float32, n, p + 4 * n * k)
-        win, eq, se, iters = f(0), f(1), f(2), f(3)
-        rows = np.asarray(self.mm[p + 16 * n : p + 16 * n + n * CACHE_ROW_BYTES]).reshape(n, CACHE_ROW_BYTES)
-        return win, se, rows
-
-    def batch(self, idx, device):
-        """Groups idx -> (unpacked board, scalars on device, spans, [(win, win SE) tensors])."""
-        wins, rows, spans, start = [], [], [], 0
-        for i in idx:
-            w, se, r = self.get(i)
-            wins.append(torch.from_numpy(np.stack([w, se]).copy()))
-            rows.append(r)
-            spans.append((start, len(w)))
-            start += len(w)
-        board, scal, _, _ = unpack_batch(torch.from_numpy(np.concatenate(rows)).to(device, non_blocking=True))
-        return board, scal, spans, [w.to(device) for w in wins]
-
-
-def rank_loss(pred, spans, wins, tau, kind="list", k=4):
-    """Ranking loss over each group's candidates, on the net's win % 50 (v + 1),
-    v = P(win) - P(loss) from the WDL head. Three kinds:
-
-    list: cross-entropy from the sim's target distribution to softmax(net
-    win % / tau) over all candidates. The target weights candidate i by
-    exp(-d_i / tau_i): d_i is its sim win % below the sim's best, and
-    tau_i = sqrt(tau^2 + (100 SE_i)^2) widens the temperature by its
-    standard error, so a gap the sim measured poorly (a candidate pruned
-    after a few hundred iterations) counts for less.
-
-    topk: the same target with all its mass on the sim's top k, against the
-    student's softmax over all candidates: only the top of the list is
-    ordered; the rest just has to stay below it.
-
-    pair: the sim's best against each other candidate, a logistic loss on
-    (net win % of best - net win % of other) / tau, each pair weighted by
-    how clearly the sim separated them: gap / combined SE, full weight from
-    2 SE (coin-flip pairs count little). Groups with no separated pair add
-    nothing.
-
-    Also returns, per group, whether the net's top candidate is the sim's,
-    and the sim win percentage the net's pick gives up."""
-    p = torch.softmax(pred["wdl"].float(), dim=1)
-    v = p[:, 2] - p[:, 0]
-    losses, agree, regret = [], [], []
-    for (s, n), ws in zip(spans, wins):
-        w, se = ws[0], ws[1]
-        pct = 50 * (v[s : s + n] + 1)
-        b = int(torch.argmax(w))
-        if kind == "pair":
-            sep = (w[b] - w) / torch.sqrt(se[b] ** 2 + se**2).clamp_min(1e-4)
-            wt = (sep / 2).clamp(0, 1)
-            wt[b] = 0
-            if float(wt.sum()) > 0:
-                losses.append((wt * F.softplus(-(pct[b] - pct) / tau)).sum() / wt.sum())
-        else:
-            logits = -(100 * (w.max() - w)) / torch.sqrt(tau**2 + (100 * se) ** 2)
-            if kind == "topk" and n > k:
-                keep = torch.zeros_like(w, dtype=torch.bool)
-                keep[torch.topk(w, k).indices] = True
-                logits = logits.masked_fill(~keep, float("-inf"))
-            teacher = torch.softmax(logits, dim=0)
-            ls = torch.log_softmax(pct / tau, dim=0)
-            losses.append(-(teacher * ls.masked_fill(teacher == 0, 0)).sum())
-        j = int(torch.argmax(v[s : s + n]))
-        agree.append(float(j == b))
-        regret.append(float(100 * (w.max() - w[j])))
-    loss = torch.stack(losses).mean() if losses else v.sum() * 0
-    return loss, float(np.mean(agree)), float(np.mean(regret))
-
-
-def rank_grad_norm(net, groups, idx, device, tau, kind="list", k=4):
-    """L2 norm of d(ranking loss)/d(trunk params) on the given groups, fp32."""
-    trunk = [p for n, p in net.named_parameters() if not n.startswith("heads")]
-    was = net.training
-    net.eval()
-    # Two groups at a time (16 groups of 50 candidates at once do not fit on
-    # an 8 GB card); the mean of the chunks' gradients is the full gradient.
-    total = [torch.zeros_like(p) for p in trunk]
-    chunks = [idx[i : i + 2] for i in range(0, len(idx), 2)]
-    for c in chunks:
-        board, scal, spans, wins = groups.batch(c, device)
-        loss, _, _ = rank_loss(net(board, scal), spans, wins, tau, kind, k)
-        g = torch.autograd.grad(loss, trunk, allow_unused=True)
-        for t, x in zip(total, g):
-            if x is not None:
-                t += x.float() * len(c) / len(idx)
-        del board, scal, loss, g
-    net.train(was)
-    return float(torch.sqrt(sum((t**2).sum() for t in total)))
-
-
-@torch.no_grad()
-def validate_groups(net, groups, device, tau, amp_dtype, chunk=8, kind="list", k=4):
-    net.eval()
-    tot, ag, rg, n = 0.0, 0.0, 0.0, 0
-    for a in range(0, len(groups), chunk):
-        idx = list(range(a, min(len(groups), a + chunk)))
-        board, scal, spans, wins = groups.batch(idx, device)
-        with autocast(device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))):
-            pred = net(board, scal)
-        l, agree, regret = rank_loss(pred, spans, wins, tau, kind, k)
-        tot += float(l) * len(idx); ag += agree * len(idx); rg += regret * len(idx); n += len(idx)
-    net.train()
-    return tot / n, ag / n, rg / n
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -641,34 +497,6 @@ def parse_args(argv=None):
     p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
     p.add_argument("--init-ckpt", help="fine-tune: start from this checkpoint's weights (and head weights)")
     p.add_argument(
-        "--sim-groups",
-        help="sim-labelled candidate groups (cmd/simlabel frames) for the listwise ranking loss",
-    )
-    p.add_argument("--sim-val-groups", help="held-out groups: ranking loss and sim agreement at each validation")
-    p.add_argument("--groups-per-micro", type=int, default=2, help="sim groups added to each micro-batch")
-    p.add_argument("--rank-weight", type=float, default=1.0, help="weight of the ranking loss")
-    p.add_argument(
-        "--rank-share",
-        type=float,
-        default=0.0,
-        help="if > 0, set the ranking loss weight so its trunk gradient is this multiple of the WDL head's, "
-        "re-measured at every validation (overrides --rank-weight)",
-    )
-    p.add_argument(
-        "--rank-loss",
-        choices=["list", "topk", "pair"],
-        default="list",
-        help="ranking loss: list (all candidates), topk (target on the sim's top --rank-k only), "
-        "pair (sim's best vs each other, weighted by gap / SE)",
-    )
-    p.add_argument("--rank-k", type=int, default=4, help="topk: how many of the sim's best carry the target")
-    p.add_argument(
-        "--rank-tau",
-        type=float,
-        default=2.0,
-        help="softmax temperature of the ranking loss, in win-percentage points (teacher and student)",
-    )
-    p.add_argument(
         "--compile",
         action="store_true",
         help="torch.compile the model (fuses layernorm/gelu/residual kernels; the "
@@ -697,8 +525,6 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
-        if N_SPATIAL != 4:  # stored so export.py rebuilds the same heads
-            args.hparams["n_spatial"] = N_SPATIAL
     args.weights = {name: getattr(args, f"w_{name}") for name in ALL_HEADS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")
@@ -1004,36 +830,10 @@ def main():
         if ck.get("weights"):
             args.weights = dict(ck["weights"])
         print(f"fine-tuning from {args.init_ckpt} (step {ck.get('step')})", file=sys.stderr)
-    sim_groups = SimGroups(args.sim_groups) if args.sim_groups else None
-    sim_val = SimGroups(args.sim_val_groups) if args.sim_val_groups else None
-    if sim_groups:
-        print(f"sim groups: {len(sim_groups):,} for training"
-              + (f", {len(sim_val):,} held out" if sim_val else ""), file=sys.stderr)
-    rank_rng = np.random.default_rng(1)
-    rank_diag = list(np.random.default_rng(7).integers(0, len(sim_groups), 16)) if sim_groups else None
-
-    def balance_rank(gn_wdl):
-        if not (sim_groups and args.rank_share > 0):
-            return
-        g = rank_grad_norm(raw_net, sim_groups, rank_diag, device, args.rank_tau, args.rank_loss, args.rank_k)
-        args.rank_weight = args.rank_share * gn_wdl * args.weights["wdl"] / max(g, 1e-9)
-        print(f"         rank weight {args.rank_weight:.4g} (trunk grad: rank {g:.4g}, wdl {gn_wdl:.4g})", file=sys.stderr)
-    rank_run = {"loss": 0.0, "agree": 0.0, "regret": 0.0, "n": 0}
-    rank_csv = None
-    if sim_groups or sim_val:
-        rank_csv = open(args.csv + ".rank.csv", "w", newline="")
-        rank_csv.write("step,train_rank,train_agree,train_regret,val_rank,val_agree,val_regret\n")
-        if sim_val:
-            vl, va, vr = validate_groups(raw_net, sim_val, device, args.rank_tau, amp_dtype, kind=args.rank_loss, k=args.rank_k)
-            print(f"      0  sim groups held out: rank loss {vl:.4f}  net pick = sim pick {100*va:.1f}%  "
-                  f"sim win given up {vr:.2f} pts", file=sys.stderr)
-            rank_csv.write(f"0,,,,{vl:.6f},{va:.6f},{vr:.6f}\n"); rank_csv.flush()
     # raw_net is the module itself: checkpoints and the per-head gradient
     # diagnostic use it. net is what the training/validation passes call,
     # the compiled wrapper when --compile is on (its parameters are shared).
     net = torch.compile(raw_net) if args.compile else raw_net
-    if sim_groups and args.rank_share > 0:
-        balance_rank(head_grad_norms(raw_net, *(t.to(device) for t in diag))["wdl"])
     if args.aux_share > 0:
         gn0 = head_grad_norms(raw_net, *(t.to(device) for t in diag))
         args.weights = balance_weights(
@@ -1118,13 +918,6 @@ def main():
                 ):
                     pred = net(board, scal)
                     loss, losses = compute_loss(pred, targets, spatial, args.weights)
-                    if sim_groups is not None and args.groups_per_micro > 0:
-                        gi = rank_rng.integers(0, len(sim_groups), args.groups_per_micro)
-                        gb, gs, spans, wins = sim_groups.batch(gi, device)
-                        rl, ra, rr = rank_loss(net(gb, gs), spans, wins, args.rank_tau, args.rank_loss, args.rank_k)
-                        loss = loss + args.rank_weight * rl
-                        rank_run["loss"] += float(rl.detach()); rank_run["agree"] += ra
-                        rank_run["regret"] += rr; rank_run["n"] += 1
 
                 # Track all loss components (per micro-batch), without syncing
                 running["total"] += loss.detach()
@@ -1162,7 +955,6 @@ def main():
                             file=sys.stderr,
                         )
                     gn = head_grad_norms(raw_net, *(t.to(device) for t in diag))
-                    balance_rank(gn["wdl"])
                     if args.aux_share > 0:
                         args.weights = balance_weights(
                             args.weights, gn, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
@@ -1189,17 +981,6 @@ def main():
                     if args.aux_share > 0:
                         ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in ALL_HEADS)
                         print(f"         balanced weights: {ws}")
-                    if rank_csv is not None:
-                        k = max(1, rank_run["n"])
-                        tl, ta, tr = rank_run["loss"] / k, rank_run["agree"] / k, rank_run["regret"] / k
-                        rank_run = {"loss": 0.0, "agree": 0.0, "regret": 0.0, "n": 0}
-                        vl = va = vr = float("nan")
-                        if sim_val:
-                            vl, va, vr = validate_groups(net, sim_val, device, args.rank_tau, amp_dtype, kind=args.rank_loss, k=args.rank_k)
-                        print(f"         sim groups: train rank {tl:.4f} agree {100*ta:.1f}%  |  held out rank {vl:.4f}  "
-                              f"net pick = sim pick {100*va:.1f}%  sim win given up {vr:.2f} pts")
-                        rank_csv.write(f"{step},{tl:.6f},{ta:.6f},{tr:.6f},{vl:.6f},{va:.6f},{vr:.6f}\n")
-                        rank_csv.flush()
 
                     # Checkpoint on the value head alone: it is what the bot
                     # ranks on, and it keeps runs with different head weights
