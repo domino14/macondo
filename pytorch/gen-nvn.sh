@@ -13,6 +13,7 @@
 # Smoke test 10/11 (3070 Ti, 12 threads): 2,000 games in 222 s, ~32k/hour.
 set -o pipefail
 cd "$(dirname "$0")"
+REPO=$(cd .. && pwd)
 log() { echo "$(date '+%F %T') $*"; }
 
 TAG=${TAG:-nvn}
@@ -40,7 +41,7 @@ for i in $(seq 1 "$CHUNKS"); do
     ( cd "$OUT" && rm -f "$name.txt" "games-$name.txt" && \
       env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
         MACONDO_TRITON_MODEL_NAME="$MODEL" MACONDO_TRITON_MODEL_VERSION="$VER" \
-        "$HOME/code/macondo/bin/shell" autoplay -botcode1 FAST_ML_BOT -botcode2 FAST_ML_BOT \
+        "$REPO/bin/shell" autoplay -botcode1 FAST_ML_BOT -botcode2 FAST_ML_BOT \
         -lexicon "$LEXICON" -quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250 -quickendgamenoprune true \
         -openingplies 2 -openingtemp 3 -openingtopn 50 -openinguniform 0 \
         -numgames "$CHUNK_GAMES" -threads "$THREADS" -block true -experimentid "$name" \
