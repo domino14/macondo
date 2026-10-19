@@ -63,6 +63,9 @@ func newWorker(cfg *config.Config, g *game.Game) (*worker, error) {
 	return &worker{g: g, btp: btp}, nil
 }
 
+// topPlays is how many of the best plays gen asks for first.
+const topPlays = 100
+
 func gameSeed(shard, gi int) [32]byte {
 	return sha256.Sum256([]byte(fmt.Sprintf("playability/%d/%d", shard, gi)))
 }
@@ -76,9 +79,16 @@ func (w *worker) playShard(idx, games int, check bool, mismatches *atomic.Int64)
 		for w.g.Playing() == pb.PlayState_PLAYING {
 			pi := w.g.PlayerOnTurn()
 			bag := w.g.Bag().TilesRemaining()
-			plays := w.btp.GenerateMoves(math.MaxInt32)
-			best := plays[0]
+			// The regrets only look down the list to the first move avoiding
+			// each word, so the top topPlays nearly always suffice; regenerate
+			// in full when they don't.
+			plays := w.btp.GenerateMoves(topPlays)
 			wrs, ars := w.ev.Regrets(w.g.Board(), plays)
+			if w.ev.Short && len(plays) == topPlays {
+				plays = w.btp.GenerateMoves(math.MaxInt32)
+				wrs, ars = w.ev.Regrets(w.g.Board(), plays)
+			}
+			best := plays[0]
 			ph := playability.Phase(bag)
 			sh.Turns++
 			sh.PhaseN[ph]++
@@ -107,7 +117,7 @@ func (w *worker) playShard(idx, games int, check bool, mismatches *atomic.Int64)
 				if math.Abs(top.Equity()-bestEq) > 1e-6 {
 					mismatches.Add(1)
 				}
-				plays = w.btp.GenerateMoves(math.MaxInt32)
+				plays = w.btp.GenerateMoves(topPlays)
 				best = plays[0]
 			}
 			if err := w.g.PlayMove(best, false, 0); err != nil {
