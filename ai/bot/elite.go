@@ -147,13 +147,15 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	// Use auto mode: picks ABDADA for 300+ moves, otherwise LazySMP
 	p.endgamer.SetParallelAlgorithm(negamax.ParallelAlgoAuto)
 	p.endgamer.SetPreventSlowroll(true)
+	start := time.Now()
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {
 		return nil, err
 	}
 	p.lastCalculatedDetails = p.endgamer.ShortDetails()
 
-	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
+	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).
+		Dur("took", time.Since(start)).Int("threads", egThreads).Msg("endgame-solve-done")
 	return seq[0], nil
 }
 
@@ -205,12 +207,15 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	}
 	p.preendgamer.SetEarlyCutoffOptim(true)
 
+	start := time.Now()
 	moves, err := p.preendgamer.Solve(ctx)
 	if err != nil {
 		log.Err(err).Msg("preendgamer-solve-error")
 		return nil, err
 	}
 	p.lastCalculatedDetails = p.preendgamer.ShortDetails()
+	logger.Info().Str("best", moves[0].Play.ShortDescription()).
+		Dur("took", time.Since(start)).Int("threads", pegThreads).Msg("preendgame-solve-done")
 
 	return moves[0].Play, nil
 
