@@ -78,6 +78,10 @@ type AlphaRegret struct {
 type Evaluator struct {
 	formed [][]Key
 	done   []bool
+	// Short is set by Regrets when some word had no avoiding move in the
+	// list. That's exact for a full list (the alternative is a pass) but not
+	// for a truncated one, which the caller must then regenerate in full.
+	Short bool
 }
 
 func (ev *Evaluator) reset(n int) {
@@ -121,6 +125,7 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 		return nil, nil
 	}
 	ev.reset(len(plays))
+	ev.Short = false
 	best := plays[0].Equity()
 	bestWords := ev.wordsOf(b, plays, 0)
 
@@ -136,7 +141,8 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 		if dup {
 			continue
 		}
-		alt, _ := ev.firstAvoiding(b, plays, func(f Key) bool { return f == w })
+		alt, ok := ev.firstAvoiding(b, plays, func(f Key) bool { return f == w })
+		ev.Short = ev.Short || !ok
 		wrs = append(wrs, WordRegret{Word: w, Main: wi == 0, Regret: best - alt})
 	}
 	for wi, w := range bestWords {
@@ -150,9 +156,10 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 		if dup {
 			continue
 		}
-		alt, _ := ev.firstAvoiding(b, plays, func(f Key) bool {
+		alt, ok := ev.firstAvoiding(b, plays, func(f Key) bool {
 			return len(f) == len(a) && AlphaKey(f) == a
 		})
+		ev.Short = ev.Short || !ok
 		ars = append(ars, AlphaRegret{Alpha: a, Regret: best - alt})
 	}
 	return wrs, ars
