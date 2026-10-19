@@ -55,6 +55,8 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		LeaveFile:                    p.LeaveFile,
 		PEGFile:                      p.PegFile,
 		MinSimPlies:                  int(p.MinSimPlies),
+		FixedSimPlies:                int(p.FixedSimPlies),
+		TritonModel:                  p.TritonModel,
 		SimThreads:                   int(p.SimThreads),
 		StochasticStaticEval:         p.StochasticStaticEval,
 		InferenceTau:                 p.InferenceTau,
@@ -64,5 +66,9 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		InferenceBudget:              int(p.InferenceBudget),
 		InferenceTauCap:              p.InferenceTauCap,
 		OracleInference:              p.OracleInference,
+		QuickEndgamePlies:            int(p.QuickEndgamePlies),
+		QuickEndgameMargin:           int(p.QuickEndgameMargin),
+		QuickEndgameCapMs:            int(p.QuickEndgameCapMs),
+		QuickEndgameNoPrune:          p.QuickEndgameNoPrune,
 	}
 }

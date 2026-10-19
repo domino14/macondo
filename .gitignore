@@ -37,3 +37,5 @@ data/strategy/default/models-bak*
 *.gcg
 /build/
 /magpie/magpie_stamp.h
+# TensorRT engines are built per machine: pytorch/build-engines.sh
+*.plan

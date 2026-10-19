@@ -1,0 +1,50 @@
+name: "macondo-tf-selfplay"
+platform: "tensorrt_plan"
+max_batch_size: 0
+input [
+  {
+    name: "board"
+    data_type: TYPE_FP32
+    dims: [ -1, 85, 15, 15 ]
+  },
+  {
+    name: "scalars"
+    data_type: TYPE_FP32
+    dims: [ -1, 72 ]
+  }
+]
+output [
+  {
+    name: "value"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "spread"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "opp_bingo_prob"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  },
+  {
+    name: "opp_score"
+    data_type: TYPE_FP32
+    dims: [ -1 ]
+  }
+]
+
+instance_group [
+  {
+    count: 2
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+optimization {
+  execution_accelerators {
+    gpu_execution_accelerator : [ { name : "tensorrt" } ]
+  }
+}

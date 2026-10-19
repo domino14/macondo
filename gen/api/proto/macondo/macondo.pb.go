@@ -2843,10 +2843,33 @@ type AutoplayPlayerConfig struct {
 	// bounded by this count instead, so the same position always produces the
 	// same posterior. If 0, inference is bounded by time as before.
 	InferenceBudget int32 `protobuf:"varint,12,opt,name=inference_budget,json=inferenceBudget,proto3" json:"inference_budget,omitempty"`
+	// quick_endgame_plies > 0 makes any non-solving bot play close endgames
+	// (bag empty, |spread| <= quick_endgame_margin, 0 = no gate) with a
+	// quick N-ply endgame search, greedy playout at the leaves, capped at
+	// quick_endgame_cap_ms per move (0 = 250) with the static move as the
+	// fallback. Makes game results accurate where greedy play gets them
+	// wrong, at a few solves per close game.
+	QuickEndgamePlies  int32 `protobuf:"varint,13,opt,name=quick_endgame_plies,json=quickEndgamePlies,proto3" json:"quick_endgame_plies,omitempty"`
+	QuickEndgameMargin int32 `protobuf:"varint,14,opt,name=quick_endgame_margin,json=quickEndgameMargin,proto3" json:"quick_endgame_margin,omitempty"`
+	QuickEndgameCapMs  int32 `protobuf:"varint,15,opt,name=quick_endgame_cap_ms,json=quickEndgameCapMs,proto3" json:"quick_endgame_cap_ms,omitempty"`
+	// quick_endgame_no_prune skips the pruned word graph the endgame solver
+	// builds per solve. Pruning pays off in deep endgames; for a 2-ply quick
+	// solve building it costs more than it saves (net-vs-net generation).
+	QuickEndgameNoPrune bool `protobuf:"varint,19,opt,name=quick_endgame_no_prune,json=quickEndgameNoPrune,proto3" json:"quick_endgame_no_prune,omitempty"`
+	// fixed_sim_plies, when positive, makes every sim exactly this many plies
+	// deep whenever tiles are left in the bag. Without it a simming bot sims
+	// min_sim_plies in the midgame but `unseen` plies (9..14) once the bag is
+	// down to 2..7 tiles, and a no-endgame bot plays statically with one tile
+	// in the bag. For benchmarks where "N-ply" must mean N plies throughout.
+	FixedSimPlies int32 `protobuf:"varint,16,opt,name=fixed_sim_plies,json=fixedSimPlies,proto3" json:"fixed_sim_plies,omitempty"`
+	// triton_model, when set, makes this player's ML bot query that Triton
+	// model (version 1) instead of the global triton-model-name, so two ML
+	// bots with different nets can play each other. Needs Triton enabled.
+	TritonModel string `protobuf:"bytes,17,opt,name=triton_model,json=tritonModel,proto3" json:"triton_model,omitempty"`
 	// inference_tau_cap caps the inference temperature, pinned or scheduled.
 	// The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
 	// 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
-	InferenceTauCap float64 `protobuf:"fixed64,13,opt,name=inference_tau_cap,json=inferenceTauCap,proto3" json:"inference_tau_cap,omitempty"`
+	InferenceTauCap float64 `protobuf:"fixed64,20,opt,name=inference_tau_cap,json=inferenceTauCap,proto3" json:"inference_tau_cap,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2965,6 +2988,48 @@ func (x *AutoplayPlayerConfig) GetInferenceBudget() int32 {
 	return 0
 }
 
+func (x *AutoplayPlayerConfig) GetQuickEndgamePlies() int32 {
+	if x != nil {
+		return x.QuickEndgamePlies
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetQuickEndgameMargin() int32 {
+	if x != nil {
+		return x.QuickEndgameMargin
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetQuickEndgameCapMs() int32 {
+	if x != nil {
+		return x.QuickEndgameCapMs
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetQuickEndgameNoPrune() bool {
+	if x != nil {
+		return x.QuickEndgameNoPrune
+	}
+	return false
+}
+
+func (x *AutoplayPlayerConfig) GetFixedSimPlies() int32 {
+	if x != nil {
+		return x.FixedSimPlies
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetTritonModel() string {
+	if x != nil {
+		return x.TritonModel
+	}
+	return ""
+}
+
 func (x *AutoplayPlayerConfig) GetInferenceTauCap() float64 {
 	if x != nil {
 		return x.InferenceTauCap
@@ -3005,9 +3070,22 @@ type AutoplayConfig struct {
 	// Master seed for the run. Each game (or pair) derives its own seed from
 	// this, so the same value replays the same experiment. If 0 and the run
 	// needs seeds, one is generated and logged.
-	Seed          uint64 `protobuf:"varint,15,opt,name=seed,proto3" json:"seed,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Seed uint64 `protobuf:"varint,15,opt,name=seed,proto3" json:"seed,omitempty"`
+	// Random openings (both seats, any bot type). Each game's first K plies
+	// are sampled instead of played by the bots, with K drawn per game from a
+	// rounded exponential of this mean (0 = off). A sampled ply is a softmax
+	// over static equity (opening_temperature, in points) across the top
+	// opening_top_n plays, or with probability opening_uniform_prob a uniform
+	// draw over every legal play and exchange. The per-turn log gains an
+	// `openingplies` column carrying K, so a training consumer can start its
+	// eligible positions at the last sampled ply: everything after it is
+	// ordinary bot play, so no outcome label is decided by a sampled move.
+	OpeningPliesMean   float64 `protobuf:"fixed64,16,opt,name=opening_plies_mean,json=openingPliesMean,proto3" json:"opening_plies_mean,omitempty"`
+	OpeningTemperature float64 `protobuf:"fixed64,17,opt,name=opening_temperature,json=openingTemperature,proto3" json:"opening_temperature,omitempty"`
+	OpeningTopN        int32   `protobuf:"varint,18,opt,name=opening_top_n,json=openingTopN,proto3" json:"opening_top_n,omitempty"`
+	OpeningUniformProb float64 `protobuf:"fixed64,19,opt,name=opening_uniform_prob,json=openingUniformProb,proto3" json:"opening_uniform_prob,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AutoplayConfig) Reset() {
@@ -3141,6 +3219,34 @@ func (x *AutoplayConfig) GetGamePairs() bool {
 func (x *AutoplayConfig) GetSeed() uint64 {
 	if x != nil {
 		return x.Seed
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningPliesMean() float64 {
+	if x != nil {
+		return x.OpeningPliesMean
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningTemperature() float64 {
+	if x != nil {
+		return x.OpeningTemperature
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningTopN() int32 {
+	if x != nil {
+		return x.OpeningTopN
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOpeningUniformProb() float64 {
+	if x != nil {
+		return x.OpeningUniformProb
 	}
 	return 0
 }
@@ -3419,7 +3525,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xd1\x04\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xf8\x06\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3435,8 +3541,14 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x10oracle_inference\x18\n" +
 	" \x01(\bR\x0foracleInference\x12E\n" +
 	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\x12)\n" +
-	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\x12*\n" +
-	"\x11inference_tau_cap\x18\r \x01(\x01R\x0finferenceTauCap\"\x9d\x04\n" +
+	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\x12.\n" +
+	"\x13quick_endgame_plies\x18\r \x01(\x05R\x11quickEndgamePlies\x120\n" +
+	"\x14quick_endgame_margin\x18\x0e \x01(\x05R\x12quickEndgameMargin\x12/\n" +
+	"\x14quick_endgame_cap_ms\x18\x0f \x01(\x05R\x11quickEndgameCapMs\x123\n" +
+	"\x16quick_endgame_no_prune\x18\x13 \x01(\bR\x13quickEndgameNoPrune\x12&\n" +
+	"\x0ffixed_sim_plies\x18\x10 \x01(\x05R\rfixedSimPlies\x12!\n" +
+	"\ftriton_model\x18\x11 \x01(\tR\vtritonModel\x12*\n" +
+	"\x11inference_tau_cap\x18\x14 \x01(\x01R\x0finferenceTauCapJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +
@@ -3455,7 +3567,11 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\rdeterministic\x18\r \x01(\bR\rdeterministic\x12\x1d\n" +
 	"\n" +
 	"game_pairs\x18\x0e \x01(\bR\tgamePairs\x12\x12\n" +
-	"\x04seed\x18\x0f \x01(\x04R\x04seed*C\n" +
+	"\x04seed\x18\x0f \x01(\x04R\x04seed\x12,\n" +
+	"\x12opening_plies_mean\x18\x10 \x01(\x01R\x10openingPliesMean\x12/\n" +
+	"\x13opening_temperature\x18\x11 \x01(\x01R\x12openingTemperature\x12\"\n" +
+	"\ropening_top_n\x18\x12 \x01(\x05R\vopeningTopN\x120\n" +
+	"\x14opening_uniform_prob\x18\x13 \x01(\x01R\x12openingUniformProb*C\n" +
 	"\tPlayState\x12\v\n" +
 	"\aPLAYING\x10\x00\x12\x1a\n" +
 	"\x16WAITING_FOR_FINAL_PASS\x10\x01\x12\r\n" +

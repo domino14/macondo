@@ -1,0 +1,6 @@
+128adf84f12a7f59978a531f5743b295  model/best-tf-nwl23s-bak.pt
+128adf84f12a7f59978a531f5743b295  model/best-tf-nwl23s.pt
+a62c90128ac9302baf9b5919b5d90871  model/best-tf-nwl23s-step50000.pt
+180904ce51041bec93bf64ce0e8bc757  model/config.pbtxt
+5b0047596fece9b7908e441edb640038  model/model.onnx
+0b9c311cf47cd697a5d816e8de3d53cc  model/model.plan

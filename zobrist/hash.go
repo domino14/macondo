@@ -39,17 +39,19 @@ func (z *Zobrist) Initialize(boardDim int) {
 			z.PosTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
+	// A rack holds up to RackTileLimit tiles, so a letter's count runs from
+	// 0 to RackTileLimit inclusive: RackTileLimit+1 slots (EEEEEEE is legal).
 	z.OurRackTable = make([][]uint64, MaxLetters)
 	for i := 0; i < MaxLetters; i++ {
-		z.OurRackTable[i] = make([]uint64, game.RackTileLimit)
-		for j := 0; j < game.RackTileLimit; j++ {
+		z.OurRackTable[i] = make([]uint64, game.RackTileLimit+1)
+		for j := 0; j <= game.RackTileLimit; j++ {
 			z.OurRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
 	z.TheirRackTable = make([][]uint64, MaxLetters)
 	for i := 0; i < MaxLetters; i++ {
-		z.TheirRackTable[i] = make([]uint64, game.RackTileLimit)
-		for j := 0; j < game.RackTileLimit; j++ {
+		z.TheirRackTable[i] = make([]uint64, game.RackTileLimit+1)
+		for j := 0; j <= game.RackTileLimit; j++ {
 			z.TheirRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
