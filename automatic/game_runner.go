@@ -375,7 +375,15 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
 		ctx, cancel = context.WithTimeout(context.Background(), maxTime)
 	}
 	defer cancel()
-	return r.aiplayers[playerIdx].BestPlay(ctx)
+	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
+	if err != nil && r.aiplayers[playerIdx].GetBotType() != pb.BotRequest_CUSTOM_BOT {
+		// A built-in bot that fails (a solver error, say) plays its best
+		// static move, so the game still finishes and counts. An external
+		// engine failing is a broken setup, and stops the game.
+		log.Err(err).Int("playerIdx", playerIdx).Msg("bot-error-playing-static-move")
+		return r.genBestStaticTurn(playerIdx), nil
+	}
+	return m, err
 }
 
 // sampleOpeningMove picks this turn's move under the opening config instead
