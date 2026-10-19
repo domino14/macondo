@@ -7,9 +7,7 @@
 #   analyze shrink toward the prior, rank -> $D/final/ranks.tsv
 #
 # gen is resumable (finished shards are skipped); score and analyze are cheap
-# to redo. The synthetic estimator (`playability synth`) is not part of the
-# pipeline: at 10M games self-play covers 99.9% of 7-8 letter racks, and for
-# 9+ synth misses the hooks that make most of their value.
+# to redo.
 #
 # Run from the main macondo checkout (gen needs ./data).
 # Usage: run-pipeline.sh LEXICON [LETTER_DIST]
@@ -37,7 +35,7 @@ n=$(have "$D/gen" 'shard-*.gob.gz')
 if [ "$n" -lt "$SHARDS" ]; then
   log "gen: $n/$SHARDS shards present"
   nice -n 10 "$B" gen -lexicon "$LEX" -ld "$LD" -out "$D/gen" -shards "$SHARDS" \
-    -games-per-shard 10000 -workers "$GW" -pos-rate 0 >>"$D/gen.log" 2>&1
+    -games-per-shard 10000 -workers "$GW" >>"$D/gen.log" 2>&1
   n=$(have "$D/gen" 'shard-*.gob.gz')
   [ "$n" -ge "$SHARDS" ] || { log "gen stopped at $n/$SHARDS shards"; exit 1; }
 fi

@@ -61,27 +61,16 @@ func (s *Stat) Merge(o *Stat) {
 	}
 }
 
-// Position is one self-play turn saved for the synthetic estimator: the board
-// and racks just before the mover's turn, the leave the mover kept from its
-// previous turn, and how many tiles it drew on top of it.
-type Position struct {
-	CGP   string
-	Leave string // user-visible
-	Drawn int
-	Bag   int // bag count at this turn
-}
-
 // Shard is the output of one fixed block of self-play games. Shards are
 // written atomically, so a shard file either exists complete or not at all;
 // that is what makes a run resumable.
 type Shard struct {
-	Index     int
-	Games     int64
-	Turns     int64
-	PhaseN    [NumPhases]int64 // turns per phase
-	Words     map[Key]*Stat
-	Alphas    map[Key]*Stat
-	Positions []Position
+	Index  int
+	Games  int64
+	Turns  int64
+	PhaseN [NumPhases]int64 // turns per phase
+	Words  map[Key]*Stat
+	Alphas map[Key]*Stat
 }
 
 func NewShard(idx int) *Shard {

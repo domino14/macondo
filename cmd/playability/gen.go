@@ -5,13 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"math/rand/v2"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
@@ -75,26 +73,14 @@ func gameSeed(shard, gi int) [32]byte {
 }
 
 // playShard plays one shard's games and returns the accumulated regrets.
-func (w *worker) playShard(idx, games int, posRate float64, check bool, mismatches *atomic.Int64) (*playability.Shard, error) {
+func (w *worker) playShard(idx, games int, check bool, mismatches *atomic.Int64) (*playability.Shard, error) {
 	sh := playability.NewShard(idx)
-	rng := rand.New(rand.NewPCG(uint64(idx), 0x9e3779b9))
-	tm := w.g.Alphabet()
 	for gi := 0; gi < games; gi++ {
 		w.g.SeedBag(gameSeed(idx, gi))
 		w.g.StartGame()
-		var prevLeave [2]tilemapping.MachineWord
 		for w.g.Playing() == pb.PlayState_PLAYING {
 			pi := w.g.PlayerOnTurn()
 			bag := w.g.Bag().TilesRemaining()
-			rack := w.g.RackFor(pi)
-			if posRate > 0 && rng.Float64() < posRate {
-				sh.Positions = append(sh.Positions, playability.Position{
-					CGP:   w.g.ToCGP(false),
-					Leave: prevLeave[pi].UserVisible(tm),
-					Drawn: int(rack.NumTiles()) - len(prevLeave[pi]),
-					Bag:   bag,
-				})
-			}
 			w.gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 			plays := w.btp.GenerateMoves(math.MaxInt32)
 			best := plays[0]
@@ -119,7 +105,6 @@ func (w *worker) playShard(idx, games int, posRate float64, check bool, mismatch
 				st.Add(ar.Regret, false, ph)
 			}
 			bestEq := best.Equity()
-			leave := append(tilemapping.MachineWord(nil), best.Leave()...)
 			if check {
 				// Confirm the full-list best equals what HastyBot's own top-play
 				// path would choose. This regenerates, so the plays slice above
@@ -135,7 +120,6 @@ func (w *worker) playShard(idx, games int, posRate float64, check bool, mismatch
 			if err := w.g.PlayMove(best, false, 0); err != nil {
 				return nil, err
 			}
-			prevLeave[pi] = leave
 		}
 		sh.Games++
 	}
@@ -148,7 +132,6 @@ func runGen(args []string) error {
 	shards := fs.Int("shards", 100, "total number of shards wanted (existing ones are skipped)")
 	gamesPer := fs.Int("games-per-shard", 2000, "games per shard (keep fixed for a run)")
 	workers := fs.Int("workers", 3, "worker goroutines")
-	posRate := fs.Float64("pos-rate", 0.01, "fraction of turns saved as positions for synth")
 	lexicon := fs.String("lexicon", "NWL23", "lexicon")
 	ld := fs.String("ld", "english", "letter distribution")
 	check := fs.Bool("check", false, "verify the best move against HastyBot's top-play path")
@@ -189,7 +172,7 @@ func runGen(args []string) error {
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
-				sh, err := wk.playShard(idx, *gamesPer, *posRate, *check, &mism)
+				sh, err := wk.playShard(idx, *gamesPer, *check, &mism)
 				if err != nil {
 					errc <- err
 					return

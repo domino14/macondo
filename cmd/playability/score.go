@@ -10,10 +10,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/playability"
+	"github.com/domino14/macondo/wmp"
 )
 
 // perGame turns per-turn sums into a per-game value and its standard error.
@@ -29,7 +32,6 @@ func perGame(sum, sum2 float64, n, tpg float64) (float64, float64) {
 func runScore(args []string) error {
 	fs := flag.NewFlagSet("score", flag.ExitOnError)
 	genDir := fs.String("gen", "", "gen shard directory")
-	synthDir := fs.String("synth", "", "synth chunk directories, comma-separated (optional)")
 	out := fs.String("out", "", "output directory")
 	lexicon := fs.String("lexicon", "NWL23", "lexicon")
 	ld := fs.String("ld", "english", "letter distribution")
@@ -50,7 +52,6 @@ func runScore(args []string) error {
 		if err := playability.ReadGob(f, &sh); err != nil {
 			return fmt.Errorf("%s: %w", f, err)
 		}
-		sh.Positions = nil
 		tot.Merge(&sh)
 	}
 	if tot.Games == 0 {
@@ -59,25 +60,6 @@ func runScore(args []string) error {
 	G, T := float64(tot.Games), float64(tot.Turns)
 	tpg := T / G
 	log.Info().Int("shards", len(files)).Float64("games", G).Float64("turns/game", tpg).Msg("gen")
-
-	synth := map[playability.Key]*SynthResult{}
-	if *synthDir != "" {
-		var sf []string
-		for _, dir := range strings.Split(*synthDir, ",") {
-			m, _ := filepath.Glob(filepath.Join(dir, "synth-*.gob.gz"))
-			sf = append(sf, m...)
-		}
-		for _, f := range sf {
-			var ch SynthChunk
-			if err := playability.ReadGob(f, &ch); err != nil {
-				return fmt.Errorf("%s: %w", f, err)
-			}
-			for a, r := range ch.Results {
-				synth[a] = r
-			}
-		}
-		log.Info().Int("alphagrams", len(synth)).Msg("synth")
-	}
 
 	classes, tm, err := lexiconClasses(cfg, *lexicon)
 	if err != nil {
@@ -129,13 +111,12 @@ func runScore(args []string) error {
 	ww, aw := bufio.NewWriter(wf), bufio.NewWriter(af)
 	defer ww.Flush()
 	defer aw.Flush()
-	fmt.Fprintln(ww, "word\talphagram\tlen\tcombos\tanagrams\tfhooks\tbhooks\tn\tnmain\ta_play\ta_se\ta_main\ta_ph0\ta_ph1\ta_ph2\ta_ph3\tb_k\tb_play\tb_se\tb_hits")
-	fmt.Fprintln(aw, "alphagram\tlen\tcombos\twords\tn\ta_play\ta_se\ta_ph0\ta_ph1\ta_ph2\ta_ph3\tb_k\tb_pmean\tb_play\tb_se\tb_hits")
+	fmt.Fprintln(ww, "word\talphagram\tlen\tcombos\tanagrams\tfhooks\tbhooks\tn\tnmain\ta_play\ta_se\ta_main\ta_ph0\ta_ph1\ta_ph2\ta_ph3")
+	fmt.Fprintln(aw, "alphagram\tlen\tcombos\twords\tn\ta_play\ta_se\ta_ph0\ta_ph1\ta_ph2\ta_ph3")
 	for _, a := range alphas {
 		ws := classes[a]
 		sort.Slice(ws, func(i, j int) bool { return ws[i] < ws[j] })
 		combos := playability.Combos(d, []byte(a))
-		sr := synth[a]
 		for _, w := range ws {
 			st := tot.Words[w]
 			if st == nil {
@@ -143,16 +124,9 @@ func runScore(args []string) error {
 			}
 			ap, ase := perGame(st.Sum, st.Sum2, T, tpg)
 			fh, bh := hooks(w)
-			bk, bp, bse, bh2 := "", "", "", ""
-			if sr != nil {
-				p, se, hits := sr.PerTurn(w)
-				p, se = p*tpg, se*tpg
-				bk, bp, bse, bh2 = fmt.Sprint(sr.K()), fmt.Sprintf("%.6g", p), fmt.Sprintf("%.3g", se), fmt.Sprint(hits)
-			}
-			fmt.Fprintf(ww, "%s\t%s\t%d\t%.6g\t%d\t%d\t%d\t%d\t%d\t%.6g\t%.3g\t%.6g\t%.4g\t%.4g\t%.4g\t%.4g\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(ww, "%s\t%s\t%d\t%.6g\t%d\t%d\t%d\t%d\t%d\t%.6g\t%.3g\t%.6g\t%.4g\t%.4g\t%.4g\t%.4g\n",
 				vis(w), vis(a), len(w), combos, len(ws), fh, bh, st.N, st.NMain, ap, ase, st.SumMain/G,
-				st.PhaseSum[0]/G, st.PhaseSum[1]/G, st.PhaseSum[2]/G, st.PhaseSum[3]/G,
-				bk, bp, bse, bh2)
+				st.PhaseSum[0]/G, st.PhaseSum[1]/G, st.PhaseSum[2]/G, st.PhaseSum[3]/G)
 		}
 		st := tot.Alphas[a]
 		if st == nil {
@@ -163,18 +137,26 @@ func runScore(args []string) error {
 		for _, w := range ws {
 			names = append(names, vis(w))
 		}
-		bk, bpm, bp, bse, bh := "", "", "", "", ""
-		if sr != nil {
-			p, se, hits := sr.PerTurn("")
-			p, se = p*tpg, se*tpg
-			bk, bpm = fmt.Sprint(sr.K()), fmt.Sprintf("%.4g", sr.PMean())
-			bp, bse, bh = fmt.Sprintf("%.6g", p), fmt.Sprintf("%.3g", se), fmt.Sprint(hits)
-		}
-		fmt.Fprintf(aw, "%s\t%d\t%.6g\t%s\t%d\t%.6g\t%.3g\t%.4g\t%.4g\t%.4g\t%.4g\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(aw, "%s\t%d\t%.6g\t%s\t%d\t%.6g\t%.3g\t%.4g\t%.4g\t%.4g\t%.4g\n",
 			vis(a), len(a), combos, strings.Join(names, ","), st.N, ap, ase,
-			st.PhaseSum[0]/G, st.PhaseSum[1]/G, st.PhaseSum[2]/G, st.PhaseSum[3]/G,
-			bk, bpm, bp, bse, bh)
+			st.PhaseSum[0]/G, st.PhaseSum[1]/G, st.PhaseSum[2]/G, st.PhaseSum[3]/G)
 	}
 	meta := fmt.Sprintf("games\t%d\nturns\t%d\nturns_per_game\t%.4f\nphase_turns\t%v\n", tot.Games, tot.Turns, tpg, tot.PhaseN)
 	return os.WriteFile(filepath.Join(*out, "meta.tsv"), []byte(meta), 0o644)
 }
+
+// lexiconClasses returns the lexicon's words grouped by alphagram.
+func lexiconClasses(cfg *config.Config, lexicon string) (map[playability.Key][]playability.Key, *tilemapping.TileMapping, error) {
+	k, err := kwg.GetKWG(cfg.WGLConfig(), lexicon)
+	if err != nil {
+		return nil, nil, err
+	}
+	classes := map[playability.Key][]playability.Key{}
+	for _, mw := range wmp.ExtractWordsFromKWG(k, 15) {
+		w := playability.KeyOf(mw)
+		a := playability.AlphaKey(w)
+		classes[a] = append(classes[a], w)
+	}
+	return classes, k.GetAlphabet(), nil
+}
+

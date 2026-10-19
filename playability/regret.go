@@ -176,31 +176,3 @@ func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, exclu
 	}
 	return turnplayer.StaticPassPenalty, false
 }
-
-// RegretFor returns the regret of excluding the given set of words (as keys) at
-// this position: the best move's equity minus the best equity among moves that
-// form none of them. Used by the synthetic estimator, where the target word is
-// fixed in advance and may not be in the best move at all (regret 0).
-// found is false when no move in the list avoids the set; with a truncated
-// (top-N) list the caller should then retry with the full list.
-// It reuses the cache, so call Reset when the move list changes.
-func (ev *Evaluator) RegretFor(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) (regret float64, found bool) {
-	if len(plays) == 0 || plays[0].Action() != move.MoveTypePlay {
-		return 0, true
-	}
-	hit := false
-	for _, f := range ev.wordsOf(b, plays, 0) {
-		if excluded(f) {
-			hit = true
-			break
-		}
-	}
-	if !hit {
-		return 0, true
-	}
-	alt, found := ev.firstAvoiding(b, plays, excluded)
-	return plays[0].Equity() - alt, found
-}
-
-// Reset clears the per-turn cache for a new move list of n moves.
-func (ev *Evaluator) Reset(n int) { ev.reset(n) }

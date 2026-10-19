@@ -12,13 +12,6 @@ Per alphagram (and per word inside it):
      evidence (most 9+ letter ones) end up near the prior, which leans on
      probability.
 
-The synthetic estimator (`playability synth`) is not used. With 10M games
-self-play sees 99.9% of 7-8 letter racks, and the synthetic estimate's
-standard error is unreliable when it has few hits, so combining the two
-moved some well-measured power-tile racks by thousands of places. For 9+
-it misses most of the value: 60% of 9-letter hits are hooks onto an 8
-already on the board, which conditioned rack re-deals do not model.
-
 Units: equity points per 1000 games (HastyBot static equity).
 
 usage: analyze.py SCORE_DIR [OUT_DIR]
