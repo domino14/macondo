@@ -57,7 +57,7 @@ Set the lexicon once for the commands below:
 
     export LEXICON=CSW24 L=csw24     # L: a lower-case tag for file names
 
-## 1. Generate 54M games (~1.5 days, CPU only)
+## 1. Generate 54M games (~10 h, CPU only)
 
 HastyBot vs HastyBot. Each game's first K plies, K ~ round(Exp(2)), are
 sampled from a softmax over static equity (temperature 3 points, top 50
@@ -71,7 +71,8 @@ with a quick 2-ply search. Two batches of 27M (the shipped model used
 
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
 logs the producer reads) and `games-*.txt` (one line per game). About
-435 games/s on 16 threads, so ~17 h per batch. The logs carry an
+120 games/s per thread: `open` took 5.2 h on 12 threads (~1,450 games/s),
+so ~5 h per batch. The logs carry an
 `openingplies` column; the producer only draws training positions after
 the last sampled ply.
 
