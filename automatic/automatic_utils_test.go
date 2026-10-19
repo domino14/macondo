@@ -106,7 +106,7 @@ func TestCompVCompSeries(t *testing.T) {
 		[]AutomaticRunnerPlayer{
 			{BotCode: macondo.BotRequest_HASTY_BOT},
 			{BotCode: macondo.BotRequest_NO_LEAVE_BOT},
-		}, nil)
+		}, nil, OpeningConfig{})
 
 	is.NoErr(err)
 
