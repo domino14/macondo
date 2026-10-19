@@ -5,13 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"sync"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -20,7 +22,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
-	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/triton"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -28,9 +30,15 @@ import (
 
 type BotConfig struct {
 	config.Config
-	PEGAdjustmentFile    string
-	LeavesFile           string
-	MinSimPlies          int
+	PEGAdjustmentFile string
+	LeavesFile        string
+	MinSimPlies       int
+	// FixedSimPlies, when positive, makes every sim exactly this deep while
+	// tiles are left in the bag (see eliteBestPlay).
+	FixedSimPlies int
+	// TritonModel, when set, is the Triton model this bot's ML evaluation
+	// queries (version 1) instead of the game's global one.
+	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau overrides the default softmax temperature for inference.
@@ -49,6 +57,15 @@ type BotConfig struct {
 	// instead of by wall clock, which is what makes a position infer the same way
 	// twice. If 0, InferenceTimeSecs applies instead.
 	InferenceBudget int
+	// QuickEndgamePlies > 0 makes a non-solving bot play close endgames
+	// (bag empty, |spread| <= QuickEndgameMargin; margin 0 = always) with a
+	// quick N-ply search (greedy playout at the leaves), capped at
+	// QuickEndgameCapMs per move (0 = 250), falling back to the static move.
+	QuickEndgamePlies  int
+	QuickEndgameMargin int
+	QuickEndgameCapMs  int
+	// QuickEndgameNoPrune skips the solver's pruned word graph.
+	QuickEndgameNoPrune bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
@@ -66,10 +83,14 @@ type BotTurnPlayer struct {
 	simmerCalcs           []equity.EquityCalculator
 	simThreads            int
 	minSimPlies           int
+	fixedSimPlies         int
+	tritonClient          *triton.TritonClient
 	cfg                   *BotConfig
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// QuickEndgameSolves counts the moves chosen by the quick endgame search.
+	QuickEndgameSolves int
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -123,6 +144,16 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		botType:            botType,
 		cfg:                conf,
 	}
+	if conf.TritonModel != "" {
+		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), conf.TritonModel, "1")
+		if err != nil {
+			return nil, fmt.Errorf("triton client for %s: %w", conf.TritonModel, err)
+		}
+		if err := tc.DetectOutputs(); err != nil {
+			log.Warn().Err(err).Str("model", conf.TritonModel).Msg("could not read the model's outputs; requesting value only")
+		}
+		btp.tritonClient = tc
+	}
 
 	// If it is a simming bot, add more fields.
 	if HasSimming(botType) {
@@ -141,6 +172,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
+		btp.fixedSimPlies = conf.FixedSimPlies
 		if conf.SimThreads > 0 {
 			btp.SetSimThreads(conf.SimThreads)
 		}
@@ -187,6 +219,12 @@ type moveEval struct {
 // softmax distribution. Assume that moves are already sorted from
 // best to worst.
 func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.Move, error) {
+	return ChooseMoveWithExplorationRand(moves, temperature, frand.Float64)
+}
+
+// ChooseMoveWithExplorationRand is ChooseMoveWithExploration drawing its
+// uniform variate from `uniform`, so a seeded caller replays the same choice.
+func ChooseMoveWithExplorationRand(moves []*move.Move, temperature float64, uniform func() float64) (*move.Move, error) {
 	if len(moves) == 0 {
 		return nil, fmt.Errorf("moves slice cannot be empty")
 	}
@@ -229,7 +267,7 @@ func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.M
 	}
 
 	// 5. Pick a random number and find which "bucket" it falls into.
-	r := frand.Float64()
+	r := uniform()
 	for i, c := range cdf {
 		if r < c {
 			return moves[i], nil
@@ -252,6 +290,9 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
+	if m, ok := p.quickEndgameMove(ctx); ok {
+		return m, nil
+	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
 		if p.Bag().TilesRemaining() == 0 {
 			// The bag is empty. Let's use the HastyBot endgame algorithm.
@@ -259,7 +300,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return p.GenerateMoves(1)[0], nil
 		}
 		// Fast ML bot uses a different method
-		moves := p.GenerateMoves(50)
+		moves := p.GenerateMoves(mlCandidates())
 
 		if len(moves) == 1 {
 			return moves[0], nil
@@ -274,29 +315,15 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		if lc == nil {
 			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
 		}
-		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMoves)
+		resp, err := p.MLEvaluateMovesWith(p.tritonClient, moves, lc, p.lastMoves)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err
 		}
-		pairs := make([]moveEval, len(moves))
-		for i, m := range moves {
-			pairs[i] = moveEval{
-				move: m,
-				eval: resp.Value[i],
-				idx:  i + 1, // Store original index for reference
-			}
-		}
-		// Sort by evaluation in descending order
-		sort.Slice(pairs, func(i, j int) bool {
-			// If the evaluations are equal, prefer the move with more tiles played
-			// This helps in the endgame.
-			if stats.FuzzyEqual(float64(pairs[i].eval), float64(pairs[j].eval)) {
-				return pairs[i].move.TilesPlayed() > pairs[j].move.TilesPlayed()
-			}
-			return pairs[i].eval > pairs[j].eval
-		})
-		return pairs[0].move, nil
+		// Best value first; in a decided game, the best expected final spread
+		// among the value head's near-ties (see mlrank.go).
+		ranked := rankMLMoves(moves, resp.Value, resp.Spread, p.SpreadFor(p.PlayerOnTurn()), mlDecidedThreshold())
+		return ranked[0], nil
 	} else if p.botType == pb.BotRequest_RANDOM_BOT_WITH_TEMPERATURE {
 
 		// Random bot just picks a random move among top N (not currenetly configurable)
@@ -374,4 +401,61 @@ func (p *BotTurnPlayer) LastInferenceCount() int {
 		return -1
 	}
 	return len(inferences.InferredRacks)
+}
+
+var quickEndgameTableOnce sync.Once
+
+// quickEndgameMove plays a close endgame with a quick N-ply search when the
+// bot is configured for it (see BotConfig.QuickEndgamePlies). It searches on
+// a copy, as the full endgame engine does, and returns the search's first
+// move; on a timeout or error the caller falls back to its usual choice.
+func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool) {
+	cfg := p.cfg
+	if cfg == nil || cfg.QuickEndgamePlies <= 0 || p.Bag().TilesRemaining() > 0 ||
+		p.Game.Playing() != pb.PlayState_PLAYING {
+		return nil, false
+	}
+	onturn := p.Game.PlayerOnTurn()
+	if cfg.QuickEndgameMargin > 0 {
+		spread := p.Game.SpreadFor(onturn)
+		if spread > cfg.QuickEndgameMargin || spread < -cfg.QuickEndgameMargin {
+			return nil, false
+		}
+	}
+	// One shared, lock-free transposition table for every bot in the process.
+	quickEndgameTableOnce.Do(func() {
+		negamax.GlobalTranspositionTable.Reset(0.02, p.Game.Board().Dim())
+	})
+	gameCopy := p.Game.Copy()
+	gameCopy.SetBackupMode(game.SimulationMode)
+	gameCopy.SetStateStackLength(cfg.QuickEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
+	gameCopy.SetEndgameMode(true)
+	s := new(negamax.Solver)
+	if err := s.Init(gameCopy); err != nil {
+		return nil, false
+	}
+	s.SetThreads(1)
+	s.SetSkipMaterialize(false)
+	if cfg.QuickEndgameNoPrune {
+		// Building a pruned word graph per solve costs more than a 2-ply
+		// search saves with it (+3.6% net-vs-net generation, 10/17/26).
+		s.SetPrunedKWGOptim(false)
+	}
+	// Result-only search: a (-1, 1) root window. Same game results as the
+	// full window on 500 close endgames, at a tenth of the time.
+	s.SetFirstWinOptim(true)
+	capMs := cfg.QuickEndgameCapMs
+	if capMs <= 0 {
+		capMs = 250
+	}
+	sctx, cancel := context.WithTimeout(ctx, time.Duration(capMs)*time.Millisecond)
+	defer cancel()
+	_, seq, err := s.QuickAndDirtySolve(sctx, cfg.QuickEndgamePlies, 0)
+	if err != nil || len(seq) == 0 {
+		return nil, false
+	}
+	m := &move.Move{}
+	m.CopyFrom(seq[0])
+	p.QuickEndgameSolves++
+	return m, true
 }

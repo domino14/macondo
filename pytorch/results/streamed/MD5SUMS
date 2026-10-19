@@ -1,0 +1,8 @@
+f05c0785669ebabdca7a94650ed37169  model/stream/best-tf-stream.pt
+d6ec12b16a6b3857aa4c094db07154df  model/stream/config.pbtxt
+a68ff5aff5a2c07d7e6ce7875123094e  model/stream/model.onnx
+e337be44284b59dfcb386b30e9118a7d  model/streamopen/best-tf-streamopen.pt
+f8d2c2686dd9a581d320f5c51069c81f  model/streamopen/config.pbtxt
+edf9135385070b28bc57182cbdfe1485  model/streamopen/model.onnx
+27a08ffa9b042c2aef9adf1581728e5d  match/games-tf-streamopen-v-hasty-pairs.txt
+e885f304c225d9b592d49d603e93d4c6  match/games-tf-stream-v-hasty-pairs.txt

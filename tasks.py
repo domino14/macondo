@@ -14,7 +14,8 @@ def build(c, nickname, windows=""):
     .github/workflows/build-and-upload-binaries.yml), except for Windows:
     --windows amd64 (or arm64) cross-compiles macondo.exe and updater.exe.
     MAGPIE_MARCH picks the instruction set MAGPIE is compiled for."""
-    tag = c.run("git describe --exact-match --tags", hide=True).stdout.strip()
+    # A tag on release builds; a commit hash on branch test runs.
+    tag = c.run("git describe --tags --always", hide=True).stdout.strip()
     print("Tag was", tag)
 
     if not windows:
