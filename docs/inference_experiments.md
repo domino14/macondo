@@ -454,6 +454,47 @@ true leave. Prior 1.29, truth (noise floor) 0.10.
   regret gain 0.10-0.18; soft overlap a little ahead of lift). Use regret
   itself to compare settings, soft overlap as a cheap side score.
 
+### The April spike, replicated and dissected (Oct 18, 2026)
+
+`april-tau05-replica` on deb192: c54ca819 rebuilt, the April config verbatim,
+unpaired. At 2,755 games (Oct 18 22:04): **49.62% ± 1.86**, flat across
+quarters (49.5, 50.4, 49.8, 48.8). Same code, config, data files (md5 against
+the old disk, now on deb128) and CPU generation; inferred racks per turn
+match April (median 218 vs 215, same by bag).
+
+The old disk also held a June rerun on master `13b729b` (pre-imputation):
+`tau0.05-v-sim-redux`, 6,063 games, **52.00% ± 1.25**. A crash ended it; the
+hand-fixed games file matches the turn log (6,050 exact, 13 differ by the
+end-of-game rack penalty, the 16 missing games were mid-game).
+
+Fingerprints (points/turn, exchanges, game length, tiles and leave per move)
+are identical across all runs. The two 52% runs look like luck of two
+different kinds:
+
+| run | games | win % | spread | bingo diff/game | win %, equal bingos |
+|---|---|---|---|---|---|
+| tau 0.04 | 8,970 | 50.23 | +0.44 ± 2.10 | +0.016 | 50.61 |
+| tau 0.05 April | 9,725 | 52.00 | +4.21 ± 2.03 | +0.069 | 51.22 |
+| tau 0.06 | 7,293 | 50.31 | +0.42 ± 2.31 | +0.026 | 50.56 |
+| tau 0.05 June | 6,063 | 52.00 | +1.61 ± 2.56 | +0.027 | 50.78 |
+| oracle (April) | 7,698 | 53.34 | +6.98 ± 2.30 | +0.050 | 54.32 |
+
+April's edge came with bingo luck beyond the oracle's; June's 52% has the
+spread of a 50.3% run. The oracle is real on every measure. Unpaired autoplay
+caps a turn at 30 s, inference included, so the infer bot's sim gets ~9 s
+(a spike of cut-off sims at 8.5-9.5 s) -- in April as now, so not the
+difference. Paired mode has no midgame deadline. Scripts (scratchpad, not
+committed): `fingerprint.py`, `gamestats.py`, `infcount.py`.
+
+### Oracle ceiling at 2 and 5 plies (launched Oct 18, 2026 22:57)
+
+On deb128 (EPYC 7702P, 128 threads), the current engine (deb192's cap05
+build): `SIMMING_BOT_NO_EG` told the opponent's true leave vs the same bot,
+NO_EG both sides as in the inference baselines, 7,500 pairs each (±0.5),
+seed 20261020, 2-ply then 5-ply. Smoke (64 pairs): 2-ply 53.1% ± 6.9 at
+~545 games/h, 5-ply 53.1% ± 6.5 at ~150 games/h (both batch-tail bound).
+ETA: 2-ply ~1 day, 5-ply ~3-4 days after.
+
 ## Running log
 
 What is on deb192 and when it changed. Results go in the sections above.
@@ -497,6 +538,8 @@ What is on deb192 and when it changed. Results go in the sections above.
   baseline (paired).
 - Oct 18 06:08 / 08:27: `dl-knobs-late` / `dl-knobs-early` done.
 - Oct 18 08:27: `april-tau05-replica` started (~200 games/h, as in April).
+- Oct 18 22:04: replica 49.62% ± 1.86 at 2,755 games; June redux found (52.00%); fingerprints say both 52% runs were luck.
+- Oct 18 22:57: `oracle-2ply` then `oracle-5ply` launched on deb128 (7,500 pairs each).
 
 ## Idea queue
 
