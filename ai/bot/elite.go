@@ -57,11 +57,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 				p.Game.RackFor(p.Game.NextPlayer()).Add(t)
 			}
 		}
-		// Just some sort of estimate. One less than the tiles left to play:
-		// the endgame solver's greedy leaf playout finishes the game from
-		// wherever the search stops, so the deepest iteration -- by far the
-		// most expensive one -- earns much less than it used to.
-		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()) - 1
+		endgamePlies = endgamePliesFor(unseen, int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()))
 	} else if unseen == 8 && (p.fixedSimPlies <= 0 || HasPreendgame(p.botType)) {
 		usePreendgame = true
 	} else {
@@ -107,6 +103,17 @@ func simPliesFor(unseen, minPlies, fixedPlies int) int {
 		return minPlies
 	}
 	return 2
+}
+
+// endgamePliesFor estimates how deep to solve an endgame. Just some sort of
+// estimate: one less than the tiles left to play. The endgame solver's
+// greedy leaf playout finishes the game from wherever the search stops, so
+// the deepest iteration -- by far the most expensive one -- earns much less
+// than it used to. Never below 2, which the multi-threaded searches require:
+// with one tile on each rack the estimate would otherwise be 1, and the solve
+// would fail.
+func endgamePliesFor(unseen, onRack int) int {
+	return max(2, unseen+onRack-1)
 }
 
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
