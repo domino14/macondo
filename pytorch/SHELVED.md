@@ -126,8 +126,10 @@ harmless or still useful.
 About thirty `queue-*.sh` and `run-*.sh` scripts each ran one experiment,
 with paths and models hard-coded. Their results are in `experiments.md`;
 the reproduction notes in `results/` pin the commits they used. The
-scripts that remain are the shipped recipe (`run-stream.sh`,
-`run-openings.sh`, `train-fresh.sh`, `watch-tf-heads.sh`, `gen-nvn.sh`,
-`mix-logs.py`, `copy_model.sh`, `build-engines.sh`) and general tools
-(matches: `queue-ml-v-ml.sh`, `queue-ml-v-sim.sh`, `queue-simbench.sh`,
-`pairs-stats.py`; benchmarks, export and parity checks, visualizers).
+scripts that remain are the shipped recipe (`gen-openings.sh`,
+`run-stream.sh`, `watch-tf-heads.sh`, `gen-nvn.sh`, `mix-logs.py`,
+`copy_model.sh`, `build-engines.sh`, `triton-*.sh`; see `TRAINING.md`) and
+two match tools (`match-ml-v-ml.sh`, `sim-ladder.sh`, with `pairs-stats.py`).
+The CNN-era `train.sh`, the cache-training `train-fresh.sh` and
+`run-openings.sh`'s training half (now `gen-openings.sh`, generation only),
+`queue-ml-v-sim.sh` and `bench-instances.sh` went too.

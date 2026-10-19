@@ -1,5 +1,10 @@
 # selfplay: macondo-tf-selfplay (nvnft)
 
+> **A record of one run, not a how-to.** This file records the data,
+> settings and results of exactly this experiment, so it can be audited or
+> re-run as it was. To train a model, again or for another lexicon, follow
+> [`TRAINING.md`](../../TRAINING.md).
+
 `macondo-tf` fine-tuned on its own games. Results (2026-10-16), 100,000 game
 pairs each, NWL23, FastMlBot ranking HastyBot's top 50 plays, decided-game
 rule on:
@@ -24,7 +29,7 @@ A/B" and the two head-to-head sections after it).
        MODEL=macondo-tf CHUNKS=12 CHUNK_GAMES=250000 pytorch/gen-nvn.sh
 
    Output: `~/data/nvn/nvn-*.txt.gz`. The control arm's 3M fresh HastyBot
-   games came from `GEN=1 TRAIN=0 TAG=hasty3m GAMES=3000000 run-openings.sh`.
+   games came from `TAG=hasty3m GAMES=3000000 gen-openings.sh`.
 
 2. **Mix** the new games 50/50 with the same number of turn rows from the
    head of `open2` (one of the two sets `macondo-tf` was trained on):

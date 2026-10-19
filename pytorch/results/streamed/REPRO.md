@@ -1,5 +1,10 @@
 # stream / streamopen: streamed training, and the openings scheme at full scale
 
+> **A record of one run, not a how-to.** This file pins the commits, data,
+> settings and results of exactly this experiment, so it can be audited or
+> re-run as it was. To train a model, again or for another lexicon, follow
+> [`TRAINING.md`](../../TRAINING.md).
+
 Results (2026-09-30 and 2026-10-01), 100,000 game pairs vs HastyBot, NWL23,
 FastMlBot ranking HastyBot's top 50 plays, decided-game rule on, no solver:
 
@@ -96,9 +101,12 @@ Master seeds (replay with `-seed`): stream 3415107630100574503, streamopen
 checkpoints and ONNX (`model/`, md5 in `MD5SUMS`), loss CSVs, trainer and
 probe logs (`logs/`), per-game and per-turn match logs (`match/`).
 
-## Reproducing
+## Re-running exactly this run
 
-1. Check out `f9a02cf4` or later; `make`; `go build -o bin/mlproducer ./cmd/mlproducer`.
+(For a new model, use `TRAINING.md` instead: it starts from generating the
+games and works at the current commit.)
+
+1. Check out `f9a02cf4`; `make`; `go build -o bin/mlproducer ./cmd/mlproducer`.
 2. `cd pytorch && ./run-stream.sh` for `stream` (set `BATCH=128 ACCUM=16`
    for the exact microbatch), or
    `TAG=streamopen LOGS="open.txt.gz open2.txt.gz" VAL_LOG=open2.txt.gz ./run-stream.sh`.

@@ -66,8 +66,8 @@ with a quick 2-ply search. Two batches of 27M (the shipped model used
 `open` and `open2`):
 
     cd ~/code/macondo/pytorch
-    GEN=1 TRAIN=0 TAG=${L}open  GAMES=27000000 THREADS=16 ./run-openings.sh
-    GEN=1 TRAIN=0 TAG=${L}open2 GAMES=27000000 THREADS=16 ./run-openings.sh
+    TAG=${L}open  GAMES=27000000 THREADS=16 ./gen-openings.sh
+    TAG=${L}open2 GAMES=27000000 THREADS=16 ./gen-openings.sh
 
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
 logs the producer reads) and `games-*.txt` (one line per game). About
@@ -134,7 +134,7 @@ Judge it head to head against its parent, not only against HastyBot: for
 NWL23 it lost 0.5 points against HastyBot but beat its parent 50.37% ±
 0.16. A head-to-head match, 100k pairs:
 
-    M1=macondo-nn-tf-${L}nvnft M2=macondo-nn-tf-${L}stream ./queue-ml-v-ml.sh
+    M1=macondo-nn-tf-${L}nvnft M2=macondo-nn-tf-${L}stream ./match-ml-v-ml.sh
 
 ## 4. Ship it
 
