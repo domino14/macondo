@@ -572,6 +572,7 @@ What is on deb192 and when it changed. Results go in the sections above.
 - Oct 18 22:57: `oracle-2ply` then `oracle-5ply` launched on deb128 (7,500 pairs each).
 - Oct 19 14:25 (deb128): `oracle-2ply` done, 53.51% ± 0.60 (above); `oracle-5ply` started.
 - Oct 19 15:44 (deb192): replica 6,374 games, 50.55% ± 1.23; running on to 10,000.
+- Oct 20 12:14 (deb192): replica stopped, FINAL 10,572 games = **50.45% ± 0.95**. `june-redux-rerun` started: the June redux binary itself (13b729b, md5 e11a50ca), redux config, old-disk data, in `~/macondo-june`.
 
 ## Idea queue
 
