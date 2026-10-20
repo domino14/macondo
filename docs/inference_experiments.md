@@ -486,6 +486,29 @@ caps a turn at 30 s, inference included, so the infer bot's sim gets ~9 s
 difference. Paired mode has no midgame deadline. Scripts (scratchpad, not
 committed): `fingerprint.py`, `gamestats.py`, `infcount.py`.
 
+**Replica at 10,000 games (Oct 20): 50.36% ± 0.98.** The two old runs pooled
+(52.00) minus the replica = 1.64 ± 1.25 (p ~0.01); all three pooled 51.4 ± 0.6.
+
+Last-ditch setup check, nothing found:
+- June redux binary and replica binary: both go1.26.1. Data dirs md5-identical.
+  config.yaml differs only in ttable-mem-fraction (no endgame in NO_EG bots).
+- Old bash history: tau 0.03, 0.05 and 0.1 ran on one binary built at the pull
+  just before 0.03 (Apr 16 00:57), i.e. c54ca819 plus a test-only commit, the
+  replica's code. 0.07/0.04/0.06 ran on a later build (after a master merge).
+- Throughput ~203 games/h in every April run, 208 redux, 205 replica.
+- April is exactly 5,057/9,725 = 52.0000%, redux 52.004%; no shared games.
+
+Inside the games:
+- Tile-draw luck (what each side drew, valued by regression, composition only):
+  April +0.30, redux -0.05, replica -0.01. Adjusted: 51.70 / 52.06 / 50.38.
+- Per-phase play profile (points, tiles, exchanges, bingos, racks inferred):
+  the same in every run.
+- Where the spread came from: April +3.1/game at bag>40, redux +1.5 at bag 0,
+  replica nothing; the oracle gains in every phase (+2.3 / +1.3 / 0 / +2.7).
+
+The only untested item: the June redux binary (deb128 `~/macondo/bin/shell`)
+still exists, the one surviving binary from a 52% run.
+
 ### Oracle ceiling at 2 and 5 plies (launched Oct 18, 2026 22:57)
 
 On deb128 (EPYC 7702P, 128 threads), the current engine (deb192's cap05
