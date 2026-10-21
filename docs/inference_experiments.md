@@ -590,3 +590,13 @@ What is on deb192 and when it changed. Results go in the sections above.
    picks; if they sit near 100, try 200.
 6. **tau 0.05 replication**: queued (queue7). If it holds at ~52%, port its
    pieces one at a time into the current code, each a paired match.
+
+7. **Leave-quality rule** (Oct 21): read the opponent's leave
+   *quality* from the tiles played and the score of their last move (2 tiles
+   for 10 points: they kept 5 good tiles), and give the sim opponent strong
+   racks accordingly, sampling several racks within one sim. We do this only
+   for exchanges (`exchange_value.go`) and one-tile plays (`SetValueTerm`).
+   Test: fit beta(tiles, score) by max likelihood on true leaves in the turn
+   logs, compare regret in decidelab, then a 2-ply paired match (baseline
+   50.55, ceiling 53.51). It costs almost nothing per turn, so the sim keeps
+   its full budget.
