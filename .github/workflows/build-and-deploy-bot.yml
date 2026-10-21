@@ -28,8 +28,8 @@ jobs:
           token: ${{ secrets.LEXICA_GH_PAT }}
 
       - run: cp -r data /opt/data
-      - run: mkdir -p /opt/data/lexica/gaddag
-      - run: cp "$GITHUB_WORKSPACE/word-game-lexica/gaddag/America.kwg" /opt/data/lexica/gaddag/
+      # liwords doesn't publish America; the lexica repo's script builds it.
+      - run: '"$GITHUB_WORKSPACE/word-game-lexica/build_kwgs.sh" /opt/data/lexica/gaddag America'
 
       - name: Setup Go
         uses: actions/setup-go@v5
