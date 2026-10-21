@@ -136,6 +136,29 @@ type agreeOpts struct {
 	iters   int
 	plies   int
 	judge   int
+	// lq, when set, adds leave-quality reads to the agreement: every leave
+	// weighted by prior x exp(scale x beta x leave value), beta fitted per
+	// tiles played and score of the opponent's play (lqN), and our own
+	// posterior times the same factor (lqxN), one pair per scale.
+	lq       lqTable
+	lqScales []float64
+}
+
+// lqTable is the leave-quality weight, per tiles played: [score_lo,
+// score_hi, beta] bins in score order.
+type lqTable map[string][][3]float64
+
+func (t lqTable) beta(played, score int) (float64, bool) {
+	bins := t[strconv.Itoa(played)]
+	if len(bins) == 0 {
+		return 0, false
+	}
+	for _, b := range bins {
+		if float64(score) <= b[1] {
+			return b[2], true
+		}
+	}
+	return bins[len(bins)-1][2], true
 }
 
 // rankDepth is how deep in the static ranking a choice is looked for.
@@ -153,6 +176,8 @@ type record struct {
 	Exchange  bool               `json:"exchange"`
 	Spread    int                `json:"spread"`
 	OppTiles  int                `json:"oppTiles"`
+	OppScore  int                `json:"oppScore"`
+	OppPlayed int                `json:"oppPlayed"` // tiles the opponent placed or threw
 	Choices   map[string]*choice `json:"choices"`
 	JudgeIter int                `json:"judgeIters"`
 	Agree     *agreement         `json:"agree,omitempty"`
@@ -180,6 +205,8 @@ func main() {
 	agreePlays := flag.Int("agree-plays", 20, "decision agreement: top static plays simmed (plus every chooser's pick)")
 	agreeIters := flag.Int("agree-iters", 300, "decision agreement: iterations per sampled-leave sim")
 	agreeJudge := flag.Int("agree-judge", 2000, "decision agreement: iterations of the true-leave pricing sim")
+	lqFile := flag.String("lq", "", "decision agreement: leave-quality weight table (JSON) to add lq reads")
+	lqScaleList := flag.String("lq-scales", "1", "decision agreement: multipliers of the leave-quality weight, comma-separated")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	if *turnlog == "" {
@@ -196,6 +223,26 @@ func main() {
 		agreeArms = map[string]bool{}
 		for _, n := range strings.Split(*agreeArm, ",") {
 			agreeArms[strings.TrimSpace(n)] = true
+		}
+	}
+	var lq lqTable
+	var lqScales []float64
+	if *lqFile != "" {
+		b, err := os.ReadFile(*lqFile)
+		if err == nil {
+			err = json.Unmarshal(b, &lq)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "lq:", err)
+			os.Exit(2)
+		}
+		for _, x := range strings.Split(*lqScaleList, ",") {
+			v, err := strconv.ParseFloat(strings.TrimSpace(x), 64)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "lq-scales:", err)
+				os.Exit(2)
+			}
+			lqScales = append(lqScales, v)
 		}
 	}
 	cfg := config.DefaultConfig()
@@ -242,7 +289,8 @@ func main() {
 			defer wg.Done()
 			for pos := range work {
 				rec := decide(pos, cfg, *judgeIters, arms,
-					agreeOpts{arms: agreeArms, samples: *agreeN, plays: *agreePlays, iters: *agreeIters, plies: *plies, judge: *agreeJudge})
+					agreeOpts{arms: agreeArms, samples: *agreeN, plays: *agreePlays, iters: *agreeIters, plies: *plies, judge: *agreeJudge,
+						lq: lq, lqScales: lqScales})
 				mu.Lock()
 				enc.Encode(rec)
 				mu.Unlock()
@@ -349,7 +397,8 @@ func decide(pos *automatic.CorpusPosition, cfg *config.Config, judgeIters int, a
 		TrueLeave: pos.TrueLeave, MyRack: pos.MyRack, Bag: g.Bag().TilesRemaining(), Kept: pos.LeaveLen,
 		Exchange: len(pos.OppPlay) > 0 && pos.OppPlay[0] == '(',
 		Spread:   g.SpreadFor(g.PlayerOnTurn()), Choices: map[string]*choice{},
-		OppTiles: int(g.RackFor(g.NextPlayer()).NumTiles())}
+		OppTiles: int(g.RackFor(g.NextPlayer()).NumTiles()),
+		OppScore: pos.OppScore, OppPlayed: len([]rune(pos.OppRack)) - pos.LeaveLen}
 
 	moves := map[string]*move.Move{}
 	rank := map[string]int{}
@@ -487,6 +536,38 @@ func agree(g *game.Game, cfg *config.Config, names []string, rfs map[string]*ran
 	if err != nil {
 		return nil, err
 	}
+	exchange := len(pos.OppPlay) > 0 && pos.OppPlay[0] == '('
+	if beta, ok := ao.lq.beta(len([]rune(pos.OppRack))-pos.LeaveLen, pos.OppScore); ok && !exchange && pos.LeaveLen > 0 {
+		r0 := reads[0]
+		rf := rfs[r0.name]
+		all := enumerateLeaves(rf.BagMap(), pos.LeaveLen)
+		value := func(ls [][]tilemapping.MachineLetter) ([]float64, float64) {
+			vs := make([]float64, len(ls))
+			top := math.Inf(-1)
+			for i, l := range ls {
+				c := slices.Clone(l)
+				slices.Sort(c)
+				vs[i] = calc.LeaveValue(tilemapping.MachineWord(c))
+				top = max(top, vs[i])
+			}
+			return vs, top
+		}
+		allV, allTop := value(all)
+		ourV, ourTop := value(r0.leaves)
+		for _, sc := range ao.lqScales {
+			b := sc * beta
+			w := make([]float64, len(all))
+			for i, l := range all {
+				w[i] = rf.LeavePrior(l) * math.Exp(b*(allV[i]-allTop))
+			}
+			reads = append(reads, read{fmt.Sprintf("lq%g", sc), all, w})
+			wx := make([]float64, len(r0.leaves))
+			for i := range r0.leaves {
+				wx[i] = r0.post[i] * math.Exp(b*(ourV[i]-ourTop))
+			}
+			reads = append(reads, read{fmt.Sprintf("lqx%g", sc), r0.leaves, wx})
+		}
+	}
 	plies := ao.plies
 	if unseen := g.Bag().TilesRemaining() + int(g.RackFor(g.NextPlayer()).NumTiles()); unseen <= 14 {
 		plies = min(plies, unseen)
@@ -591,4 +672,30 @@ func agree(g *game.Game, cfg *config.Config, names []string, rfs map[string]*ran
 		ag.Arms[r.name] = a
 	}
 	return ag, nil
+}
+
+// enumerateLeaves lists every leave of k tiles the unseen pool can hold.
+func enumerateLeaves(bag []uint8, k int) [][]tilemapping.MachineLetter {
+	var out [][]tilemapping.MachineLetter
+	buf := make([]tilemapping.MachineLetter, 0, k)
+	var rec func(minIdx, remaining int)
+	rec = func(minIdx, remaining int) {
+		if remaining == 0 {
+			out = append(out, slices.Clone(buf))
+			return
+		}
+		for i := minIdx; i < len(bag); i++ {
+			if bag[i] == 0 {
+				continue
+			}
+			prev := len(buf)
+			for c := 1; c <= int(bag[i]) && c <= remaining; c++ {
+				buf = append(buf, tilemapping.MachineLetter(i))
+				rec(i+1, remaining-c)
+			}
+			buf = buf[:prev]
+		}
+	}
+	rec(0, k)
+	return out
 }
