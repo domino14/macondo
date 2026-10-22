@@ -26,7 +26,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 var MaxTimePerTurn = 30 * time.Second
@@ -210,7 +209,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			if err != nil {
 				return err
 			}
-			ep.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
 			r.aiplayers[idx] = ep
 			continue
 		}
@@ -259,7 +257,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		if err != nil {
 			return err
 		}
-		btp.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
 		r.aiplayers[idx] = btp
 
 	}
@@ -396,13 +393,8 @@ func (r *GameRunner) sampleOpeningMove(playerIdx int) *move.Move {
 	// Any static-capable player can sample: the built-in bots and the
 	// external engine (which keeps a static generator of its own).
 	ai := r.aiplayers[playerIdx].(interface {
-		MoveGenerator() movegen.MoveGenerator
 		GenerateMoves(int) []*move.Move
 	})
-	// HastyBot leaves its generator recording only the top play (with shadow
-	// pruning); sampling needs every play, ranked. HastyBot sets its recorder
-	// again on its next turn, so this need not be undone.
-	ai.MoveGenerator().SetPlayRecorder(movegen.AllPlaysRecorder)
 	if r.opening.UniformProb > 0 && r.openingRng.Float64() < r.opening.UniformProb {
 		all := ai.GenerateMoves(math.MaxInt32)
 		return all[r.openingRng.Intn(len(all))]

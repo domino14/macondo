@@ -7,14 +7,13 @@ import (
 
 	"github.com/matryer/is"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/magpie"
 )
 
 // TestSimWordSmog runs a short simulation on a WordSmog position. The simmer
@@ -39,24 +38,18 @@ func TestSimWordSmog(t *testing.T) {
 	g, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
-	is.NoErr(err)
-
-	generator := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
-	generator.SetWordSmog(rules.AlphaDawg())
-
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, tilemapping.RackFromString("AAADERW", g.Alphabet()))
-	generator.SetRecordNTopPlays(10)
-	plays := generator.GenAll(g.RackFor(0), false)
+	plays, err := g.MagpieMoves(10, magpie.SortEquity)
+	is.NoErr(err)
 	is.True(len(plays) > 0)
 
 	simmer := &Simmer{}
 	calcs, leaves := defaultSimCalculators("CSW21")
 	simmer.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.PrepareSim(plies, plays)
-	simmer.simSingleIteration(context.Background(), plies, 0, 1, nil)
+	simmer.sampleEveryPlay(context.Background(), 0, 1)
 
 	is.True(simmer.gameCopies[0].Board().IsEmpty())
 	is.Equal(simmer.gameCopies[0].RackFor(0).String(), "AAADERW")

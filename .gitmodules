@@ -1,0 +1,4 @@
+[submodule "third_party/magpie"]
+	path = third_party/magpie
+	url = https://github.com/jvc56/MAGPIE.git
+	branch = main

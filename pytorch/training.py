@@ -465,6 +465,12 @@ def parse_args(argv=None):
         help="positions in the fixed batch for the per-head trunk gradient report",
     )
     p.add_argument(
+        "--resume",
+        help="continue a run from the state it saves at every validation "
+        "(<ckpt stem>-resume.pt: weights, optimiser, LR schedule, head weights, "
+        "best validation loss, step); the other flags must match the run's",
+    )
+    p.add_argument(
         "--snapshot-every",
         type=int,
         default=0,
@@ -830,11 +836,17 @@ def main():
         if ck.get("weights"):
             args.weights = dict(ck["weights"])
         print(f"fine-tuning from {args.init_ckpt} (step {ck.get('step')})", file=sys.stderr)
+    resume = None
+    if args.resume:
+        resume = torch.load(args.resume, map_location=device, weights_only=False)
+        raw_net.load_state_dict(resume["model"])
+        args.weights = dict(resume["weights"])
+        print(f"resuming from {args.resume} (step {resume['step']})", file=sys.stderr)
     # raw_net is the module itself: checkpoints and the per-head gradient
     # diagnostic use it. net is what the training/validation passes call,
     # the compiled wrapper when --compile is on (its parameters are shared).
     net = torch.compile(raw_net) if args.compile else raw_net
-    if args.aux_share > 0:
+    if args.aux_share > 0 and resume is None:
         gn0 = head_grad_norms(raw_net, *(t.to(device) for t in diag))
         args.weights = balance_weights(
             args.weights, gn0, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
@@ -872,20 +884,37 @@ def main():
         enabled=(device.type in ("cuda", "mps")) and amp_dtype == torch.float16
     )
 
+    if resume is not None:
+        opt.load_state_dict(resume["optimizer"])
+        scheduler.load_state_dict(resume["scheduler"])
+        scaler.load_state_dict(resume["scaler"])
+        print(
+            f"resumed at step {resume['step']}, lr {scheduler.get_last_lr()[0]:.4g}",
+            file=sys.stderr,
+        )
+
     def zero_running():
         return {k: torch.zeros((), device=device) for k in ["total", *ALL_HEADS]}
 
     best_val, step, micro, t0 = float("inf"), 0, 0, time.time()
+    if resume is not None:
+        best_val, step = resume["best_val"], resume["step"]
+    step0 = step
     running = zero_running()
-    csv_fh = open(args.csv, "w", newline="")
+    # A resumed run appends to its CSV (any rows past the saved step are
+    # from the steps being redone).
+    appending = resume is not None and os.path.exists(args.csv)
+    csv_fh = open(args.csv, "a" if appending else "w", newline="")
     csv_writer = csv.writer(csv_fh)
-    csv_writer.writerow(
-        ["step", "train_loss", "val_loss"]
-        + [f"train_{k}" for k in ALL_HEADS]
-        + [f"val_{k}" for k in ALL_HEADS]
-        + [f"gnorm_{k}" for k in ALL_HEADS]
-        + [f"w_{k}" for k in ALL_HEADS]
-    )
+    if not appending:
+        csv_writer.writerow(
+            ["step", "train_loss", "val_loss"]
+            + [f"train_{k}" for k in ALL_HEADS]
+            + [f"val_{k}" for k in ALL_HEADS]
+            + [f"gnorm_{k}" for k in ALL_HEADS]
+            + [f"w_{k}" for k in ALL_HEADS]
+        )
+    resume_path = "{}-resume{}".format(*os.path.splitext(args.ckpt))
 
     done = False
     exit_code = 0
@@ -975,7 +1004,7 @@ def main():
                     print(
                         f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
                         f"[{heads}]  "
-                        f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
+                        f"{(step - step0)*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                     )
                     print(f"         trunk grad vs value head (unweighted): {pulls}")
                     if args.aux_share > 0:
@@ -1000,6 +1029,22 @@ def main():
                         )
                         best_val = val[args.primary]
                         print(f"  ✓ checkpointed (best validation {args.primary} loss)")
+
+                    # Everything --resume needs to carry on from this step,
+                    # replaced atomically so a crash mid-write keeps the last.
+                    torch.save(
+                        {
+                            "step": step,
+                            "model": raw_net.state_dict(),
+                            "optimizer": opt.state_dict(),
+                            "scheduler": scheduler.state_dict(),
+                            "scaler": scaler.state_dict(),
+                            "weights": args.weights,
+                            "best_val": best_val,
+                        },
+                        resume_path + ".tmp",
+                    )
+                    os.replace(resume_path + ".tmp", resume_path)
 
                     if args.snapshot_every and step % args.snapshot_every == 0:
                         stem, ext = os.path.splitext(args.ckpt)

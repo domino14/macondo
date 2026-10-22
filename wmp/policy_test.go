@@ -1,10 +1,7 @@
 package wmp
 
 import (
-	"errors"
 	"testing"
-
-	wglconfig "github.com/domino14/word-golib/config"
 )
 
 const mb = 1 << 20
@@ -71,24 +68,3 @@ func TestPolicyFromEnv(t *testing.T) {
 // With building turned off, a lexicon whose word map isn't on disk must fall
 // back to the KWG move generator rather than paying for a build -- the whole
 // point of the setting on a platform that pays per cold start.
-func TestEnsureWMPRespectsBuildIfMissing(t *testing.T) {
-	defer SetPolicy(policyFromEnv())
-	cfg := &wglconfig.Config{DataPath: t.TempDir()}
-
-	SetPolicy(Policy{Enabled: true, BuildIfMissing: false})
-	if _, err := EnsureWMP(cfg, "NWL23"); !errors.Is(err, ErrDisabled) {
-		t.Errorf("BuildIfMissing=false should refuse to build; got %v", err)
-	}
-
-	SetPolicy(Policy{Enabled: false, BuildIfMissing: true})
-	if _, err := EnsureWMP(cfg, "NWL23"); !errors.Is(err, ErrDisabled) {
-		t.Errorf("Enabled=false should refuse outright; got %v", err)
-	}
-
-	// With building on, it gets as far as needing the KWG -- a different
-	// failure, which is how we know it tried.
-	SetPolicy(Policy{Enabled: true, BuildIfMissing: true})
-	if _, err := EnsureWMP(cfg, "NWL23"); err == nil || errors.Is(err, ErrDisabled) {
-		t.Errorf("BuildIfMissing=true should attempt a build; got %v", err)
-	}
-}

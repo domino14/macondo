@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
@@ -764,7 +763,6 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	simmer := &montecarlo.Simmer{}
 	simmer.Init(botPlayer.Game, []equity.EquityCalculator{equityCalc}, equityCalc, a.cfg)
-	simmer.TryLoadWMP(a.cfg.WGLConfig(), g.LexiconName())
 
 	if a.analysisCfg.Threads > 0 {
 		simmer.SetThreads(a.analysisCfg.Threads)
@@ -951,15 +949,11 @@ func simPlayToResult(sp *montecarlo.SimmedPlay, isPlayed bool) *SimPlayResult {
 // analyzeWithPEG analyzes a turn using the PEG solver (1 tile in bag)
 func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *TurnAnalysis,
 	knownOppRack []tilemapping.MachineLetter) error {
-	// Get the KWG for the lexicon
-	gd, err := kwg.GetKWG(a.cfg.WGLConfig(), g.LexiconName())
-	if err != nil {
-		return fmt.Errorf("failed to get KWG: %w", err)
-	}
-
 	// Create PEG solver
 	pegSolver := &preendgame.Solver{}
-	pegSolver.Init(g, gd)
+	if err := pegSolver.Init(g); err != nil {
+		return err
+	}
 
 	// Set options
 	pegSolver.SetEndgamePlies(analyzerPEGEndgamePlies)
@@ -1167,7 +1161,7 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 
 	// Create endgame solver
 	endgameSolver := &negamax.Solver{}
-	err = endgameSolver.Init(botPlayer.MoveGenerator(), botPlayer.Game)
+	err = endgameSolver.Init(botPlayer.Game)
 	if err != nil {
 		return fmt.Errorf("failed to init endgame solver: %w", err)
 	}

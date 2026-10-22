@@ -43,7 +43,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -239,7 +238,6 @@ func (w *worker) feed(t turnRow) error {
 			}
 		}
 		if w.ranks != nil && g.Bag().TilesRemaining() > 0 {
-			rp.ai.MoveGenerator().SetPlayRecorder(movegen.AllPlaysRecorder)
 			cands := rp.ai.GenerateMoves(rankN)
 			rank, desc := 0, m.ShortDescription()
 			for i, c := range cands {
@@ -285,7 +283,6 @@ func (w *worker) feed(t turnRow) error {
 // input vectors the bot would send to the net: <prefix>.json (moves) and
 // <prefix>-planes.bin / <prefix>-scalars.bin (float32 rows).
 func dumpCandidates(rp *replay, d *dumpSpec, played *move.Move) error {
-	rp.ai.MoveGenerator().SetPlayRecorder(movegen.AllPlaysRecorder)
 	cands := rp.ai.GenerateMoves(50)
 	copies := make([]*move.Move, 0, len(cands)+1)
 	found := false
