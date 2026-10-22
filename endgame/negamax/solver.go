@@ -338,9 +338,12 @@ type Solver struct {
 	abdadaTable    *ABDADATable
 
 	currentIDDepths []int
-	requestedPlies  int
-	threads         int
-	nodes           atomic.Uint64
+	// impureEvents counts, per thread, what made its search depend on depth:
+	// leaves of an unfinished game and hits on impure table entries.
+	impureEvents   []impureCounter
+	requestedPlies int
+	threads        int
+	nodes          atomic.Uint64
 
 	logStream  io.Writer
 	busy       bool
@@ -773,6 +776,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
@@ -887,6 +891,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-abdada")
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
@@ -1044,6 +1049,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 	log.Info().Int("threads", s.threads).Msg("using-tree-split")
 
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	g := s.game
 
 	initialHashKey := uint64(0)
@@ -1407,6 +1413,7 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 
 	// Generate initial moves ONCE before the loop, like the original code did
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	s.currentIDDepths[0] = -1
 	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
@@ -1569,6 +1576,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	if s.threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
 		// Generate initial moves to determine branching factor
 		s.currentIDDepths = make([]int, 1)
+		s.impureEvents = make([]impureCounter, 1)
 		s.currentIDDepths[0] = -1
 		s.initialMoves = make([][]tinymove.SmallMove, 1)
 		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
@@ -1677,6 +1685,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		return s.iterativelyDeepenTreeSplit(ctx, plies)
 	}
 	s.currentIDDepths = make([]int, 1)
+	s.impureEvents = make([]impureCounter, 1)
 	g := s.game
 
 	initialHashKey := uint64(0)
@@ -1738,6 +1747,16 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
+// impureCounter is one thread's count of the leaves of unfinished games and
+// the hits on impure table entries its search has met. A node whose search
+// leaves the count unchanged reached only finished games, so its value holds
+// at any depth and is stored at ttPureDepth. The padding keeps each thread's
+// counter on its own cache line.
+type impureCounter struct {
+	n uint64
+	_ [56]byte
+}
+
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -1754,9 +1773,24 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if !(pvNode || α == β-1) {
 		panic("bad conditions")
 	}
+	impure := &s.impureEvents[thread].n
+	impureAtEntry := *impure
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
-		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
+		// An impure entry stored deeper than this node holds a deeper
+		// search's value. Nodes meet those through passes (the moves A, Z, B
+		// and pass, Z, A, pass, B reach the same position, the second with two
+		// fewer plies left) and through threads searching other depths, and
+		// which ones a solve meets depends on thread timing. Only its move is
+		// used, so the value stays the fixed-depth value. A pure entry is the
+		// game's value at any depth.
+		if ttEntry.valid() && ttEntry.depth() > uint8(depth) &&
+			ttEntry.depth() != ttPureDepth {
+			ttMove = ttEntry.getPlay()
+		} else if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
+			if ttEntry.depth() != ttPureDepth {
+				*impure++
+			}
 			score := ttEntry.getScore()
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
@@ -1781,6 +1815,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
+		if g.Playing() == pb.PlayState_PLAYING {
+			*impure++
+		}
 		// Evaluate the state. If the game is still going, play it out greedily
 		// from here; otherwise the spread is already final.
 		if s.useHeuristics && g.Playing() == pb.PlayState_PLAYING {
@@ -2013,7 +2050,13 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		} else {
 			flag = TTExact
 		}
-		flagAndDepth := flag<<6 + uint8(depth)
+		// A depth that reaches ttPureDepth is stored just below it, which
+		// only makes the entry answer fewer probes.
+		storedDepth := uint8(min(depth, ttPureDepth-1))
+		if *impure == impureAtEntry {
+			storedDepth = ttPureDepth
+		}
+		flagAndDepth := flag<<6 + storedDepth
 		play := bestMove.TinyMove()
 		s.ttable.store(nodeKey, score, flagAndDepth, play)
 		if s.logStream != nil {
@@ -2275,6 +2318,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	}
 	if s.currentIDDepths == nil {
 		s.currentIDDepths = make([]int, 1) // a hack; allocate once per solver lifetime
+		s.impureEvents = make([]impureCounter, 1)
 	}
 	pv := PVLine{g: s.game}
 	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0, true)

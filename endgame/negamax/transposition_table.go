@@ -26,6 +26,11 @@ const entrySize = 16
 const bottom3ByteMask = (1 << 24) - 1
 const depthMask = (1 << 6) - 1
 
+// ttPureDepth is the depth stored for an entry whose search reached only
+// finished games: its value holds at any depth, so it satisfies every depth
+// check.
+const ttPureDepth = depthMask
+
 // 16 bytes (entrySize) - lockless version using two atomic uint64s
 type TableEntry struct {
 	// atomic1: packed top4bytes(32) | score(16) | fifthbyte(8) | flagAndDepth(8)
