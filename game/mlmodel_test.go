@@ -43,7 +43,7 @@ func TestResolveMLModel(t *testing.T) {
 		{"macondo-tf", "CSW24", english, "macondo-tf-csw"},
 		{"macondo-tf", "CSW21", english, "macondo-tf-csw"},
 		{"macondo-tf-selfplay", "CSW24", english, "macondo-tf-selfplay"}, // no -csw variant: the base
-		{"macondo-tf", "CGL", german, "macondo-tf-german"},
+		{"macondo-tf", "RD29", german, "macondo-tf-german"},
 		{"macondo-tf", "FRA24", french, ""}, // no French model
 		{"my-net-french", "FRA24", french, "my-net-french"},
 	} {

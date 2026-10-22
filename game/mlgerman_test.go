@@ -14,12 +14,12 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-// A German game (29 letters with Ä Ö Ü) builds 94-plane, 78-scalar vectors:
+// An RD29 game (29 letters with Ä Ö Ü) builds 94-plane, 78-scalar vectors:
 // the float and byte paths agree for every legal move, and every tile on
 // the board, umlauts included, is in its letter's plane.
 func TestGermanMLVectors(t *testing.T) {
 	is := is.New(t)
-	rules, err := game.NewBasicGameRules(DefaultConfig, "CGL", board.CrosswordGameLayout, "german",
+	rules, err := game.NewBasicGameRules(DefaultConfig, "RD29", board.CrosswordGameLayout, "german",
 		game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	g, err := game.NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
@@ -31,9 +31,9 @@ func TestGermanMLVectors(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(lay.NumPlanes, 94)
 	is.Equal(lay.NumScalars, 78)
-	leaves, err := equity.NewExhaustiveLeaveCalculator("CGL", DefaultConfig, "")
+	leaves, err := equity.NewExhaustiveLeaveCalculator("RD29", DefaultConfig, "")
 	is.NoErr(err)
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CGL")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "RD29")
 	is.NoErr(err)
 
 	var history []*move.Move

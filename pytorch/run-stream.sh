@@ -45,7 +45,7 @@ export LEXICON=${LEXICON:-NWL23}
 # The feature sizes follow the lexicon's alphabet (features.py): German has
 # 29 letters, English and French 26.
 case "$LEXICON" in
-    CGL*|RD*) DEFAULT_LETTERS=29 ;;
+    RD*) DEFAULT_LETTERS=29 ;;
     *) DEFAULT_LETTERS=26 ;;
 esac
 export MACONDO_LETTERS=${LETTERS:-$DEFAULT_LETTERS}
