@@ -127,7 +127,10 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if p.endgameTTable == nil {
 		p.endgameTTable = &negamax.TranspositionTable{}
 	}
-	// make a copy of the game.
+	// make a copy of the game, freeing the last endgame's.
+	if old := p.endgamer.Game(); old != nil {
+		old.ReleaseMagpie()
+	}
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(endgamePlies + 1)

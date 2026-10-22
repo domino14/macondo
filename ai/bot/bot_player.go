@@ -471,6 +471,9 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 		quickEndgameTable.Reset(0.02, p.Game.Board().Dim())
 	})
 	gameCopy := p.Game.Copy()
+	// One copy per endgame turn: free its MAGPIE position when done rather
+	// than when the collector gets to it.
+	defer gameCopy.ReleaseMagpie()
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(cfg.QuickEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
 	gameCopy.SetEndgameMode(true)

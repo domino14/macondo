@@ -524,6 +524,7 @@ func (s *Simmer) SetInferences(racks []InferredRack, rackLength int, mode Infere
 
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
+	s.releaseGameCopies()
 	s.gameCopies = []*game.Game{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	s.rngs = s.makeRNGs()
@@ -648,7 +649,17 @@ func (s *Simmer) IsSimming() bool {
 	return s.simming
 }
 
+// releaseGameCopies frees the last sim's MAGPIE positions now: a bot that
+// sims every turn makes a set of copies per turn, and the garbage collector,
+// which only sees their small Go side, lets them pile up.
+func (s *Simmer) releaseGameCopies() {
+	for _, g := range s.gameCopies {
+		g.ReleaseMagpie()
+	}
+}
+
 func (s *Simmer) Reset() {
+	s.releaseGameCopies()
 	s.gameCopies = nil
 	s.readyToSim = false
 }

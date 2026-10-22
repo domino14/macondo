@@ -159,10 +159,13 @@ func loadMagpieData(cfg *config.Config, lexiconName string, dist *tilemapping.Le
 // ReleaseMagpie frees this game's MAGPIE position now rather than when the
 // garbage collector gets to it: the collector only sees the small Go side,
 // so a program that churns through games (mlproducer) can hold gigabytes of
-// MAGPIE positions between collections. The game builds a new position if
-// it is used again.
+// MAGPIE positions between collections. The Go board is brought up to date
+// first, so the game stays usable: it builds a new position from the board if
+// it is used again. Only call it on a game that is not in the middle of
+// playing and unplaying moves (MAGPIE's backup stack goes with the position).
 func (g *Game) ReleaseMagpie() {
 	if g.pos != nil {
+		g.refreshView()
 		g.pos.Close()
 		g.pos = nil
 	}

@@ -485,6 +485,14 @@ type Solver struct {
 // maxRootPlays is the most candidate plays a pre-endgame solve generates.
 const maxRootPlays = 300000
 
+func (s *Solver) releaseEndgameGames() {
+	for _, es := range s.endgameSolvers {
+		if es != nil && es.Game() != nil {
+			es.Game().ReleaseMagpie()
+		}
+	}
+}
+
 func (s *Solver) Init(g *game.Game) error {
 	if game.IsWordSmog(g.Rules().Variant()) {
 		// The pre-endgame solver leans on the endgame solver, which has no
@@ -503,6 +511,9 @@ func (s *Solver) Init(g *game.Game) error {
 	s.threadNestedBagSize = make([]atomic.Int32, s.threads)
 	s.inFlightPerms = make([]inFlightPermInfo, s.threads)
 	s.ttable.SetMultiThreadedMode()
+	if s.game != nil {
+		s.game.ReleaseMagpie() // the last Init's copy
+	}
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
 	s.curEndgamePlies = 3
@@ -754,6 +765,11 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	prunedKWG := rootPos.PrunedKWG()
 	defer prunedKWG.Close()
 	log.Info().Dur("build-ms", time.Since(t0)).Msg("preendgame-using-pruned-kwg")
+	// Free the endgame games' MAGPIE positions when the solve ends (before
+	// the pruned graph they generate from is closed) and when a deeper
+	// iteration replaces them: there is one per thread per iteration, and
+	// the collector, which only sees their small Go side, lets them pile up.
+	defer s.releaseEndgameGames()
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
@@ -770,6 +786,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		}
 		s.minPotentialLosses = 100000.0
 
+		s.releaseEndgameGames()
 		s.endgameSolvers = make([]*negamax.Solver, s.threads)
 		s.initialSpread = s.game.CurrentSpread()
 

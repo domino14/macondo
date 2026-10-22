@@ -226,3 +226,30 @@ func TestDealRotations(t *testing.T) {
 	is.NoErr(g.DealRandomRackSeeded(opp, nil, frand.NewCustom(seed[:], 0, 0), 2))
 	is.Equal(g.RackLettersFor(opp), a)
 }
+
+// A game whose MAGPIE position is released mid-game (as the simmer and the
+// solvers do to copies they are done with) plays on exactly like one that
+// kept it: the board is read back before the position is freed.
+func TestReleaseMagpieKeepsGame(t *testing.T) {
+	is := is.New(t)
+	rules := nwl23Rules(t)
+	g, err := NewGame(rules, []*pb.PlayerInfo{{Nickname: "a"}, {Nickname: "b"}})
+	is.NoErr(err)
+	g.StartGame()
+	for i := 0; i < 4; i++ {
+		is.NoErr(g.PlayMove(bestMove(t, g), false, 0))
+	}
+	released := g.Copy()
+	// Both draw the same tiles: the copy has the same bag, in the same order.
+	g.Bag().SetFixedOrder(true)
+	released.Bag().SetFixedOrder(true)
+	for g.Playing() == pb.PlayState_PLAYING {
+		released.ReleaseMagpie()
+		checkSnapshot(t, released, takeSnapshot(g), "after release")
+		m := bestMove(t, g)
+		is.Equal(bestMove(t, released).ShortDescription(), m.ShortDescription())
+		is.NoErr(g.PlayMove(m, false, 0))
+		is.NoErr(released.PlayMove(m, false, 0))
+	}
+	checkSnapshot(t, released, takeSnapshot(g), "game over")
+}
