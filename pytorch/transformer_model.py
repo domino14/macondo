@@ -22,10 +22,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-C, H, W = 85, 15, 15
+from features import C, H, W, N_SCAL, N_TILE_TYPES  # English: 85 planes, 72 scalars, 27 tile types
+
 N_SQUARES = H * W  # 225
-N_SCAL = 72
-N_TILE_TYPES = 27  # blank + A..Z, matches rack[0:27] / unseen[27:54]
 N_SPATIAL = 4  # per-square training-only heads, see training.SPATIAL
 
 

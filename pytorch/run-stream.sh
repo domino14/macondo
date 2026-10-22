@@ -11,7 +11,8 @@
 #   (0.1), TRANSPOSE (0), BATCH x ACCUM (probed: fastest of 128x16, 256x8,
 #   256x8 --compile; set BATCH/ACCUM/COMPILE/GPU_MEM to skip the probe),
 #   VAL_SIZE (150000), SHUFFLE (1024 frames per loader worker), DEVICE,
-#   LEXICON (NWL23: the games' lexicon, for the producer and the match)
+#   LEXICON (NWL23: the games' lexicon, for the producer and the match),
+#   LETTERS (the lexicon's alphabet size: 29 for German, else 26)
 #   RESUME=1: carry on a crashed run of TAG from its last validation
 #   (best-tf-TAG-resume.pt), on fresh passes, to the same STEPS; give the
 #   run's BATCH, ACCUM, COMPILE and its other settings again.
@@ -41,6 +42,13 @@ SHUFFLE=${SHUFFLE:-1024}
 DEVICE=${DEVICE:-auto}
 # PRODUCER_EXTRA adds producer flags.
 export LEXICON=${LEXICON:-NWL23}
+# The feature sizes follow the lexicon's alphabet (features.py): German has
+# 29 letters, English and French 26.
+case "$LEXICON" in
+    CGL*|RD*) DEFAULT_LETTERS=29 ;;
+    *) DEFAULT_LETTERS=26 ;;
+esac
+export MACONDO_LETTERS=${LETTERS:-$DEFAULT_LETTERS}
 PRODUCER="../bin/mlproducer -lexicon $LEXICON -labeler result -per-game -holdout-mod $HOLDOUT_MOD ${PRODUCER_EXTRA:-}"
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 

@@ -2,7 +2,8 @@
 """
 Streaming trainer for Macondo's value nets (CNN and transformer)
 ----------------------------------------------------------------
-stdin  : binary frames  [len | 19 125 board | 72 scalars | 5 targets]
+stdin  : binary frames  [len | board | scalars | 5 targets | spatial]
+         (English: 19 125 board values, 72 scalars; see features.py)
 output : best.pt  +  loss_log.csv  (train & val loss, per head)
 
 Targets, in frame order (see cmd/mlproducer/game_assembler.go):
@@ -29,9 +30,9 @@ from torch.utils.data import Dataset, IterableDataset, DataLoader
 from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
-C, H, W = 85, 15, 15
-N_PLANE = C * H * W  # 19_125
-N_SCAL = 72
+from features import LETTERS, C, H, W, N_SCAL, TRANSPOSE_PERM, check_letters
+
+N_PLANE = C * H * W  # English: 19_125
 TARGETS = ["value", "spread", "wdl", "opp_bingo", "opp_score"]
 N_TARGETS = len(TARGETS)
 # Spatial targets: four 15x15 0/1 planes after the scalar targets (the
@@ -46,8 +47,9 @@ ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS + N_SPATIAL_FLOATS
 DTYPE = np.float32
 
 # Frame cache: planes and spatial targets are 0/1 so they pack to bits;
-# scalars and scalar targets stay float32. 2,812 bytes per position instead
-# of 80,408 (2,699 before the spatial targets; an old cache is refused).
+# scalars and scalar targets stay float32. English: 2,812 bytes per position
+# instead of 80,408 (2,699 before the spatial targets; an old cache is
+# refused).
 BIT_FLOATS = N_PLANE + N_SPATIAL_FLOATS
 PACKED_BYTES = (BIT_FLOATS + 7) // 8
 CACHE_ROW_BYTES = PACKED_BYTES + N_SCAL * 4 + N_TARGETS * 4
@@ -68,12 +70,10 @@ DEFAULT_WEIGHTS = {
     "self_win": 0.25,
 }
 
-# Diagonal transpose: the one board symmetry that keeps words readable. It
-# swaps the horizontal cross-check planes (27..52) with the vertical ones
-# (53..78) and transposes every plane and spatial target; the scalars carry
-# nothing directional.
-TRANSPOSE_PERM = list(range(27)) + list(range(53, 79)) + list(range(27, 53)) + list(range(79, C))
-assert sorted(TRANSPOSE_PERM) == list(range(C))
+# Diagonal transpose (TRANSPOSE_PERM, features.py): the one board symmetry
+# that keeps words readable. It swaps the horizontal cross-check planes with
+# the vertical ones and transposes every plane and spatial target; the
+# scalars carry nothing directional.
 
 
 def transpose_batch(board, spatial, prob, generator=None):
@@ -154,7 +154,7 @@ def unpack_frame(payload):
     if len(payload) != ROW_FLOATS * 4:
         raise ValueError(
             f"frame of {len(payload)} bytes, expected {ROW_FLOATS * 4}: "
-            "the producer and the trainer disagree on the row layout"
+            f"the producer and the trainer disagree on the row layout (MACONDO_LETTERS={LETTERS}?)"
         )
     vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
     board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
@@ -830,6 +830,7 @@ def main():
     )
     if args.init_ckpt:
         ck = torch.load(args.init_ckpt, map_location=device, weights_only=False)
+        check_letters(ck, args.init_ckpt)
         missing = load_state_dict_compat(raw_net, ck["model"])
         if missing:
             raise KeyError(f"{args.init_ckpt}: missing weights {missing}")
@@ -839,6 +840,7 @@ def main():
     resume = None
     if args.resume:
         resume = torch.load(args.resume, map_location=device, weights_only=False)
+        check_letters(resume, args.resume)
         raw_net.load_state_dict(resume["model"])
         args.weights = dict(resume["weights"])
         print(f"resuming from {args.resume} (step {resume['step']})", file=sys.stderr)
@@ -1018,6 +1020,7 @@ def main():
                         torch.save(
                             {
                                 "step": step,
+                                "letters": LETTERS,
                                 "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,
@@ -1035,6 +1038,7 @@ def main():
                     torch.save(
                         {
                             "step": step,
+                            "letters": LETTERS,
                             "model": raw_net.state_dict(),
                             "optimizer": opt.state_dict(),
                             "scheduler": scheduler.state_dict(),
@@ -1051,6 +1055,7 @@ def main():
                         torch.save(
                             {
                                 "step": step,
+                                "letters": LETTERS,
                                 "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,
