@@ -624,3 +624,15 @@ What is on deb192 and when it changed. Results go in the sections above.
   (~3 h). Decides whether a hybrid (lq/lqx on 1-2 tiles, ours else) is worth a
   match.
 - deb192 baseline infer-v-sim-2ply-10k: 3,373 pairs, 50.12% ± 0.72.
+- **Leave-quality bot option** (c0311252, env `MACONDO_LQ_TABLE/SCALE/MAXPLAYED`,
+  off by default): reweights the complete posterior the sim samples from
+  after placements of ≤ 2 tiles. Built as **f4e4300b + this patch only**
+  (`bin/shell-lq` on deb128), so the only difference from the baseline binary
+  (410b0a42 = f4e4300b) is the rule. Smoke-tested on deb128 (applies 4·beta,
+  e.g. 0.097 for 2 tiles/38 pts, 0.206 for 2 tiles/24 pts).
+- **lq4-2ply** armed on deb128 (queue4.sh, after dl-lq12, ~04:15): 5,000 pairs,
+  scale 4, same seed (20261020) and setup as the deb192 baseline, so game
+  seeds pair with its first 5,000 pairs. ~25 h. If dl-lq12 favours another
+  scale, swap before it starts.
+- deb192: queue9 armed, filler `infer-v-sim-2ply-ext` (same baseline, seed
+  20261022) runs after the 10k baseline so the machine never idles.
