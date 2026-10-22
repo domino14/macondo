@@ -43,9 +43,10 @@ DEVICE=${DEVICE:-auto}
 # PRODUCER_EXTRA adds producer flags.
 export LEXICON=${LEXICON:-NWL23}
 # The feature sizes follow the lexicon's alphabet (features.py): German has
-# 29 letters, English and French 26.
+# 29 letters, Spanish 28 (CH LL Ñ RR are tiles), English and French 26.
 case "$LEXICON" in
     RD*) DEFAULT_LETTERS=29 ;;
+    FILE*|FISE*) DEFAULT_LETTERS=28 ;;
     *) DEFAULT_LETTERS=26 ;;
 esac
 export MACONDO_LETTERS=${LETTERS:-$DEFAULT_LETTERS}

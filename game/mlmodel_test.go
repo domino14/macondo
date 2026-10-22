@@ -20,7 +20,7 @@ func TestResolveMLModel(t *testing.T) {
 		is.NoErr(err)
 		return d
 	}
-	english, german, french := ld("english"), ld("german"), ld("french")
+	english, german, french, spanish := ld("english"), ld("german"), ld("french"), ld("spanish")
 
 	// A data directory whose models are macondo-tf, macondo-tf-csw and
 	// macondo-tf-german (ONNX files, as the CPU path looks for them).
@@ -46,6 +46,7 @@ func TestResolveMLModel(t *testing.T) {
 		{"macondo-tf", "RD29", german, "macondo-tf-german"},
 		{"macondo-tf", "FRA24", french, ""}, // no French model
 		{"my-net-french", "FRA24", french, "my-net-french"},
+		{"macondo-tf", "FILE2017", spanish, ""}, // no Spanish model
 	} {
 		got, err := ResolveMLModel(cfg, c.base, c.lexicon, c.ld)
 		if c.want == "" {

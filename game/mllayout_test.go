@@ -72,3 +72,14 @@ func TestGermanMLLayout(t *testing.T) {
 	is.Equal(letters(t, "german", l.power[1:]), []string{"Ä", "Ö", "Q", "X", "Y"})
 	is.Equal(letters(t, "german", l.vowels), []string{"A", "Ä", "E", "I", "O", "Ö", "U", "Ü"})
 }
+
+func TestSpanishMLLayout(t *testing.T) {
+	is := is.New(t)
+	l := layoutFor(t, "spanish")
+	is.Equal(l.Letters, 28) // A-Z less K W, plus CH LL Ñ RR as tiles of their own
+	is.Equal(l.NumPlanes, 91)
+	is.Equal(l.NumScalars, 76)
+	// Z (10), then four of the five 8-pointers in alphabet order: X is left out.
+	is.Equal(letters(t, "spanish", l.power[1:]), []string{"J", "[LL]", "Ñ", "[RR]", "Z"})
+	is.Equal(letters(t, "spanish", l.vowels), []string{"A", "E", "I", "O", "U"})
+}
