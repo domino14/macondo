@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -11,7 +12,9 @@ import (
 	grpc_client "github.com/domino14/macondo/triton/grpc-client"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // ModelOutputs contains the different outputs from the model
@@ -124,7 +127,7 @@ func (c *TritonClient) DetectOutputs() error {
 	md, err := (*c.client).ModelMetadata(ctx, &grpc_client.ModelMetadataRequest{
 		Name: c.modelName, Version: c.modelVersion})
 	if err != nil {
-		return err
+		return c.explain(err)
 	}
 	outputs := []string{"value"}
 	for _, o := range md.Outputs {
@@ -144,6 +147,25 @@ func (c *TritonClient) DetectOutputs() error {
 	infoByModel[key] = modelInfo{outputs, boardUint8}
 	connMu.Unlock()
 	return nil
+}
+
+// explain adds a hint to the error Triton returns for a model it is not
+// serving. A server started with --model-control-mode=explicit loads no
+// model until asked, so the usual cause is a model never loaded (or
+// unloaded, as the training scripts do).
+func (c *TritonClient) explain(err error) error {
+	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.NotFound {
+		return err
+	}
+	msg := status.Convert(err).Message()
+	if !strings.Contains(msg, "unknown model") && !strings.Contains(msg, "not at ready state") &&
+		!strings.Contains(msg, "not found") {
+		return err
+	}
+	return fmt.Errorf("%w\nTriton at %s is not serving model %s version %s. Load it "+
+		"(pytorch/triton-models.sh load %s, or curl -X POST <triton http>/v2/repository/models/%s/load), "+
+		"or set triton-use-triton to false to run its model.onnx on the CPU",
+		err, c.serverURL, c.modelName, c.modelVersion, c.modelName, c.modelName)
 }
 
 // SetDebug enables or disables debug logging
@@ -206,7 +228,7 @@ func (c *TritonClient) infer(boardBytes []byte, boardType string, scalarTensorDa
 
 	inferResponse, err := (*c.client).ModelInfer(context.Background(), inferRequest)
 	if err != nil {
-		return nil, fmt.Errorf("inference failed: %w", err)
+		return nil, fmt.Errorf("inference failed: %w", c.explain(err))
 	}
 
 	// Debug output shapes
