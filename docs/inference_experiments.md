@@ -602,3 +602,25 @@ What is on deb192 and when it changed. Results go in the sections above.
    logs, compare regret in decidelab, then a 2-ply paired match (baseline
    50.55, ceiling 53.51). It costs almost nothing per turn, so the sim keeps
    its full budget.
+### Oct 22 01:00: oracle 5-ply final, leave-quality reads (dl-lq)
+
+- **oracle-5ply FINAL** (deb128, 7,500 pairs): **53.73% ± 0.61**, same as
+  2-ply (53.51). Depth does not raise the perfect-read ceiling.
+- **dl-lq** (1,500 positions from the cap05 2-ply log, agree 16): mean
+  decision regret per read (lower is better; truth = 0):
+
+  | read | all | 1 tile (39) | 2 tiles (221) | 3 (411) | 4+ (783) |
+  |---|---|---|---|---|---|
+  | prior | 0.898 | 3.93 | 1.82 | 0.98 | 0.43 |
+  | infer (ours) | 0.793 | 3.48 | 1.57 | 0.87 | 0.39 |
+  | lq x1 / x2 / x4 | 0.861 / 0.826 / 0.833 | 3.99 / 3.33 / 2.72 | 1.66 / 1.54 / 1.56 | 0.92 / 0.90 / 0.97 | worse |
+  | lqx x1 / x2 / x4 | 0.774 / 0.785 / 0.764 | 3.24 / 3.42 / 2.79 | 1.47 / 1.49 / 1.34 | 0.87 / 0.87 / 0.89 | = infer |
+
+  Nothing is significant overall (lqx4 − infer −0.029 ± 0.066). On 1-2 tile
+  plays lqx4 − infer = −0.30 ± 0.32 per turn (n=260): suggestive, matching the
+  bits result. The pure rule loses on 3+ tiles, as expected.
+- Follow-up **dl-lq12** running on deb128 since 01:02: 4,000 positions with the
+  opponent playing 1-2 tiles only (new `-maxplayed` flag), scales 1,2,4,8
+  (~3 h). Decides whether a hybrid (lq/lqx on 1-2 tiles, ours else) is worth a
+  match.
+- deb192 baseline infer-v-sim-2ply-10k: 3,373 pairs, 50.12% ± 0.72.

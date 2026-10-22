@@ -194,6 +194,7 @@ func main() {
 	parallel := flag.Int("parallel", 10, "positions at once (each single-threaded)")
 	judgeIters := flag.Int("judge-iters", 3000, "judge sim iterations")
 	maxBag := flag.Int("maxbag", 0, "only positions with at most this many in the bag (0 = no limit)")
+	maxPlayed := flag.Int("maxplayed", 0, "only placements of at most this many tiles by the opponent (0 = no limit; drops exchanges)")
 	minBag := flag.Int("minbag", 2, "only positions the log has at least this many tiles in the bag for")
 	plies := flag.Int("plies", 5, "sim plies of the deciding bots (the judge always sims 5)")
 	budget := flag.Int("budget", 200, "inference leaf budget")
@@ -259,6 +260,10 @@ func main() {
 	// is the replayed bag. With fewer than 2 in it the bot does not sim at all.
 	kept := corpus[:0]
 	for _, p := range corpus {
+		if *maxPlayed > 0 && (len(p.OppPlay) > 0 && p.OppPlay[0] == '(' ||
+			len([]rune(p.OppRack))-p.LeaveLen > *maxPlayed) {
+			continue
+		}
 		if p.Game.Bag().TilesRemaining() >= 2 {
 			kept = append(kept, p)
 		}
