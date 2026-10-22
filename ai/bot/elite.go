@@ -311,7 +311,8 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			// Complete posterior over every feasible leave: sample it
 			// directly, no count threshold or random fallback needed.
 			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
-			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
+			racks := leaveQualityReweight(p.Game, inferences.InferredRacks, leaveValuer(p.simmerCalcs))
+			p.simmer.SetInferences(racks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
 		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
 			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceWeightedRandomRacks)
