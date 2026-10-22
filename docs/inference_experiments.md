@@ -636,3 +636,27 @@ What is on deb192 and when it changed. Results go in the sections above.
   scale, swap before it starts.
 - deb192: queue9 armed, filler `infer-v-sim-2ply-ext` (same baseline, seed
   20261022) runs after the 10k baseline so the machine never idles.
+
+### Oct 22 09:00: dl-lq12 result, lq4-2ply early
+
+**dl-lq12** (4,000 positions, opponent placed 1-2 tiles): mean decision regret,
+and the paired difference from our read (negative = better):
+
+| read | all (4,000) | 1 tile (708) | 2 tiles (3,292) |
+|---|---|---|---|
+| prior | 1.952 (+0.275 ± 0.057) | 3.749 | 1.566 |
+| infer (ours) | 1.677 | 3.060 | 1.379 |
+| lq x2 / x4 / x8 | -0.03 / -0.08 / -0.05 (n.s.) | -0.38 / -0.57 / -0.55 | +0.05 / +0.02 / +0.06 |
+| **lqx x1** | -0.144 ± 0.045 | -0.51 ± 0.19 | -0.064 ± 0.034 |
+| **lqx x2** | **-0.192 ± 0.059** | -0.75 ± 0.26 | **-0.072 ± 0.043** |
+| **lqx x4** | **-0.180 ± 0.070** | **-0.80 ± 0.31** | -0.048 ± 0.052 |
+| lqx x8 | -0.101 ± 0.083 | -0.66 ± 0.35 | +0.02 |
+
+- **The combined read (ours x the rule) is significantly better on 1-2 tile
+  plays**: it adds about 70% to what our read gains over the prior there
+  (0.275). Most of it is on 1-tile plays (regret 3.06 -> 2.27). The pure rule
+  alone does not beat ours. x2 and x4 are level; lq4-2ply (x4) keeps running.
+- **lq4-2ply early** (1,027 pairs, same seeds as the baseline): 49.05% vs the
+  baseline's 50.15% on the same pairs, difference -1.10 ± 1.14 (n.s.). Too
+  early; ~25 h total.
+- Baseline infer-v-sim-2ply-10k: 6,516 pairs, 50.71% ± 0.52.
