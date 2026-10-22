@@ -169,22 +169,31 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		cfg:                conf,
 	}
 	if conf.TritonModel != "" {
-		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), conf.TritonModel, "1")
+		// The bot's own model, as a base name: its variant for this
+		// lexicon if there is one (see game.ResolveMLModel).
+		name, err := p.Game.ResolveMLModel(conf.TritonModel)
 		if err != nil {
-			return nil, fmt.Errorf("triton client for %s: %w", conf.TritonModel, err)
+			return nil, err
+		}
+		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, "1")
+		if err != nil {
+			return nil, fmt.Errorf("triton client for %s: %w", name, err)
 		}
 		if err := tc.DetectOutputs(); err != nil {
 			if botType == pb.BotRequest_FAST_ML_BOT {
-				return nil, fmt.Errorf("triton model %s is not ready: %w", conf.TritonModel, err)
+				return nil, fmt.Errorf("triton model %s is not ready: %w", name, err)
 			}
-			log.Warn().Err(err).Str("model", conf.TritonModel).Msg("could not read the model's outputs; requesting value only")
+			log.Warn().Err(err).Str("model", name).Msg("could not read the model's outputs; requesting value only")
 		}
 		btp.tritonClient = tc
 	} else if botType == pb.BotRequest_FAST_ML_BOT && conf.Config.GetBool(config.ConfigTritonUseTriton) {
 		// The ML bot plays through the game's client, on the configured
-		// model: check that it is served before the first game rather than
-		// on the first move.
-		name := conf.Config.GetString(config.ConfigTritonModelName)
+		// model for this lexicon: check that it is served before the first
+		// game rather than on the first move.
+		name, err := p.Game.MLModelName()
+		if err != nil {
+			return nil, err
+		}
 		ver := conf.Config.GetString(config.ConfigTritonModelVersion)
 		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, ver)
 		if err != nil {

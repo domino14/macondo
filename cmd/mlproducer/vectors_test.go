@@ -132,13 +132,20 @@ func checkVectors(t *testing.T, rows []string) {
 	}
 }
 
+// The English layout: 85 board planes, 72 scalars (game.TestEnglishMLLayout
+// pins it).
+const (
+	enPlaneLen = 85 * game.NN_H * game.NN_W
+	enScalars  = 72
+)
+
 // featureName describes a vector index for error messages.
 func featureName(j int) string {
-	if j < game.NN_N_PLANES {
+	if j < enPlaneLen {
 		plane, sq := j/(15*15), j%(15*15)
 		return fmt.Sprintf("plane %d (%c%d)", plane, 'A'+sq%15, sq/15+1)
 	}
-	s := j - game.NN_N_PLANES
+	s := j - enPlaneLen
 	switch {
 	case s < 27:
 		return fmt.Sprintf("rack[%d]", s)
@@ -202,15 +209,15 @@ func TestByteVectorsMatchFloat(t *testing.T) {
 				}
 				for j := range planes {
 					if float32(boards[j]) != planes[j] {
-						mi := j / game.NN_N_PLANES
+						mi := j / enPlaneLen
 						t.Fatalf("turn %d move %s: %s: float %v byte %v", tn.TurnNumber,
-							moves[mi].ShortDescription(), featureName(j%game.NN_N_PLANES), planes[j], boards[j])
+							moves[mi].ShortDescription(), featureName(j%enPlaneLen), planes[j], boards[j])
 					}
 				}
 				for j := range scalars {
 					if bscalars[j] != scalars[j] {
 						t.Fatalf("turn %d: scalar %s: float %v byte path %v", tn.TurnNumber,
-							featureName(game.NN_N_PLANES+j%game.NN_N_SCAL), scalars[j], bscalars[j])
+							featureName(enPlaneLen+j%enScalars), scalars[j], bscalars[j])
 					}
 				}
 				checked += len(moves)

@@ -96,6 +96,7 @@ type Game struct {
 	// The uint8 counterparts, for models that take the board as uint8.
 	mlBoardBytesBuf []byte
 	mlBytes         *mlByteBoard
+	mlLayoutCache   *MLLayout // see mlLayout
 }
 
 func (g *Game) Config() *config.Config {
@@ -207,9 +208,14 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 
 	if game.config.GetBool(config.ConfigTritonUseTriton) {
 		tritonURL := game.config.GetString(config.ConfigTritonURL)
-		modelName := game.config.GetString(config.ConfigTritonModelName)
 		modelVersion := game.config.GetString(config.ConfigTritonModelVersion)
-		var err error
+		// The model for this game's lexicon. A lexicon without one (another
+		// alphabet) is not an error until the net is asked for.
+		modelName, err := game.MLModelName()
+		if err != nil {
+			log.Debug().Err(err).Msg("no ml model for this game")
+			return game, nil
+		}
 		game.tritonClient, err = triton.NewTritonClient(tritonURL, modelName, modelVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create triton client: %w", err)
