@@ -75,7 +75,7 @@ With `--model-control-mode=explicit`, Triton must also be told to load it
 
 ## Models
 
-Two value nets ship in `data/strategy/default/models/`. Both are the same
+Three value nets ship in `data/strategy/default/models/`. All are the same
 transformer (8 layers, d_model 192, a token per square), scoring each of the
 top 50 static-equity candidates by win probability:
 
@@ -83,9 +83,10 @@ top 50 static-equity candidates by win probability:
 |---|---|---|---|
 | `macondo-tf` (default) | 54M HastyBot self-play games, 6 passes, one position per game per pass | 57.65% ± 0.18 | |
 | `macondo-tf-selfplay` | `macondo-tf` fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats `macondo-tf` 50.37% ± 0.16 |
+| `macondo-tf-csw` (Collins lexica) | 81M CSW24 HastyBot self-play games, 6 passes | 58.06% ± 0.18 (CSW24) | beats the same recipe on 54M games 50.62% ± 0.16 |
 
-Win rates are 100k game pairs, ties counted half, with a 95% interval. The
-self-play net exploits HastyBot a little less but beats its parent head to
+Win rates are 100k game pairs, ties counted half, with a 95% interval, in
+NWL23 unless marked. The self-play net exploits HastyBot a little less but beats its parent head to
 head. Training runs and matches are logged in `pytorch/RUNS.md` and
 `pytorch/experiments.md`. To rebuild them, or train one for another lexicon
 (any alphabet: see `pytorch/features.py`), follow `pytorch/TRAINING.md`.
