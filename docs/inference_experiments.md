@@ -704,3 +704,18 @@ Differences from the 10k baseline on the same seeds:
   +0.22/turn, cap05 match null).
 - deb192: queue11 filler infer-v-sim-2ply-ext2 (seed 20261023) armed after
   lq4max1 (~15:00).
+
+### 2-ply inference base rate (summary, Oct 23)
+
+Inference (engine defaults at f4e4300b, budget 200) vs plain sim, both 2-ply,
+paired, on deb192:
+
+| run | seed | pairs | win % |
+|---|---|---|---|
+| infer-v-sim-2ply-10k | 20261020 | 10,000 | 50.66 ± 0.43 |
+| infer-v-sim-2ply-ext (filler, stopped) | 20261022 | 2,840 | 50.53 ± 0.81 |
+| **pooled** | | **12,840** | **50.63 ± 0.38** |
+
+The earlier `infer-v-sim-2ply` (Oct 17, 4,863 pairs, 50.55 ± 0.62) was an
+older build and is not pooled. Matches on seed 20261020 are compared with the
+10k run on the same seeds.
