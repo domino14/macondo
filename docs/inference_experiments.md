@@ -673,3 +673,17 @@ and the paired difference from our read (negative = better):
 - **lq4-2ply** at 3,449 pairs: 49.38%; baseline on the same seeds 50.14;
   **difference -0.76 ± 0.64**. The read gain in dl-lq12 does not show up as
   wins; if anything the rule hurts.
+
+### Oct 23 01:35: two leave-quality follow-ups queued
+
+lq4 at 4,616 pairs: -0.73 ± 0.54 vs the baseline on the same seeds (626 pairs
+changed). Two single-cause follow-ups, both seed 20261020 (paired with the
+10k baseline), `shell-lq` eba0a241 (f4e4300b + c0311252 patch):
+
+- **lq4max1-2ply** (deb192, started 01:33, ~13 h): x4 on 1-tile plays only.
+  dl-lq12's gain was on 1-tile plays (-0.80), while 2-tile plays (gain -0.05)
+  are 83% of the rule's firings: tests whether the 2-tile reweighting costs.
+  The filler infer-v-sim-2ply-ext was stopped at 2,784 pairs (50.57% ± 0.81)
+  after a 2-minute overlap.
+- **lq1-2ply** (deb128, queue5 after lq4, ~25 h): x1 on 1-2 tile plays; tests
+  whether x4 is too sharp in games.
