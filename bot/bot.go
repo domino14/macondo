@@ -132,6 +132,12 @@ func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
 	// find the played move in the list of moves
 	topEquity := moves[0].Equity()
 	topIsBingo := moves[0].TilesPlayed() == game.RackTileLimit && moves[0].Action() == move.MoveTypePlay
+	topMoveWord := ""
+	if moves[0].Action() == move.MoveTypePlay {
+		if words, err := g.Board().FormedWords(moves[0]); err == nil && len(words) > 0 {
+			topMoveWord = words[0].UserVisible(g.Alphabet())
+		}
+	}
 	foundEquity := float64(0)
 	playedBingo := false
 	hasStarPlay := false
@@ -162,6 +168,7 @@ func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
 	return &pb.SingleEvaluation{
 		EquityLoss:       foundEquity - topEquity,
 		TopIsBingo:       topIsBingo,
+		TopMoveWord:      topMoveWord,
 		MissedBingo:      topIsBingo && !playedBingo,
 		PossibleStarPlay: hasStarPlay,
 		MissedStarPlay:   missedStarPlay,
