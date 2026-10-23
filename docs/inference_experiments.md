@@ -687,3 +687,20 @@ changed). Two single-cause follow-ups, both seed 20261020 (paired with the
   after a 2-minute overlap.
 - **lq1-2ply** (deb128, queue5 after lq4, ~25 h): x1 on 1-2 tile plays; tests
   whether x4 is too sharp in games.
+
+### Oct 23 10:20: lq4 final, lq4max1 and lq1 midway
+
+Differences from the 10k baseline on the same seeds:
+
+| run | pairs | win % | baseline, same seeds | difference | pairs changed |
+|---|---|---|---|---|---|
+| **lq4-2ply FINAL** (x4, 1-2 tiles) | 5,000 | 50.09 | 50.76 | **-0.66 ± 0.53** | 691 |
+| lq4max1-2ply (x4, 1 tile) | 3,378 | 49.81 | 50.15 | -0.34 ± 0.31 | 117 |
+| lq1-2ply (x1, 1-2 tiles) | 1,571 | 50.13 | 50.48 | -0.35 ± 0.59 | 92 |
+
+- Every version is below the baseline, including the 1-tile-only one, where
+  dl-lq12 found the biggest read gain (-0.80 regret). The agreement-regret
+  metric does not predict wins here. Same pattern as fixed tau 0.05 (dl
+  +0.22/turn, cap05 match null).
+- deb192: queue11 filler infer-v-sim-2ply-ext2 (seed 20261023) armed after
+  lq4max1 (~15:00).
