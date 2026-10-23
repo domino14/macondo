@@ -1238,8 +1238,11 @@ type SingleEvaluation struct {
 	PossibleStarPlay bool                   `protobuf:"varint,4,opt,name=possible_star_play,json=possibleStarPlay,proto3" json:"possible_star_play,omitempty"`
 	MissedStarPlay   bool                   `protobuf:"varint,5,opt,name=missed_star_play,json=missedStarPlay,proto3" json:"missed_star_play,omitempty"`
 	TopIsBingo       bool                   `protobuf:"varint,6,opt,name=top_is_bingo,json=topIsBingo,proto3" json:"top_is_bingo,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The main word formed by the top (highest-equity) move, with designated
+	// blanks in lowercase. Empty if the top move is not a tile placement.
+	TopMoveWord   string `protobuf:"bytes,7,opt,name=top_move_word,json=topMoveWord,proto3" json:"top_move_word,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SingleEvaluation) Reset() {
@@ -1312,6 +1315,13 @@ func (x *SingleEvaluation) GetTopIsBingo() bool {
 		return x.TopIsBingo
 	}
 	return false
+}
+
+func (x *SingleEvaluation) GetTopMoveWord() string {
+	if x != nil {
+		return x.TopMoveWord
+	}
+	return ""
 }
 
 type BotResponse struct {
@@ -3387,7 +3397,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x04user\x18\x01 \x01(\tR\x04user\"D\n" +
 	"\n" +
 	"Evaluation\x126\n" +
-	"\tplay_eval\x18\x01 \x03(\v2\x19.macondo.SingleEvaluationR\bplayEval\"\xf2\x01\n" +
+	"\tplay_eval\x18\x01 \x03(\v2\x19.macondo.SingleEvaluationR\bplayEval\"\x96\x02\n" +
 	"\x10SingleEvaluation\x12\x1f\n" +
 	"\vequity_loss\x18\x01 \x01(\x01R\n" +
 	"equityLoss\x12 \n" +
@@ -3397,7 +3407,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x12possible_star_play\x18\x04 \x01(\bR\x10possibleStarPlay\x12(\n" +
 	"\x10missed_star_play\x18\x05 \x01(\bR\x0emissedStarPlay\x12 \n" +
 	"\ftop_is_bingo\x18\x06 \x01(\bR\n" +
-	"topIsBingo\"\x9d\x01\n" +
+	"topIsBingo\x12\"\n" +
+	"\rtop_move_word\x18\a \x01(\tR\vtopMoveWord\"\x9d\x01\n" +
 	"\vBotResponse\x12(\n" +
 	"\x04move\x18\x01 \x01(\v2\x12.macondo.GameEventH\x00R\x04move\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05error\x12'\n" +

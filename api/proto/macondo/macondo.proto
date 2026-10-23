@@ -187,6 +187,9 @@ message SingleEvaluation {
   bool possible_star_play = 4;
   bool missed_star_play = 5;
   bool top_is_bingo = 6;
+  // The main word formed by the top (highest-equity) move, with designated
+  // blanks in lowercase. Empty if the top move is not a tile placement.
+  string top_move_word = 7;
 }
 
 message BotResponse {
