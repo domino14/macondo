@@ -320,6 +320,11 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
 		}
 	}
+	if !HasInfer(p.botType) {
+		if racks, k, ok := leaveQualityPure(p.Game, leaveValuer(p.simmerCalcs)); ok {
+			p.simmer.SetInferences(racks, k, montecarlo.InferenceCompletePosterior)
+		}
+	}
 	if p.cfg.UseOppRacksInAnalysis {
 		oppRack := p.Game.RackFor(p.Game.NextPlayer())
 		logger.Info().Str("rack", oppRack.String()).Msg("setting-known-opp-rack")
