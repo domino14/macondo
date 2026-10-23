@@ -719,3 +719,37 @@ paired, on deb192:
 The earlier `infer-v-sim-2ply` (Oct 17, 4,863 pairs, 50.55 ± 0.62) was an
 older build and is not pooled. Matches on seed 20261020 are compared with the
 10k run on the same seeds.
+
+### Oct 23 12:00: divergence judge (divjudge) on lq4 vs the baseline
+
+`divjudge` (5114b7d5): of the 10,000 seatings, 6,841 are identical in both
+runs and 3,159 diverge, every one first after an opponent 1-2 tile play (719
+one-tile, 2,440 two-tile), always at the inferring bot's move. Each first
+divergence was judged from the same position, 5,000 iterations at 5 plies (all
+unseen tiles at the end), once with the opponent's true leave known and once
+without. Differences are lq4's move minus the baseline's:
+
+| group | n | judge, leave known | judge, leave unknown | score | tiles | static equity |
+|---|---|---|---|---|---|---|
+| **all** | 3,159 | **-0.47 ± 0.18** | -1.42 ± 0.10 | -4.0 | -0.49 | -3.4 |
+| bag 61-100 | 976 | -0.62 ± 0.16 | -1.22 | -4.4 | -0.47 | -3.7 |
+| bag 41-60 | 606 | -0.66 ± 0.25 | -1.25 | -5.0 | -0.62 | -3.5 |
+| bag 21-40 | 637 | -0.43 ± 0.27 | -1.22 | -2.5 | -0.49 | -2.7 |
+| bag 8-20 | 500 | +0.26 ± 0.46 | -1.35 | -3.9 | -0.41 | -3.1 |
+| bag 1-7 | 440 | -0.74 ± 1.03 | -2.47 | -3.9 | -0.49 | -3.8 |
+
+(win % points per divergence)
+
+- **The rule makes the bot play smaller, more defensive moves**: 4 points and
+  half a tile less per changed move, 3.4 points of static equity given up.
+- **Even a judge that knows the opponent's real leave says those moves are
+  worse** (-0.47 per divergence), most clearly early in the game. Only bag
+  8-20 is level.
+- The judge agrees with the games: where it prefers lq4's move (701), lq4's
+  game result is +3.4 ± 3.9; where it prefers the baseline's (1,007), -4.8 ±
+  3.4. So the judge is a fair referee, and dl-lq12's agreement regret was not.
+- Reading: x4 piles the read onto the very strongest leaves. The opponent did
+  keep good tiles, but the sim then sees bingo threats everywhere and gives up
+  score to block. The agreement metric (best move for each sampled leave, one
+  at a time) does not see that cost, because the match sim averages over the
+  read in one search.
