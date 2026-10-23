@@ -660,3 +660,16 @@ and the paired difference from our read (negative = better):
   baseline's 50.15% on the same pairs, difference -1.10 ± 1.14 (n.s.). Too
   early; ~25 h total.
 - Baseline infer-v-sim-2ply-10k: 6,516 pairs, 50.71% ± 0.52.
+
+### Oct 22 20:00: baseline final, lq4 at 3,449 pairs
+
+- **infer-v-sim-2ply-10k FINAL** (deb192, 10,000 pairs, build f4e4300b,
+  engine defaults, budget 200): **50.66% ± 0.43**. The 2-ply inference
+  baseline; oracle ceiling 53.51 (2-ply) / 53.73 (5-ply).
+- Filler infer-v-sim-2ply-ext (seed 20261022) started 17:58 back-to-back.
+- Rule-off check: `shell-lq` with the rule off reproduced all 32 baseline games
+  on the first 16 seeds exactly, so the build is clean. With the rule on, 24 of
+  those 32 games are unchanged.
+- **lq4-2ply** at 3,449 pairs: 49.38%; baseline on the same seeds 50.14;
+  **difference -0.76 ± 0.64**. The read gain in dl-lq12 does not show up as
+  wins; if anything the rule hurts.
