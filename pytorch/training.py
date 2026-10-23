@@ -399,6 +399,11 @@ def parse_args(argv=None):
     p.add_argument("--heads", type=int, default=6)
     p.add_argument("--ff-mult", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.0)
+    p.add_argument(
+        "--rel-bias",
+        action="store_true",
+        help="transformer: learned attention bias by square-to-square (row, column) offset",
+    )
     # loss weights per head; 0 disables a head's gradient (it is still logged)
     for name, w in DEFAULT_WEIGHTS.items():
         p.add_argument(f"--w-{name.replace('_', '-')}", type=float, default=w)
@@ -531,6 +536,8 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
+        if args.rel_bias:  # only when on, so plain checkpoints keep their hparams
+            args.hparams["rel_bias"] = True
     args.weights = {name: getattr(args, f"w_{name}") for name in ALL_HEADS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")

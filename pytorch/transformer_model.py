@@ -11,6 +11,15 @@ Tokenization happens inside the model (254 tokens):
     [CLS] + 225 board squares + 27 tile types (rack count, unseen prob)
     + 1 game-state token (all 72 scalars).
 
+rel_bias=True adds, in every layer, a learned bias per head to the
+attention score between two squares, looked up by their (row, column)
+offset: 29 x 29 values per head, zero at the start, so the net begins as the
+plain one does. Scrabble happens along rows and columns, and this lets a head
+attend "same row, 3 to the left" directly rather than learn it through the
+absolute square embeddings. Pairs involving a non-square token get no bias.
+In export mode the bias is a constant (B-independent) added before the
+softmax.
+
 Every reshape uses -1 for the batch dimension and literal constants
 otherwise, so ONNX export emits constant Reshape nodes with a single
 dynamic batch axis.
@@ -26,12 +35,22 @@ from features import C, H, W, N_SCAL, N_TILE_TYPES  # English: 85 planes, 72 sca
 
 N_SQUARES = H * W  # 225
 N_SPATIAL = 4  # per-square training-only heads, see training.SPATIAL
+N_OFFSETS = (2 * H - 1) * (2 * W - 1)  # 29 x 29 square-to-square offsets
+
+
+def square_offset_index():
+    """(225, 225) index of each square pair's (row, column) offset."""
+    r = torch.arange(N_SQUARES) // W
+    c = torch.arange(N_SQUARES) % W
+    dr = r[:, None] - r[None, :] + (H - 1)
+    dc = c[:, None] - c[None, :] + (W - 1)
+    return dr * (2 * W - 1) + dc
 
 
 class Block(nn.Module):
     """Pre-norm transformer encoder block."""
 
-    def __init__(self, d, heads, ff_mult, dropout, n_layers):
+    def __init__(self, d, heads, ff_mult, dropout, n_layers, rel_bias=False):
         super().__init__()
         assert d % heads == 0, "d_model must be divisible by heads"
         self.d = d
@@ -48,6 +67,7 @@ class Block(nn.Module):
         self.fc2 = nn.Linear(ff_mult * d, d)
         self.drop = nn.Dropout(dropout)
         self.dropout_p = dropout
+        self.rel_bias = nn.Parameter(torch.zeros(heads, N_OFFSETS)) if rel_bias else None
 
         # GPT-2 style init; residual projections scaled by depth.
         for lin in (self.qkv, self.fc1):
@@ -57,27 +77,38 @@ class Block(nn.Module):
             nn.init.normal_(lin.weight, std=0.02 / math.sqrt(2 * n_layers))
             nn.init.zeros_(lin.bias)
 
-    def attention(self, x, T):
+    def attn_bias(self, offset_index, T):
+        """(H, T, T) additive attention bias: the learned offset bias between
+        squares (tokens 1..225), zero for every pair with another token."""
+        sq = self.rel_bias[:, offset_index]  # (H, 225, 225)
+        return F.pad(sq, (1, T - 1 - N_SQUARES, 1, T - 1 - N_SQUARES))
+
+    def attention(self, x, T, bias=None):
         qkv = self.qkv(x).view(-1, T, 3, self.heads, self.hd)
         q, k, v = qkv.unbind(2)  # each (B, T, H, hd)
         q = q.transpose(1, 2)  # (B, H, T, hd)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
+        if bias is not None:
+            bias = bias.to(q.dtype)  # SDPA wants the mask in the query's dtype (bf16 under autocast)
         if self.export_mode:
             # Manual path: MatMul -> Softmax -> MatMul. TensorRT fuses this
             # pattern into its MHA kernel; no dependence on the SDPA symbolic.
             att = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+            if bias is not None:
+                att = att + bias
             att = torch.softmax(att, dim=-1)
             out = torch.matmul(att, v)
         else:
             out = F.scaled_dot_product_attention(
-                q, k, v, dropout_p=self.dropout_p if self.training else 0.0
+                q, k, v, attn_mask=bias, dropout_p=self.dropout_p if self.training else 0.0
             )
         out = out.transpose(1, 2).reshape(-1, T, self.d)
         return self.proj(out)
 
-    def forward(self, x, T):
-        x = x + self.drop(self.attention(self.ln1(x), T))
+    def forward(self, x, T, offset_index=None):
+        bias = self.attn_bias(offset_index, T) if self.rel_bias is not None else None
+        x = x + self.drop(self.attention(self.ln1(x), T, bias))
         x = x + self.drop(self.fc2(F.gelu(self.fc1(self.ln2(x)))))
         return x
 
@@ -85,7 +116,9 @@ class Block(nn.Module):
 class ScrabbleTransformerNet(nn.Module):
     N_TOKENS = 1 + N_SQUARES + N_TILE_TYPES + 1  # 254
 
-    def __init__(self, d_model=192, layers=8, heads=6, ff_mult=4, dropout=0.0, n_spatial=N_SPATIAL):
+    def __init__(
+        self, d_model=192, layers=8, heads=6, ff_mult=4, dropout=0.0, n_spatial=N_SPATIAL, rel_bias=False
+    ):
         super().__init__()
         d = d_model
         self.d = d
@@ -101,8 +134,9 @@ class ScrabbleTransformerNet(nn.Module):
         nn.init.normal_(self.cls, std=0.02)
 
         self.blocks = nn.ModuleList(
-            [Block(d, heads, ff_mult, dropout, layers) for _ in range(layers)]
+            [Block(d, heads, ff_mult, dropout, layers, rel_bias) for _ in range(layers)]
         )
+        self.register_buffer("offset_index", square_offset_index(), persistent=False)
         self.ln_f = nn.LayerNorm(d)
         self.fc1 = nn.Linear(d, 128)
         from training import Heads  # lazy: training imports this module
@@ -140,7 +174,7 @@ class ScrabbleTransformerNet(nn.Module):
         x = self.tokens(board, scalars)
         T = self.N_TOKENS
         for blk in self.blocks:
-            x = blk(x, T)
+            x = blk(x, T, self.offset_index)
         x = self.ln_f(x)
         h = F.relu(self.fc1(x[:, 0]))
         out = self.heads(h)
