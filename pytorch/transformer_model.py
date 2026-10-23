@@ -89,8 +89,11 @@ class Block(nn.Module):
         q = q.transpose(1, 2)  # (B, H, T, hd)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
-        if bias is not None:
-            bias = bias.to(q.dtype)  # SDPA wants the mask in the query's dtype (bf16 under autocast)
+        if bias is not None and bias.dtype != q.dtype:
+            # SDPA wants the mask in the query's dtype (bf16 under autocast).
+            # Only when they differ: an fp32 export must not get a Cast to
+            # float here, which the fp16 conversion for TensorRT would keep.
+            bias = bias.to(q.dtype)
         if self.export_mode:
             # Manual path: MatMul -> Softmax -> MatMul. TensorRT fuses this
             # pattern into its MHA kernel; no dependence on the SDPA symbolic.
