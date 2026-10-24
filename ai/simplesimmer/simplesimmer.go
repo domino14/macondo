@@ -13,8 +13,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 // A SimpleSimmer is a simple wrapper to allow a simple MonteCarlo simming player
@@ -26,34 +24,13 @@ type SimpleSimmer struct {
 	numPlies    int
 	maxIters    int
 	logging     bool
-
-	// The word map for this simmer's lexicon, resolved once. See resolveWMP.
-	wmp         *wmppkg.WMP
-	wmpResolved bool
 }
 
-// resolveWMP wires the word map into the simmer, asking the word map cache
-// for it only on the first sim.
-//
-// The rangefinder drives GenAndSim in a tight loop -- once per inference
-// iteration per thread, thousands of times per bot turn on both the sampling
-// and the exhaustive path -- and TryLoadWMP is not free at that rate. Every
-// call takes a process-global lock and logs a line, even once the word map
-// has been resident since the first one, so all the inference threads
-// serialize on a lookup whose answer cannot change: a SimpleSimmer is built
-// around one game, and so around one lexicon and one board.
-//
-// Call this after simmer.Init, which is where the simmer learns the board
-// dimension that TryLoadWMP checks.
-func (p *SimpleSimmer) resolveWMP() {
-	if !p.wmpResolved {
-		p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
-		p.wmp = p.simmer.WMP()
-		p.wmpResolved = true
-		return
-	}
-	p.simmer.SetWMP(p.wmp)
-}
+// miniSimMinSamples is how many rollouts every play gets before a mini-sim
+// may prefer one or stop: the 128 iterations the old auto-stopper waited for
+// before pruning. MAGPIE's 500 would exceed the mini-sims' 200-iteration
+// budget, leaving them no adaptive sampling at all.
+const miniSimMinSamples = 128
 
 func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
 	btp := &SimpleSimmer{}
@@ -92,30 +69,27 @@ func (p *SimpleSimmer) SetMaxIters(n int) {
 	p.maxIters = n
 }
 
-func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
-	curRack := p.RackFor(p.PlayerOnTurn())
-	oppRack := p.RackFor(p.NextPlayer())
-	gen := p.MoveGenerator()
-	// in case we don't have full rack info:
-	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
-	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-	gen.GenAll(curRack, exchAllowed)
-	plays := gen.(*movegen.GordonGenerator).Plays()
+// SetPlies sets how deep the simmer looks (default 2).
+func (p *SimpleSimmer) SetPlies(n int) {
+	p.numPlies = n
+}
 
-	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	return p.TopPlays(plays, numPlays)
+func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
+	return p.AIStaticTurnPlayer.GenerateMoves(numPlays)
 }
 
 func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	moves := p.GenerateMoves(20)
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-	p.resolveWMP()
 	p.simmer.SetThreads(1)
 	// 2 plies for this simple simmer. can maybe configure later.
 	p.simmer.PrepareSim(p.numPlies, moves)
-	p.simmer.SetAutostopCheckInterval(64)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
+	// No bag cycling: a mini-sim's 200 rollouts a play would be only about 15
+	// cycled samples, 10 of them the minimum, leaving the top-two sampling
+	// almost nothing to allocate.
+	p.simmer.SetBagCycle(false)
 	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
 	wp := p.simmer.WinningPlay()
 	return wp.Move(), nil
@@ -139,11 +113,11 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 		}
 	}
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-	p.resolveWMP()
 	p.simmer.SetThreads(1)
 	p.simmer.PrepareSim(p.numPlies, moves)
-	p.simmer.SetAutostopCheckInterval(64)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
+	p.simmer.SetBagCycle(false)
 	var logfile *os.File
 	var err error
 	var filename string

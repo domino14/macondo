@@ -520,6 +520,10 @@ message AutoplayPlayerConfig {
   // preendgame_threads sets the number of threads used inside a single
   // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
   int32 preendgame_threads = 23;
+  // inference_tau_cap caps the inference temperature, pinned or scheduled.
+  // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
+  // 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
+  double inference_tau_cap = 24;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

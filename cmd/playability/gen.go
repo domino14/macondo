@@ -18,14 +18,12 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/playability"
 )
 
 type worker struct {
 	g   *game.Game
 	btp *bot.BotTurnPlayer
-	gen *movegen.GordonGenerator
 	ev  playability.Evaluator
 }
 
@@ -62,10 +60,7 @@ func newWorker(cfg *config.Config, g *game.Game) (*worker, error) {
 	if err != nil {
 		return nil, err
 	}
-	gen := btp.MoveGenerator().(*movegen.GordonGenerator)
-	gen.SetGame(g)
-	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
-	return &worker{g: g, btp: btp, gen: gen}, nil
+	return &worker{g: g, btp: btp}, nil
 }
 
 func gameSeed(shard, gi int) [32]byte {
@@ -81,7 +76,6 @@ func (w *worker) playShard(idx, games int, check bool, mismatches *atomic.Int64)
 		for w.g.Playing() == pb.PlayState_PLAYING {
 			pi := w.g.PlayerOnTurn()
 			bag := w.g.Bag().TilesRemaining()
-			w.gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 			plays := w.btp.GenerateMoves(math.MaxInt32)
 			best := plays[0]
 			wrs, ars := w.ev.Regrets(w.g.Board(), plays)
@@ -113,7 +107,6 @@ func (w *worker) playShard(idx, games int, check bool, mismatches *atomic.Int64)
 				if math.Abs(top.Equity()-bestEq) > 1e-6 {
 					mismatches.Add(1)
 				}
-				w.gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 				plays = w.btp.GenerateMoves(math.MaxInt32)
 				best = plays[0]
 			}

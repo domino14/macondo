@@ -16,7 +16,6 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
 )
 
@@ -52,10 +51,6 @@ func (p *ExternalEnginePlayer) SetLastMoves([]*move.Move) {}
 
 // AddLastMove is a no-op; the engine reads full GCG each turn.
 func (p *ExternalEnginePlayer) AddLastMove(*move.Move) {}
-
-func (p *ExternalEnginePlayer) MoveGenerator() movegen.MoveGenerator {
-	return p.AIStaticTurnPlayer.MoveGenerator()
-}
 
 // BestPlay writes the current game state to a temp GCG file, calls the external
 // engine binary, parses the JSON response, and returns the chosen move.

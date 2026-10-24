@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"sync"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/word-golib/kwg"
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
@@ -22,7 +20,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/triton"
@@ -47,12 +44,26 @@ type BotConfig struct {
 	// InferenceTau overrides the default softmax temperature for inference.
 	// If 0, the default SoftmaxTemperature constant is used.
 	InferenceTau float64
+	// InferenceTauScale multiplies the temperature in use, pinned or
+	// scheduled. 0 leaves it alone.
+	InferenceTauScale float64
+	// InferenceTauCap caps the temperature in use (after any scale). 0 = no
+	// cap.
+	InferenceTauCap float64
+	// InferenceMinInfoBits skips reads that moved less than this far from
+	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
+	// sim bot's. 0 uses every read.
+	InferenceMinInfoBits float64
 	// InferenceTimeSecs is the wall-clock budget per turn for inference.
 	// If 0, defaults to 20 seconds.
 	InferenceTimeSecs int
 	// InferenceSimIters is the max mini-sim iterations per rack candidate.
 	// If 0, defaults to 200.
 	InferenceSimIters int
+	// InferenceMiniSimPlays and InferenceMiniSimPlies shape each mini-sim: top
+	// static plays considered beside the observed one, and plies. 0 = 10 and 2.
+	InferenceMiniSimPlays int
+	InferenceMiniSimPlies int
 	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
 	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
 	InferenceMaxEnumeratedLeaves int
@@ -107,6 +118,9 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
+	// when there was none.
+	lastInfoBits float64
 	// endgameTTable is the bot's transposition table, shared between endgame
 	// and pre-endgame solvers (they never run simultaneously within a turn).
 	// Lazily allocated on first use when not injected via BotConfig.
@@ -115,6 +129,18 @@ type BotTurnPlayer struct {
 	preendgameThreads int
 	// QuickEndgameSolves counts the moves chosen by the quick endgame search.
 	QuickEndgameSolves int
+}
+
+// LastInferenceInfoBits is how informative the last turn's read was
+// (RangeFinder.InfoBits), NaN when the bot did not infer.
+func (p *BotTurnPlayer) LastInferenceInfoBits() float64 {
+	return p.lastInfoBits
+}
+
+// Inferencer is the bot's range finder, holding the last turn's read; nil for
+// a bot that does not infer.
+func (p *BotTurnPlayer) Inferencer() *rangefinder.RangeFinder {
+	return p.inferencer
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -246,32 +272,20 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 }
 
 func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
+	if numPlays != 1 {
+		return p.AIStaticTurnPlayer.GenerateMoves(numPlays)
+	}
+	if _, filtered := BotConfigs[p.botType]; !filtered {
+		return p.AIStaticTurnPlayer.GenerateMoves(1)
+	}
+	// A level bot picks among all the plays.
+	plays := p.AIStaticTurnPlayer.GenerateMoves(maxFilteredPlays)
 	curRack := p.RackFor(p.PlayerOnTurn())
-	oppRack := p.RackFor(p.NextPlayer())
-	gen := p.MoveGenerator()
-	// in case we don't have full rack info:
-	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
-	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-
-	gg := gen.(*movegen.GordonGenerator)
-	plays, wordSmog := aiturnplayer.GenerateWordSmogTopPlays(gg, curRack, exchAllowed, numPlays)
-	if !wordSmog {
-		gen.GenAll(curRack, exchAllowed)
-		plays = gg.Plays()
-	}
-
-	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	if numPlays == 1 {
-		// Plays aren't sorted yet
-		sort.Slice(plays, func(i, j int) bool {
-			return plays[i].Equity() > plays[j].Equity()
-		})
-		return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType, p.LexiconName())}
-	}
-
-	return p.TopPlays(plays, numPlays)
+	return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType, p.LexiconName())}
 }
+
+// maxFilteredPlays is how many of the best plays a level bot filters.
+const maxFilteredPlays = 300000
 
 type moveEval struct {
 	move *move.Move
@@ -497,10 +511,6 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 			return nil, false
 		}
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, false
-	}
 	// One shared, lock-free transposition table for every bot in the process.
 	quickEndgameTableOnce.Do(func() {
 		quickEndgameTable.Reset(0.02, p.Game.Board().Dim())
@@ -509,9 +519,8 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(cfg.QuickEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
 	gameCopy.SetEndgameMode(true)
-	gen := movegen.NewGordonGenerator(gd, gameCopy.Board(), gameCopy.Bag().LetterDistribution())
 	s := new(negamax.Solver)
-	if err := s.Init(gen, gameCopy); err != nil {
+	if err := s.Init(gameCopy); err != nil {
 		return nil, false
 	}
 	s.SetTTable(quickEndgameTable)

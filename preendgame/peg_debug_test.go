@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
@@ -27,11 +26,8 @@ func TestDebugPegGEI(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
-
 	peg := &Solver{}
-	is.NoErr(peg.Init(g.Game, gd))
+	is.NoErr(peg.Init(g.Game))
 
 	// 13M P(AH) scores 32; leave after playing P from ?ANNOPY is ?ANNOY.
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())
@@ -80,11 +76,8 @@ func TestDebugPegGRL(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
-
 	peg := &Solver{}
-	is.NoErr(peg.Init(g.Game, gd))
+	is.NoErr(peg.Init(g.Game))
 
 	// 13M P(AH) scores 32; leave after playing P from ?ANNOPY is ?ANNOY.
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())

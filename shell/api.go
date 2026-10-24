@@ -35,11 +35,10 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/triton"
-	wmppkg "github.com/domino14/macondo/wmp"
+	"github.com/domino14/macondo/winpct"
 )
 
 // defaultEndgamePlies is the default depth for `endgame`. This is a single
@@ -671,14 +670,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime)*time.Second)
 	}
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
-		return nil, err
-	}
-
-	mg := movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
-
-	err = sc.endgameSolver.Init(mg, sc.game.Game)
+	err = sc.endgameSolver.Init(sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
@@ -893,13 +885,10 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		"endgameplies %v, maxtime %v, threads %v, iterative-deepening %v%v, nested-depth-limit %v",
 		endgamePlies, maxtime, maxthreads, idStr, idNote, nestedDepthLimit))
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
+	sc.preendgameSolver = new(preendgame.Solver)
+	if err := sc.preendgameSolver.Init(sc.game.Game); err != nil {
 		return nil, err
 	}
-
-	sc.preendgameSolver = new(preendgame.Solver)
-	sc.preendgameSolver.Init(sc.game.Game, gd)
 
 	if maxthreads != 0 {
 		sc.preendgameSolver.SetThreads(maxthreads)
@@ -1896,31 +1885,35 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) winpct(cmd *shellcmd) (*Response, error) {
-	if len(cmd.args) != 2 {
-		return nil, errors.New("please provide a spread and tiles remaining to check win percentage")
+	if len(cmd.args) != 2 && len(cmd.args) != 4 {
+		return nil, errors.New("usage: winpct <spread> <tiles in bag> [<on-turn rack size> <opponent rack size>]")
 	}
-
-	spread, err := strconv.Atoi(cmd.args[0])
+	vals := make([]int, len(cmd.args))
+	for i, a := range cmd.args {
+		v, err := strconv.Atoi(a)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number %q: %v", a, err)
+		}
+		vals[i] = v
+	}
+	spread, bag := vals[0], vals[1]
+	onTurnRack, offTurnRack := 7, 7
+	if len(vals) == 4 {
+		onTurnRack, offTurnRack = vals[2], vals[3]
+	}
+	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
+	if sc.game != nil {
+		ldName = sc.game.Rules().LetterDistribution().Name
+	}
+	table, err := winpct.ForDistribution(sc.config.WGLConfig(), ldName)
 	if err != nil {
-		return nil, fmt.Errorf("invalid spread: %v", err)
+		return nil, err
 	}
-	tilesRemaining, err := strconv.Atoi(cmd.args[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid tiles remaining: %v", err)
+	if bag < 0 || bag > table.MaxBag() {
+		return nil, fmt.Errorf("tiles in bag must be between 0 and %d, got %d", table.MaxBag(), bag)
 	}
-	if tilesRemaining < 0 || tilesRemaining > 93 {
-		return nil, fmt.Errorf("tiles remaining must be between 0 and 93, got %d", tilesRemaining)
-	}
-
-	if spread > equity.MaxRepresentedWinSpread {
-		spread = equity.MaxRepresentedWinSpread
-	} else if spread < -equity.MaxRepresentedWinSpread {
-		spread = -equity.MaxRepresentedWinSpread
-	}
-	wpct := sc.winpcts[int(equity.MaxRepresentedWinSpread-spread)][tilesRemaining]
-
+	wpct := table.WinPct(spread, bag, onTurnRack, offTurnRack)
 	return msg(fmt.Sprintf("Win percentage: %.2f%%", wpct*100)), nil
-
 }
 
 func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
@@ -2309,7 +2302,6 @@ func (sc *ShellController) runBaselineSim(params simParams) ([]montecarlo.Candid
 	}
 	baseline := &montecarlo.Simmer{}
 	baseline.Init(sc.game.Game, []equity.EquityCalculator{calc}, calc, sc.config)
-	baseline.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 
 	params.inferMode = montecarlo.InferenceOff
 	if err := sc.setSimmerParams(baseline, params); err != nil {
@@ -2455,10 +2447,22 @@ func (sc *ShellController) buildWMP(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("usage: build-wmp <lexicon>")
 	}
 	lexicon := cmd.args[0]
-
-	_, err := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon)
+	// Loading MAGPIE's data for the lexicon builds its word map, and saves
+	// it beside the lexicon, if it isn't there.
+	distName, err := tilemapping.ProbableLetterDistributionName(lexicon)
 	if err != nil {
 		return nil, err
 	}
-	return msg(fmt.Sprintf("WMP for %s built successfully.", lexicon)), nil
+	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(), distName)
+	if err != nil {
+		return nil, err
+	}
+	d, err := game.MagpieData(sc.config, lexicon, dist, distName, board.CrosswordGameBoard, false, "")
+	if err != nil {
+		return nil, err
+	}
+	if !d.HasWMP() {
+		return nil, fmt.Errorf("no word map for %s (see the MACONDO_WMP_* settings)", lexicon)
+	}
+	return msg(fmt.Sprintf("WMP for %s ready.", lexicon)), nil
 }

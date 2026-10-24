@@ -5,14 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 // A second logged game, with a five-position endgame (bag empty before
@@ -182,13 +181,14 @@ func TestByteVectorsMatchFloat(t *testing.T) {
 				if err := g.SetRackFor(onturn, tilemapping.RackFromString(tn.Rack, g.Alphabet())); err != nil {
 					t.Fatalf("turn %d: set rack: %v", tn.TurnNumber, err)
 				}
-				gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
+				pos, err := g.MagpiePosition()
 				if err != nil {
 					t.Fatal(err)
 				}
-				gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-				gen.SetGenPass(true)
-				moves := gen.GenAll(g.RackFor(onturn), g.Bag().TilesRemaining() >= game.RackTileLimit)
+				var moves []*move.Move
+				for _, mm := range pos.GenerateN(magpie.RecordAll, magpie.SortScore, 0, 100000) {
+					moves = append(moves, g.MoveFromMagpie(&mm))
+				}
 				planes, scalars, err := g.MLVectorsForMoves(moves, ga.eqCalc, history)
 				if err != nil {
 					t.Fatalf("turn %d: float vectors: %v", tn.TurnNumber, err)

@@ -16,6 +16,13 @@ import (
 type CombinedStaticCalculator struct {
 	leaveValues                Leaves
 	preEndgameAdjustmentValues []float64
+	leavesFile                 string
+}
+
+// LeavesFile is the leave file the calculator loaded, as
+// dataloaders.LeavesFileForLexicon names it.
+func (csc CombinedStaticCalculator) LeavesFile() string {
+	return csc.leavesFile
 }
 
 func NewCombinedStaticCalculator(lexiconName string,
@@ -26,6 +33,7 @@ func NewCombinedStaticCalculator(lexiconName string,
 	if leaveFilename == "" {
 		leaveFilename = LeavesFilename
 	}
+	calc.leavesFile = leaveFilename
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
 	}

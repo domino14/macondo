@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -94,11 +93,8 @@ func Test1PEGPass(t *testing.T) {
 
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "FRA20")
-	is.NoErr(err)
-
 	peg := new(Solver)
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 
 	ctx := context.Background()
@@ -150,11 +146,8 @@ func TestPEGAvoidPruneNonBagEmptyingNoSpread(t *testing.T) {
 	g, err := game.NewFromHistory(hist, rules, 24)
 	is.NoErr(err)
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), hist.Lexicon)
-	is.NoErr(err)
-
 	peg := new(Solver)
-	err = peg.Init(g, gd)
+	err = peg.Init(g)
 	is.NoErr(err)
 	// Use only 1 thread and ply 1 to keep the test fast; the bug reproduces
 	// at any ply count since it depends on the leaf-count vs inbagOption-ct
@@ -198,11 +191,9 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	ctx := context.Background()
 	plays, err := peg.Solve(ctx)
@@ -220,11 +211,9 @@ func TestKnownTilesPEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	ctx := context.Background()
 	// Set known opp rack to AACEISU. This means the Y is surely in the bag.
@@ -257,11 +246,9 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	ctx := context.Background()
 	peg.SetIterativeDeepening(false)
@@ -298,11 +285,9 @@ func BenchmarkSlowPEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	ctx := context.Background()
 	peg.SetEndgamePlies(4)
@@ -338,11 +323,9 @@ func TestComplicated1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	peg.maxEndgamePlies = 5
 	is.NoErr(err)
 
@@ -362,11 +345,9 @@ func TestPolishPEGEarlyCutoff(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "OSPS49")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	peg.maxEndgamePlies = 4
 	peg.earlyCutoffOptim = true
 	peg.iterativeDeepening = false
@@ -487,11 +468,9 @@ func TestTwoInBag(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	peg.maxEndgamePlies = 2
 	peg.skipTiebreaker = true
 	is.NoErr(err)
@@ -512,11 +491,9 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	peg.maxEndgamePlies = 2
 	peg.iterativeDeepening = false
@@ -584,11 +561,9 @@ func TestFourInBag(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	peg.maxEndgamePlies = 4
 	peg.iterativeDeepening = true
@@ -611,10 +586,8 @@ func TestHiedInvestigation(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
-	is.NoErr(err)
 	peg := new(Solver)
-	err = peg.Init(g.Game, gd)
+	err = peg.Init(g.Game)
 	is.NoErr(err)
 	peg.maxEndgamePlies = 3
 	peg.iterativeDeepening = false

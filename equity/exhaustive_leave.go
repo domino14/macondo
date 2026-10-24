@@ -20,6 +20,13 @@ func (b *BlankLeaves) LeaveValue(leave tilemapping.MachineWord) float64 {
 // exhaustively.
 type ExhaustiveLeaveCalculator struct {
 	leaveValues Leaves
+	leavesFile  string
+}
+
+// LeavesFile is the leave file the calculator loaded, as
+// dataloaders.LeavesFileForLexicon names it.
+func (els ExhaustiveLeaveCalculator) LeavesFile() string {
+	return els.leavesFile
 }
 
 func NewExhaustiveLeaveCalculator(lexiconName string,
@@ -30,6 +37,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 	if leaveFilename == "" {
 		leaveFilename = LeavesFilename
 	}
+	calc.leavesFile = leaveFilename
 
 	leaves, err := cache.Load(cfg.WGLConfig(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {

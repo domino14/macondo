@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/config"
@@ -22,7 +21,6 @@ import (
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/turnplayer"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 // GameSource represents a source for loading a game
@@ -140,10 +138,10 @@ type WooglesCollectionGame struct {
 
 // WooglesCollection represents a collection from the Woogles API
 type WooglesCollection struct {
-	UUID        string                   `json:"uuid"`
-	Title       string                   `json:"title"`
-	Description string                   `json:"description"`
-	Games       []WooglesCollectionGame  `json:"games"`
+	UUID        string                  `json:"uuid"`
+	Title       string                  `json:"title"`
+	Description string                  `json:"description"`
+	Games       []WooglesCollectionGame `json:"games"`
 }
 
 // WooglesCollectionResponse represents the API response
@@ -371,9 +369,6 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 		err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig())
 		if err != nil {
 			err = fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
-		} else if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
-			log.Info().Err(wmpErr).Str("lexicon", lexicon).
-				Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 		}
 		ensuredLexica[lexicon] = err
 		return err

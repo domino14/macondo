@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,7 +17,6 @@ import (
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/playability"
-	"github.com/domino14/macondo/wmp"
 )
 
 // perGame turns per-turn sums into a per-game value and its standard error.
@@ -152,7 +152,7 @@ func lexiconClasses(cfg *config.Config, lexicon string) (map[playability.Key][]p
 		return nil, nil, err
 	}
 	classes := map[playability.Key][]playability.Key{}
-	for _, mw := range wmp.ExtractWordsFromKWG(k, 15) {
+	for _, mw := range lexiconWords(k, 15) {
 		w := playability.KeyOf(mw)
 		a := playability.AlphaKey(w)
 		classes[a] = append(classes[a], w)
@@ -160,3 +160,30 @@ func lexiconClasses(cfg *config.Config, lexicon string) (map[playability.Key][]p
 	return classes, k.GetAlphabet(), nil
 }
 
+// lexiconWords lists every word in the KWG's DAWG of at most maxLength tiles.
+func lexiconWords(k *kwg.KWG, maxLength int) []tilemapping.MachineWord {
+	var words []tilemapping.MachineWord
+	root := k.ArcIndex(0)
+	if root == 0 {
+		return words
+	}
+	var walk func(node uint32, prefix []tilemapping.MachineLetter)
+	walk = func(node uint32, prefix []tilemapping.MachineLetter) {
+		for i := node; ; i++ {
+			next := append(prefix, tilemapping.MachineLetter(k.Tile(i)))
+			if k.Accepts(i) {
+				words = append(words, slices.Clone(tilemapping.MachineWord(next)))
+			}
+			if len(next) < maxLength {
+				if arc := k.ArcIndex(i); arc != 0 {
+					walk(arc, next)
+				}
+			}
+			if k.IsEnd(i) {
+				break
+			}
+		}
+	}
+	walk(root, make([]tilemapping.MachineLetter, 0, maxLength))
+	return words
+}

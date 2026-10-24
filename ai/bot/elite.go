@@ -9,7 +9,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/endgame/negamax"
@@ -17,7 +16,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 )
 
 const InferencesSimLimit = 2
@@ -124,10 +122,6 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, err
-	}
 	// Ensure the bot has its own TT (lazily allocated for the shell / interactive
 	// path; already set for autoplay where GameRunner injects a per-game table).
 	if p.endgameTTable == nil {
@@ -137,8 +131,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(endgamePlies + 1)
-	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-	err = p.endgamer.Init(gen1, gameCopy)
+	err := p.endgamer.Init(gameCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -172,16 +165,12 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, err
-	}
 	// Ensure the bot has its own TT (shared with the endgame solver — they
 	// never run simultaneously within a turn).
 	if p.endgameTTable == nil {
 		p.endgameTTable = &negamax.TranspositionTable{}
 	}
-	err = p.preendgamer.Init(p.Game, gd)
+	err := p.preendgamer.Init(p.Game)
 	if err != nil {
 		return nil, err
 	}
@@ -238,6 +227,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
 	inferenceRan := false
+	p.lastInfoBits = math.NaN()
 	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
@@ -247,9 +237,14 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceTau > 0 {
 			p.inferencer.SetTau(p.cfg.InferenceTau)
 		}
+		if p.cfg.InferenceTauScale > 0 {
+			p.inferencer.SetTauScale(p.cfg.InferenceTauScale)
+		}
+		p.inferencer.SetTauCap(p.cfg.InferenceTauCap)
 		if p.cfg.InferenceSimIters > 0 {
 			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
 		}
+		p.inferencer.SetMiniSim(p.cfg.InferenceMiniSimPlays, p.cfg.InferenceMiniSimPlies)
 		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
 			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
 		}
@@ -263,11 +258,14 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			if p.cfg.InferenceTimeSecs > 0 {
 				inferTimeSecs = p.cfg.InferenceTimeSecs
 			}
-			logger.Info().Float64("tau", p.inferencer.Tau()).
-				Int("timeSecs", inferTimeSecs).
-				Int("budget", p.cfg.InferenceBudget).
-				Int("simIters", p.inferencer.SimIters()).
-				Msg("inference-tau")
+			ev := logger.Info().Float64("tau", p.inferencer.Tau()).
+				Int("simIters", p.inferencer.SimIters())
+			if p.cfg.InferenceBudget > 0 {
+				ev = ev.Int("budget", p.cfg.InferenceBudget)
+			} else {
+				ev = ev.Int("timeSecs", inferTimeSecs)
+			}
+			ev.Msg("inference-tau")
 			if p.cfg.InferenceBudget > 0 {
 				// Bounded by leaves measured rather than by the clock, so the
 				// answer no longer depends on how busy the machine was. The
@@ -289,7 +287,6 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
 	if p.simThreads != 0 {
 		p.simmer.SetThreads(p.simThreads)
 	}
@@ -302,18 +299,30 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && inferenceRan {
+		p.lastInfoBits = p.inferencer.InfoBits()
+	}
+	if HasInfer(p.botType) && inferenceRan && p.cfg.InferenceMinInfoBits > 0 &&
+		!(p.lastInfoBits >= p.cfg.InferenceMinInfoBits) {
+		logger.Info().Float64("infoBits", p.lastInfoBits).Msg("weak read, simming without it")
+	} else if HasInfer(p.botType) && inferenceRan {
 		inferences := p.inferencer.Inferences()
 		nInferred := len(inferences.InferredRacks)
 		if inferences.Complete {
 			// Complete posterior over every feasible leave: sample it
 			// directly, no count threshold or random fallback needed.
 			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
-			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
+			racks := leaveQualityReweight(p.Game, inferences.InferredRacks, leaveValuer(p.simmerCalcs))
+			p.simmer.SetInferences(racks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
 		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
 			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceWeightedRandomRacks)
 		} else {
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
+		}
+	}
+	if !HasInfer(p.botType) {
+		if racks, k, ok := leaveQualityPure(p.Game, leaveValuer(p.simmerCalcs)); ok {
+			p.simmer.SetInferences(racks, k, montecarlo.InferenceCompletePosterior)
 		}
 	}
 	if p.cfg.UseOppRacksInAnalysis {

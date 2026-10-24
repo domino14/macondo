@@ -21,7 +21,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
-	"github.com/domino14/macondo/movegen"
 )
 
 func simMain(args []string) {
@@ -174,7 +173,6 @@ func simOne(cfg *config.Config, p Position, plies, cands int) (*Label, error) {
 	btp.SetStateStackLength(1)
 	btp.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	btp.RecalculateBoard()
-	btp.MoveGenerator().(*movegen.GordonGenerator).SetPlayRecorder(movegen.AllPlaysRecorder)
 	moves := btp.GenerateMoves(cands)
 	if len(moves) == 0 {
 		return nil, fmt.Errorf("no moves")
@@ -185,7 +183,6 @@ func simOne(cfg *config.Config, p Position, plies, cands int) (*Label, error) {
 	}
 	s := &montecarlo.Simmer{}
 	s.Init(btp.Game, []equity.EquityCalculator{c}, c, cfg)
-	s.TryLoadWMP(cfg.WGLConfig(), btp.LexiconName())
 	s.SetThreads(1)
 	if err := s.PrepareSim(plies, moves); err != nil {
 		return nil, err
