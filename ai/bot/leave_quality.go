@@ -31,10 +31,34 @@ import (
 //	MACONDO_LQ_TABLE      path of the beta table (unset = off)
 //	MACONDO_LQ_SCALE      multiplier of beta (default 1)
 //	MACONDO_LQ_MAXPLAYED  only after placements of at most this many tiles (default 2)
+//	MACONDO_LQ_MINPLAYED  ... and at least this many (default 1)
+//	MACONDO_LQ_MAXBAG     only while the bag holds at most this many tiles (default 100)
+//	MACONDO_LQ_PURE_SIGNED  rule-only reads keep a negative beta (default: clipped at 0)
 type lqConfig struct {
 	table     map[string][][3]float64
 	scale     float64
 	maxPlayed int
+	minPlayed int
+	maxBag    int
+	signed    bool
+}
+
+func envInt(name string, def int) int {
+	s := os.Getenv(name)
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		log.Fatal().Err(err).Msg(name)
+	}
+	return n
+}
+
+// applies says whether the rule covers a placement of this many tiles with
+// this many tiles in the bag.
+func (c *lqConfig) applies(played, bag int) bool {
+	return played >= c.minPlayed && played <= c.maxPlayed && bag <= c.maxBag
 }
 
 var (
@@ -66,7 +90,11 @@ func leaveQualityConfig() *lqConfig {
 				log.Fatal().Err(err).Msg("MACONDO_LQ_MAXPLAYED")
 			}
 		}
+		c.minPlayed = envInt("MACONDO_LQ_MINPLAYED", 1)
+		c.maxBag = envInt("MACONDO_LQ_MAXBAG", 100)
+		c.signed = os.Getenv("MACONDO_LQ_PURE_SIGNED") != ""
 		log.Info().Str("table", path).Float64("scale", c.scale).Int("maxPlayed", c.maxPlayed).
+			Int("minPlayed", c.minPlayed).Int("maxBag", c.maxBag).Bool("signed", c.signed).
 			Msg("leave-quality reweighting on")
 		lqCfg = c
 	})
@@ -117,7 +145,7 @@ func leaveQualityReweight(g *game.Game, racks []montecarlo.InferredRack,
 		return racks
 	}
 	played, score, ok := lastOppPlacement(g)
-	if !ok || played > c.maxPlayed {
+	if !ok || !c.applies(played, g.Bag().TilesRemaining()) {
 		return racks
 	}
 	beta, ok := c.beta(played, score)
@@ -207,7 +235,7 @@ func leaveQualityPure(g *game.Game, value func(tilemapping.MachineWord) float64)
 		return nil, 0, false
 	}
 	played, score, ok := lastOppPlacement(g)
-	if !ok || played > maxPlayed {
+	if !ok || played > maxPlayed || played < c.minPlayed || g.Bag().TilesRemaining() > c.maxBag {
 		return nil, 0, false
 	}
 	// The opponent's rack before the play: logged in the event when known,
@@ -227,6 +255,9 @@ func leaveQualityPure(g *game.Game, value func(tilemapping.MachineWord) float64)
 		return nil, 0, false
 	}
 	b := c.scale * max(beta, 0)
+	if c.signed {
+		b = c.scale * beta
+	}
 
 	// Unseen from the mover's side: the bag and the opponent's rack.
 	opp := g.NextPlayer()

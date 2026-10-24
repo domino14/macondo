@@ -6,6 +6,12 @@
 // divergence ended up favouring.
 //
 //	divjudge -a lq.txt -b base.txt -ga games-lq.txt -gb games-base.txt -out div.jsonl
+//
+// With -mode screen it judges screendecide output instead: positions from
+// the baseline log (-b) where a variant's move (-decide) differs from the
+// control's (-control, or else the logged move), with no games played.
+//
+//	divjudge -mode screen -b base.txt -decide var.jsonl [-control ctl.jsonl] -out s.jsonl
 package main
 
 import (
@@ -310,8 +316,15 @@ func main() {
 	iters := flag.Int("iters", 5000, "judge iterations per sim")
 	parallel := flag.Int("parallel", 8, "positions at once (each single-threaded)")
 	limit := flag.Int("limit", 0, "judge at most this many divergences (0 = all)")
+	mode := flag.String("mode", "div", "div (first divergence of two runs) or screen (screendecide output)")
+	decideF := flag.String("decide", "", "screen: the variant's screendecide output")
+	controlF := flag.String("control", "", "screen: the control's screendecide output (default: the logged moves)")
 	flag.Parse()
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	if *mode == "screen" {
+		screen(*b, *decideF, *controlF, *out, *iters, *parallel, *limit)
+		return
+	}
 
 	ta, err := readTurns(*a)
 	if err != nil {
