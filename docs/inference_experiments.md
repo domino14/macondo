@@ -771,3 +771,36 @@ without. Differences are lq4's move minus the baseline's:
   since). Mitigation: queue13 starts the next run once fewer than 400 games
   remain, so load never tapers. lqpure2 restarted 22:23 Oct 23, then
   fillers ext2–ext4.
+
+## Oct 23 23:00: screening judge (fast variant tests without matches)
+
+`cmd/screendecide` rebuilds positions from the baseline's per-turn log, with
+each game's own seed, and asks a bot what it would play. Seeded sims make
+this exact: the baseline config reproduces the logged move (23 of 23 and
+6 of 6 in smoke tests). So a variant (set by environment) differs only where
+it really changes its mind, with no sim-noise flips. `divjudge -mode screen`
+then judges each changed move against the control's, with a 5-ply,
+5,000-iteration sim that knows the opponent's true leave (and one that
+doesn't). Cost: about an hour of deb192 per variant, against a day for a
+5,000-pair match, which mostly measures the unchanged games.
+
+New rule settings: `MACONDO_LQ_MINPLAYED`, `MACONDO_LQ_MAXBAG`,
+`MACONDO_LQ_PURE_SIGNED`. The fitted β is about 0 after 5-tile plays and
+negative (−0.02 to −0.04) after 6-tile plays: the one kept tile tends to be
+worse than random.
+
+**Round 1 (deb192, from 22:42 Oct 23; lqpure2 soaks idle cores at nice 19):**
+- inference bot after 1–2 tile plays (3,000 positions): rule ×4 (calibration;
+  the match lost 0.66), ×1, ×0.5, ×0.25; late-bag variants come from the
+  same data by filtering on the bag;
+- inference bot after 6-tile plays: rule ×1, ×2 (negative β, so weak leaves
+  are favoured);
+- plain bot after 1–6 tile plays (4,000): rule-only ×2 (the lqpure2 config),
+  ×1, and signed ×1 up to 6 tiles, each against the plain bot as control.
+
+Early calibration check: ×4 changes 25% of decisions after 1–2 tile plays.
+
+**deb128, after lq1 (~04:00 Oct 24):** divjudge on lq1; then the headroom
+map. The oracle and plain bots re-decide 4,000 logged inference positions,
+judged against the inference moves and against each other. This shows where
+the ~3 points between inference (50.6) and the oracle (53.7) are won.

@@ -217,6 +217,7 @@ func main() {
 	botCode := flag.String("bot", "SIMMING_INFER_BOT_NO_EG", "bot code")
 	plies := flag.Int("plies", 2, "minSimPlies")
 	budget := flag.Int("budget", 200, "inferenceBudget")
+	oracle := flag.Bool("oracle", false, "tell the bot the opponent's true leave (oracleInference)")
 	n := flag.Int("n", 0, "sample this many positions (0 = all)")
 	sample := flag.Int64("sample", 1, "sampling seed")
 	maxOpp := flag.Int("maxopp", 7, "only positions after an opponent placement of at most this many tiles (-1 = any, also exchanges)")
@@ -262,7 +263,8 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("rules")
 	}
-	conf := bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1, InferenceBudget: *budget}
+	conf := bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1, InferenceBudget: *budget,
+		OracleInference: *oracle}
 
 	f, err := os.Create(*out)
 	if err != nil {
