@@ -753,3 +753,21 @@ without. Differences are lq4's move minus the baseline's:
   score to block. The agreement metric (best move for each sampled leave, one
   at a time) does not see that cost, because the match sim averages over the
   read in one search.
+
+## Oct 23 22:30: lq4max1 final, lq1 midway, deb192 crash
+
+- **lq4max1** (×4, 1-tile plays only), 4,999 of 5,000 pairs: 50.47% ± 0.61
+  vs plain sim; vs the baseline on the same pairs **−0.28 ± 0.26** (180 pairs
+  changed). deb192 crashed while the last game was finishing, so one pair is missing.
+- **lq1** (×1, 1–2 tiles, deb128), 3,731 of 5,000 pairs: 50.07% ± 0.71;
+  vs the baseline **−0.19 ± 0.40** (236 changed).
+- So far no version of the rule beats the baseline; the gentler it is, the
+  smaller the loss. This matches the divergence judge (the rule over-blocks).
+- **deb192 crash, ~14:27 Oct 23**: at the end of lq4max1. Over the last
+  20 minutes, log output fell from ~3,000 to ~40 lines per minute as the last
+  games finished. The machine died before the queued rule-only match
+  (lqpure2) started. The previous crash (Oct 21, 15:48) came under steady
+  full load, with temperatures normal in the owner's power log (not running
+  since). Mitigation: queue13 starts the next run once fewer than 400 games
+  remain, so load never tapers. lqpure2 restarted 22:23 Oct 23, then
+  fillers ext2–ext4.
