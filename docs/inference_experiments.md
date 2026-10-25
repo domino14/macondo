@@ -804,3 +804,56 @@ Early calibration check: ×4 changes 25% of decisions after 1–2 tile plays.
 map. The oracle and plain bots re-decide 4,000 logged inference positions,
 judged against the inference moves and against each other. This shows where
 the ~3 points between inference (50.6) and the oracle (53.7) are won.
+
+## Oct 24 21:00: screening round 1, headroom map, lq1 and lqpure2 final
+
+Endgame positions (empty bag) are excluded throughout. Verdict = judge win %
+of the variant's move minus the control's, per changed move. Judge: 5-ply,
+5,000 iterations, opponent's true leave known; "unknown" uses random racks.
+
+**Matches (final):**
+- lq1 (×1, 1–2 tiles) vs the baseline: **−0.04 ± 0.35** (5,000 pairs,
+  327 changed); 50.71% ± 0.62 vs plain.
+- lqpure2 (rule-only plain bot, ×2, ≤4 tiles) vs plain: **49.98% ± 0.42**
+  (10,000 pairs). Inference gets 50.66 on the same seeds; the rule alone does
+  nothing.
+- divjudge lq1: 1,514 divergences, **+0.39 ± 0.27** (bag 8–20 +1.11 ± 0.65,
+  bag 21+ +0.18 ± 0.17).
+
+**Round 1, inference bot after 1–2 tile plays (2,497 midgame positions):**
+
+| rule | changed | known | unknown |
+|---|---|---|---|
+| ×4 | 675 | −0.05 ± 0.42 | −1.54 ± 0.23 |
+| ×1 | 282 | **+1.01 ± 0.59** | −0.58 ± 0.27 |
+| ×0.5 | 174 | +0.90 ± 0.75 | −0.56 ± 0.30 |
+| ×0.25 | 110 | +0.55 ± 0.81 | −0.34 ± 0.31 |
+
+By bag, ×4: about −0.65 per change at bag 21+, +1.92 ± 1.30 at bag 8–20.
+×1: +0.1 to +0.3 at bag 21+, +3.11 ± 1.96 at 8–20, +1.69 ± 2.33 at 1–7.
+This agrees with divjudge, whose first divergences come mostly early.
+The rule hurts early and helps late.
+
+The match can't see this: ×1 changes about one game in seven, so +0.4 per
+divergence is about +0.06 per game.
+
+After 6-tile plays (signed β): 22 and 32 changes out of 2,540, −0.80 and
+−0.68 (dropped). Rule-only, plain bot vs plain control: ×2 +0.23 ± 0.63,
+×1 +0.58 ± 0.79, signed ≤6 +0.39 ± 0.67 (not significant).
+
+**Headroom map (deb128, 3,799 midgame positions of the inference bot):**
+- The oracle changes 794 moves (21%), **+1.58 ± 0.26** per change, +0.33 per
+  position.
+- Plain vs inference: 257 changes, plain worse by 0.62 ± 0.40, i.e. inference
+  gains +0.042 per position. That is ~11% of the oracle's +0.38 per position
+  over plain.
+- **Where the oracle's gain is**, by bag: 1–7: +1.31 per position (43% of the
+  gap); 8–20: +0.32 (15%); 21+: ~+0.19 (42%). By the opponent's last play:
+  1 tile +1.42 per position, 2 tiles +0.84, 3 tiles +0.44 (together 74%);
+  4–6 tiles 22%; bingo 0; exchange/pass 2%.
+
+**Round 2 (late game, started 20:50 Oct 24):** deb192: the rule at bag ≤20
+after 1–4 tile plays, ×1/×2/×4 up to 2 tiles and ×1/×2 up to 4 tiles, on fresh
+positions (×1 up to 2 tiles replicates round 1). deb128: tau 0.03 and 0.1
+(default 0.05), and inference budget 1,000 and 2,000 (default 200), at bag
+≤20 after any play.

@@ -217,6 +217,9 @@ func main() {
 	botCode := flag.String("bot", "SIMMING_INFER_BOT_NO_EG", "bot code")
 	plies := flag.Int("plies", 2, "minSimPlies")
 	budget := flag.Int("budget", 200, "inferenceBudget")
+	tau := flag.Float64("tau", 0, "inferenceTau (0 = engine default)")
+	minBag := flag.Int("minbag", 1, "only positions where the mover sees at least this many tiles in the bag")
+	maxBag := flag.Int("maxbag", 100, "... and at most this many")
 	oracle := flag.Bool("oracle", false, "tell the bot the opponent's true leave (oracleInference)")
 	n := flag.Int("n", 0, "sample this many positions (0 = all)")
 	sample := flag.Int64("sample", 1, "sampling seed")
@@ -248,6 +251,15 @@ func main() {
 		}
 		pos = kept
 	}
+	{
+		kept := pos[:0]
+		for _, p := range pos {
+			if b := atoi(p.rows[p.i-1][10]); b >= *minBag && b <= *maxBag {
+				kept = append(kept, p)
+			}
+		}
+		pos = kept
+	}
 	if *n > 0 && *n < len(pos) {
 		rng := rand.New(rand.NewSource(*sample))
 		rng.Shuffle(len(pos), func(a, b int) { pos[a], pos[b] = pos[b], pos[a] })
@@ -264,7 +276,7 @@ func main() {
 		log.Fatal().Err(err).Msg("rules")
 	}
 	conf := bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1, InferenceBudget: *budget,
-		OracleInference: *oracle}
+		OracleInference: *oracle, InferenceTau: *tau}
 
 	f, err := os.Create(*out)
 	if err != nil {
