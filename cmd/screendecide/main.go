@@ -117,7 +117,7 @@ func readPositions(path, player string) ([]position, error) {
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
 func decide(cfg *config.Config, rules *game.GameRules, conf bot.BotConfig, code pb.BotRequest_BotCode,
-	p position) record {
+	p position, salt int) record {
 
 	row := p.rows[p.i]
 	rec := record{Key: fmt.Sprintf("%s|%s|%d", p.gid, p.first, p.i), GameID: p.gid, First: p.first,
@@ -129,6 +129,9 @@ func decide(cfg *config.Config, rules *game.GameRules, conf bot.BotConfig, code 
 	}
 	var seed [32]byte
 	copy(seed[:], seedB)
+	// A salted seed gives the bot different random streams: a placebo that
+	// changes moves only through sim and inference noise.
+	seed[31] ^= byte(salt)
 
 	players := []*pb.PlayerInfo{
 		{Nickname: p.rows[0][0], RealName: p.rows[0][0]},
@@ -220,6 +223,7 @@ func main() {
 	tau := flag.Float64("tau", 0, "inferenceTau (0 = engine default)")
 	minBag := flag.Int("minbag", 1, "only positions where the mover sees at least this many tiles in the bag")
 	maxBag := flag.Int("maxbag", 100, "... and at most this many")
+	salt := flag.Int("salt", 0, "perturb the game seed (placebo: noise-only changes)")
 	oracle := flag.Bool("oracle", false, "tell the bot the opponent's true leave (oracleInference)")
 	n := flag.Int("n", 0, "sample this many positions (0 = all)")
 	sample := flag.Int64("sample", 1, "sampling seed")
@@ -293,7 +297,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for p := range ch {
-				rec := decide(cfg, rules, conf, pb.BotRequest_BotCode(code), p)
+				rec := decide(cfg, rules, conf, pb.BotRequest_BotCode(code), p, *salt)
 				mu.Lock()
 				enc.Encode(rec)
 				mu.Unlock()

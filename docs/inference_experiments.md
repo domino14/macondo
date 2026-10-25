@@ -857,3 +857,30 @@ after 1–4 tile plays, ×1/×2/×4 up to 2 tiles and ×1/×2 up to 4 tiles, on 
 positions (×1 up to 2 tiles replicates round 1). deb128: tau 0.03 and 0.1
 (default 0.05), and inference budget 1,000 and 2,000 (default 200), at bag
 ≤20 after any play.
+
+## Screening round 2: late game (bag ≤ 20)
+
+Fresh positions; judge as in round 1 (win % per changed move, true leave known).
+
+| variant | positions | changed | known | unknown |
+|---|---|---|---|---|
+| rule ×1, ≤2 tiles (replication) | 2,476 | 91 | +1.11 ± 1.72 | −0.60 ± 0.65 |
+| rule ×2, ≤2 tiles | 2,476 | 137 | +0.04 ± 1.46 | −1.39 ± 0.61 |
+| rule ×4, ≤2 tiles | 2,476 | 211 | −0.02 ± 0.97 | −1.34 ± 0.51 |
+| rule ×1, ≤4 tiles | 2,476 | 174 | +1.03 ± 1.03 | −0.32 ± 0.41 |
+| rule ×2, ≤4 tiles | 2,476 | 284 | +0.21 ± 0.89 | −0.99 ± 0.38 |
+| tau 0.03 (default 0.05) | 2,392 | 252 | +0.51 ± 1.13 | −2.04 ± 0.56 |
+| tau 0.1 | 2,392 | 181 | +1.23 ± 1.02 | −1.52 ± 0.50 |
+| budget 1,000 (default 200) | 2,392 | 28 | +0.66 ± 1.33 | |
+| budget 2,000 | 2,392 | 29 | +1.06 ± 1.44 | |
+
+- Late, ×1 beats ×2 and ×4 again.
+- A bigger budget barely changes a move late (about 1%).
+- Late verdicts are noisy: the spread of per-change differences is 7–9 win
+  points, against ~0.7 of judge noise. So more positions help, not more judge
+  iterations.
+- Both tau directions came out positive. That raises a question: does any
+  perturbation of the 2-ply bot look good to the 5-ply judge? Round 3 adds a
+  placebo (`screendecide -salt`: a salted seed changes moves only through sim
+  and inference noise) and reruns tau 0.1, rule ×1 ≤4 tiles, and both
+  combined, on 12,000 shared late positions.
