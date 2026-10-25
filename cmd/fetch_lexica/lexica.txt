@@ -27,6 +27,8 @@ NWL20.kwg
 NWL23.kwg
 OSPS49.kwg
 FRA20.kwg
+RD29.kwg
+FILE2017.kwg
 
 # Loaded by name for the common-word puzzle tag and the leveled bot filters.
 ECWL.kwg
@@ -46,4 +48,6 @@ NWL20.klv2
 NWL23.klv2
 OSPS49.klv2
 FRA20.klv2
+RD29.klv2
+FILE2017.klv2
 super-NWL23.klv2
