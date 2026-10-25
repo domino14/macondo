@@ -674,3 +674,45 @@ func TestConcurrentSolvesIndependentTables(t *testing.T) {
 	t.Logf("max solves in flight at once: %d of %d", maxInFlight.Load(), len(positions))
 	is.True(maxInFlight.Load() > 1)
 }
+
+// A transposition-table entry stored deeper than the node holds a deeper
+// search's value, and nodes met those through passes and through threads
+// searching other depths. Multi-threaded 5-ply solves of this position
+// returned anything from 36 to 43 instead of 41, the value with one thread
+// and with the table off; lazy SMP on two threads returned 40 every time.
+func TestMultiThreadedSolveKeepsFixedDepthValue(t *testing.T) {
+	is := is.New(t)
+	pos := "14W/13TA/12SIG/11NOME/11ERE1/5Z5GID1/O4OD5C1V/LA1LININ4O1I/" +
+		"EL3ON2ULTIMO/AA2HIT4IDYl/1A2ED8i/1POUR6V2N/4B5JEFES/1TRAYF3WAXES1/" +
+		"PIET1ANCHO1TUSK AEEERRU/BGQR 281/428 0 lex CSW21;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	configs := []struct {
+		algo    string
+		threads int
+	}{
+		{ParallelAlgoLazySMP, 2},
+		{ParallelAlgoLazySMP, 4},
+		{ParallelAlgoABDADA, 4},
+		{ParallelAlgoTreeSplit, 4},
+	}
+	for _, c := range configs {
+		for run := 0; run < 3; run++ {
+			g, err := cgp.ParseCGP(DefaultConfig, pos)
+			is.NoErr(err)
+			g.SetBackupMode(game.SimulationMode)
+			g.RecalculateBoard()
+			gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+			s := new(Solver)
+			is.NoErr(s.Init(gen, g.Game))
+			s.SetTTable(&TranspositionTable{})
+			s.SetTTableFraction(0.01)
+			s.SetThreads(c.threads)
+			is.NoErr(s.SetParallelAlgorithm(c.algo))
+			v, _, err := s.Solve(context.Background(), 5)
+			is.NoErr(err)
+			t.Logf("%s, %d threads, run %d: %d", c.algo, c.threads, run+1, v)
+			is.Equal(v, int16(41))
+		}
+	}
+}
