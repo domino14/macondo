@@ -483,7 +483,13 @@ func describePlayers(players []*pb.PlayerInfo) string {
 }
 
 // isAnalyzableEvent returns true if the event represents a move that can be analyzed
+//
+// A move recorded without its rack (an annotator may not know it) cannot be:
+// there is nothing to judge it against.
 func (a *Analyzer) isAnalyzableEvent(evt *pb.GameEvent) bool {
+	if evt.Rack == "" {
+		return false
+	}
 	return evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
 		evt.Type == pb.GameEvent_EXCHANGE ||
 		evt.Type == pb.GameEvent_PASS
