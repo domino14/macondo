@@ -1,6 +1,7 @@
 package game_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/domino14/macondo/board"
@@ -163,4 +164,36 @@ func TestNewFromHistoryFirstMoveIsPass(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(0), "AEINSTU")
+}
+
+// A pass can be recorded without its rack, when an annotator does not know
+// it. The passer must still hold tiles, at that turn and after it, or the
+// game reads as waiting for a final pass.
+func TestNewFromHistoryPassWithoutRack(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewBasicGameRules(
+		DefaultConfig, "", board.CrosswordGameLayout, "english",
+		game.CrossScoreOnly, "")
+	is.NoErr(err)
+	gameHistory, err := gcgio.ParseGCGFromReader(DefaultConfig, strings.NewReader(
+		"#player1 alice Alice\n#player2 bob Bob\n"+
+			">alice: ACDEFGT 8H CAT +10 10\n"+
+			">bob: EIIOUUV - +0 0\n"+
+			">alice: DEFGIOR 9G DOG +11 21\n"+
+			">bob: EIIOUUV - +0 0\n"))
+	is.NoErr(err)
+	// Take bob's racks out, as a GCG that leaves them out has none.
+	gameHistory.Events[1].Rack = ""
+	gameHistory.Events[3].Rack = ""
+
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+	for turn := 0; turn <= len(gameHistory.Events); turn++ {
+		is.NoErr(g.PlayToTurn(turn))
+		is.Equal(g.Playing(), pb.PlayState_PLAYING)
+		is.Equal(g.RackFor(0).NumTiles(), uint8(7))
+		is.Equal(g.RackFor(1).NumTiles(), uint8(7))
+	}
+	// CAT and DOG are on the board, and both racks are full.
+	is.Equal(g.Bag().TilesRemaining(), 100-6-14)
 }
