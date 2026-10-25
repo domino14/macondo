@@ -81,8 +81,8 @@ top 50 static-equity candidates by win probability:
 
 | name | trained on | vs HastyBot | head to head |
 |---|---|---|---|
-| `macondo-tf` (default) | 54M HastyBot self-play games, 6 passes, one position per game per pass | 57.65% ± 0.18 | |
-| `macondo-tf-selfplay` | `macondo-tf` fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats `macondo-tf` 50.37% ± 0.16 |
+| `macondo-tf` (default) | 81M HastyBot self-play games, 6 passes, one position per game per pass | 58.14% ± 0.18 | beats the same recipe on 54M games 50.63% ± 0.16 |
+| `macondo-tf-selfplay` | the 54M-game net fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats the 54M-game net 50.37% ± 0.16 |
 | `macondo-tf-csw` (Collins lexica) | 81M CSW24 HastyBot self-play games, 6 passes | 58.06% ± 0.18 (CSW24) | beats the same recipe on 54M games 50.62% ± 0.16 |
 
 Win rates are 100k game pairs, ties counted half, with a 95% interval, in
