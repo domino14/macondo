@@ -2,7 +2,8 @@
 """
 Streaming trainer for Macondo's value nets (CNN and transformer)
 ----------------------------------------------------------------
-stdin  : binary frames  [len | 19 125 board | 72 scalars | 5 targets]
+stdin  : binary frames  [len | board | scalars | 5 targets | spatial]
+         (English: 19 125 board values, 72 scalars; see features.py)
 output : best.pt  +  loss_log.csv  (train & val loss, per head)
 
 Targets, in frame order (see cmd/mlproducer/game_assembler.go):
@@ -29,9 +30,9 @@ from torch.utils.data import Dataset, IterableDataset, DataLoader
 from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
-C, H, W = 85, 15, 15
-N_PLANE = C * H * W  # 19_125
-N_SCAL = 72
+from features import LETTERS, C, H, W, N_SCAL, TRANSPOSE_PERM, check_letters
+
+N_PLANE = C * H * W  # English: 19_125
 TARGETS = ["value", "spread", "wdl", "opp_bingo", "opp_score"]
 N_TARGETS = len(TARGETS)
 # Spatial targets: four 15x15 0/1 planes after the scalar targets (the
@@ -46,8 +47,9 @@ ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS + N_SPATIAL_FLOATS
 DTYPE = np.float32
 
 # Frame cache: planes and spatial targets are 0/1 so they pack to bits;
-# scalars and scalar targets stay float32. 2,812 bytes per position instead
-# of 80,408 (2,699 before the spatial targets; an old cache is refused).
+# scalars and scalar targets stay float32. English: 2,812 bytes per position
+# instead of 80,408 (2,699 before the spatial targets; an old cache is
+# refused).
 BIT_FLOATS = N_PLANE + N_SPATIAL_FLOATS
 PACKED_BYTES = (BIT_FLOATS + 7) // 8
 CACHE_ROW_BYTES = PACKED_BYTES + N_SCAL * 4 + N_TARGETS * 4
@@ -68,12 +70,10 @@ DEFAULT_WEIGHTS = {
     "self_win": 0.25,
 }
 
-# Diagonal transpose: the one board symmetry that keeps words readable. It
-# swaps the horizontal cross-check planes (27..52) with the vertical ones
-# (53..78) and transposes every plane and spatial target; the scalars carry
-# nothing directional.
-TRANSPOSE_PERM = list(range(27)) + list(range(53, 79)) + list(range(27, 53)) + list(range(79, C))
-assert sorted(TRANSPOSE_PERM) == list(range(C))
+# Diagonal transpose (TRANSPOSE_PERM, features.py): the one board symmetry
+# that keeps words readable. It swaps the horizontal cross-check planes with
+# the vertical ones and transposes every plane and spatial target; the
+# scalars carry nothing directional.
 
 
 def transpose_batch(board, spatial, prob, generator=None):
@@ -154,7 +154,7 @@ def unpack_frame(payload):
     if len(payload) != ROW_FLOATS * 4:
         raise ValueError(
             f"frame of {len(payload)} bytes, expected {ROW_FLOATS * 4}: "
-            "the producer and the trainer disagree on the row layout"
+            f"the producer and the trainer disagree on the row layout (MACONDO_LETTERS={LETTERS}?)"
         )
     vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
     board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
@@ -399,6 +399,11 @@ def parse_args(argv=None):
     p.add_argument("--heads", type=int, default=6)
     p.add_argument("--ff-mult", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.0)
+    p.add_argument(
+        "--rel-bias",
+        action="store_true",
+        help="transformer: learned attention bias by square-to-square (row, column) offset",
+    )
     # loss weights per head; 0 disables a head's gradient (it is still logged)
     for name, w in DEFAULT_WEIGHTS.items():
         p.add_argument(f"--w-{name.replace('_', '-')}", type=float, default=w)
@@ -465,6 +470,12 @@ def parse_args(argv=None):
         help="positions in the fixed batch for the per-head trunk gradient report",
     )
     p.add_argument(
+        "--resume",
+        help="continue a run from the state it saves at every validation "
+        "(<ckpt stem>-resume.pt: weights, optimiser, LR schedule, head weights, "
+        "best validation loss, step); the other flags must match the run's",
+    )
+    p.add_argument(
         "--snapshot-every",
         type=int,
         default=0,
@@ -525,6 +536,8 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
+        if args.rel_bias:  # only when on, so plain checkpoints keep their hparams
+            args.hparams["rel_bias"] = True
     args.weights = {name: getattr(args, f"w_{name}") for name in ALL_HEADS}
     if args.epochs > 1 and not (args.cache or args.from_cache):
         p.error("--epochs > 1 needs --cache or --from-cache")
@@ -824,17 +837,25 @@ def main():
     )
     if args.init_ckpt:
         ck = torch.load(args.init_ckpt, map_location=device, weights_only=False)
+        check_letters(ck, args.init_ckpt)
         missing = load_state_dict_compat(raw_net, ck["model"])
         if missing:
             raise KeyError(f"{args.init_ckpt}: missing weights {missing}")
         if ck.get("weights"):
             args.weights = dict(ck["weights"])
         print(f"fine-tuning from {args.init_ckpt} (step {ck.get('step')})", file=sys.stderr)
+    resume = None
+    if args.resume:
+        resume = torch.load(args.resume, map_location=device, weights_only=False)
+        check_letters(resume, args.resume)
+        raw_net.load_state_dict(resume["model"])
+        args.weights = dict(resume["weights"])
+        print(f"resuming from {args.resume} (step {resume['step']})", file=sys.stderr)
     # raw_net is the module itself: checkpoints and the per-head gradient
     # diagnostic use it. net is what the training/validation passes call,
     # the compiled wrapper when --compile is on (its parameters are shared).
     net = torch.compile(raw_net) if args.compile else raw_net
-    if args.aux_share > 0:
+    if args.aux_share > 0 and resume is None:
         gn0 = head_grad_norms(raw_net, *(t.to(device) for t in diag))
         args.weights = balance_weights(
             args.weights, gn0, args.aux_share, primary=args.primary, spatial_share=args.spatial_share
@@ -872,20 +893,37 @@ def main():
         enabled=(device.type in ("cuda", "mps")) and amp_dtype == torch.float16
     )
 
+    if resume is not None:
+        opt.load_state_dict(resume["optimizer"])
+        scheduler.load_state_dict(resume["scheduler"])
+        scaler.load_state_dict(resume["scaler"])
+        print(
+            f"resumed at step {resume['step']}, lr {scheduler.get_last_lr()[0]:.4g}",
+            file=sys.stderr,
+        )
+
     def zero_running():
         return {k: torch.zeros((), device=device) for k in ["total", *ALL_HEADS]}
 
     best_val, step, micro, t0 = float("inf"), 0, 0, time.time()
+    if resume is not None:
+        best_val, step = resume["best_val"], resume["step"]
+    step0 = step
     running = zero_running()
-    csv_fh = open(args.csv, "w", newline="")
+    # A resumed run appends to its CSV (any rows past the saved step are
+    # from the steps being redone).
+    appending = resume is not None and os.path.exists(args.csv)
+    csv_fh = open(args.csv, "a" if appending else "w", newline="")
     csv_writer = csv.writer(csv_fh)
-    csv_writer.writerow(
-        ["step", "train_loss", "val_loss"]
-        + [f"train_{k}" for k in ALL_HEADS]
-        + [f"val_{k}" for k in ALL_HEADS]
-        + [f"gnorm_{k}" for k in ALL_HEADS]
-        + [f"w_{k}" for k in ALL_HEADS]
-    )
+    if not appending:
+        csv_writer.writerow(
+            ["step", "train_loss", "val_loss"]
+            + [f"train_{k}" for k in ALL_HEADS]
+            + [f"val_{k}" for k in ALL_HEADS]
+            + [f"gnorm_{k}" for k in ALL_HEADS]
+            + [f"w_{k}" for k in ALL_HEADS]
+        )
+    resume_path = "{}-resume{}".format(*os.path.splitext(args.ckpt))
 
     done = False
     exit_code = 0
@@ -975,7 +1013,7 @@ def main():
                     print(
                         f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
                         f"[{heads}]  "
-                        f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
+                        f"{(step - step0)*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                     )
                     print(f"         trunk grad vs value head (unweighted): {pulls}")
                     if args.aux_share > 0:
@@ -989,6 +1027,7 @@ def main():
                         torch.save(
                             {
                                 "step": step,
+                                "letters": LETTERS,
                                 "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,
@@ -1001,11 +1040,29 @@ def main():
                         best_val = val[args.primary]
                         print(f"  ✓ checkpointed (best validation {args.primary} loss)")
 
+                    # Everything --resume needs to carry on from this step,
+                    # replaced atomically so a crash mid-write keeps the last.
+                    torch.save(
+                        {
+                            "step": step,
+                            "letters": LETTERS,
+                            "model": raw_net.state_dict(),
+                            "optimizer": opt.state_dict(),
+                            "scheduler": scheduler.state_dict(),
+                            "scaler": scaler.state_dict(),
+                            "weights": args.weights,
+                            "best_val": best_val,
+                        },
+                        resume_path + ".tmp",
+                    )
+                    os.replace(resume_path + ".tmp", resume_path)
+
                     if args.snapshot_every and step % args.snapshot_every == 0:
                         stem, ext = os.path.splitext(args.ckpt)
                         torch.save(
                             {
                                 "step": step,
+                                "letters": LETTERS,
                                 "model": raw_net.state_dict(),
                                 "arch": args.arch,
                                 "hparams": args.hparams,

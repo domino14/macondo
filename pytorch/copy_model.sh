@@ -29,7 +29,9 @@ cp "$CKPT" "$BAK"
 python export.py --ckpt "$BAK" --out "$MODEL_NAME.onnx" ${BOARD_UINT8:+--board-uint8}
 python onnx-to-tensorrt.py --onnx "$MODEL_NAME.onnx" --output "$MODEL_NAME.engine"
 
-MODELS_ROOT="../data/strategy/default/models"
+# MODELS_ROOT: the Triton model repository to install into (default: this
+# checkout's; a worktree sets the one triton-container.sh serves).
+MODELS_ROOT="${MODELS_ROOT:-../data/strategy/default/models}"
 MODEL_DIR="$MODELS_ROOT/$MODEL_NAME"
 mkdir -p "$MODEL_DIR"
 
@@ -55,6 +57,8 @@ else
 import sys
 name, path, board_type, *outputs = sys.argv[1:]
 board_type = board_type or "FP32"
+# The input sizes depend on the alphabet (features.py).
+from features import C as planes, N_SCAL as scalars
 out_blocks = ",\n".join(
     f'  {{\n    name: "{o}"\n    data_type: TYPE_FP32\n    dims: [ -1 ]\n  }}' for o in outputs
 )
@@ -65,12 +69,12 @@ input [
   {{
     name: "board"
     data_type: TYPE_{board_type}
-    dims: [ -1, 85, 15, 15 ]
+    dims: [ -1, {planes}, 15, 15 ]
   }},
   {{
     name: "scalars"
     data_type: TYPE_FP32
-    dims: [ -1, 72 ]
+    dims: [ -1, {scalars} ]
   }}
 ]
 output [

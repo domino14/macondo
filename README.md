@@ -75,25 +75,35 @@ With `--model-control-mode=explicit`, Triton must also be told to load it
 
 ## Models
 
-Two value nets ship in `data/strategy/default/models/`. Both are the same
+Three value nets ship in `data/strategy/default/models/`. All are the same
 transformer (8 layers, d_model 192, a token per square), scoring each of the
 top 50 static-equity candidates by win probability:
 
 | name | trained on | vs HastyBot | head to head |
 |---|---|---|---|
-| `macondo-tf` (default) | 54M HastyBot self-play games, 6 passes, one position per game per pass | 57.65% ± 0.18 | |
-| `macondo-tf-selfplay` | `macondo-tf` fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats `macondo-tf` 50.37% ± 0.16 |
+| `macondo-tf` (default) | 81M HastyBot self-play games, 6 passes, one position per game per pass | 58.14% ± 0.18 | beats the same recipe on 54M games 50.63% ± 0.16 |
+| `macondo-tf-selfplay` | the 54M-game net fine-tuned on 3M of its own games (mixed 50/50 with 3M HastyBot games) | 57.07% ± 0.18 | beats the 54M-game net 50.37% ± 0.16 |
+| `macondo-tf-csw` (Collins lexica) | 81M CSW24 HastyBot self-play games, 6 passes | 58.06% ± 0.18 (CSW24) | beats the same recipe on 54M games 50.62% ± 0.16 |
 
-Win rates are 100k game pairs, ties counted half, with a 95% interval. The
-self-play net exploits HastyBot a little less but beats its parent head to
+Win rates are 100k game pairs, ties counted half, with a 95% interval, in
+NWL23 unless marked. The self-play net exploits HastyBot a little less but beats its parent head to
 head. Training runs and matches are logged in `pytorch/RUNS.md` and
 `pytorch/experiments.md`. To rebuild them, or train one for another lexicon
-(English letter distribution), follow `pytorch/TRAINING.md`.
+(any alphabet: see `pytorch/features.py`), follow `pytorch/TRAINING.md`.
 
 To pick one for a whole session, set `triton-model-name` (e.g.
 `MACONDO_TRITON_MODEL_NAME=macondo-tf-selfplay`). In `autoplay`,
 `-tritonmodel1` / `-tritonmodel2` give each player its own model, so the two
 can play each other.
+
+Each lexicon family can have its own net. The model name is a base: a game
+plays with `<base>-csw` in the Collins lexica, and `<base>-<distribution>`
+(`-german`, `-french`, ...) in other alphabets, when that model exists in
+the repository (or as an ONNX file). English lexica without their own model
+fall back to the base model; another alphabet without one cannot use the
+net, since a net only reads the alphabet it was trained on. Triton in its
+default mode loads every model in the repository, a few hundred MB of GPU
+memory each.
 
 Each model folder holds:
 

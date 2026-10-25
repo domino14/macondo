@@ -107,7 +107,7 @@ func main() {
 	var split string
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&lexiconName, "lexicon", lexiconName,
-		"the lexicon the games were played in (leave values, cross-sets); English letter distribution only")
+		"the lexicon the games were played in (leave values, cross-sets, and its letter distribution, which sets the vector size)")
 	flag.StringVar(&labeler, "labeler", "table",
 		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end)")
 	flag.BoolVar(&perGame, "per-game", false,
