@@ -884,3 +884,40 @@ Fresh positions; judge as in round 1 (win % per changed move, true leave known).
   placebo (`screendecide -salt`: a salted seed changes moves only through sim
   and inference noise) and reruns tau 0.1, rule ×1 ≤4 tiles, and both
   combined, on 12,000 shared late positions.
+
+## Screening round 3: placebo and the late candidates
+
+12,000 sampled late positions (bag ≤ 20, any opponent play); 2,336 had an
+empty bag and were dropped, leaving 9,664 shared positions. Early placebo:
+3,000 round 1 positions (bag > 20, opponent played 1–2 tiles). Win % with the
+true leave known; "per position" counts unchanged positions as 0.
+
+| variant | changed | per change | per position | unknown leave |
+|---|---|---|---|---|
+| placebo (salted seed), late | 324 | −0.11 ± 0.40 | −0.004 ± 0.013 | −0.01 ± 0.22 |
+| placebo, early | 302 | +0.05 ± 0.33 | +0.005 ± 0.033 | −0.15 ± 0.14 |
+| tau 0.1 | 786 | +1.16 ± 0.49 | +0.094 ± 0.040 | −1.54 ± 0.28 |
+| rule ×1, ≤4 tiles | 470 | +1.01 ± 0.56 | +0.049 ± 0.027 | −0.75 ± 0.26 |
+| tau 0.1 + rule ×1 ≤4 | 951 | +1.05 ± 0.44 | +0.103 ± 0.044 | −1.64 ± 0.25 |
+
+By bag (per position):
+
+| variant | bag 1–7 | bag 8–20 |
+|---|---|---|
+| placebo | +0.003 ± 0.017 | −0.010 ± 0.021 |
+| tau 0.1 | +0.155 ± 0.077 | +0.037 ± 0.028 |
+| rule ×1, ≤4 tiles | +0.057 ± 0.046 | +0.042 ± 0.031 |
+| both | +0.144 ± 0.081 | +0.064 ± 0.036 |
+
+- The placebo is flat. Noise-only move changes judge at zero, so the judge has
+  no built-in preference for departures from the baseline's move, and the
+  positive verdicts are real.
+- Late, tau 0.1 is the strongest single change, mostly at bag 1–7, where the
+  headroom map put 43% of the oracle gap. Per position it recovers about a
+  tenth of that bucket's gap (+0.155 of +1.31).
+- Both effects are real, but they don't add up: the combination is about tau
+  0.1 alone at bag 1–7, with the rule adding a little at bag 8–20.
+- The unknown-leave judge disagrees in sign, as expected: these moves use the
+  read of the opponent's leave, which a judge without it can't credit.
+- Next: find the late tau optimum (0.15, 0.2), and test tau 0.1 early against
+  a second early placebo.
