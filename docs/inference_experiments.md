@@ -964,3 +964,24 @@ plus `inferenceTauCap 0.1`, run on the seeds of existing baseline runs
 (20261020, 20261022) so each game pairs one to one with its baseline game.
 A pinned 0.05 late (`d5-t05`) is screened alongside, to see whether the
 optimum is sharper still.
+
+## Test register (late-game program)
+
+Every variant is the baseline inference bot (2-ply, engine defaults at
+f4e4300b, budget 200, fitted tau curve, inference on at every bag) plus the
+one change listed. Early-game inference is never switched off. Screening
+positions come from `infer-v-sim-2ply-10k` (seed 20261020), the development
+set; confirmation runs use unscreened seeds (20261023, 20261025).
+
+| variant | change | bags it touches | result so far |
+|---|---|---|---|
+| tau 0.1 pinned | tau 0.1 instead of the curve | all screened bags (screened ≤ 20 and > 20) | late +0.094 ± 0.040 per position; early null |
+| tau 0.15, 0.2 pinned | as above | screened ≤ 20 | weaker than 0.1 |
+| tau 0.075, 0.125, 0.05 pinned | as above | screened ≤ 20 | pending |
+| rule ×1, ≤ 4 tiles | leave-quality reweight | ≤ 20 | +0.049 ± 0.027; adds little to tau 0.1 |
+| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | match on seed 20261023 pending |
+| budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early screen pending |
+| 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | screen pending (curve, and tau 0.1) |
+
+Ideas not pursued: switching early inference off (it helps: +0.045 ± 0.031
+per position at bag 51+ in the headroom map).
