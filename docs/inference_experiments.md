@@ -855,7 +855,7 @@ After 6-tile plays (signed β): 22 and 32 changes out of 2,540, −0.80 and
 **Round 2 (late game, started 20:50 Oct 24):** deb192: the rule at bag ≤20
 after 1–4 tile plays, ×1/×2/×4 up to 2 tiles and ×1/×2 up to 4 tiles, on fresh
 positions (×1 up to 2 tiles replicates round 1). deb128: tau 0.03 and 0.1
-(default 0.05), and inference budget 1,000 and 2,000 (default 200), at bag
+(pinned at every bag; the default is the fitted bag schedule), and inference budget 1,000 and 2,000 (default 200), at bag
 ≤20 after any play.
 
 ## Screening round 2: late game (bag ≤ 20)
@@ -869,7 +869,7 @@ Fresh positions; judge as in round 1 (win % per changed move, true leave known).
 | rule ×4, ≤2 tiles | 2,476 | 211 | −0.02 ± 0.97 | −1.34 ± 0.51 |
 | rule ×1, ≤4 tiles | 2,476 | 174 | +1.03 ± 1.03 | −0.32 ± 0.41 |
 | rule ×2, ≤4 tiles | 2,476 | 284 | +0.21 ± 0.89 | −0.99 ± 0.38 |
-| tau 0.03 (default 0.05) | 2,392 | 252 | +0.51 ± 1.13 | −2.04 ± 0.56 |
+| tau 0.03 (pinned) | 2,392 | 252 | +0.51 ± 1.13 | −2.04 ± 0.56 |
 | tau 0.1 | 2,392 | 181 | +1.23 ± 1.02 | −1.52 ± 0.50 |
 | budget 1,000 (default 200) | 2,392 | 28 | +0.66 ± 1.33 | |
 | budget 2,000 | 2,392 | 29 | +1.06 ± 1.44 | |
@@ -938,5 +938,29 @@ on 6,000 positions (bag > 20, any opponent play) with its own placebo.
 - Late, 0.1 is the best of the three. Softer tau keeps the bag 1–7 gain but
   loses it at bag 8–20.
 - Early, tau 0.1 is indistinguishable from the placebo. The gain is a late
-  effect only, so the candidate is tau 0.1 at bag ≤ 20 with 0.05 elsewhere.
+  effect only.
 - Next: bracket the optimum with 0.075 and 0.125.
+
+### What the screened tau replaces
+
+The baseline bot does not run a fixed 0.05: with no tau pinned, it uses the
+fitted bag schedule (`tauFittedForBag`). That schedule rises steeply late:
+about 0.075 at bag 20, 0.14 at 14, 0.45 at 7 and 2.5 at 2. A pinned `-tau`
+replaces it at every bag. So the late gains above come from a **sharper**
+read than the schedule's, most of all at bag 1–7, where the schedule is
+softest. This matches decidelab, where fixed 0.05 beat the schedule late.
+Early on, the schedule is about 0.02–0.05, so a pinned 0.1 there is softer,
+and it judged null.
+
+`inferenceTauCap 0.1` keeps the schedule wherever it is below 0.1 (from bag
+about 18 up) and caps it at 0.1 below that. That is nearly the screened
+variant, it is already a per-player autoplay setting, and it carries over to
+any bag size, so the confirming match uses it. The earlier cap 0.05 match,
+4,868 pairs paired with its baseline, was −0.07 ± 0.33: too few pairs for an
+effect of this size, and a sharper cap than screening now favours.
+
+Confirming match: `infer-v-sim-2ply-cap10-<seed>`, the 2-ply baseline config
+plus `inferenceTauCap 0.1`, run on the seeds of existing baseline runs
+(20261020, 20261022) so each game pairs one to one with its baseline game.
+A pinned 0.05 late (`d5-t05`) is screened alongside, to see whether the
+optimum is sharper still.
