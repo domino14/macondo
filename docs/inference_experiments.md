@@ -921,3 +921,22 @@ By bag (per position):
   read of the opponent's leave, which a judge without it can't credit.
 - Next: find the late tau optimum (0.15, 0.2), and test tau 0.1 early against
   a second early placebo.
+
+## Screening round 4: late tau optimum, tau early
+
+Late tau on the round 3 positions (9,664 non-endgame, bag ≤ 20); tau 0.1 early
+on 6,000 positions (bag > 20, any opponent play) with its own placebo.
+
+| variant | changed | per change | per position | bag 1–7 | bag 8–20 |
+|---|---|---|---|---|---|
+| tau 0.1 (round 3) | 786 | +1.16 ± 0.49 | +0.094 ± 0.040 | +0.155 ± 0.077 | +0.037 ± 0.028 |
+| tau 0.15 | 670 | +0.88 ± 0.53 | +0.061 ± 0.037 | +0.121 ± 0.071 | +0.004 ± 0.025 |
+| tau 0.2 | 599 | +0.90 ± 0.57 | +0.056 ± 0.036 | +0.119 ± 0.069 | −0.004 ± 0.023 |
+| tau 0.1, early | 225 | −0.14 ± 0.29 | −0.005 ± 0.011 | | |
+| placebo, early | 268 | +0.14 ± 0.21 | +0.006 ± 0.009 | | |
+
+- Late, 0.1 is the best of the three. Softer tau keeps the bag 1–7 gain but
+  loses it at bag 8–20.
+- Early, tau 0.1 is indistinguishable from the placebo. The gain is a late
+  effect only, so the candidate is tau 0.1 at bag ≤ 20 with 0.05 elsewhere.
+- Next: bracket the optimum with 0.075 and 0.125.
