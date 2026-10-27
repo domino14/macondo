@@ -977,11 +977,37 @@ set; confirmation runs use unscreened seeds (20261023, 20261025).
 |---|---|---|---|
 | tau 0.1 pinned | tau 0.1 instead of the curve | all screened bags (screened ≤ 20 and > 20) | late +0.094 ± 0.040 per position; early null |
 | tau 0.15, 0.2 pinned | as above | screened ≤ 20 | weaker than 0.1 |
-| tau 0.075, 0.125, 0.05 pinned | as above | screened ≤ 20 | pending |
+| tau 0.05, 0.075, 0.125 pinned | as above | screened ≤ 20 | plateau with 0.1 (+0.075 to +0.094 per position) |
 | rule ×1, ≤ 4 tiles | leave-quality reweight | ≤ 20 | +0.049 ± 0.027; adds little to tau 0.1 |
-| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | match on seed 20261023 pending |
-| budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early screen pending |
-| 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | screen pending (curve, and tau 0.1) |
+| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | match on seeds 20261023, 20261025 pending |
+| budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early +0.011 ± 0.008 per position, placebo +0.006 ± 0.009: no clear gain |
+| 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 pending |
 
 Ideas not pursued: switching early inference off (it helps: +0.045 ± 0.031
 per position at bag 51+ in the headroom map).
+
+## Screening round 5: tau sweep, 5-ply mini-sims, early budget
+
+Same 9,664 late positions as rounds 3–4; early budget on the 6,000 round 4
+early positions. Per position, true leave known.
+
+| variant | changed | per position | bag 1–7 | bag 8–20 |
+|---|---|---|---|---|
+| placebo | 324 | −0.004 ± 0.013 | +0.003 ± 0.017 | −0.010 ± 0.021 |
+| tau 0.05 | 937 | +0.087 ± 0.045 | +0.117 ± 0.085 | +0.059 ± 0.032 |
+| tau 0.075 | 823 | +0.084 ± 0.042 | +0.142 ± 0.080 | +0.030 ± 0.030 |
+| tau 0.1 | 786 | +0.094 ± 0.040 | +0.155 ± 0.077 | +0.037 ± 0.028 |
+| tau 0.125 | 708 | +0.075 ± 0.038 | +0.135 ± 0.074 | +0.018 ± 0.024 |
+| tau 0.15 | 670 | +0.061 ± 0.037 | +0.121 ± 0.071 | +0.004 ± 0.025 |
+| tau 0.2 | 599 | +0.056 ± 0.036 | +0.119 ± 0.069 | −0.004 ± 0.023 |
+| 5-ply mini-sims, fitted curve | 496 | +0.011 ± 0.022 | +0.032 ± 0.034 | −0.009 ± 0.027 |
+| budget 1,000, early | 172 | +0.011 ± 0.008 | | |
+| placebo, early | 268 | +0.006 ± 0.009 | | |
+
+- Late tau is a plateau from 0.05 to 0.125; anything in it recovers about
+  the same. Sharper looks better at bag 8–20 and 0.1 at bag 1–7, but neither
+  difference is significant. A cap of 0.1 sits in the plateau.
+- Deeper mini-sims alone do nothing: the fitted curve is so soft late that
+  better likelihoods barely move the posterior. 5-ply with tau 0.1 is the
+  real test.
+- A bigger budget early doesn't separate from the placebo.
