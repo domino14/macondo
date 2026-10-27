@@ -62,6 +62,7 @@ type record struct {
 	Leave     string  `json:"leave"`
 	Equity    float64 `json:"equity"`
 	Same      bool    `json:"same"`
+	NetRead   bool    `json:"netRead,omitempty"` // decided with a -reads read in place of the bot's own
 	Secs      float64 `json:"secs"`
 	Err       string  `json:"err,omitempty"`
 }
@@ -117,7 +118,7 @@ func readPositions(path, player string) ([]position, error) {
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
 func decide(cfg *config.Config, rules *game.GameRules, conf bot.BotConfig, code pb.BotRequest_BotCode,
-	p position, salt int) record {
+	p position, salt int, reads map[string]netRead) record {
 
 	row := p.rows[p.i]
 	rec := record{Key: fmt.Sprintf("%s|%s|%d", p.gid, p.first, p.i), GameID: p.gid, First: p.first,
@@ -198,6 +199,11 @@ func decide(cfg *config.Config, rules *game.GameRules, conf bot.BotConfig, code 
 		rec.Err = err.Error()
 		return rec
 	}
+	if nr, ok := reads[rec.Key]; ok {
+		readFor.Store(g.Game, nr)
+		defer readFor.Delete(g.Game)
+		rec.NetRead = true
+	}
 	t0 := time.Now()
 	m, err := btp.BestPlay(context.Background())
 	rec.Secs = time.Since(t0).Seconds()
@@ -229,6 +235,10 @@ func main() {
 	sample := flag.Int64("sample", 1, "sampling seed")
 	maxOpp := flag.Int("maxopp", 7, "only positions after an opponent placement of at most this many tiles (-1 = any, also exchanges)")
 	minOpp := flag.Int("minopp", 1, "... and at least this many")
+	readsPath := flag.String("reads", "", "netread output: use its reads in place of the bot's own inference where it has one")
+	readHead := flag.String("readhead", "v", "net head the -reads likelihood uses: v (value) or s (spread)")
+	readTau := flag.Float64("readtau", 0, "softmax temperature of the -reads likelihood (required with -reads)")
+	onlyReads := flag.Bool("onlyreads", false, "with -reads: decide only the positions it has a read for")
 	out := flag.String("out", "decide.jsonl", "output")
 	parallel := flag.Int("parallel", 8, "positions at once (each single-threaded)")
 	flag.Parse()
@@ -281,6 +291,28 @@ func main() {
 	}
 	conf := bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1, InferenceBudget: *budget,
 		OracleInference: *oracle, InferenceTau: *tau}
+	var reads map[string]netRead
+	if *readsPath != "" {
+		if *readTau <= 0 || (*readHead != "v" && *readHead != "s") {
+			log.Fatal().Msg("-reads needs -readtau > 0 and -readhead v or s")
+		}
+		reads, err = loadReads(*readsPath, *readHead, *readTau, rules.LetterDistribution().TileMapping())
+		if err != nil {
+			log.Fatal().Err(err).Msg("reads")
+		}
+		bot.ExternalRead = externalRead
+		fmt.Fprintf(os.Stderr, "%d net reads\n", len(reads))
+		if *onlyReads {
+			kept := pos[:0]
+			for _, p := range pos {
+				if _, ok := reads[fmt.Sprintf("%s|%s|%d", p.gid, p.first, p.i)]; ok {
+					kept = append(kept, p)
+				}
+			}
+			pos = kept
+			fmt.Fprintf(os.Stderr, "%d positions with a read\n", len(pos))
+		}
+	}
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -297,7 +329,7 @@ func main() {
 		go func() {
 			defer wg.Done()
 			for p := range ch {
-				rec := decide(cfg, rules, conf, pb.BotRequest_BotCode(code), p, *salt)
+				rec := decide(cfg, rules, conf, pb.BotRequest_BotCode(code), p, *salt, reads)
 				mu.Lock()
 				enc.Encode(rec)
 				mu.Unlock()

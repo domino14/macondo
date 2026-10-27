@@ -3,6 +3,8 @@ package simplesimmer
 import (
 	"context"
 	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -61,6 +63,27 @@ func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
 	return btp, nil
 }
 
+// Lab knob: MACONDO_MINISIM_PLIES sets the mini-sim depth when the bag holds
+// at most MACONDO_MINISIM_PLIES_MAXBAG tiles (default 100, every position).
+var (
+	labPliesOnce   sync.Once
+	labPlies       int
+	labPliesMaxBag = 100
+)
+
+func (p *SimpleSimmer) plies() int {
+	labPliesOnce.Do(func() {
+		labPlies, _ = strconv.Atoi(os.Getenv("MACONDO_MINISIM_PLIES"))
+		if v, err := strconv.Atoi(os.Getenv("MACONDO_MINISIM_PLIES_MAXBAG")); err == nil {
+			labPliesMaxBag = v
+		}
+	})
+	if labPlies > 0 && p.Game.Bag().TilesRemaining() <= labPliesMaxBag {
+		return labPlies
+	}
+	return p.numPlies
+}
+
 func (p *SimpleSimmer) SetLogging(l bool) {
 	p.logging = l
 }
@@ -83,14 +106,14 @@ func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
 	p.simmer.SetThreads(1)
 	// 2 plies for this simple simmer. can maybe configure later.
-	p.simmer.PrepareSim(p.numPlies, moves)
+	p.simmer.PrepareSim(p.plies(), moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
 	// No bag cycling: a mini-sim's 200 rollouts a play would be only about 15
 	// cycled samples, 10 of them the minimum, leaving the top-two sampling
 	// almost nothing to allocate.
 	p.simmer.SetBagCycle(false)
-	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
+	p.simmer.SimSingleThread(p.maxIters, p.plies()) // can also configure later.
 	wp := p.simmer.WinningPlay()
 	return wp.Move(), nil
 }
@@ -114,7 +137,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 	}
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
 	p.simmer.SetThreads(1)
-	p.simmer.PrepareSim(p.numPlies, moves)
+	p.simmer.PrepareSim(p.plies(), moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetMinSamplesPerPlay(miniSimMinSamples)
 	p.simmer.SetBagCycle(false)
@@ -130,7 +153,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 		filename = logfile.Name()
 	}
 
-	p.simmer.SimSingleThread(p.maxIters, p.numPlies) // can also configure later.
+	p.simmer.SimSingleThread(p.maxIters, p.plies()) // can also configure later.
 	if p.logging {
 		logfile.Close()
 	}

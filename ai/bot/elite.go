@@ -20,6 +20,11 @@ import (
 
 const InferencesSimLimit = 2
 
+// ExternalRead, when set, supplies the opponent read for a position in place
+// of the bot's own inference: a lab hook for reads computed elsewhere (by the
+// net, on a machine with a GPU). ok false falls back to the bot's own read.
+var ExternalRead func(g *game.Game) (racks []montecarlo.InferredRack, rackLength int, ok bool)
+
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
 
@@ -228,7 +233,13 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	var cancel context.CancelFunc
 	inferenceRan := false
 	p.lastInfoBits = math.NaN()
-	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
+	var extRacks []montecarlo.InferredRack
+	var extLen int
+	extOK := false
+	if HasInfer(p.botType) && ExternalRead != nil && p.Game.Bag().TilesRemaining() > 0 {
+		extRacks, extLen, extOK = ExternalRead(p.Game)
+	}
+	if HasInfer(p.botType) && !extOK && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
 		if p.simThreads != 0 {
@@ -298,6 +309,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
+	if extOK {
+		logger.Info().Int("inferences", len(extRacks)).Msg("using external read in sim")
+		p.simmer.SetInferences(extRacks, extLen, montecarlo.InferenceCompletePosterior)
+	}
 	if HasInfer(p.botType) && inferenceRan {
 		p.lastInfoBits = p.inferencer.InfoBits()
 	}
