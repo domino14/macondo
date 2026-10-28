@@ -238,6 +238,7 @@ func main() {
 	readsPath := flag.String("reads", "", "netread output: use its reads in place of the bot's own inference where it has one")
 	readHead := flag.String("readhead", "v", "net head the -reads likelihood uses: v (value) or s (spread)")
 	readTau := flag.Float64("readtau", 0, "softmax temperature of the -reads likelihood (required with -reads)")
+	readMode := flag.String("readmode", "replace", "with -reads: replace the bot's own read, or combine (multiply) it with the net's likelihood")
 	onlyReads := flag.Bool("onlyreads", false, "with -reads: decide only the positions it has a read for")
 	out := flag.String("out", "decide.jsonl", "output")
 	parallel := flag.Int("parallel", 8, "positions at once (each single-threaded)")
@@ -300,7 +301,14 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Msg("reads")
 		}
-		bot.ExternalRead = externalRead
+		switch *readMode {
+		case "replace":
+			bot.ExternalRead = externalRead
+		case "combine":
+			bot.ReadAdjust = combineRead
+		default:
+			log.Fatal().Msg("-readmode must be replace or combine")
+		}
 		fmt.Fprintf(os.Stderr, "%d net reads\n", len(reads))
 		if *onlyReads {
 			kept := pos[:0]

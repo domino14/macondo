@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
@@ -23,6 +24,8 @@ import (
 type netRead struct {
 	racks []montecarlo.InferredRack
 	k     int
+	like  map[string]float64 // leave (sorted) -> likelihood, for -readmode combine
+	mean  float64            // mean likelihood, for leaves the read did not list
 }
 
 // loadReads turns netread's raw net outputs into posteriors: each leave's
@@ -66,13 +69,16 @@ func loadReads(path, head string, tau float64, alph *tilemapping.TileMapping) (m
 		if len(rec.Leaves) == 0 || len(vals) != len(rec.Leaves) {
 			continue
 		}
-		nr := netRead{k: rec.K}
+		nr := netRead{k: rec.K, like: map[string]float64{}}
 		for i, l := range rec.Leaves {
 			mw, err := tilemapping.ToMachineWord(l, alph)
 			if err != nil {
 				return nil, fmt.Errorf("%s: leave %q: %w", rec.Key, l, err)
 			}
-			nr.racks = append(nr.racks, montecarlo.InferredRack{Leave: mw, Weight: rec.W[i] * share(vals[i], head, tau)})
+			sh := share(vals[i], head, tau)
+			nr.racks = append(nr.racks, montecarlo.InferredRack{Leave: mw, Weight: rec.W[i] * sh})
+			nr.like[leaveKey(mw)] = sh
+			nr.mean += sh / float64(len(rec.Leaves))
 		}
 		reads[rec.Key] = nr
 	}
@@ -97,6 +103,15 @@ func share(v []float64, head string, tau float64) float64 {
 	return math.Exp((x[0]-m)/tau) / z
 }
 
+func leaveKey(l []tilemapping.MachineLetter) string {
+	b := make([]byte, len(l))
+	for i, t := range l {
+		b[i] = byte(t)
+	}
+	slices.Sort(b)
+	return string(b)
+}
+
 // readFor hands each position's read to the bot (bot.ExternalRead) by its
 // game, since many positions are decided at once.
 var readFor sync.Map // *game.Game -> netRead
@@ -108,4 +123,24 @@ func externalRead(g *game.Game) ([]montecarlo.InferredRack, int, bool) {
 	}
 	nr := v.(netRead)
 	return nr.racks, nr.k, true
+}
+
+// combineRead multiplies the bot's own posterior by the net read's likelihood
+// of each leave (-readmode combine): both reads condition on the same play, so
+// the prior is counted once, in the bot's posterior.
+func combineRead(g *game.Game, racks []montecarlo.InferredRack) []montecarlo.InferredRack {
+	v, ok := readFor.Load(g)
+	if !ok {
+		return racks
+	}
+	nr := v.(netRead)
+	out := make([]montecarlo.InferredRack, len(racks))
+	for i, r := range racks {
+		l, ok := nr.like[leaveKey(r.Leave)]
+		if !ok {
+			l = nr.mean
+		}
+		out[i] = montecarlo.InferredRack{Leave: r.Leave, Weight: r.Weight * l}
+	}
+	return out
 }

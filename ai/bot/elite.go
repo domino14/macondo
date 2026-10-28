@@ -25,6 +25,10 @@ const InferencesSimLimit = 2
 // net, on a machine with a GPU). ok false falls back to the bot's own read.
 var ExternalRead func(g *game.Game) (racks []montecarlo.InferredRack, rackLength int, ok bool)
 
+// ReadAdjust, when set, reweights the bot's own complete posterior before the
+// sim uses it: a lab hook for combining it with a read computed elsewhere.
+var ReadAdjust func(g *game.Game, racks []montecarlo.InferredRack) []montecarlo.InferredRack
+
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
 
@@ -327,6 +331,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			// directly, no count threshold or random fallback needed.
 			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
 			racks := leaveQualityReweight(p.Game, inferences.InferredRacks, leaveValuer(p.simmerCalcs))
+			if ReadAdjust != nil {
+				racks = ReadAdjust(p.Game, racks)
+			}
 			p.simmer.SetInferences(racks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
 		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
