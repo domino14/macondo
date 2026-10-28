@@ -297,6 +297,8 @@ func init() {
 			{Name: "minsimplies2", Type: OptInt},
 			{Name: "fixedsimplies1", Type: OptInt, Help: "player 1: every sim exactly this many plies, late game included"},
 			{Name: "fixedsimplies2", Type: OptInt, Help: "player 2: every sim exactly this many plies, late game included"},
+			{Name: "simplays1", Type: OptInt, Help: "player 1: sim the top N plays by static equity (default 100)"},
+			{Name: "simplays2", Type: OptInt, Help: "player 2: sim the top N plays by static equity (default 100)"},
 			{Name: "tritonmodel1", Type: OptString, Help: "player 1's ML bot queries this Triton model (version 1)"},
 			{Name: "tritonmodel2", Type: OptString, Help: "player 2's ML bot queries this Triton model (version 1)"},
 			{Name: "numgames", Type: OptInt},

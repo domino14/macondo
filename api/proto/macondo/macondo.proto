@@ -520,6 +520,10 @@ message AutoplayPlayerConfig {
   // preendgame_threads sets the number of threads used inside a single
   // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
   int32 preendgame_threads = 23;
+  // sim_plays, when positive, is how many of the top plays by static equity
+  // a simming bot starts its sim from (default 100). Lets a sim bot consider
+  // as many plays as FastMlBot ranks.
+  int32 sim_plays = 24;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

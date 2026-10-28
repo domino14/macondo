@@ -39,6 +39,9 @@ type BotConfig struct {
 	// FixedSimPlies, when positive, makes every sim exactly this deep while
 	// tiles are left in the bag (see eliteBestPlay).
 	FixedSimPlies int
+	// SimPlays, when positive, is how many of the top plays by static
+	// equity a simming bot sims (default 100).
+	SimPlays int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation
 	// queries (version 1) instead of the game's global one.
 	TritonModel          string
@@ -102,6 +105,7 @@ type BotTurnPlayer struct {
 	simThreads            int
 	minSimPlies           int
 	fixedSimPlies         int
+	simPlays              int
 	tritonClient          *triton.TritonClient
 	cfg                   *BotConfig
 	lastMoves             []*move.Move
@@ -222,6 +226,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
 		btp.fixedSimPlies = conf.FixedSimPlies
+		btp.simPlays = conf.SimPlays
 		if conf.SimThreads > 0 {
 			btp.SetSimThreads(conf.SimThreads)
 		}

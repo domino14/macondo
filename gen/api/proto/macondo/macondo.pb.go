@@ -2888,8 +2888,12 @@ type AutoplayPlayerConfig struct {
 	// preendgame_threads sets the number of threads used inside a single
 	// pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
 	PreendgameThreads int32 `protobuf:"varint,23,opt,name=preendgame_threads,json=preendgameThreads,proto3" json:"preendgame_threads,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// sim_plays, when positive, is how many of the top plays by static equity
+	// a simming bot starts its sim from (default 100). Lets a sim bot consider
+	// as many plays as FastMlBot ranks.
+	SimPlays      int32 `protobuf:"varint,24,opt,name=sim_plays,json=simPlays,proto3" json:"sim_plays,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -3072,6 +3076,13 @@ func (x *AutoplayPlayerConfig) GetEndgameThreads() int32 {
 func (x *AutoplayPlayerConfig) GetPreendgameThreads() int32 {
 	if x != nil {
 		return x.PreendgameThreads
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetSimPlays() int32 {
+	if x != nil {
+		return x.SimPlays
 	}
 	return 0
 }
@@ -3565,7 +3576,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\x8c\b\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa9\b\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3591,7 +3602,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x16external_engine_binary\x18\x14 \x01(\tR\x14externalEngineBinary\x120\n" +
 	"\x14external_engine_args\x18\x15 \x03(\tR\x12externalEngineArgs\x12'\n" +
 	"\x0fendgame_threads\x18\x16 \x01(\x05R\x0eendgameThreads\x12-\n" +
-	"\x12preendgame_threads\x18\x17 \x01(\x05R\x11preendgameThreadsJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
+	"\x12preendgame_threads\x18\x17 \x01(\x05R\x11preendgameThreads\x12\x1b\n" +
+	"\tsim_plays\x18\x18 \x01(\x05R\bsimPlaysJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

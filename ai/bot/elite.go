@@ -61,7 +61,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	} else if unseen == 8 && (p.fixedSimPlies <= 0 || HasPreendgame(p.botType)) {
 		usePreendgame = true
 	} else {
-		moves = p.GenerateMoves(100)
+		moves = p.GenerateMoves(p.simPlaysOrDefault())
 		simPlies = simPliesFor(unseen, p.minSimPlies, p.fixedSimPlies)
 	}
 	simThreads := p.simThreads
@@ -87,6 +87,17 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		return nonEndgameBest(ctx, p, simPlies, moves)
 	}
 
+}
+
+// defaultSimPlays is how many of the top plays by static equity a simming
+// bot sims unless BotConfig.SimPlays says otherwise.
+const defaultSimPlays = 100
+
+func (p *BotTurnPlayer) simPlaysOrDefault() int {
+	if p.simPlays > 0 {
+		return p.simPlays
+	}
+	return defaultSimPlays
 }
 
 // simPliesFor is the sim depth with `unseen` tiles (bag plus the opponent's
@@ -121,7 +132,11 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	logger := zerolog.Ctx(ctx)
 
 	if !HasEndgame(p.botType) {
-		// Just return the static best play if we don't have an endgame engine.
+		// No endgame engine: a quick N-ply search when the bot is configured
+		// for one (close endgames only), else the static best play.
+		if m, ok := p.quickEndgameMove(ctx); ok {
+			return m, nil
+		}
 		return p.GenerateMoves(1)[0], nil
 	}
 	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
