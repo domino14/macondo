@@ -16,6 +16,10 @@ SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread 
 | nwl23 a+b+c | 54M | temperature bot (top 50, softmax T=1 while bag>60) vs HastyBot, NWL23, quick 2-ply endgames | nwl23, nwl23s, nwl23st, stream |
 | open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; quick endgames | open, streamopen |
 | open2 | 27M | same as open, generated 9/28 | streamopen |
+| open3 | 27M | same as open, generated 10/23 | nwl23big |
+| csw24open, csw24open2 | 27M each | same as open in CSW24, generated 10/19 on the MAGPIE movegen branch | every CSW24 run |
+| csw24open3 | 27M | same, generated 10/20 | csw24big, csw24huge, csw24l12, csw24l12huge |
+| csw24open4 | 27M | same, generated 10/22 | csw24huge, csw24l12huge |
 
 Labels in every run since `result`: the mover's true game result (WDL) and
 spread to the end, one position per game drawn uniformly from turns 1..30
@@ -52,6 +56,15 @@ The producer replays half of all games transposed.
 | nvnscr | 10/16 | 3M net-vs-net games only, from scratch | streamopen recipe, 20k steps (~20 passes), best val; shared the GPU with a match 11:45-14:45 | 20k | 54.45 ± 0.18 | +5.0 | -0.94 vs hastyscr (vs Hasty); loses head to head too, 49.64 ± 0.17 (4 SE) |
 | hastyscr | 10/16 | 3M HastyBot games only, from scratch (control) | same as nvnscr | 20k | 55.39 ± 0.18 | +5.9 | the Hasty-games control: better vs Hasty |
 | student6 | 10/16-17 | MAGPIE's distillation of streamopen (6 layers, jvc56/MAGPIE@569cfe09) | imported (import_magpie_student.py, parity 4e-7), TensorRT fp16 | | 55.80 ± 0.18 | +7.1 | -1.85 vs streamopen vs Hasty; streamopen head to head 48.07 ± 0.17; generation only +6% faster (bottleneck is not the GPU) |
+| csw24stream | 10/19-20 | csw24open + open2 54M, CSW24 | streamopen's recipe in CSW24 | 95k | 57.73 ± 0.18 | +9.4 | the CSW24 baseline; CSW24 matches from here on |
+| macondo-tf in CSW24 | 10/20 | (the NWL23 net, streamopen) | baseline: the NWL23 net playing CSW24 | | 57.13 ± 0.18 | +9.0 | csw24stream beats it head to head only 50.13 ± 0.16 (n.s.) |
+| csw24canon | 10/20 | same | no transposed games (`-transpose-games=false`) | 95k | 57.51 ± 0.18 | +8.9 | head to head vs csw24stream 49.92 ± 0.16: keep the game-level transpose |
+| **csw24big** | 10/20-21 | csw24open..open3 81M | 81M games instead of 54M, 6 passes; producer died at 134k of 144k, best checkpoint (130k, learning rate ~1% of peak) used | 130k | **58.06 ± 0.18** | +10.3 | head to head vs csw24stream 50.62 ± 0.16 (7.7 SE): more games win; shipped as macondo-tf-csw |
+| csw24flip | 10/21-22 | csw24open + open2 54M | per-batch transpose 0.5 on top of the game-level one | 95k | 57.60 ± 0.18 | +9.5 | head to head vs csw24stream 50.08 ± 0.16: no gain |
+| csw24huge | 10/22-23 | csw24open..open4 108M | 108M games, 6 passes, from scratch | 192k | 57.66 ± 0.18 | +9.5 | head to head vs csw24big 49.58 ± 0.16: worse; more than 81M games does not pay |
+| **nwl23big** | 10/23-24 | open + open2 + open3 81M, NWL23 | streamopen's recipe on 81M games (the csw24big change in NWL23) | 149k | **58.14 ± 0.18** | +10.5 | head to head vs streamopen 50.63 ± 0.16: replicates CSW24; shipped as macondo-tf |
+| **csw24l12** | 10/24-26 | csw24open..open3 81M | 12 layers x 256 (8 heads) instead of 8 x 192; batch 128 x 16 to fit memory (same 2048) | 144k | **58.55 ± 0.18** | +10.9 | head to head vs csw24big 50.37 ± 0.16 (4.6 SE); best validation WDL 0.4894 vs 0.4897; matches ~1.6x slower |
+| csw24l12huge | 10/26-28 | csw24open..open4 108M | csw24l12 on 108M games | 192k | 58.72 ± 0.18 | +11.7 | head to head vs csw24l12 50.08 ± 0.16: level (validation WDL level too); 108M does not pay at 12 x 256 either |
 
 ## Bot changes that affect matches
 
