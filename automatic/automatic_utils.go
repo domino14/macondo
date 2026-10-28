@@ -8,7 +8,6 @@ import (
 	"expvar"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -428,8 +427,8 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	glfilename := filepath.Join(
-		path.Dir(outputFilename),
-		"games-"+path.Base(outputFilename))
+		filepath.Dir(outputFilename),
+		"games-"+filepath.Base(outputFilename))
 	gamelogfile, err := os.Create(glfilename)
 	if err != nil {
 		return err
@@ -451,7 +450,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	g, ctx := errgroup.WithContext(ctx)
 	addToHistory := lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
 		return bot.HasInfer(p.BotCode) || p.OracleInference || p.BotCode == pb.BotRequest_CUSTOM_BOT
-	})
+	}) || bot.LeaveQualityPureOn() // rule-only reads need the opponent's last play
 
 	for i := 1; i <= threads; i++ {
 		wg.Add(1)

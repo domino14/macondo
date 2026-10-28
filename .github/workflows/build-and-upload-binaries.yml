@@ -16,30 +16,38 @@ on:
       - ".github/workflows/build-and-upload-binaries.yml"
   workflow_dispatch:
 
+# Macondo links MAGPIE (C) and ONNX Runtime (CPU inference) through cgo, so
+# every platform builds natively on its own runner, except Windows, which
+# cross-compiles on Linux with llvm-mingw as MAGPIE's own Windows release
+# does; on a tag, a last job joins the two macOS builds into a universal
+# binary and makes the release.
 jobs:
-  # Each platform builds on its own runner: the binaries need cgo (CPU
-  # inference with ONNX Runtime), and Go cannot cross-compile cgo without a
-  # C cross-compiler.
   build:
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - target: mac
-            runs-on: macos-latest
-          - target: linux
-            runs-on: ubuntu-latest
-          - target: windows
-            runs-on: windows-latest
-    runs-on: ${{ matrix.runs-on }}
-    defaults:
-      run:
-        shell: bash
-
+          - runner: ubuntu-latest
+            nickname: linux-x86_64
+            march: x86-64-v2
+          - runner: ubuntu-24.04-arm
+            nickname: linux-arm64
+            march: armv8-a
+          - runner: macos-latest
+            nickname: osx-arm64
+            march: armv8-a
+          - runner: macos-13
+            nickname: osx-x86_64
+            march: x86-64-v2
+          - runner: ubuntu-latest
+            nickname: win64
+            march: x86-64-v2
+            windows: amd64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 0
 
       - name: Set up Python 3.12
@@ -60,26 +68,49 @@ jobs:
       - name: Create gaddag directory
         run: mkdir -p data/lexica/gaddag
 
-      - name: Run build script
-        run: inv build --target ${{ matrix.target }}
+      # The toolchain, pinned to the release MAGPIE's Windows build uses (its
+      # release-windows.yml), with the SHA-256 of the tarball.
+      - name: Get llvm-mingw
+        if: matrix.windows
+        env:
+          LLVM_MINGW_VERSION: "20261006"
+          LLVM_MINGW: llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64
+          LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/$LLVM_MINGW.tar.xz" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$LLVM_MINGW.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$LLVM_MINGW.tar.xz" | sha256sum -c --strict -
+          tar xJf "$RUNNER_TEMP/$LLVM_MINGW.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$LLVM_MINGW/bin" >> "$GITHUB_PATH"
 
-      - name: Upload build
-        uses: actions/upload-artifact@v4
+      - name: Build
+        env:
+          MAGPIE_MARCH: ${{ matrix.march }}
+        run: inv build --nickname ${{ matrix.nickname }} ${{ matrix.windows && format('--windows {0}', matrix.windows) || '' }}
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: macondo-${{ matrix.target }}
+          name: ${{ matrix.nickname }}
           path: macondo-*.zip
-          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
-      - name: Download builds
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: dist
           merge-multiple: true
+
+      - name: Make the universal macOS build
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          mkdir arm64 x86_64
+          unzip -q "macondo-${tag}-osx-arm64.zip" -d arm64
+          unzip -q "macondo-${tag}-osx-x86_64.zip" -d x86_64
+          lipo -create -output arm64/macondo arm64/macondo x86_64/macondo
+          (cd arm64 && zip -qr "../macondo-${tag}-osx-universal.zip" .)
+          rm "macondo-${tag}-osx-arm64.zip" "macondo-${tag}-osx-x86_64.zip"
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -87,4 +118,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
-            dist/macondo-*.zip
+            macondo-*.zip

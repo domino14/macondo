@@ -3,14 +3,13 @@ package negamax
 import (
 	"testing"
 
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 )
@@ -46,14 +45,8 @@ func TestBestSingleTilePlayMatchesMovegen(t *testing.T) {
 		is.NoErr(err)
 		g.RecalculateBoard()
 		g.SetBackupMode(game.SimulationMode)
-		gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), bd.lex)
-		is.NoErr(err)
 		ld := g.Bag().LetterDistribution()
 		alph := g.Alphabet()
-		gen := movegen.NewGordonGenerator(gd, g.Board(), ld)
-		gen.SetSortingParameter(movegen.SortByNone)
-		gen.SetGenPass(true)
-		gen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
 		checked, playable := 0, 0
 		numLetters := int(alph.NumLetters())
@@ -67,18 +60,7 @@ func TestBestSingleTilePlayMatchesMovegen(t *testing.T) {
 			checked++
 
 			// Ground truth from full move generation.
-			gen.GenAll(rack, false)
-			var wantBest int
-			haveTilePlay := false
-			for _, p := range gen.SmallPlays() {
-				if p.IsPass() {
-					continue
-				}
-				if !haveTilePlay || p.Score() > wantBest {
-					wantBest = p.Score()
-					haveTilePlay = true
-				}
-			}
+			wantBest, haveTilePlay := bestTilePlayScore(t, g.Game, tilemapping.MachineLetter(ml))
 
 			got, ok := bestSingleTilePlay(g.Board(), rack, ld)
 			if !haveTilePlay {
@@ -144,13 +126,8 @@ func TestBestSingleTilePlayAcrossPositions(t *testing.T) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(30)
 		g.SetEndgameMode(true)
-		gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), bd.lex)
-		is.NoErr(err)
 		ld := g.Bag().LetterDistribution()
 		alph := g.Alphabet()
-		gen := movegen.NewGordonGenerator(gd, g.Board(), ld)
-		gen.SetSortingParameter(movegen.SortByNone)
-		gen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
 		numLetters := int(alph.NumLetters())
 		positions, comparisons := 0, 0
@@ -163,16 +140,7 @@ func TestBestSingleTilePlayAcrossPositions(t *testing.T) {
 				if probe.NumTiles() != 1 {
 					continue
 				}
-				gen.GenAll(probe, false)
-				want, have := 0, false
-				for _, p := range gen.SmallPlays() {
-					if p.IsPass() {
-						continue
-					}
-					if !have || p.Score() > want {
-						want, have = p.Score(), true
-					}
-				}
+				want, have := bestTilePlayScore(t, g.Game, tilemapping.MachineLetter(ml))
 				got, ok := bestSingleTilePlay(g.Board(), probe, ld)
 				if ok != have {
 					t.Fatalf("%s step %d tile %s: scan found=%v, movegen found=%v",
@@ -200,8 +168,7 @@ func TestBestSingleTilePlayAcrossPositions(t *testing.T) {
 			if onTurn.NumTiles() == 0 {
 				break
 			}
-			gen.GenAll(onTurn, false)
-			plays := gen.SmallPlays()
+			plays := onTurnSmallPlays(t, g.Game)
 			bi, bs, found := 0, -1, false
 			for j := range plays {
 				if plays[j].IsPass() {
@@ -244,4 +211,43 @@ func TestBestSingleTilePlayStuckTile(t *testing.T) {
 	rack := tilemapping.RackFromString("V", g.Alphabet())
 	_, ok := bestSingleTilePlay(g.Board(), rack, ld)
 	is.True(!ok)
+}
+
+// bestTilePlayScore is the best score the player on turn could make holding
+// only tile, from MAGPIE's full small-move generation.
+func bestTilePlayScore(t *testing.T, g *game.Game, tile tilemapping.MachineLetter) (int, bool) {
+	t.Helper()
+	pos, err := g.MagpiePosition()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var racks [2]tilemapping.MachineWord
+	racks[g.PlayerOnTurn()] = tilemapping.MachineWord{tile}
+	racks[1-g.PlayerOnTurn()] = g.RackFor(1 - g.PlayerOnTurn()).TilesOn()
+	pos.SetRacksAndBag(racks[0], racks[1], g.Bag().Tiles(), g.PlayerOnTurn())
+	best, have := 0, false
+	for _, m := range pos.GenerateSmall(false, make([]magpie.SmallMove, 10000)) {
+		if m.TM != 0 && (!have || int(m.Score) > best) {
+			best, have = int(m.Score), true
+		}
+	}
+	return best, have
+}
+
+// onTurnSmallPlays is every play for the player on turn, a pass included.
+func onTurnSmallPlays(t *testing.T, g *game.Game) []tinymove.SmallMove {
+	t.Helper()
+	pos, err := g.MagpiePosition()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plays []tinymove.SmallMove
+	for _, m := range pos.GenerateSmall(true, make([]magpie.SmallMove, 100000)) {
+		if m.TM == 0 {
+			plays = append(plays, tinymove.PassMove())
+			continue
+		}
+		plays = append(plays, tinymove.TilePlayMove(tinymove.TinyMove(m.TM), m.Score, m.TilesPlayed, m.PlayLength))
+	}
+	return plays
 }

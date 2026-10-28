@@ -9,7 +9,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 )
@@ -371,7 +370,7 @@ func boardPlayableTilesBV(b *board.GameBoard, targetBV uint64) uint64 {
 //
 // Note this generates moves for the opponent, which clobbers mg's play list.
 // Callers must have copied out any plays they still need.
-func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKey uint64, thread int) float32 {
+func (s *Solver) oppStuckFraction(g *game.Game, nodeKey uint64, thread int) float32 {
 	oppRack := g.RackFor(1 - s.solvingPlayer)
 	if oppRack.NumTiles() == 0 {
 		return 0
@@ -409,16 +408,14 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 		frac = stuckFractionFromBV(g.Bag().LetterDistribution(), oppRack, tilesBV)
 	default:
 		// Some tiles look stuck, but a tile with no single-tile play may still
-		// play inside a longer word. Fall back to real move generation. This is
+		// play inside a longer word. Fall back to MAGPIE's tiles-played
+		// generation, which stops once every rack tile has a play. This is
 		// the expensive branch; most positions return above.
-		mg.GenAll(oppRack, false)
-		plays := mg.SmallPlays()
-		for i := range plays {
-			tilesBV = orPlayedTiles(tilesBV, &plays[i])
-			if tilesBV&rackBV == rackBV {
-				break
-			}
+		pos, err := g.MagpiePosition()
+		if err != nil {
+			panic(err)
 		}
+		tilesBV = pos.TilesPlayed(1-s.solvingPlayer, tilesBV)
 		frac = stuckFractionFromBV(g.Bag().LetterDistribution(), oppRack, tilesBV)
 	}
 
@@ -441,7 +438,7 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 // The moves played out are recorded in pv, so that a principal variation that
 // runs off the end of the search still shows how the game is expected to
 // finish. They are marked as estimates when displayed.
-func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLine,
+func (s *Solver) greedyPlayout(g *game.Game, pv *PVLine,
 	nodeKey uint64, thread int) int16 {
 	// Capture this before playing anything: handleConsecutiveScorelessTurns
 	// advances the player on turn when the game ends on a double pass, and does
@@ -460,7 +457,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	ld := g.Bag().LetterDistribution()
 	// Recomputed from this position rather than inherited from the parent, so
 	// that the leaf value is a pure function of the position.
-	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
+	frac := s.oppStuckFraction(g, nodeKey, thread)
 
 	played := 0
 	for played < budget && g.Playing() == pb.PlayState_PLAYING {
@@ -483,8 +480,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			n++
 			plays = buf[:n]
 		} else {
-			mg.GenAll(rack, false)
-			plays = mg.SmallPlays()
+			plays = s.smallPlays(g, thread, -1)
 		}
 		if len(plays) == 0 {
 			break

@@ -19,9 +19,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
-	"github.com/domino14/word-golib/cache"
 	wglconfig "github.com/domino14/word-golib/config"
-	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
@@ -43,11 +41,9 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
-	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 const (
@@ -175,8 +171,6 @@ type ShellController struct {
 	gameRunnerTicker  *time.Ticker
 
 	curTurnNum       int
-	gen              movegen.MoveGenerator
-	backupgen        movegen.MoveGenerator // used for endgame engine
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
@@ -198,7 +192,6 @@ type ShellController struct {
 	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
 
 	simStats *stats.SimStats
-	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	// Variation tree for exploring different lines of play
 	variationRoot    *VariationNode // Root of the variation tree (initial game position)
@@ -298,17 +291,6 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	// fix hardcoding later
-	winpct, err := cache.Load(cfg.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
-	if err != nil {
-		panic(err)
-	}
-	var ok bool
-	winPcts, ok := winpct.([][]float32)
-	if !ok {
-		panic("win percentages not correct type")
-	}
-
 	// Load aliases from config
 	aliases := make(map[string]string)
 	if aliasesFromConfig := cfg.GetStringMapString(config.ConfigAliases); aliasesFromConfig != nil {
@@ -322,7 +304,6 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 		options:        opts,
 		aliases:        aliases,
 		macondoVersion: gitVersion,
-		winpcts:        winPcts,
 	}
 
 	// Create the autocompleter with reference to the controller
@@ -425,12 +406,6 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 					"leave values for "+lexName)
 				fetchLeaves(sc.config.WGLConfig(), "super-"+lexName,
 					"SuperCrosswordGame leave values for "+lexName)
-				// Build WMP if not already on disk (build-on-miss is intentional
-				// here since the user is doing an interactive lexicon switch).
-				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
-					log.Info().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
-						Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
-				}
 			}
 			_, ret = sc.options.Show("lexicon")
 		}
@@ -518,23 +493,6 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-	// WMP is wired into the simmer only. The interactive `gen` /
-	// `best` / endgame paths use sc.gen (and sc.backupgen below),
-	// which deliberately do NOT get a WMP — those code paths need
-	// the full enumeration that AllPlaysRecorder / endgame solvers
-	// rely on, and WMP's win is only in the shadow + best-first
-	// rollout loop that Monte Carlo sim drives. The TopN equivalence
-	// test (montecarlo/wmp_equivalence_test.go) covers the sim path
-	// only; mirror this constraint if WMP is ever extended elsewhere.
-	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
-	sc.gen = sc.game.MoveGenerator()
-
-	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
-	if err != nil {
-		return err
-	}
-
-	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
@@ -730,8 +688,6 @@ func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
 		return nil, err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
-	sc.gen = sc.game.MoveGenerator()
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
@@ -1028,10 +984,6 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig()); err != nil {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
 	}
-	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
-		log.Info().Err(wmpErr).Str("lexicon", lexicon).
-			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
-	}
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
 	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
@@ -1184,10 +1136,6 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	}
 	if err := turnplayer.EnsureKWG(lex, sc.config.WGLConfig()); err != nil {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lex, err)
-	}
-	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lex); wmpErr != nil {
-		log.Info().Err(wmpErr).Str("lexicon", lex).
-			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 	}
 	g, err := cgp.ParseCGP(sc.config, cgpstr)
 	if err != nil {

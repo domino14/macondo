@@ -151,13 +151,19 @@ func (g *Game) forEachMLMove(moves []*move.Move, f func(m *move.Move) error) err
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
+	if _, err := g.MagpiePosition(); err != nil {
+		return err
+	}
 
 	for _, m := range moves {
 		g.backupState()
 		switch m.Action() {
 		case move.MoveTypePlay:
-			g.board.PlayMove(m)
-			g.crossSetGen.UpdateForMove(g.board, m)
+			// On the board only: the player draws nothing.
+			if err := g.posPlay(m); err != nil {
+				g.UnplayLastMove()
+				return err
+			}
 			score := m.Score()
 			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns = 0

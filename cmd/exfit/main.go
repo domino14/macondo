@@ -41,6 +41,8 @@ type record struct {
 	Play       string          `json:"play"`
 	TrueLeave  string          `json:"trueLeave"`
 	Kept       int             `json:"kept"`
+	Played     int             `json:"played"` // tiles placed or thrown
+	Score      int             `json:"score"`
 	Bag        int             `json:"bag"`
 	TrueValue  float64         `json:"trueValue"`
 	TrueLogPri float64         `json:"trueLogPrior"`
@@ -114,7 +116,8 @@ func tabulate(pos *automatic.CorpusPosition, calc *equity.CombinedStaticCalculat
 	cfg *config.Config) record {
 
 	rec := record{GameID: pos.GameID, Half: pos.Half, Turn: pos.Turn, Play: pos.OppPlay,
-		TrueLeave: pos.TrueLeave, Kept: pos.LeaveLen, Bag: pos.TilesRemaining}
+		TrueLeave: pos.TrueLeave, Kept: pos.LeaveLen, Bag: pos.TilesRemaining,
+		Played: len([]rune(pos.OppRack)) - pos.LeaveLen, Score: pos.OppScore}
 	if pos.HasLoggedResult {
 		l := pos.LoggedLiftBits
 		rec.LoggedLift = &l
