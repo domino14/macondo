@@ -124,6 +124,7 @@ type AutomaticRunnerPlayer struct {
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
 	FixedSimPlies        int
+	SimPlays             int
 	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
@@ -236,6 +237,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			LeavesFile:                   leavefile,
 			MinSimPlies:                  players[idx].MinSimPlies,
 			FixedSimPlies:                players[idx].FixedSimPlies,
+			SimPlays:                     players[idx].SimPlays,
 			TritonModel:                  players[idx].TritonModel,
 			SimThreads:                   simThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,

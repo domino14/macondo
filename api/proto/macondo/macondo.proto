@@ -154,6 +154,8 @@ message BotRequest {
     SIMMING_WITH_ML_EVAL_BOT = 16;
     // No-endgame variants: sim only, no preendgame or endgame solver.
     // Used for controlled experiments isolating midgame sim quality.
+    // With the bag empty they play the static best move, or, when autoplay's
+    // -quickendgame is set, the quick N-ply search every non-solving bot uses.
     SIMMING_BOT_NO_EG = 17;
     SIMMING_INFER_BOT_NO_EG = 18;
     // custom bots can be used to run custom algorithms.
@@ -520,6 +522,10 @@ message AutoplayPlayerConfig {
   // preendgame_threads sets the number of threads used inside a single
   // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
   int32 preendgame_threads = 23;
+  // sim_plays, when positive, is how many of the top plays by static equity
+  // a simming bot starts its sim from (default 100). Lets a sim bot consider
+  // as many plays as FastMlBot ranks.
+  int32 sim_plays = 24;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
