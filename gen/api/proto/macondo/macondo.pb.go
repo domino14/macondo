@@ -501,6 +501,8 @@ const (
 	BotRequest_SIMMING_WITH_ML_EVAL_BOT    BotRequest_BotCode = 16
 	// No-endgame variants: sim only, no preendgame or endgame solver.
 	// Used for controlled experiments isolating midgame sim quality.
+	// With the bag empty they play the static best move, or, when autoplay's
+	// -quickendgame is set, the quick N-ply search every non-solving bot uses.
 	BotRequest_SIMMING_BOT_NO_EG       BotRequest_BotCode = 17
 	BotRequest_SIMMING_INFER_BOT_NO_EG BotRequest_BotCode = 18
 	// custom bots can be used to run custom algorithms.
