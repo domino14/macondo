@@ -1047,3 +1047,36 @@ beyond. Exchanges and passes keep the bot's own read.
   would need a GPU read server; with no screening gain there is no case for
   one.
 
+## Oracle gap by bag and the opponent's play (round 1 data)
+
+The round 1 headroom screen (3,799 positions of the inference bot, oracle and
+plain deciders, true leave known), split by bag and by what the opponent
+just played. Oracle: gain per position of the bot told the true leave over
+the logged inference move. Inference: what the logged inference move gains
+over the plain bot's.
+
+| bag | opponent's play | positions | oracle per position | share of the bag's oracle gain | inference per position |
+|---|---|---|---|---|---|
+| 21+ | exchange/pass | 76 | +0.28 ± 0.21 | 4% | +0.13 ± 0.19 |
+| 21+ | 1 tile | 58 | +0.76 ± 0.46 | 8% | +0.25 ± 0.48 |
+| 21+ | 2 tiles | 343 | +0.54 ± 0.18 | 35% | +0.11 ± 0.11 |
+| 21+ | 3 tiles | 594 | +0.24 ± 0.08 | 27% | +0.05 ± 0.05 |
+| 21+ | 4 tiles | 598 | +0.16 ± 0.06 | 18% | +0.02 ± 0.04 |
+| 21+ | 5–6 tiles | 548 | +0.07 ± 0.05 | 7% | +0.00 ± 0.03 |
+| 21+ | bingo | 568 | 0 | 0% | 0 |
+| 21+ | all | 2,785 | +0.19 ± 0.03 | | +0.04 ± 0.02 |
+| ≤ 20 | 1 tile | 48 | +2.22 ± 1.92 | 15% | +0.11 ± 0.21 |
+| ≤ 20 | 2 tiles | 154 | +1.52 ± 0.76 | 32% | +0.07 ± 0.44 |
+| ≤ 20 | 3 tiles | 242 | +0.93 ± 0.45 | 31% | +0.09 ± 0.11 |
+| ≤ 20 | 4 tiles | 215 | +0.45 ± 0.24 | 13% | +0.09 ± 0.18 |
+| ≤ 20 | 5–6 tiles | 192 | +0.30 ± 0.18 | 8% | +0.01 ± 0.09 |
+| ≤ 20 | all | 1,014 | +0.72 ± 0.20 | | +0.06 ± 0.08 |
+
+- Early, 80% of the oracle's gain follows ordinary 2–4 tile plays, where the
+  opponent keeps 3–5 tiles; exchanges and one-tile plays are only 12%, since
+  they are rare. Inference recovers about a fifth of it after 2- and 3-tile
+  plays and less after 4.
+- The oracle gap overstates what a read can reach: one play cannot reveal
+  which five tiles were kept. Evidence beyond the last play (what the
+  opponent kept on earlier turns) is the obvious source of more.
+
