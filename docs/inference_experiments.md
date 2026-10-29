@@ -981,7 +981,9 @@ set; confirmation runs use unscreened seeds (20261023, 20261025).
 | rule ×1, ≤ 4 tiles | leave-quality reweight | ≤ 20 | +0.049 ± 0.027; adds little to tau 0.1 |
 | tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | match on seeds 20261023, 20261025 pending |
 | budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early +0.011 ± 0.008 per position, placebo +0.006 ± 0.009: no clear gain |
-| 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 pending |
+| 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 +0.103 ± 0.046, same as tau 0.1 alone: closed |
+| net read in place of the mini-sim read | value-net likelihood of the opponent's play, `-readmode replace` | ≤ 20 (not exchanges or passes) | −0.006 ± 0.034; worse than placebo at bag 8–20: closed |
+| net read times the mini-sim read | `-readmode combine` | ≤ 20 | +0.035 ± 0.030 on the curve; on tau 0.1 +0.084 to +0.089, no gain over tau 0.1: closed |
 
 Ideas not pursued: switching early inference off (it helps: +0.045 ± 0.031
 per position at bag 51+ in the headroom map).
@@ -1011,3 +1013,37 @@ early positions. Per position, true leave known.
   better likelihoods barely move the posterior. 5-ply with tau 0.1 is the
   real test.
 - A bigger budget early doesn't separate from the placebo.
+
+## Screening round 6: 5-ply mini-sims with tau 0.1, net reads
+
+Same 9,664 late positions. Net reads come from `cmd/netread` (branch
+`claude/netread`): for each leave the opponent may have kept, the value net
+(nwl23big) scores the play they made against their top 20 static
+alternatives; the likelihood is the actual play's softmax share in atanh
+space at temperature T. Leaves are enumerated up to 1,000 distinct, sampled
+beyond. Exchanges and passes keep the bot's own read.
+
+| variant | changed | per position | bag 1–7 | bag 8–20 |
+|---|---|---|---|---|
+| placebo (round 5) | 324 | −0.004 ± 0.013 | +0.003 ± 0.017 | −0.010 ± 0.021 |
+| tau 0.1 (round 5) | 786 | +0.094 ± 0.040 | +0.155 ± 0.077 | +0.037 ± 0.028 |
+| 5-ply mini-sims + tau 0.1 | 898 | +0.103 ± 0.046 | +0.172 ± 0.088 | +0.037 ± 0.032 |
+| net read, T 0.2, replaces the mini-sim read | 661 | −0.006 ± 0.034 | +0.041 ± 0.059 | −0.051 ± 0.037 |
+| mini-sim read (curve) × net, T 0.3 | 467 | +0.035 ± 0.030 | +0.059 ± 0.056 | +0.012 ± 0.023 |
+| mini-sim read (tau 0.1) × net, T 0.3 | 895 | +0.084 ± 0.046 | +0.133 ± 0.089 | +0.038 ± 0.031 |
+| mini-sim read (tau 0.1) × net, T 0.5 | 854 | +0.089 ± 0.041 | +0.148 ± 0.079 | +0.034 ± 0.028 |
+
+- Deeper mini-sims add nothing even with a sharp tau: mini-sim effort is not
+  where the read is limited.
+- On its own the net read gives the true leave about as many bits as the
+  mini-sim read (+0.51 vs +0.59 at its best temperature, 4,342 positions
+  with both), yet it decides worse, below the placebo at bag 8–20. Bits on
+  the true leave miss how a read spreads weight over the other leaves.
+- The two reads agree on the direction of the true leave in about two
+  thirds of positions (lift correlation 0.38). Multiplied, they help a soft
+  read a little, but nothing over tau 0.1: what the net adds is sharpening,
+  which tau already does.
+- On CPU a net read costs minutes of core time per position, so a match
+  would need a GPU read server; with no screening gain there is no case for
+  one.
+
