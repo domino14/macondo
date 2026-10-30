@@ -21,7 +21,8 @@ import (
 // github.com/microsoft/onnxruntime/releases): onnxruntime-lib gives its
 // path, otherwise the system's library search path is used. The model is
 // the one Triton would serve: models/<triton-model-name>/<version>/model.onnx
-// under the strategy directory (lexicon directory first, then default).
+// under the strategy directory (lexicon directory first, then default),
+// downloaded from ml-models-url when it is not there (see mlfetch.go).
 
 var (
 	ortInitOnce sync.Once
@@ -62,13 +63,17 @@ func (g *Game) ortModelFor() (*ortModel, error) {
 	if err != nil {
 		return nil, err
 	}
-	file := fmt.Sprintf("models/%s/%s/model.onnx", name, mlModelVersion(g.config))
+	ver := mlModelVersion(g.config)
+	file := mlModelFile(name, ver)
 	key := g.LexiconName() + ":" + file
 
 	ortMu.Lock()
 	defer ortMu.Unlock()
 	if m := ortModels[key]; m != nil {
 		return m, nil
+	}
+	if err := ensureMLModel(g.config, name, ver, g.LexiconName()); err != nil {
+		return nil, fmt.Errorf("no model %s for %s: %w", name, g.LexiconName(), err)
 	}
 	r, err := dataloaders.StratFileForLexicon(dataloaders.StrategyParamsPath(g.config.WGLConfig()), file, g.LexiconName())
 	if err != nil {

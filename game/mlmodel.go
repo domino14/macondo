@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,7 +11,6 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/triton"
 )
 
@@ -66,10 +66,10 @@ func ResolveMLModel(cfg *config.Config, base, lexicon string, ld *tilemapping.Le
 			log.Warn().Err(err).Str("model", want).Msg("could not list Triton's models")
 		}
 	} else {
-		file := fmt.Sprintf("models/%s/%s/model.onnx", want, ver)
-		if r, err := dataloaders.StratFileForLexicon(dataloaders.StrategyParamsPath(cfg.WGLConfig()), file, lexicon); err == nil {
-			r.Close()
-			found = true
+		err := ensureMLModel(cfg, want, ver, lexicon)
+		found = err == nil
+		if err != nil && !errors.Is(err, ErrNoMLModel) {
+			log.Warn().Err(err).Str("model", want).Msg("could not get the model")
 		}
 	}
 	name := want
