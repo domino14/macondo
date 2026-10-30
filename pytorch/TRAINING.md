@@ -95,7 +95,9 @@ What it does (the defaults are the shipped recipe):
    `bin/mlproducer -lexicon $LEXICON -labeler result -per-game`
    into `training.py`, which trains:
    - the transformer (8 layers, width 192, 6 attention heads, 3.7M
-     parameters);
+     parameters; the shipped `macondo-tf` and `macondo-tf-csw` are 12
+     layers, width 256, 8 heads, 9.6M parameters, trained on 81M games with
+     `TRAIN_EXTRA="--d-model 256 --layers 12 --heads 8" BATCH=128 ACCUM=16`);
    - WDL cross-entropy as the main target (the exported `value` is
      P(win) − P(loss));
    - auxiliary heads (spread, opponent bingo, opponent score) balanced to
