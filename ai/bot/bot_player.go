@@ -129,6 +129,8 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// prevRead is the last turn's read, for the two-turn read (carry.go).
+	prevRead *cachedRead
 	// endgameTTable is the bot's transposition table, shared between endgame
 	// and pre-endgame solvers (they never run simultaneously within a turn).
 	// Lazily allocated on first use when not injected via BotConfig.
