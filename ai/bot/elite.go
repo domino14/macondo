@@ -16,6 +16,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 )
 
 const InferencesSimLimit = 2
@@ -245,25 +246,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	if HasInfer(p.botType) && !extOK && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
-		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
-		if p.simThreads != 0 {
-			p.inferencer.SetThreads(p.simThreads)
-		}
-		if p.cfg.InferenceTau > 0 {
-			p.inferencer.SetTau(p.cfg.InferenceTau)
-		}
-		if p.cfg.InferenceTauScale > 0 {
-			p.inferencer.SetTauScale(p.cfg.InferenceTauScale)
-		}
-		p.inferencer.SetTauCap(p.cfg.InferenceTauCap)
-		if p.cfg.InferenceSimIters > 0 {
-			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
-		}
-		p.inferencer.SetMiniSim(p.cfg.InferenceMiniSimPlays, p.cfg.InferenceMiniSimPlies)
-		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
-			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
-		}
-		p.inferencer.SetBudget(p.cfg.InferenceBudget)
+		p.setupInferencer(p.inferencer, p.Game)
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)
@@ -330,7 +313,11 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			// Complete posterior over every feasible leave: sample it
 			// directly, no count threshold or random fallback needed.
 			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
-			racks := leaveQualityReweight(p.Game, inferences.InferredRacks, leaveValuer(p.simmerCalcs))
+			racks := inferences.InferredRacks
+			if carried, ok := p.carryRead(); ok {
+				racks = carried
+			}
+			racks = leaveQualityReweight(p.Game, racks, leaveValuer(p.simmerCalcs))
 			if ReadAdjust != nil {
 				racks = ReadAdjust(p.Game, racks)
 			}
@@ -341,6 +328,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		} else {
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
 		}
+	}
+	if HasInfer(p.botType) && inferenceRan {
+		// After the carry above, which reads the one kept last turn.
+		p.cacheRead()
 	}
 	if !HasInfer(p.botType) {
 		if racks, k, ok := leaveQualityPure(p.Game, leaveValuer(p.simmerCalcs)); ok {
@@ -371,4 +362,28 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	logger.Info().Interface("winning-move", play.Move().String()).Msg("sim-done")
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
+}
+
+// setupInferencer readies rf to read the opponent in g with the bot's
+// inference settings.
+func (p *BotTurnPlayer) setupInferencer(rf *rangefinder.RangeFinder, g *game.Game) {
+	rf.Init(g, p.simmerCalcs, p.Config())
+	if p.simThreads != 0 {
+		rf.SetThreads(p.simThreads)
+	}
+	if p.cfg.InferenceTau > 0 {
+		rf.SetTau(p.cfg.InferenceTau)
+	}
+	if p.cfg.InferenceTauScale > 0 {
+		rf.SetTauScale(p.cfg.InferenceTauScale)
+	}
+	rf.SetTauCap(p.cfg.InferenceTauCap)
+	if p.cfg.InferenceSimIters > 0 {
+		rf.SetSimIters(p.cfg.InferenceSimIters)
+	}
+	rf.SetMiniSim(p.cfg.InferenceMiniSimPlays, p.cfg.InferenceMiniSimPlies)
+	if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
+		rf.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
+	}
+	rf.SetBudget(p.cfg.InferenceBudget)
 }

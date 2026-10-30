@@ -984,6 +984,7 @@ set; confirmation runs use unscreened seeds (20261023, 20261025).
 | 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 +0.103 ± 0.046, same as tau 0.1 alone: closed |
 | net read in place of the mini-sim read | value-net likelihood of the opponent's play, `-readmode replace` | ≤ 20 (not exchanges or passes) | −0.006 ± 0.034; worse than placebo at bag 8–20: closed |
 | net read times the mini-sim read | `-readmode combine` | ≤ 20 | +0.035 ± 0.030 on the curve; on tau 0.1 +0.084 to +0.089, no gain over tau 0.1: closed |
+| two-turn read (carry), power 1 | `MACONDO_CARRY_POWER=1`: this turn's read reweighted by last turn's read of the opponent | every bag where the opponent's previous play was read (not after their exchanges, bingos or first play) | early (bag 21+, after 2–4 tile plays) +0.028 ± 0.018 per position, +0.27 bits; match on seeds 20261023, 20261025 pending |
 
 Ideas not pursued: switching early inference off (it helps: +0.045 ± 0.031
 per position at bag 51+ in the headroom map).
@@ -1080,3 +1081,54 @@ over the plain bot's.
   which five tiles were kept. Evidence beyond the last play (what the
   opponent kept on earlier turns) is the obvious source of more.
 
+## Two-turn reads (carry)
+
+A read looks at one play, but the opponent's rack this turn is the leave
+they kept last turn plus fresh draws. Last turn's read of that leave makes
+this turn's prior over racks non-flat, which the single-turn read ignores.
+
+**Math.** The opponent played P₁ keeping L′, drew D, then played P₂ from
+R₂ = L′ + D = L + t₂, keeping L. Each play depends only on the rack it came
+from, so
+
+P(L | P₁, P₂) ∝ P(P₂ | R₂) · Σ_{L′ ⊆ R₂} P(L′ | P₁) · P(D = R₂ − L′ | L′).
+
+With P(L′ | P₁) ∝ prior(L′) · lik₁(L′), and L′ and D successive draws without
+replacement from the same pool, prior(L′) · P(D | L′) = prior(R₂) ·
+Π_x C(R₂ₓ, L′ₓ) / C(|R₂|, |L′|): the hypergeometric split of R₂, which does
+not depend on the pool. So the two-turn posterior is this turn's posterior
+times
+
+carry(L) = Σ_{L′ ⊆ R₂} [Π_x C(R₂ₓ, L′ₓ) / C(|R₂|, |L′|)] · lik₁(L′)^power,
+
+with lik₁ = last read's posterior / prior, normalised to mean 1 under the
+prior. An uninformative last read gives carry ≡ 1. Sub-leaves the last read
+never weighed count as uninformative (lik 1). The posterior over L′ must be
+normalised once over all L′, not per current leave, or a rack whose every
+sub-leave was an implausible keep would look as likely as any other.
+
+**Code.** `rangefinder.CarryFrom` computes the factor; `ai/bot/carry.go`
+applies it to the complete posterior before the leave-quality rule and
+`ReadAdjust`. A bot keeps its last read (`RangeFinder.Snapshot`) and uses it
+when it is the read of the opponent's play before last in the same game; a
+bot new to the game (screens decide each position with a fresh bot) rebuilds
+it with `game.NewFromHistory` at its previous turn, seeded with the game's
+seed. No previous read (the opponent's first play, a previous exchange or
+bingo): no carry. Lab knobs: `MACONDO_CARRY_POWER` (0 or unset: off),
+`MACONDO_CARRY_MINBAG`, `MACONDO_CARRY_DEBUG` (true-leave bits per position
+on stderr).
+
+**Screen** (3,000 positions at bag 21+ after 2–4 tile plays, development
+set, judge 5-ply): carry applied in 1,976 positions and changed 103 moves
+(62 better, 41 worse, +0.82 per change).
+
+| opponent played | positions | changed | per position | true-leave bits |
+|---|---|---|---|---|
+| 2 tiles | 629 | 32 | +0.042 | +0.33 ± 0.10 |
+| 3 tiles | 1,210 | 46 | +0.032 | +0.28 ± 0.07 |
+| 4 tiles | 1,161 | 25 | +0.016 | +0.22 ± 0.07 |
+| all | 3,000 | 103 | **+0.028 ± 0.018** | +0.27 ± 0.04 |
+
+Early placebo: +0.006 ± 0.009. The first change to move early decisions;
+the gain falls with tiles played, as fewer tiles carry over. A match tests
+it at every bag (late carry unscreened).

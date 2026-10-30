@@ -121,6 +121,8 @@ type BotTurnPlayer struct {
 	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
 	// when there was none.
 	lastInfoBits float64
+	// prevRead is the last turn's read, for the two-turn read (carry.go).
+	prevRead *cachedRead
 	// endgameTTable is the bot's transposition table, shared between endgame
 	// and pre-endgame solvers (they never run simultaneously within a turn).
 	// Lazily allocated on first use when not injected via BotConfig.
