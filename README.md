@@ -44,17 +44,13 @@ If you want to use the neural network model, I recommend you use Triton server
 rather than the default Go server. It's _much_ faster, but it's not trivial to run locally.
 You need Docker and the NVIDIA Container Toolkit (for GPU access from Docker).
 
-1. **Download the models.** They are published on Hugging Face (see
-   [Models](#models)), not kept in this repository. With the Hugging Face
-   CLI (`uv tool install huggingface_hub`, or `pip install huggingface_hub`):
+1. **Download the models.** They are not in this repository (see
+   [Getting the models](#getting-the-models)). Triton reads them from
+   `data/strategy/default/models/`, so fetch them there once:
 
    ```
-   hf download domino14/macondo-value-nets --revision b8ccb8a8d36de043963657059f4095f0b720ad67 \
-     --local-dir data/strategy/default/models --exclude README.md
+   pytorch/fetch-models.sh
    ```
-
-   Use the revision in `DefaultMLModelsURL` (`config/config.go`), the one
-   this version of macondo was tested with.
 
 2. **Build the engines, once per machine.** Triton runs each model as a
    TensorRT engine (`model.plan`), compiled from the downloaded `model.onnx`
@@ -121,6 +117,33 @@ net, since a net only reads the alphabet it was trained on. Triton in its
 default mode loads every model in the repository, a few hundred MB of GPU
 memory each.
 
+### Getting the models
+
+The nets are published on Hugging Face, not kept in this repository. Each
+version of macondo downloads from one fixed revision there
+(`DefaultMLModelsURL` in `config/config.go`), the one it was tested with.
+They go in `data/strategy/default/models/<name>/1/`, which is created if
+it does not exist:
+
+- **Without Triton** you need do nothing: the first time a game needs a
+  net (a `FAST_ML_BOT` turn, `mleval`, a sim with ML evaluation), macondo
+  downloads it (15 to 40 MB) and keeps it. A lexicon with no published net
+  gets an error saying so, e.g. `no french model for FRA24`.
+- **With Triton**, which reads the folder directly, run
+  `pytorch/fetch-models.sh` (just curl) once after cloning and again after
+  pulling a version that moves the revision. Give it model names to fetch
+  only those.
+- **By hand**, each file is at
+  `<DefaultMLModelsURL>/<name>/1/model.onnx` and `<name>/config.pbtxt`,
+  or use the Hugging Face CLI:
+  `hf download domino14/macondo-value-nets --revision <rev> --local-dir data/strategy/default/models --exclude README.md`.
+
+Next to each downloaded `model.onnx`, `model.onnx.source` records the URL
+it came from, so a newer revision replaces it. A `model.onnx` without one
+(a net you trained, say) is never replaced. Setting `ml-models-url`
+(`MACONDO_ML_MODELS_URL`) points the downloads elsewhere; an empty value
+turns them off.
+
 Each model folder holds:
 
 - `model.onnx`: the model itself, its graph and full-precision (fp32)
@@ -147,13 +170,8 @@ Slower than a GPU, but enough for `mleval` and the occasional game.
    (`MACONDO_ONNXRUNTIME_LIB`). Optional: `onnx-threads` (`MACONDO_ONNX_THREADS`),
    threads per evaluation; ONNX Runtime picks one per core by default.
 3. Pick the model as above (`triton-model-name`); macondo loads
-   `data/strategy/default/models/<name>/<version, default 1>/model.onnx`.
-   If it is not there, macondo downloads it from Hugging Face the first
-   time it is needed (`ml-models-url`, `MACONDO_ML_MODELS_URL`; 15 to 40 MB
-   per model), and says so if no such model is published for the game's
-   lexicon. A model that is on disk without having been downloaded (one you
-   trained, say) is used as it is; set `ml-models-url` to an empty string to
-   never download.
+   `data/strategy/default/models/<name>/<version, default 1>/model.onnx`,
+   downloading it the first time (see [Getting the models](#getting-the-models)).
 
 This needs a cgo build (the default when building from source on the
 target machine).
