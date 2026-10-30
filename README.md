@@ -126,7 +126,7 @@ They go in `data/strategy/default/models/<name>/1/`, which is created if
 it does not exist:
 
 - **Without Triton** you need do nothing: the first time a game needs a
-  net (a `FAST_ML_BOT` turn, `mleval`, a sim with ML evaluation), macondo
+  net (a `FAST_ML_BOT` turn or `mleval`), macondo
   downloads it (15 to 40 MB) and keeps it. A lexicon with no published net
   gets an error saying so, e.g. `no french model for FRA24`.
 - **With Triton**, which reads the folder directly, run
