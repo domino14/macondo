@@ -67,6 +67,17 @@ The producer replays half of all games transposed.
 | csw24l12huge | 10/26-28 | csw24open..open4 108M | csw24l12 on 108M games | 192k | 58.72 ± 0.18 | +11.7 | head to head vs csw24l12 50.08 ± 0.16: level (validation WDL level too); 108M does not pay at 12 x 256 either |
 | **nwl23l12** | 10/28-29 | open + open2 + open3 81M, NWL23 | csw24l12's net (12 x 256) on nwl23big's games | 151k | **58.42 ± 0.18** | +11.1 | head to head vs nwl23big 50.64 ± 0.16 (8 SE); vs Hasty +0.28 over nwl23big (2.2 SE); best validation WDL 0.48770 vs 0.48784; replicates csw24l12 |
 
+## Against the sim
+
+Head-to-head matches between FastMlBot and `SIMMING_BOT_NO_EG` with a fixed
+sim depth (`-fixedsimplies`, the same depth every turn), NWL23, game pairs.
+For scale, the 2-ply sim alone scores 58.62 ± 1.61 vs HastyBot (1,250 pairs).
+
+| net | sim | pairs | net's win % | spread | notes |
+|---|---|---|---|---|---|
+| streamopen | 2-ply, 100 plays | 1,250 | 49.04 ± 1.56 | | static endgames for both bots |
+| nwl23l12 | 2-ply, 50 plays (`-simplays`) | 5,000 | 49.94 ± 0.78 | -0.6 | both rank the top 50 by equity and play quick 2-ply endgames (margin 60, cap 250 ms); level: the net matches a 2-ply sim with one forward pass per move |
+
 ## Bot changes that affect matches
 
 | date | change | effect |
