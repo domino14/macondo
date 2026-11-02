@@ -14,11 +14,11 @@ SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread 
 | file 5 (`autoplay-softmax-v-hasty-5`) | ~? | June 2025 temperature bot vs HastyBot, NWL18 | heads2 (table labels) |
 | fresh | 27M | temperature bot vs HastyBot, NWL18, greedy endgames (deleted 9/27) | fresh |
 | nwl23 a+b+c | 54M | temperature bot (top 50, softmax T=1 while bag>60) vs HastyBot, NWL23, quick 2-ply endgames | nwl23, nwl23s, nwl23st, stream |
-| open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; quick endgames | open, streamopen |
+| open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; quick endgames | open, streamopen, nwl23p3 (alone, 3 positions per game) |
 | open2 | 27M | same as open, generated 9/28 | streamopen |
 | open3 | 27M | same as open, generated 10/23 | nwl23big, nwl23l12 |
 | csw24open, csw24open2 | 27M each | same as open in CSW24, generated 10/19 on the MAGPIE movegen branch | every CSW24 run |
-| csw24open3 | 27M | same, generated 10/20 | csw24big, csw24huge, csw24l12, csw24l12huge |
+| csw24open3 | 27M | same, generated 10/20 | csw24big, csw24huge, csw24l12, csw24l12huge, csw24rel |
 | csw24open4 | 27M | same, generated 10/22 | csw24huge, csw24l12huge |
 
 Labels in every run since `result`: the mover's true game result (WDL) and
@@ -66,6 +66,8 @@ The producer replays half of all games transposed.
 | **csw24l12** | 10/24-26 | csw24open..open3 81M | 12 layers x 256 (8 heads) instead of 8 x 192; batch 128 x 16 to fit memory (same 2048) | 144k | **58.55 ± 0.18** | +10.9 | head to head vs csw24big 50.37 ± 0.16 (4.6 SE); best validation WDL 0.4894 vs 0.4897; matches ~1.6x slower |
 | csw24l12huge | 10/26-28 | csw24open..open4 108M | csw24l12 on 108M games | 192k | 58.72 ± 0.18 | +11.7 | head to head vs csw24l12 50.08 ± 0.16: level (validation WDL level too); 108M does not pay at 12 x 256 either |
 | **nwl23l12** | 10/28-29 | open + open2 + open3 81M, NWL23 | csw24l12's net (12 x 256) on nwl23big's games | 151k | **58.42 ± 0.18** | +11.1 | head to head vs nwl23big 50.64 ± 0.16 (8 SE); vs Hasty +0.28 over nwl23big (2.2 SE); best validation WDL 0.48770 vs 0.48784; replicates csw24l12 |
+| csw24rel | 10/30-31 | csw24open..open3 81M | csw24big + a learned attention bias per head by square-to-square (row, column) offset (`--rel-bias`); ~22% slower to train | 144k | 58.27 ± 0.18 | +10.9 | head to head vs csw24big 50.24 ± 0.16 (3 SE): small gain, less than 12 x 256 (50.37); best validation WDL 0.4895 = csw24l12's 0.4894 |
+| nwl23p3 | 10/31-11/1 | open 27M, NWL23 | nwl23big with 27M games and three distinct turns per game each pass (`-picks 3`) instead of 81M games and one: same rows, same steps | 151k | 58.36 ± 0.18 | +10.6 | head to head vs nwl23big 50.10 ± 0.16: level; validation WDL level (0.4879). A position from a game already sampled is worth as much as one from a new game, so expensive games (net vs net) need a third as many |
 
 ## Against the sim
 
