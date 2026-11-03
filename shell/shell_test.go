@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/matryer/is"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 func TestExtractFields(t *testing.T) {
@@ -59,4 +61,13 @@ func TestExtractFields(t *testing.T) {
 		is.Equal(cmd, t.expCmd)
 		is.Equal(err, t.expErr)
 	}
+}
+
+func TestApplyPlayerOverrides(t *testing.T) {
+	is := is.New(t)
+	p := &pb.AutoplayPlayerConfig{}
+	applyPlayerOverrides(p, CmdOptions{"leavefile1": {"a.klv2"}, "pegfile1": {"a.json"}, "stochastic1": {"true"}}, "1")
+	is.Equal(p.LeaveFile, "a.klv2")
+	is.Equal(p.PegFile, "a.json")
+	is.True(p.StochasticStaticEval)
 }

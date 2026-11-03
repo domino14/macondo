@@ -132,6 +132,12 @@ Available override flags:
     -gamepairs            Play each game twice with the bots swapping seats
     -botcode1 CODE        Override player1 bot code
     -botcode2 CODE        Override player2 bot code
+    -leavefile1 FILE      Override player1 leave file
+    -leavefile2 FILE      Override player2 leave file
+    -pegfile1 FILE        Override player1 pre-endgame adjustment file
+    -pegfile2 FILE        Override player2 pre-endgame adjustment file
+    -stochastic1          Player 1 uses stochastic static evaluation
+    -stochastic2          Player 2 uses stochastic static evaluation
     -minsimplies1 N       Override player1 minimum sim plies
     -minsimplies2 N       Override player2 minimum sim plies
     -fixedsimplies1 N     Override player1 fixed sim plies
