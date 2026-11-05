@@ -154,6 +154,7 @@ func (pvLine *PVLine) MaterializeFull() {
 		return
 	}
 	g := pvLine.g.Copy()
+	defer g.ReleaseMagpie()
 	for i := 0; i < pvLine.numMoves; i++ {
 		sm := pvLine.tinyMoves[i]
 		rack := g.RackFor(g.PlayerOnTurn())
@@ -555,6 +556,11 @@ func (s *Solver) ensureArenas() {
 
 func (s *Solver) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
+	// The last solve's copies are done with; free their MAGPIE positions
+	// now rather than when the collector gets to them.
+	for _, c := range s.gameCopies {
+		c.ReleaseMagpie()
+	}
 	s.gameCopies = []*game.Game{}
 	for i := 0; i < s.threads-1; i++ {
 		c := s.game.Copy()

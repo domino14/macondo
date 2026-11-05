@@ -241,6 +241,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 
 		ga.flushRemainder(gw)
 		out = ga.release(gw)
+		gw.game.ReleaseMagpie()
 		delete(ga.games, t.GameID)
 		ga.gamesProcessed++
 	}

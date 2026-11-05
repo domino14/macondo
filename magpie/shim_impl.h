@@ -493,11 +493,25 @@ static void mgs_move_in(const mg_move *in, Move *m) {
   }
 }
 
+// mgs_move_list_set_capacity is move_list_resize, except that shrinking frees
+// the moves past the new end: MAGPIE's resize drops their pointers in the
+// realloc, which leaked a whole list's worth whenever a caller alternated a
+// small and a large capacity on one position.
+static void mgs_move_list_set_capacity(MoveList *ml, int capacity) {
+  if (capacity < move_list_get_capacity(ml)) {
+    for (int i = capacity + 1; i < ml->moves_size; i++) {
+      move_destroy(ml->moves[i]);
+    }
+    ml->moves_size = capacity + 1;
+  }
+  move_list_resize(ml, capacity);
+}
+
 int MGS(gen)(mg_pos *p, int record, int sort, int32_t margin, mg_move *out,
              int out_cap) {
   MoveList *ml = p->move_list;
   if (record != MG_RECORD_BEST && move_list_get_capacity(ml) != out_cap) {
-    move_list_resize(ml, out_cap);
+    mgs_move_list_set_capacity(ml, out_cap);
   }
   const MoveGenArgs args = {
       .game = p->game,
