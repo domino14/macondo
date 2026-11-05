@@ -20,6 +20,7 @@ SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread 
 | csw24open, csw24open2 | 27M each | same as open in CSW24, generated 10/19 on the MAGPIE movegen branch | every CSW24 run |
 | csw24open3 | 27M | same, generated 10/20 | csw24big, csw24huge, csw24l12, csw24l12huge, csw24rel, csw24l12rel |
 | csw24open4 | 27M | same, generated 10/22 | csw24huge, csw24l12huge |
+| file2017open | 27M | same as open in FILE2017 (Spanish, 28 letters), generated 10/22-24 | spanish (3 positions per game) |
 
 Labels in every run since `result`: the mover's true game result (WDL) and
 spread to the end, one position per game drawn uniformly from turns 1..30
@@ -72,6 +73,7 @@ A rerun of nwl23big with a new seed played it level (49.97 ± 0.16, nwl23bigb be
 | nwl23p3 | 10/31-11/1 | open 27M, NWL23 | nwl23big with 27M games and three distinct turns per game each pass (`-picks 3`) instead of 81M games and one: same rows, same steps | 151k | 58.36 ± 0.18 | +10.6 | head to head vs nwl23big 50.10 ± 0.16: level; validation WDL level (0.4879). A position from a game already sampled is worth as much as one from a new game, so expensive games (net vs net) need a third as many |
 | nwl23bigb | 11/1-2 | open + open2 + open3 81M, NWL23 | none: nwl23big again (only the random initialisation and the drawn turns differ) | 149k | 58.16 ± 0.18 | +10.1 | head to head vs nwl23big 49.97 ± 0.16: two runs of one recipe play level, so a head-to-head ± of 0.16 is the yardstick for recipe changes |
 | csw24l12rel | 11/2-4 | csw24open..open3 81M | csw24l12 + the csw24rel offset bias (`--rel-bias`); ~24% slower to train | 144k | 58.65 ± 0.18 | +11.5 | head to head vs csw24l12 49.98 ± 0.16: level; the bias helps 8 x 192 but not 12 x 256; best validation WDL 0.4893 vs 0.4894 |
+| **spanish** | 11/4-5 | file2017open 27M, FILE2017 | the nwl23p3 recipe (8 x 192, `-picks 3`, ~48M rows a pass) in Spanish: 28-letter features (91 planes, 76 scalars) | 141k | **58.21 ± 0.18** | +12.7 | vs HastyBot in FILE2017; in line with the English 8 x 192 nets (nwl23big 58.14, csw24big 58.06), so the recipe carries over to another alphabet unchanged |
 
 ## Against the sim
 
