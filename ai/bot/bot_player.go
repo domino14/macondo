@@ -50,6 +50,9 @@ type BotConfig struct {
 	// InferenceTauCap caps the temperature in use (after any scale). 0 = no
 	// cap.
 	InferenceTauCap float64
+	// SimEndgameLeaves lets the bot's own sim solve the endgames its
+	// rollouts reach, when MACONDO_SIM_EGPLIES is set (montecarlo).
+	SimEndgameLeaves bool
 	// InferenceMinInfoBits skips reads that moved less than this far from
 	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
 	// sim bot's. 0 uses every read.
@@ -220,6 +223,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			return nil, err
 		}
 		btp.simmer = &montecarlo.Simmer{}
+		btp.simmer.SetEndgameLeaves(conf.SimEndgameLeaves)
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)

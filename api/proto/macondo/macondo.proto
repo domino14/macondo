@@ -521,6 +521,10 @@ message AutoplayPlayerConfig {
   // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
   // 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
   double inference_tau_cap = 24;
+  // sim_endgame_leaves makes this bot's sim solve the endgames its rollouts
+  // reach (MACONDO_SIM_EGPLIES and friends set how) instead of playing them
+  // out with static moves. Off, the env knobs leave this bot alone.
+  bool sim_endgame_leaves = 25;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

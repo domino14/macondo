@@ -135,6 +135,7 @@ type AutomaticRunnerPlayer struct {
 	InferenceMaxEnumeratedLeaves int
 	InferenceBudget              int
 	InferenceTauCap              float64
+	SimEndgameLeaves             bool
 	// QuickEndgamePlies > 0: close endgames (|spread| <= QuickEndgameMargin,
 	// 0 = always) are played with a quick N-ply search capped at
 	// QuickEndgameCapMs per move. See AutoplayPlayerConfig.
@@ -244,6 +245,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
 			InferenceBudget:              players[idx].InferenceBudget,
 			InferenceTauCap:              players[idx].InferenceTauCap,
+			SimEndgameLeaves:             players[idx].SimEndgameLeaves,
 			QuickEndgamePlies:            players[idx].QuickEndgamePlies,
 			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
 			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,

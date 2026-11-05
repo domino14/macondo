@@ -29,8 +29,10 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
@@ -279,6 +281,10 @@ type Simmer struct {
 	origGame *game.Game
 
 	gameCopies []*game.Game
+	// egSolvers solve the endgames rollouts reach (see endgame_leaf.go).
+	egSolvers     []*negamax.Solver
+	endgameLeaves bool
+	egKWG         *magpie.KWG
 	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
@@ -601,6 +607,10 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
 		g.SetStateStackLength(1)
+	}
+	if err := s.prepareEndgameLeaves(); err != nil {
+		log.Error().Err(err).Msg("endgame-leaves")
+		s.egSolvers = nil
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
