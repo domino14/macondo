@@ -225,6 +225,7 @@ func main() {
 	player := flag.String("player", "p1", "decide this player's moves")
 	botCode := flag.String("bot", "SIMMING_INFER_BOT_NO_EG", "bot code")
 	plies := flag.Int("plies", 2, "minSimPlies")
+	fixedPlies := flag.Int("fixedplies", 0, "fixedSimPlies: sims exactly this deep all game (0 = the bot's own schedule)")
 	budget := flag.Int("budget", 200, "inferenceBudget")
 	tau := flag.Float64("tau", 0, "inferenceTau (0 = engine default)")
 	minBag := flag.Int("minbag", 1, "only positions where the mover sees at least this many tiles in the bag")
@@ -291,7 +292,7 @@ func main() {
 		log.Fatal().Err(err).Msg("rules")
 	}
 	conf := bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1, InferenceBudget: *budget,
-		OracleInference: *oracle, InferenceTau: *tau}
+		OracleInference: *oracle, InferenceTau: *tau, FixedSimPlies: *fixedPlies}
 	var reads map[string]netRead
 	if *readsPath != "" {
 		if *readTau <= 0 || (*readHead != "v" && *readHead != "s") {

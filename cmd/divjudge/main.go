@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"sync"
 	"sync/atomic"
 
@@ -31,6 +33,7 @@ import (
 
 	"github.com/domino14/word-golib/tilemapping"
 
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -38,7 +41,9 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -130,11 +135,18 @@ type judged struct {
 	Score int     `json:"score"`
 	Tiles int     `json:"tiles"`
 	Leave string  `json:"leave"`
-	Win   float64 `json:"win"`    // judge win %, opponent's leave known
-	SE    float64 `json:"se"`     // its standard error
-	WinR  float64 `json:"winR"`   // judge win %, opponent's leave unknown (random racks)
-	SER   float64 `json:"seR"`    // its standard error
-	Eq    float64 `json:"equity"` // logged equity
+	Win   float64 `json:"win"`            // judge win %, opponent's leave known
+	SE    float64 `json:"se"`             // its standard error
+	WinR  float64 `json:"winR"`           // judge win %, opponent's leave unknown (random racks)
+	SER   float64 `json:"seR"`            // its standard error
+	WinI  float64 `json:"winI"` // judge win %, opponent's rack from the mover's inference (-inferjudge)
+	SEI   float64 `json:"seI"`  // its standard error
+	// -pegjudge: the pre-endgame solver's win share (draws half, the
+	// solver's pessimistic convention) with the opponent's rack unknown
+	// (PegU) and their last leave known (PegK); nil if not solved.
+	PegU *float64 `json:"pegU,omitempty"`
+	PegK *float64 `json:"pegK,omitempty"`
+	Eq    float64 `json:"equity"`         // logged equity
 }
 
 type record struct {
@@ -156,6 +168,7 @@ type record struct {
 	SpreadA   float64 `json:"spreadA"`
 	SpreadB   float64 `json:"spreadB"`
 	Iters     int     `json:"iters"`
+	Inferred  int     `json:"inferred,omitempty"` // leaves in the -inferjudge read (0: none, judged on random racks)
 	Plies     int     `json:"plies"`
 	Err       string  `json:"err,omitempty"`
 }
@@ -261,12 +274,32 @@ func judge(cfg *config.Config, rules *game.GameRules, ha, hb *half, i int, iters
 		rec.Err = err.Error()
 		return rec
 	}
+	if pegMaxBag > 0 {
+		if rec.Bag > pegMaxBag {
+			rec.Err = "bag too big for -pegjudge"
+			return rec
+		}
+		known := tilemapping.RackFromString(oppLeave, g.Alphabet()).TilesOn()
+		for _, k := range [][]tilemapping.MachineLetter{nil, known} {
+			pa, pb, err := pegSolve(g.Game, ma, mb, k)
+			if err != nil {
+				rec.Err = "peg: " + err.Error()
+				return rec
+			}
+			if k == nil {
+				rec.A.PegU, rec.B.PegU = pa, pb
+			} else {
+				rec.A.PegK, rec.B.PegK = pa, pb
+			}
+		}
+		return rec
+	}
 	plies := 5
 	if unseen := g.Bag().TilesRemaining() + int(g.RackFor(1-me).NumTiles()); unseen <= 14 {
 		plies = unseen
 	}
 	rec.Plies = plies
-	run := func(known []tilemapping.MachineLetter) (map[string][2]float64, int, error) {
+	run := func(known []tilemapping.MachineLetter, inf *rangefinder.Inference) (map[string][2]float64, int, error) {
 		s := &montecarlo.Simmer{}
 		s.Init(g.Game.CopyWithHistory(), []equity.EquityCalculator{calc}, calc, cfg)
 		s.SetThreads(1)
@@ -276,6 +309,14 @@ func judge(cfg *config.Config, rules *game.GameRules, ha, hb *half, i int, iters
 		s.SetStoppingCondition(montecarlo.StopNone)
 		if known != nil {
 			s.SetKnownOppRack(known)
+		}
+		if inf != nil {
+			// As the inference bot uses its read (BestPlay in ai/bot/elite.go).
+			if inf.Complete {
+				s.SetInferences(inf.InferredRacks, inf.RackLength, montecarlo.InferenceCompletePosterior)
+			} else if len(inf.InferredRacks) > bot.InferencesSimLimit {
+				s.SetInferences(inf.InferredRacks, inf.RackLength, montecarlo.InferenceWeightedRandomRacks)
+			}
 		}
 		s.SimSingleThread(iters, plies)
 		w := map[string][2]float64{}
@@ -288,15 +329,29 @@ func judge(cfg *config.Config, rules *game.GameRules, ha, hb *half, i int, iters
 	if known == nil {
 		known = []tilemapping.MachineLetter{}
 	}
-	w, n, err := run(known)
+	w, n, err := run(known, nil)
 	if err != nil {
 		rec.Err = "judge: " + err.Error()
 		return rec
 	}
-	wr, _, err := run(nil)
+	wr, _, err := run(nil, nil)
 	if err != nil {
 		rec.Err = "judge random: " + err.Error()
 		return rec
+	}
+	if inferJudgeBudget > 0 {
+		inf := inferRead(cfg, g.Game, calc, racks[me].TilesOn())
+		if inf != nil && (inf.Complete || len(inf.InferredRacks) > bot.InferencesSimLimit) {
+			rec.Inferred = len(inf.InferredRacks)
+		}
+		wi, _, err := run(nil, inf)
+		if err != nil {
+			rec.Err = "judge inferred: " + err.Error()
+			return rec
+		}
+		sa, sb := ma.ShortDescription(), mb.ShortDescription()
+		rec.A.WinI, rec.A.SEI = wi[sa][0], wi[sa][1]
+		rec.B.WinI, rec.B.SEI = wi[sb][0], wi[sb][1]
 	}
 	rec.Iters = n
 	sa, sb := ma.ShortDescription(), mb.ShortDescription()
@@ -307,6 +362,76 @@ func judge(cfg *config.Config, rules *game.GameRules, ha, hb *half, i int, iters
 	return rec
 }
 
+// pegMaxBag, when positive, judges positions with at most this many tiles in
+// the bag with the pre-endgame solver instead of sims: an exact search to a
+// 3-ply endgame, against every bag the opponent's rack leaves possible.
+var pegMaxBag int
+
+// pegTTFraction is the share of memory each solver's transposition table takes.
+var pegTTFraction float64
+
+// pegSolve returns the solver's win shares of a and b (nil for a play it
+// skips, such as one that leaves more than one tile in the bag).
+func pegSolve(g *game.Game, a, b *move.Move, known []tilemapping.MachineLetter) (*float64, *float64, error) {
+	s := &preendgame.Solver{}
+	if err := s.Init(g.CopyWithHistory()); err != nil {
+		return nil, nil, err
+	}
+	s.SetThreads(1)
+	s.SetEndgamePlies(3)
+	// One table per solver, many solvers at once: keep each small.
+	s.SetTTableFraction(pegTTFraction)
+	s.SetEarlyCutoffOptim(false)
+	s.SetSkipLossOptim(false)
+	s.SetIterativeDeepening(false)
+	s.SetSolveOnly([]*move.Move{a, b})
+	if known != nil {
+		s.SetKnownOppRack(known)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	plays, err := s.Solve(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	share := func(m *move.Move) *float64 {
+		for _, p := range plays {
+			if p.Play.Equals(m, false, false) && !p.Ignore && p.Points+p.FoundLosses > 0 {
+				v := float64(p.Points / (p.Points + p.FoundLosses))
+				return &v
+			}
+		}
+		return nil
+	}
+	return share(a), share(b), nil
+}
+
+// inferJudgeBudget, when positive, adds a third verdict: the judge sim draws
+// the opponent's rack from the mover's own read of them, made as the baseline
+// inference bot makes it (default tau curve, this leaf budget).
+var inferJudgeBudget int
+
+// inferRead reads the opponent from the mover's side of g, or returns nil
+// when there is nothing to read (the opponent's first move, an exchange,
+// a bingo).
+func inferRead(cfg *config.Config, g *game.Game, calc equity.EquityCalculator, myRack []tilemapping.MachineLetter) *rangefinder.Inference {
+	rf := &rangefinder.RangeFinder{}
+	rf.Init(g, []equity.EquityCalculator{calc}, cfg)
+	rf.SetThreads(1)
+	rf.SetTauCap(0)
+	rf.SetMiniSim(0, 0)
+	rf.SetBudget(inferJudgeBudget)
+	if err := rf.PrepareFinder(myRack); err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := rf.Infer(ctx); err != nil {
+		log.Debug().Err(err).Msg("infer-judge")
+	}
+	return rf.Inferences()
+}
+
 func main() {
 	a := flag.String("a", "", "per-turn log of run A (the variant)")
 	b := flag.String("b", "", "per-turn log of run B (the baseline, same seed)")
@@ -314,6 +439,9 @@ func main() {
 	gb := flag.String("gb", "", "games file of run B")
 	out := flag.String("out", "divjudge.jsonl", "output")
 	iters := flag.Int("iters", 5000, "judge iterations per sim")
+	flag.Float64Var(&pegTTFraction, "pegtt", 0.003, "memory fraction of each -pegjudge solver's transposition table")
+	flag.IntVar(&pegMaxBag, "pegjudge", 0, "judge positions with at most this many tiles in the bag with the pre-endgame solver instead (0 = off)")
+	flag.IntVar(&inferJudgeBudget, "inferjudge", 0, "also judge with the opponent's rack drawn from the mover's inference, at this leaf budget (0 = off; the bots use 200)")
 	parallel := flag.Int("parallel", 8, "positions at once (each single-threaded)")
 	limit := flag.Int("limit", 0, "judge at most this many divergences (0 = all)")
 	mode := flag.String("mode", "div", "div (first divergence of two runs) or screen (screendecide output)")
