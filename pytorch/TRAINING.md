@@ -45,7 +45,7 @@ depends on a random move. The ideas that did not help, and how to get their code
   72, Spanish (28: CH, LL, Ñ and RR are tiles) 91 and 76, German (29)
   94 and 78. Every Python script reads L from `MACONDO_LETTERS`;
   `run-stream.sh` sets it from `$LEXICON` (`RD*` 29, `FILE*`/`FISE*` 28,
-  otherwise 26), and `LETTERS=<L>` overrides it for another alphabet.
+  `OSPS*` 32, otherwise 26), and `LETTERS=<L>` overrides it for another alphabet.
   Anything that reads or writes frames outside `run-stream.sh` (a
   separate validation scan, `copy_model.sh`) needs `MACONDO_LETTERS` set
   by hand, or it fails on the row size.
@@ -63,23 +63,25 @@ Set the lexicon once for the commands below:
 
     export LEXICON=CSW24 L=csw24     # L: a lower-case tag for file names
 
-## 1. Generate 54M games (~10 h, CPU only)
+## 1. Generate games (CPU only)
 
 HastyBot vs HastyBot. Each game's first K plies, K ~ round(Exp(2)), are
 sampled from a softmax over static equity (temperature 3 points, top 50
-plays); after that both play their best move. Close endgames are played
-with a quick 2-ply search. Two batches of 27M (the shipped model used
-`open` and `open2`):
+plays); after that both play their best move. Close endgames (bag empty,
+spread within 60) are played with a quick 2-ply search capped at 250 ms
+a move. The shipped nets' games, and every data set in `RUNS.md`, came
+from builds where HastyBot skipped that search, so their endgames were
+static. Two batches of 27M (the shipped model used `open` and `open2`):
 
     cd ~/code/macondo/pytorch
     TAG=${L}open  GAMES=27000000 THREADS=16 ./gen-openings.sh
     TAG=${L}open2 GAMES=27000000 THREADS=16 ./gen-openings.sh
 
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
-logs the producer reads) and `games-*.txt` (one line per game). About
-120 games/s per thread: `open` took 5.2 h on 12 threads (~1,450 games/s),
-so ~5 h per batch. Other alphabets generate at the same speed (German,
-Spanish, French and Polish: 1,700-1,800 games/s on 12 threads). The logs
+logs the producer reads) and `games-*.txt` (one line per game). On 12
+threads, about 440 games/s in NWL23, so ~17 h per 27M batch; the endgame
+searches take most of it (with static endgames, ~7,200 games/s). Other
+alphabets: German ~650 games/s, French ~560, Polish ~400. The logs
 carry an `openingplies` column; the producer only draws training
 positions after the last sampled ply.
 

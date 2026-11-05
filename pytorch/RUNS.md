@@ -26,6 +26,9 @@ Labels in every run since `result`: the mover's true game result (WDL) and
 spread to the end, one position per game drawn uniformly from turns 1..30
 (from the last sampled ply for openings games), empty-bag draws skipped.
 The producer replays half of all games transposed.
+Every HastyBot-vs-HastyBot set above has static endgames, although its
+config asks for quick 2-ply ones: autoplay skipped HastyBot's quick
+endgame until it was fixed. The net-vs-net games had real ones.
 
 ## Models
 
