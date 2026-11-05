@@ -33,6 +33,7 @@ const (
 	ConfigTritonModelVersion               = "triton-model-version"
 	ConfigOnnxRuntimeLib                   = "onnxruntime-lib"
 	ConfigOnnxThreads                      = "onnx-threads"
+	ConfigMLModelsURL                      = "ml-models-url"
 	ConfigMagpieDataPath                   = "magpie-data-path"
 	ConfigGenaiProvider                    = "genai-provider"
 	ConfigGeminiModel                      = "gemini-model"
@@ -49,6 +50,12 @@ const (
 	ConfigWooglesURL                       = "woogles-url"
 	ConfigAliases                          = "aliases"
 )
+
+// DefaultMLModelsURL is where the CPU path downloads a value net it does not
+// have: <url>/<name>/<version>/model.onnx. It names a fixed revision of the
+// Hugging Face repository, so a release keeps playing with the nets it was
+// tested with; shipping new nets means uploading them and changing this.
+const DefaultMLModelsURL = "https://huggingface.co/domino14/macondo-value-nets/resolve/b8ccb8a8d36de043963657059f4095f0b720ad67"
 
 type Config struct {
 	sync.Mutex
@@ -78,6 +85,7 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
+	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
 	c.SetDefault(ConfigMagpieDataPath, c.GetString(ConfigMagpieDataPath))
@@ -114,6 +122,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigTritonModelVersion)
 	c.BindEnv(ConfigOnnxRuntimeLib)
 	c.BindEnv(ConfigOnnxThreads)
+	c.BindEnv(ConfigMLModelsURL)
 	c.BindEnv(ConfigMagpieDataPath)
 	c.BindEnv(ConfigGenaiProvider)
 	c.BindEnv(ConfigGeminiModel)
@@ -174,6 +183,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
+	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
 	c.SetDefault(ConfigGenaiProvider, "gemini")
 	c.SetDefault(ConfigGeminiModel, "gemini-2.5-flash")

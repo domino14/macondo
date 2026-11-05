@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -11,7 +12,9 @@ import (
 	grpc_client "github.com/domino14/macondo/triton/grpc-client"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 // ModelOutputs contains the different outputs from the model
@@ -31,14 +34,17 @@ type TritonClient struct {
 	modelVersion string
 	outputs      []string // output tensors to request; default just "value"
 	boardUint8   bool     // the model takes the board as uint8 (all planes are 0/1)
+	inPlanes     int      // the model's board planes, 0 if unknown
+	inScalars    int      // the model's scalars, 0 if unknown
 	boardBuf     []byte   // reused uint8 board buffer
 	debug        bool     // Enable debug logging
 }
 
 // modelInfo is what DetectOutputs learns from a model's metadata.
 type modelInfo struct {
-	outputs    []string
-	boardUint8 bool
+	outputs             []string
+	boardUint8          bool
+	inPlanes, inScalars int
 }
 
 // connsPerServer bounds the gRPC connections a process opens to one
@@ -48,6 +54,12 @@ type modelInfo struct {
 // all multiplexed onto one.
 const connsPerServer = 16
 
+// The board the nets see is boardDim x boardDim.
+const (
+	boardDim     = 15
+	boardSquares = boardDim * boardDim
+)
+
 var (
 	connMu   sync.Mutex
 	conns    = map[string][]*grpc.ClientConn{}
@@ -55,7 +67,38 @@ var (
 	// Detected model outputs and board type by url/model/version, so each
 	// game does not ask the server again.
 	infoByModel = map[string]modelInfo{}
+	// The models in each server's repository (loaded or not), by url.
+	repoByURL = map[string]map[string]bool{}
 )
+
+// InRepository reports whether the server's model repository has a model
+// of this name, loaded or not. The list is read once per server.
+func InRepository(serverURL, name string) (bool, error) {
+	connMu.Lock()
+	repo, ok := repoByURL[serverURL]
+	connMu.Unlock()
+	if !ok {
+		conn, err := sharedConn(serverURL)
+		if err != nil {
+			return false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		idx, err := grpc_client.NewGRPCInferenceServiceClient(conn).RepositoryIndex(ctx,
+			&grpc_client.RepositoryIndexRequest{})
+		if err != nil {
+			return false, fmt.Errorf("listing Triton's models at %s: %w", serverURL, err)
+		}
+		repo = map[string]bool{}
+		for _, m := range idx.GetModels() {
+			repo[m.GetName()] = true
+		}
+		connMu.Lock()
+		repoByURL[serverURL] = repo
+		connMu.Unlock()
+	}
+	return repo[name], nil
+}
 
 func sharedConn(serverURL string) (*grpc.ClientConn, error) {
 	connMu.Lock()
@@ -117,6 +160,7 @@ func (c *TritonClient) DetectOutputs() error {
 	connMu.Unlock()
 	if ok {
 		c.outputs, c.boardUint8 = known.outputs, known.boardUint8
+		c.inPlanes, c.inScalars = known.inPlanes, known.inScalars
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -124,7 +168,7 @@ func (c *TritonClient) DetectOutputs() error {
 	md, err := (*c.client).ModelMetadata(ctx, &grpc_client.ModelMetadataRequest{
 		Name: c.modelName, Version: c.modelVersion})
 	if err != nil {
-		return err
+		return c.explain(err)
 	}
 	outputs := []string{"value"}
 	for _, o := range md.Outputs {
@@ -134,17 +178,53 @@ func (c *TritonClient) DetectOutputs() error {
 		}
 	}
 	boardUint8 := false
+	inPlanes, inScalars := 0, 0
 	for _, in := range md.Inputs {
-		if in.Name == "board" && in.Datatype == "UINT8" {
-			boardUint8 = true
+		switch {
+		case in.Name == "board":
+			boardUint8 = in.Datatype == "UINT8"
+			if sh := in.GetShape(); len(sh) == 4 {
+				inPlanes = int(sh[1]) // (batch, planes, rows, cols)
+			}
+		case in.Name == "scalars":
+			if sh := in.GetShape(); len(sh) == 2 {
+				inScalars = int(sh[1])
+			}
 		}
 	}
 	c.outputs, c.boardUint8 = outputs, boardUint8
+	c.inPlanes, c.inScalars = inPlanes, inScalars
 	connMu.Lock()
-	infoByModel[key] = modelInfo{outputs, boardUint8}
+	infoByModel[key] = modelInfo{outputs, boardUint8, inPlanes, inScalars}
 	connMu.Unlock()
 	return nil
 }
+
+// explain adds a hint to the error Triton returns for a model it is not
+// serving. A server started with --model-control-mode=explicit loads no
+// model until asked, so the usual cause is a model never loaded (or
+// unloaded, as the training scripts do).
+func (c *TritonClient) explain(err error) error {
+	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.NotFound {
+		return err
+	}
+	msg := status.Convert(err).Message()
+	if !strings.Contains(msg, "unknown model") && !strings.Contains(msg, "not at ready state") &&
+		!strings.Contains(msg, "not found") {
+		return err
+	}
+	return fmt.Errorf("%w\nTriton at %s is not serving model %s version %s. Load it "+
+		"(pytorch/triton-models.sh load %s, or curl -X POST <triton http>/v2/repository/models/%s/load), "+
+		"or set triton-use-triton to false to run its model.onnx on the CPU",
+		err, c.serverURL, c.modelName, c.modelVersion, c.modelName, c.modelName)
+}
+
+// ModelName is the served model this client asks.
+func (c *TritonClient) ModelName() string { return c.modelName }
+
+// InputShape is the model's board planes and scalars per position, known
+// after DetectOutputs (0 if not).
+func (c *TritonClient) InputShape() (planes, scalars int) { return c.inPlanes, c.inScalars }
 
 // SetDebug enables or disables debug logging
 func (c *TritonClient) SetDebug(debug bool) {
@@ -176,15 +256,22 @@ func (c *TritonClient) infer(boardBytes []byte, boardType string, scalarTensorDa
 		log.Debug().Msgf("Inferring %d moves", numMoves)
 	}
 
+	// The planes and scalars per position depend on the alphabet
+	// (game.MLLayout): take them from the data.
+	elems := len(boardBytes)
+	if boardType == "FP32" {
+		elems /= 4
+	}
+	planes := elems / (numMoves * boardSquares)
 	boardInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "board",
 		Datatype: boardType,
-		Shape:    []int64{int64(numMoves), 85, 15, 15},
+		Shape:    []int64{int64(numMoves), int64(planes), boardDim, boardDim},
 	}
 	scalarInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "scalars",
 		Datatype: "FP32",
-		Shape:    []int64{int64(numMoves), 72},
+		Shape:    []int64{int64(numMoves), int64(len(scalarTensorData) / numMoves)},
 	}
 
 	requested := make([]*grpc_client.ModelInferRequest_InferRequestedOutputTensor, len(c.outputs))
@@ -206,7 +293,7 @@ func (c *TritonClient) infer(boardBytes []byte, boardType string, scalarTensorDa
 
 	inferResponse, err := (*c.client).ModelInfer(context.Background(), inferRequest)
 	if err != nil {
-		return nil, fmt.Errorf("inference failed: %w", err)
+		return nil, fmt.Errorf("inference failed: %w", c.explain(err))
 	}
 
 	// Debug output shapes
