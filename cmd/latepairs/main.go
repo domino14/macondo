@@ -279,6 +279,9 @@ func run(rules *game.GameRules, confs [2]bot.BotConfig, code pb.BotRequest_BotCo
 			bots[seat] = b
 		}
 		po := play(g, bots, me)
+		bots[0].Release()
+		bots[1].Release()
+		g.ReleaseMagpie()
 		if k == 0 {
 			rec.AMover = po
 		} else {
@@ -406,9 +409,10 @@ func main() {
 	}
 	close(jobs)
 	wg.Wait()
-	fmt.Fprintf(os.Stderr, "done: %d pairs, A %.2f%% over %d scored; endgame leaves: %d solved (%.2f ms each), %d fell back\n",
+	fmt.Fprintf(os.Stderr, "done: %d pairs, A %.2f%% over %d scored; endgame leaves: %d solved (%.2f ms each), %d from cache (%d checked wrong), %d fell back\n",
 		len(pos), 100*scoreSum/float64(max(1, scored)), scored,
 		montecarlo.EndgameLeafSolves.Load(),
 		float64(montecarlo.EndgameLeafNanos.Load())/1e6/float64(max(1, montecarlo.EndgameLeafSolves.Load())),
+		montecarlo.EndgameLeafCacheHits.Load(), montecarlo.EndgameLeafCacheMismatches.Load(),
 		montecarlo.EndgameLeafFallbacks.Load())
 }

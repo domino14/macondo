@@ -542,3 +542,16 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 	p.QuickEndgameSolves++
 	return m, true
 }
+
+// Release frees the MAGPIE positions the bot's last sim and endgame solve
+// copied, for a caller that is done with the bot.
+func (p *BotTurnPlayer) Release() {
+	if p.simmer != nil {
+		p.simmer.Reset()
+	}
+	if p.endgamer != nil {
+		if g := p.endgamer.Game(); g != nil {
+			g.ReleaseMagpie()
+		}
+	}
+}

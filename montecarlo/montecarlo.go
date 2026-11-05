@@ -285,6 +285,7 @@ type Simmer struct {
 	egSolvers     []*negamax.Solver
 	endgameLeaves bool
 	egKWG         *magpie.KWG
+	egCache       sync.Map // egLeafKey -> final spread for the player on turn
 	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
@@ -670,6 +671,10 @@ func (s *Simmer) releaseGameCopies() {
 
 func (s *Simmer) Reset() {
 	s.releaseGameCopies()
+	if s.egKWG != nil {
+		s.egKWG.Close()
+		s.egKWG = nil
+	}
 	s.gameCopies = nil
 	s.readyToSim = false
 }

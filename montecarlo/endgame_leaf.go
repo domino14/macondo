@@ -38,10 +38,27 @@ var (
 	egLeafTable = &negamax.TranspositionTable{}
 )
 
-// EndgameLeafSolves, EndgameLeafFallbacks and EndgameLeafNanos count the
-// endgame leaves solved, the ones that fell back to static play, and the time
-// spent solving, for the lab tools' logs.
-var EndgameLeafSolves, EndgameLeafFallbacks, EndgameLeafNanos atomic.Int64
+// EndgameLeafSolves, EndgameLeafFallbacks, EndgameLeafNanos and
+// EndgameLeafCacheHits count the endgame leaves solved, the ones that fell
+// back to static play, the time spent solving and the leaves answered from
+// the sim's cache, for the lab tools' logs.
+var EndgameLeafSolves, EndgameLeafFallbacks, EndgameLeafNanos, EndgameLeafCacheHits atomic.Int64
+
+// MACONDO_SIM_EGCHECK=1 solves cache hits anyway and counts in
+// EndgameLeafCacheMismatches the ones whose result differs from the cache's.
+var EndgameLeafCacheMismatches atomic.Int64
+var egLeafCheck = os.Getenv("MACONDO_SIM_EGCHECK") == "1"
+
+// egLeafKey identifies an endgame leaf: the position's hash (board, both
+// racks, scoreless turns) and the spread for the player on turn, which the
+// result-only search's answer depends on. Late in the game a sim's rollouts
+// reach the same few endgames over and over (with two tiles in the bag the
+// opponent holds one of at most 36 racks, and static rollouts are
+// deterministic), so each sim keeps the results it has solved.
+type egLeafKey struct {
+	hash   uint64
+	spread int
+}
 
 func endgameLeafPlies() int {
 	egLeafOnce.Do(func() {
@@ -79,6 +96,7 @@ func (s *Simmer) prepareEndgameLeaves() error {
 	// One pruned word graph for the whole sim, as the pre-endgame builds:
 	// every rollout deals from the same pool (our rack, the opponent's rack
 	// and the bag), and the pruning draws on that union only.
+	s.egCache = sync.Map{}
 	if s.egKWG != nil {
 		s.egKWG.Close()
 		s.egKWG = nil
@@ -144,6 +162,16 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread int) (winProb float64, spread 
 	}
 	onTurnSpread := g.CurrentSpread()
 	onRack, oppRack := int(g.RackFor(onTurn).NumTiles()), int(g.RackFor(1-onTurn).NumTiles())
+	key := egLeafKey{spread: onTurnSpread, hash: egLeafTable.Zobrist().Hash(g.Board().GetSquares(),
+		g.RackFor(onTurn), g.RackFor(1-onTurn), false, g.ScorelessTurns())}
+	cached, hit := 0, false
+	if v, ok := s.egCache.Load(key); ok {
+		EndgameLeafCacheHits.Add(1)
+		cached, hit = v.(int), true
+		if !egLeafCheck {
+			return s.egLeafResult(cached, onTurn), spread
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), egLeafCap)
 	defer cancel()
 	g.SetBackupMode(game.SimulationMode)
@@ -167,16 +195,25 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread int) (winProb float64, spread 
 	}
 	EndgameLeafSolves.Add(1)
 	final := int(val) + onTurnSpread
+	if hit && s.egLeafResult(final, onTurn) != s.egLeafResult(cached, onTurn) {
+		EndgameLeafCacheMismatches.Add(1)
+	}
+	s.egCache.Store(key, final)
+	return s.egLeafResult(final, onTurn), spread
+}
+
+// egLeafResult scores a solved endgame's final spread for the player on
+// turn as a win, loss or tie for the sim's player.
+func (s *Simmer) egLeafResult(final, onTurn int) float64 {
+	winProb := 0.5
 	switch {
 	case final > 0:
 		winProb = 1
 	case final < 0:
 		winProb = 0
-	default:
-		winProb = 0.5
 	}
 	if onTurn != s.initialPlayer {
 		winProb = 1 - winProb
 	}
-	return winProb, spread
+	return winProb
 }
