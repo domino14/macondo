@@ -37,12 +37,18 @@ depends on a random move. The ideas that did not help, and how to get their code
 
 ## Before you start
 
-- **Lexicon.** Any lexicon with the English letter distribution: the
-  features have one plane per letter A-Z (`game/mlhelper.go` refuses other
-  distributions). The lexicon needs its word graph and leave values in
-  `data/lexica/gaddag/` (`<LEX>.kwg`, `<LEX>.klv2`), which NWL23 and
-  CSW24 have. Another alphabet means new feature planes and a new model
-  shape.
+- **Lexicon.** Any lexicon with a word graph and leave values in
+  `data/lexica/gaddag/` (`<LEX>.kwg`, `<LEX>.klv2`; a lexicon without
+  leaves borrows its family's, e.g. OSPS52 uses OSPS50's). The features
+  are sized by the alphabet (`game/mllayout.go`): with L letters, 3L+7
+  board planes and 2L+20 scalars, so English and French (26) take 85 and
+  72, Spanish (28: CH, LL, Ñ and RR are tiles) 91 and 76, German (29)
+  94 and 78. Every Python script reads L from `MACONDO_LETTERS`;
+  `run-stream.sh` sets it from `$LEXICON` (`RD*` 29, `FILE*`/`FISE*` 28,
+  otherwise 26), and `LETTERS=<L>` overrides it for another alphabet.
+  Anything that reads or writes frames outside `run-stream.sh` (a
+  separate validation scan, `copy_model.sh`) needs `MACONDO_LETTERS` set
+  by hand, or it fails on the row size.
 - **Machine.** Linux, an NVIDIA GPU with 8 GB or more, Docker with the
   NVIDIA Container Toolkit, Go, and the Python venv from `README.md`.
 - **Disk.** About 15 GB per 27M-game gzipped turn log (54M games: ~31 GB),
@@ -72,9 +78,14 @@ with a quick 2-ply search. Two batches of 27M (the shipped model used
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
 logs the producer reads) and `games-*.txt` (one line per game). About
 120 games/s per thread: `open` took 5.2 h on 12 threads (~1,450 games/s),
-so ~5 h per batch. The logs carry an
-`openingplies` column; the producer only draws training positions after
-the last sampled ply.
+so ~5 h per batch. Other alphabets generate at the same speed (German,
+Spanish, French and Polish: 1,700-1,800 games/s on 12 threads). The logs
+carry an `openingplies` column; the producer only draws training
+positions after the last sampled ply.
+
+Don't generate beside a streamed training run: autoplay and the producer
+compete for the CPU, and the producer falls behind the GPU (5.5k rows/s
+down to 3-4.5k).
 
 ## 2. Train (~13 h on a 5070 Ti)
 
@@ -110,6 +121,11 @@ What it does (the defaults are the shipped recipe):
    whose drawn turn has an empty bag). For a different number of games,
    set `ROWS_PER_PASS` to about 0.64 × games; the first pass's count is
    the `vectorsEmitted` line at the end of `producer-${L}stream.log`.
+   With fewer games, draw several distinct turns per game on each pass
+   (`PRODUCER_EXTRA="-picks 3"`, about 3× the rows): 27M games with three
+   turns each played level with 81M games with one (nwl23p3 in
+   `RUNS.md`), so one 27M batch is enough for a new lexicon. That is how
+   the Spanish net was trained (`ROWS_PER_PASS=48210000`).
 5. **Deploy and match.** The best-validation checkpoint
    (`best-tf-${L}stream.pt`) is exported to ONNX and TensorRT
    (`copy_model.sh`, with a parity check) as Triton model
