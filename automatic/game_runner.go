@@ -43,7 +43,10 @@ type GameRunner struct {
 	logchan            chan string
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
-	order              [2]int
+	// quickEndgame[i]: player i plays close endgames with a quick search
+	// (QuickEndgamePlies > 0), which HastyBot's static shortcut would skip.
+	quickEndgame [2]bool
+	order        [2]int
 	// threads is the number of concurrent games in the parent autoplay run.
 	// Used to divide the TT memory fraction and default endgame thread counts.
 	threads int
@@ -260,6 +263,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			return err
 		}
 		r.aiplayers[idx] = btp
+		r.quickEndgame[idx] = players[idx].QuickEndgamePlies > 0
 
 	}
 	r.order = [2]int{0, 1}
@@ -347,8 +351,10 @@ func (r *GameRunner) genStochasticStaticTurn(playerIdx int) *move.Move {
 }
 
 func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
-	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
-		// For HastyBot we only need to generate one single best static turn.
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT &&
+		!(r.quickEndgame[playerIdx] && r.game.Bag().TilesRemaining() == 0) {
+		// For HastyBot we only need to generate one single best static turn,
+		// except in an endgame it may search (BestPlay's quick endgame).
 		return r.genBestStaticTurn(playerIdx), nil
 	}
 	maxTime := MaxTimePerTurn

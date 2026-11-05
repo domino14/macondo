@@ -6,7 +6,9 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/board"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
 
@@ -132,4 +134,21 @@ func TestBagSeeding(t *testing.T) {
 	rack3 := runner3.game.RackLettersFor(0)
 	t.Logf("Runner3 P0: %s (should differ from %s)", rack3, rack1)
 	is.True(rack1 != rack3)
+}
+
+// HastyBot's static shortcut must not skip a configured quick endgame: with
+// margin 0 every endgame is searched, so a few games must record solves.
+func TestHastyBotPlaysQuickEndgames(t *testing.T) {
+	is := is.New(t)
+	runner := NewGameRunner(nil, DefaultConfig)
+	p := AutomaticRunnerPlayer{BotCode: pb.BotRequest_HASTY_BOT, QuickEndgamePlies: 2}
+	is.NoErr(runner.Init([]AutomaticRunnerPlayer{p, p}))
+	for i := 0; i < 5; i++ {
+		is.NoErr(runner.playGame(false, i, [32]byte{byte(i + 1)}))
+	}
+	solves := 0
+	for _, ai := range runner.aiplayers {
+		solves += ai.(*bot.BotTurnPlayer).QuickEndgameSolves
+	}
+	is.True(solves > 0)
 }
