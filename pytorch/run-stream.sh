@@ -12,7 +12,7 @@
 #   256x8 --compile; set BATCH/ACCUM/COMPILE/GPU_MEM to skip the probe),
 #   VAL_SIZE (150000), SHUFFLE (1024 frames per loader worker), DEVICE,
 #   LEXICON (NWL23: the games' lexicon, for the producer and the match),
-#   LETTERS (the lexicon's alphabet size: 29 for German, else 26)
+#   LETTERS (the lexicon's alphabet size; set from LEXICON below)
 #   RESUME=1: carry on a crashed run of TAG from its last validation
 #   (best-tf-TAG-resume.pt), on fresh passes, to the same STEPS; give the
 #   run's BATCH, ACCUM, COMPILE and its other settings again.
@@ -43,10 +43,12 @@ DEVICE=${DEVICE:-auto}
 # PRODUCER_EXTRA adds producer flags.
 export LEXICON=${LEXICON:-NWL23}
 # The feature sizes follow the lexicon's alphabet (features.py): German has
-# 29 letters, Spanish 28 (CH LL Ñ RR are tiles), English and French 26.
+# 29 letters, Spanish 28 (CH LL Ñ RR are tiles), Polish 32, English and
+# French 26.
 case "$LEXICON" in
     RD*) DEFAULT_LETTERS=29 ;;
     FILE*|FISE*) DEFAULT_LETTERS=28 ;;
+    OSPS*) DEFAULT_LETTERS=32 ;;
     *) DEFAULT_LETTERS=26 ;;
 esac
 export MACONDO_LETTERS=${LETTERS:-$DEFAULT_LETTERS}
