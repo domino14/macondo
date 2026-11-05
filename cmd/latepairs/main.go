@@ -207,7 +207,7 @@ var endgameSecs = 15 * time.Second
 
 // play finishes the game with bots[seat] moving for each seat, and returns
 // the final spread for seat me.
-func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int) playout {
+func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int, key string) playout {
 	var out playout
 	t0 := time.Now()
 	for g.Playing() == pb.PlayState_PLAYING {
@@ -221,6 +221,7 @@ func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int) play
 			// stops on its own cutoff and a position plays the same way twice.
 			ctx, cancel = context.WithCancel(context.Background())
 		}
+		ctx = log.Logger.With().Str("key", key).Int("turn", g.Turn()).Logger().WithContext(ctx)
 		m, err := bots[onTurn].BestPlay(ctx)
 		cancel()
 		if err != nil || m == nil {
@@ -278,7 +279,7 @@ func run(rules *game.GameRules, confs [2]bot.BotConfig, code pb.BotRequest_BotCo
 			}
 			bots[seat] = b
 		}
-		po := play(g, bots, me)
+		po := play(g, bots, me, fmt.Sprintf("%s|k%d", rec.Key, k))
 		bots[0].Release()
 		bots[1].Release()
 		g.ReleaseMagpie()
@@ -305,6 +306,8 @@ func main() {
 	margin := flag.Int("margin", 60, "only positions with the mover's spread within this many points")
 	n := flag.Int("n", 0, "sample this many positions (0 = all)")
 	sample := flag.Int64("sample", 1, "sampling seed")
+	only := flag.String("key", "", "play only the position whose key starts with this (to reproduce one)")
+	skip := flag.Int("skip", 0, "skip this many sampled positions first (to split a sample across machines)")
 	ttFraction := flag.Float64("ttfrac", 0.003, "memory fraction of each game's endgame table")
 	egSecs := flag.Int("egsecs", 15, "endgame solve budget, seconds")
 	out := flag.String("out", "latepairs.jsonl", "output")
@@ -355,13 +358,17 @@ func main() {
 
 	var pos []position
 	for _, c := range cands {
-		if *n > 0 && len(pos) >= *n {
+		if *n > 0 && len(pos) >= *skip+*n {
 			break
+		}
+		if *only != "" && !strings.HasPrefix(fmt.Sprintf("%s|%s|%s|", c.src, c.gid, c.first), *only) {
+			continue
 		}
 		if p, ok := findPosition(rules, c, *minBag, *maxBag, *margin); ok {
 			pos = append(pos, p)
 		}
 	}
+	pos = pos[min(*skip, len(pos)):]
 	fmt.Fprintf(os.Stderr, "%d positions\n", len(pos))
 
 	confs := [2]bot.BotConfig{}
