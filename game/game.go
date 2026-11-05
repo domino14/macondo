@@ -1078,6 +1078,11 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			pb.GameEvent_CHALLENGE_BONUS,
 			pb.GameEvent_END_RACK_PTS:
 			// In this case, g.onturn shouldn't actually change, so just ignore
+		case pb.GameEvent_PASS, pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+			err := g.setRecordedRack(g.onturn, g.history.Events[t].Rack)
+			if err != nil {
+				return err
+			}
 		default:
 			// do the same as in the first case for now?
 			err := g.SetRackFor(g.onturn, tilemapping.RackFromString(
@@ -1197,7 +1202,7 @@ func (g *Game) PlayTurn(t int) error {
 		g.scorelessTurns++
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
-		err := g.SetRackFor(g.onturn, tilemapping.RackFromString(evt.Rack, g.alph))
+		err := g.setRecordedRack(g.onturn, evt.Rack)
 		if err != nil {
 			return err
 		}
@@ -1234,6 +1239,21 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx), nil)
 
+	return nil
+}
+
+// setRecordedRack sets the player's rack to the one a turn records. A pass
+// can be recorded without its rack (an annotator may not know it). The player
+// then gets a random rack, as at the end of a game whose racks are unknown;
+// an empty one would read as their having gone out.
+func (g *Game) setRecordedRack(playerIdx int, rack string) error {
+	if rack != "" {
+		return g.SetRackFor(playerIdx, tilemapping.RackFromString(rack, g.alph))
+	}
+	// As SetRackFor does, but drawing this player's rack too.
+	g.ThrowRacksIn()
+	g.SetRandomRack(playerIdx, nil)
+	g.SetRandomRack(otherPlayer(playerIdx), nil)
 	return nil
 }
 
