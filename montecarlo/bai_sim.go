@@ -317,7 +317,7 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 			break
 		}
 		if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && s.endgameLeafClose(g) {
-			egWin, egSpread = s.endgameLeaf(g, thread)
+			egWin, egSpread = s.endgameLeaf(g, thread, plies-ply)
 			egDone = true
 			break
 		}

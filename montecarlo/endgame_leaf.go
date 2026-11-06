@@ -2,6 +2,8 @@ package montecarlo
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 // Endgame leaves (lab knob): MACONDO_SIM_EGPLIES=N > 0 makes a rollout that
@@ -148,7 +151,7 @@ func (s *Simmer) endgameLeafClose(g *game.Game) bool {
 // win, 0 for a loss, 0.5 for a tie, with the sim's spread there. A solve that
 // fails or runs out of time scores the position from the win % table instead;
 // it may leave g mid-search, which the rollout's reset puts right.
-func (s *Simmer) endgameLeaf(g *game.Game, thread int) (winProb float64, spread int) {
+func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float64, spread int) {
 	onTurn := g.PlayerOnTurn()
 	spread = g.SpreadFor(s.initialPlayer)
 	fallback := func() (float64, int) {
@@ -199,7 +202,83 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread int) (winProb float64, spread 
 		EndgameLeafCacheMismatches.Add(1)
 	}
 	s.egCache.Store(key, final)
+	if egAudit > 0 && egAuditN.Add(1)%int64(egAudit) == 0 {
+		s.auditLeaf(g, thread, pliesLeft, onTurn, onTurnSpread, final)
+	}
 	return s.egLeafResult(final, onTurn), spread
+}
+
+// MACONDO_SIM_EGAUDIT=N (lab check): every Nth solved leaf also gets a deeper
+// solve (8 plies, 3 s) and the static playout the plain sim would have used,
+// both to the end of the game and cut at the sim's remaining plies, and logs
+// all of them to stderr as the sim's player's results. It leaves g mid-game;
+// the rollout's reset puts it right.
+var (
+	egAudit, _ = strconv.Atoi(os.Getenv("MACONDO_SIM_EGAUDIT"))
+	egAuditN   atomic.Int64
+	egAuditMu  sync.Mutex
+)
+
+func (s *Simmer) auditLeaf(g *game.Game, thread, pliesLeft, onTurn, onTurnSpread, quick int) {
+	rec := map[string]any{"onRack": g.RackFor(onTurn).NumTiles(), "oppRack": g.RackFor(1 - onTurn).NumTiles(),
+		"spread": onTurnSpread, "pliesLeft": pliesLeft, "quick": s.egLeafResult(quick, onTurn),
+		"sim": fmt.Sprintf("%p", s), "rootBag": s.origGame.Bag().TilesRemaining(),
+		"leafOnTurnIsSimmer": onTurn == s.initialPlayer}
+	// A full-window solve: the exact final spread and its first move.
+	es := s.egSolvers[thread]
+	es.SetFirstWinOptim(false)
+	es.SetSkipMaterialize(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetEndgameMode(true)
+	val, seq, err := es.QuickAndDirtySolve(ctx, 8, thread)
+	g.SetEndgameMode(false)
+	g.SetBackupMode(game.NoBackup)
+	es.SetFirstWinOptim(true)
+	es.SetSkipMaterialize(true)
+	rec["deepDone"] = err == nil && ctx.Err() == nil
+	cancel()
+	if err == nil && ctx.Err() == nil {
+		exact := int(val) + onTurnSpread
+		rec["deep"] = s.egLeafResult(exact, onTurn)
+		rec["exact"] = exact // on-turn player's final spread
+		if len(seq) > 0 {
+			rec["solverFirst"] = seq[0].ShortDescription()
+		}
+	}
+	if s.egKWG != nil {
+		if pos, err := g.MagpiePosition(); err == nil {
+			pos.SetOverrideKWG(nil)
+		}
+	}
+	for ply := 0; ply < 30 && g.Playing() == pb.PlayState_PLAYING; ply++ {
+		if ply == pliesLeft {
+			p := g.PlayerOnTurn()
+			rec["plain"] = winProbability(g.SpreadFor(s.initialPlayer), 0, false, s.winPcts, 0,
+				int(g.RackFor(p).NumTiles()), int(g.RackFor(1-p).NumTiles()), p != s.initialPlayer)
+		}
+		m := s.bestStaticTurn(g.PlayerOnTurn(), thread)
+		if ply == 0 {
+			rec["staticFirst"] = m.ShortDescription()
+		}
+		g.PlayMove(m, false, 0)
+	}
+	rec["staticFinal"] = g.SpreadFor(onTurn)
+	sp := g.SpreadFor(s.initialPlayer)
+	end := 0.5
+	if sp > 0 {
+		end = 1
+	} else if sp < 0 {
+		end = 0
+	}
+	rec["static"] = end
+	if _, ok := rec["plain"]; !ok {
+		rec["plain"] = end
+	}
+	b, _ := json.Marshal(rec)
+	egAuditMu.Lock()
+	fmt.Fprintf(os.Stderr, "EGAUDIT %s\n", b)
+	egAuditMu.Unlock()
 }
 
 // egLeafResult scores a solved endgame's final spread for the player on

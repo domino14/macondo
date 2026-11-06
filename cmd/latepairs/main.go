@@ -205,6 +205,14 @@ func findPosition(rules *game.GameRules, p position, minBag, maxBag, margin int)
 
 var endgameSecs = 15 * time.Second
 
+// pegSecs (-pegsecs) budgets the pre-endgame solve at one tile in the bag;
+// 0 leaves it unbounded. Both bots get the same budget.
+var pegSecs time.Duration
+
+// firstOnly (-firstonly) makes only bot A's first decision at each position,
+// for the endgame-leaf audit; nothing is played out.
+var firstOnly bool
+
 // play finishes the game with bots[seat] moving for each seat, and returns
 // the final spread for seat me.
 func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int, key string) playout {
@@ -216,6 +224,8 @@ func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int, key 
 		var cancel context.CancelFunc
 		if g.Bag().TilesRemaining() == 0 {
 			ctx, cancel = context.WithTimeout(context.Background(), endgameSecs)
+		} else if g.Bag().TilesRemaining() == 1 && pegSecs > 0 {
+			ctx, cancel = context.WithTimeout(context.Background(), pegSecs)
 		} else {
 			// As in paired autoplay: no clock before the endgame, so a sim
 			// stops on its own cutoff and a position plays the same way twice.
@@ -235,6 +245,9 @@ func play(g *turnplayer.BaseTurnPlayer, bots [2]*bot.BotTurnPlayer, me int, key 
 		}
 		bots[0].AddLastMove(m)
 		bots[1].AddLastMove(m)
+		if firstOnly {
+			break
+		}
 	}
 	out.Spread = g.SpreadFor(me)
 	out.Secs = time.Since(t0).Seconds()
@@ -255,7 +268,7 @@ func run(rules *game.GameRules, confs [2]bot.BotConfig, code pb.BotRequest_BotCo
 	rec := record{Key: fmt.Sprintf("%s|%s|%s|%d", p.src, p.gid, p.first, p.i), Bag: p.bag,
 		Spread: p.spread, Rack: p.rows[p.i][3]}
 	// variant k: bot A in the mover's seat (k = 0) or bot B (k = 1).
-	for k := 0; k < 2; k++ {
+	for k := 0; k < 2 && !(firstOnly && k == 1); k++ {
 		g, me, err := rebuild(rules, p, p.i)
 		if err != nil {
 			rec.Err = err.Error()
@@ -312,7 +325,10 @@ func main() {
 	egSecs := flag.Int("egsecs", 15, "endgame solve budget, seconds")
 	out := flag.String("out", "latepairs.jsonl", "output")
 	parallel := flag.Int("parallel", 8, "pairs at once (each single-threaded)")
+	pegs := flag.Int("pegsecs", 0, "pre-endgame (one tile in the bag) budget, seconds; 0 = none")
+	flag.BoolVar(&firstOnly, "firstonly", false, "only bot A's first decision at each position (endgame-leaf audit)")
 	flag.Parse()
+	pegSecs = time.Duration(*pegs) * time.Second
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	endgameSecs = time.Duration(*egSecs) * time.Second
 
