@@ -325,6 +325,7 @@ func main() {
 	egSecs := flag.Int("egsecs", 15, "endgame solve budget, seconds")
 	out := flag.String("out", "latepairs.jsonl", "output")
 	parallel := flag.Int("parallel", 8, "pairs at once (each single-threaded)")
+	leafK := flag.Int("leafaudit", 0, "instead of pairs: audit static endgame judgement at the leaves of the top K static candidates")
 	pegs := flag.Int("pegsecs", 0, "pre-endgame (one tile in the bag) budget, seconds; 0 = none")
 	flag.BoolVar(&firstOnly, "firstonly", false, "only bot A's first decision at each position (endgame-leaf audit)")
 	flag.Parse()
@@ -410,7 +411,20 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			tt := &negamax.TranspositionTable{}
 			for p := range jobs {
+				if *leafK > 0 {
+					recs := leafAudit(rules, confs[1], p, *leafK, tt)
+					mu.Lock()
+					for _, r := range recs {
+						enc.Encode(r)
+					}
+					if d := done.Add(1); d%50 == 0 {
+						fmt.Fprintf(os.Stderr, "%d/%d positions audited\n", d, len(pos))
+					}
+					mu.Unlock()
+					continue
+				}
 				rec := run(rules, confs, pb.BotRequest_BotCode(code), p)
 				mu.Lock()
 				enc.Encode(rec)
