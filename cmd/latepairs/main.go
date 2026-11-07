@@ -164,7 +164,8 @@ func rebuild(rules *game.GameRules, p position, upto int) (*turnplayer.BaseTurnP
 // tiles in the bag with the mover's spread within margin.
 func findPosition(rules *game.GameRules, p position, minBag, maxBag, margin int) (position, bool) {
 	seed, err := seedOf(p.gid)
-	if err != nil {
+	if err != nil || len(p.rows) < 2 {
+		// A snapshot log can end mid-game with a one-row half.
 		return p, false
 	}
 	players := []*pb.PlayerInfo{
