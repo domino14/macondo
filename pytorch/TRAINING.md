@@ -69,9 +69,10 @@ HastyBot vs HastyBot. Each game's first K plies, K ~ round(Exp(2)), are
 sampled from a softmax over static equity (temperature 3 points, top 50
 plays); after that both play their best move. Close endgames (bag empty,
 spread within 60) are played with a quick 2-ply search capped at 250 ms
-a move. The shipped nets' games, and every data set in `RUNS.md`, came
-from builds where HastyBot skipped that search, so their endgames were
-static. Two batches of 27M (the shipped model used `open` and `open2`):
+a move, so the labels match a bot that searches its endgames (see
+"Endgames" in `RUNS.md`). Builds before the HastyBot fix skipped that
+search whatever the flags, and every data set before `nwl23qe` has static
+endgames. Two batches of 27M (the shipped model used `open` and `open2`):
 
     cd ~/code/macondo/pytorch
     TAG=${L}open  GAMES=27000000 THREADS=16 ./gen-openings.sh
@@ -132,7 +133,8 @@ What it does (the defaults are the shipped recipe):
    (`best-tf-${L}stream.pt`) is exported to ONNX and TensorRT
    (`copy_model.sh`, with a parity check) as Triton model
    `macondo-nn-tf-${L}stream`, then plays 100,000 game pairs against
-   HastyBot in `$LEXICON` (`watch-tf-heads.sh`, about 3.5 h). Statistics:
+   HastyBot in `$LEXICON` (`watch-tf-heads.sh`, about 3.5 h), both bots
+   searching close endgames as the games did. Statistics:
    `python pairs-stats.py ../games-tf-${L}stream-v-hasty-pairs.txt`.
 
 For NWL23 this gave 57.65% ± 0.18. HastyBot is relatively stronger in CSW,
