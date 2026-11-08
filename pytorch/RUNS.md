@@ -5,22 +5,24 @@ The narrative and the numbers' provenance are in `experiments.md`; this is
 the map. Every match is 100,000 game pairs vs HastyBot, NWL23 unless noted,
 FastMlBot ranking HastyBot's top 50 plays by the net; "± " is the 95%
 interval half-width of the per-pair win share (1.96 standard errors; the
-SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread is FastMlBot's average final spread per game.
+SE of a 100k-pair match is 0.09, of the difference of two matches 0.13). Spread is FastMlBot's average final spread per game. Matches before 11/7 had static endgames on both sides; see "Endgames" below.
 
 ## Data sets (turn logs in `~/data`, gzipped)
 
 | name | games | how generated | used by |
 |---|---|---|---|
-| file 5 (`autoplay-softmax-v-hasty-5`) | ~? | June 2025 temperature bot vs HastyBot, NWL18 | heads2 (table labels) |
+| file 5 (`autoplay-softmax-v-hasty-5`) | ~? | June 2025 temperature bot vs HastyBot, NWL18 (deleted 11/5) | heads2 (table labels) |
 | fresh | 27M | temperature bot vs HastyBot, NWL18, greedy endgames (deleted 9/27) | fresh |
-| nwl23 a+b+c | 54M | temperature bot (top 50, softmax T=1 while bag>60) vs HastyBot, NWL23, quick 2-ply endgames | nwl23, nwl23s, nwl23st, stream |
-| open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; quick endgames | open, streamopen, nwl23p3 (alone, 3 positions per game) |
+| nwl23 a+b+c | 54M | temperature bot (top 50, softmax T=1 while bag>60) vs HastyBot, NWL23; quick 2-ply endgames for the temperature bot only (deleted 11/5) | nwl23, nwl23s, nwl23st, stream |
+| open | 27M | HastyBot vs HastyBot, first K~Exp(2) plies softmax(T=3) over top 50, then greedy; static endgames | open, streamopen, nwl23p3 (alone, 3 positions per game) |
 | open2 | 27M | same as open, generated 9/28 | streamopen |
 | open3 | 27M | same as open, generated 10/23 | nwl23big, nwl23l12 |
 | csw24open, csw24open2 | 27M each | same as open in CSW24, generated 10/19 on the MAGPIE movegen branch | every CSW24 run |
 | csw24open3 | 27M | same, generated 10/20 | csw24big, csw24huge, csw24l12, csw24l12huge, csw24rel, csw24l12rel |
 | csw24open4 | 27M | same, generated 10/22 | csw24huge, csw24l12huge |
 | file2017open | 27M | same as open in FILE2017 (Spanish, 28 letters), generated 10/22-24 | spanish (3 positions per game) |
+| nwl23qe | 27M | same as open, but close endgames (bag empty, spread within 60) played with the quick 2-ply search (cap 250 ms); MAGPIE build with the HastyBot fix, generated 11/5-6 (~440 games/s on 12 threads) | nwl23qe |
+| nwl23ms | 27M | same as open (static endgames) on the MAGPIE build, generated 11/7: the build control for nwl23qe | nwl23ms |
 
 Labels in every run since `result`: the mover's true game result (WDL) and
 spread to the end, one position per game drawn uniformly from turns 1..30
@@ -28,7 +30,8 @@ spread to the end, one position per game drawn uniformly from turns 1..30
 The producer replays half of all games transposed.
 Every HastyBot-vs-HastyBot set above has static endgames, although its
 config asks for quick 2-ply ones: autoplay skipped HastyBot's quick
-endgame until it was fixed. The net-vs-net games had real ones.
+endgame until it was fixed. The net-vs-net games had real ones. Every
+shipped net before nwl23qe learned from static endgames.
 
 ## Models
 
@@ -77,6 +80,7 @@ A rerun of nwl23big with a new seed played it level (49.97 ± 0.16, nwl23bigb be
 | nwl23bigb | 11/1-2 | open + open2 + open3 81M, NWL23 | none: nwl23big again (only the random initialisation and the drawn turns differ) | 149k | 58.16 ± 0.18 | +10.1 | head to head vs nwl23big 49.97 ± 0.16: two runs of one recipe play level, so a head-to-head ± of 0.16 is the yardstick for recipe changes |
 | csw24l12rel | 11/2-4 | csw24open..open3 81M | csw24l12 + the csw24rel offset bias (`--rel-bias`); ~24% slower to train | 144k | 58.65 ± 0.18 | +11.5 | head to head vs csw24l12 49.98 ± 0.16: level; the bias helps 8 x 192 but not 12 x 256; best validation WDL 0.4893 vs 0.4894 |
 | **spanish** | 11/4-5 | file2017open 27M, FILE2017 | the nwl23p3 recipe (8 x 192, `-picks 3`, ~48M rows a pass) in Spanish: 28-letter features (91 planes, 76 scalars) | 141k | **58.21 ± 0.18** | +12.7 | vs HastyBot in FILE2017; in line with the English 8 x 192 nets (nwl23big 58.14, csw24big 58.06), so the recipe carries over to another alphabet unchanged |
+| nwl23qe | 11/6-7 | nwl23qe 27M, NWL23 | nwl23p3 with games whose close endgames were searched instead of played statically (MAGPIE build) | 151k | 57.97 ± 0.18 static endgames; **58.36 ± 0.18** both sides searching | +10.1 / +10.0 | head to head vs nwl23p3 49.48 ± 0.16 with static endgames, 50.11 ± 0.16 with both sides searching; see "Endgames" |
 
 ## Against the sim
 
@@ -95,6 +99,28 @@ For scale, the 2-ply sim alone scores 58.62 ± 1.61 vs HastyBot (1,250 pairs).
 |---|---|---|
 | 9/24 | quick 2-ply endgame search in autoplay bots (margin 60) | game generation only |
 | 9/28 | decided-game rule (`ai/bot/mlrank.go`): when the best value is beyond ±0.97, near-ties ranked by spread after the play + predicted spread change; Triton client requests the spread head | win rate unchanged, +7.3 spread/game; every match from nwl23st on |
+
+## Endgames
+
+A net predicts the result of the game as it will be played out, endgame
+included. Labels from static endgames fit a bot that plays its endgames
+statically; labels from searched endgames fit a bot that searches them.
+The bot that ships searches or solves its endgames, so games are generated
+with the quick 2-ply endgame search and matches are played with it on for
+both sides (`-quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250`,
+with a build that has the HastyBot fix; earlier builds left HastyBot
+static whatever the flags).
+
+| match, 100k pairs | static endgames, both sides | quick endgame search, both sides |
+|---|---|---|
+| nwl23qe (searched-endgame games) vs HastyBot | 57.97 ± 0.18 | **58.36 ± 0.18** |
+| nwl23p3 (static-endgame games) vs HastyBot | 58.36 ± 0.18 | 57.90 ± 0.18 |
+| nwl23qe vs nwl23p3, head to head | 49.48 ± 0.16 | 50.11 ± 0.16 |
+
+Each net is strongest under the endgame play its labels came from, a swing
+of ~0.85 vs HastyBot. Searched-endgame games end within 10 points more
+often (11.8% vs 8.5%: the search plays to win, not to maximise spread);
+score, bingos, turns and first-player win rate are unchanged.
 
 ## Tools
 
