@@ -578,21 +578,19 @@ What is on deb192 and when it changed. Results go in the sections above.
 
 ## Idea queue
 
-1. **Ceiling by phase (decidelab).** Add an oracle chooser (true leave) to
-   decidelab. Where perfect reads gain little, stop inferring; where they gain
-   much more than our reads, read quality is the limit there.
-2. **Spend the leaf budget where it pays.** 1,000-2,000 leaves at bag ≤ 20,
-   fewer or none early, where inference gains about nothing.
-3. **A stronger sim on strong reads.** Sim noise flips 14.8% of moves; more
-   iterations or plies when the read is confident.
-4. **Exchange-read turns.** Check in decidelab that the leave-value exchange
-   model gains on them.
-5. **More candidate plays.** Both bots already sim 100 candidates, each with
-   at least 500 rollouts. First log the static rank of the plays inference
-   picks; if they sit near 100, try 200.
-6. **tau 0.05 replication**: queued (queue7). If it holds at ~52%, port its
-   pieces one at a time into the current code, each a paired match.
-
+1. **Ceiling by phase (decidelab).** Done: the oracle gap is largest late
+   and after short plays (headroom map, oracle gap tables).
+2. **Spend the leaf budget where it pays.** Done: a bigger budget is null
+   early and a no-op late.
+3. **A stronger sim on strong reads.** Open. More iterations or plies when
+   the read is confident (sim noise on the MAGPIE engine is much lower than
+   when this was proposed).
+4. **Exchange-read turns.** Open, low value: exchanges hold about 4% of the
+   early oracle gap.
+5. **More candidate plays.** Done: the oracle's move ranks past 50 in 2-3%
+   of positions; not worth it for today's reads.
+6. **tau 0.05 replication.** Done: the replica and the June binary rerun
+   both came out near 50%; the April and June 52% runs were luck.
 7. **Leave-quality rule** (Oct 21): read the opponent's leave
    *quality* from the tiles played and the score of their last move (2 tiles
    for 10 points: they kept 5 good tiles), and give the sim opponent strong
@@ -601,7 +599,15 @@ What is on deb192 and when it changed. Results go in the sections above.
    Test: fit beta(tiles, score) by max likelihood on true leaves in the turn
    logs, compare regret in decidelab, then a 2-ply paired match (baseline
    50.55, ceiling 53.51). It costs almost nothing per turn, so the sim keeps
-   its full budget.
+   its full budget. Result: hurts early, helps a little late; late-only ×1
+   adds little on top of tau 0.1 (screening rounds 1-3).
+8. **Adopt the tau cap 0.1** as the default: +0.14 ± 0.13 over 18,186
+   paired pairs, at no cost.
+9. **More information per read.** Calibration says the read is used
+   correctly and the limit is how much one play tells; the two-turn read
+   was the first attempt and moved nothing in matches. Other sources: the
+   opponent's whole play history (tiles kept turn after turn, not just the
+   last two), the board's unplayed hooks.
 ### Oct 22 01:00: oracle 5-ply final, leave-quality reads (dl-lq)
 
 - **oracle-5ply FINAL** (deb128, 7,500 pairs): **53.73% ± 0.61**, same as
@@ -979,12 +985,14 @@ set; confirmation runs use unscreened seeds (20261023, 20261025).
 | tau 0.15, 0.2 pinned | as above | screened ≤ 20 | weaker than 0.1 |
 | tau 0.05, 0.075, 0.125 pinned | as above | screened ≤ 20 | plateau with 0.1 (+0.075 to +0.094 per position) |
 | rule ×1, ≤ 4 tiles | leave-quality reweight | ≤ 20 | +0.049 ± 0.027; adds little to tau 0.1 |
-| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | match on seeds 20261023, 20261025 pending |
+| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | matches on four seeds: +0.14 ± 0.13 vs the baseline on the same pairs (18,186 pairs) |
 | budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early +0.011 ± 0.008 per position, placebo +0.006 ± 0.009: no clear gain |
 | 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 +0.103 ± 0.046, same as tau 0.1 alone: closed |
 | net read in place of the mini-sim read | value-net likelihood of the opponent's play, `-readmode replace` | ≤ 20 (not exchanges or passes) | −0.006 ± 0.034; worse than placebo at bag 8–20: closed |
 | net read times the mini-sim read | `-readmode combine` | ≤ 20 | +0.035 ± 0.030 on the curve; on tau 0.1 +0.084 to +0.089, no gain over tau 0.1: closed |
-| two-turn read (carry), power 1 | `MACONDO_CARRY_POWER=1`: this turn's read reweighted by last turn's read of the opponent | every bag where the opponent's previous play was read (not after their exchanges, bingos or first play) | early (bag 21+, after 2–4 tile plays) +0.028 ± 0.018 per position, +0.27 bits; match on seeds 20261023, 20261025 pending |
+| two-turn read (carry), power 1 | `MACONDO_CARRY_POWER=1`: this turn's read reweighted by last turn's read of the opponent | every bag where the opponent's previous play was read (not after their exchanges, bingos or first play) | early (bag 21+, after 2–4 tile plays) +0.028 ± 0.018 per position, +0.27 bits; matches +0.03 ± 0.23 vs the baseline (16,301 pairs); with cap 0.1 +0.10 ± 0.25 |
+| near-miss oracles | the sim told a leave like the truth, or a read spread around it | ≤ 20 | every point-mass substitute below our read; tile overlap is what pays (see "How close must a read be?") |
+| read reshaping | prior blend, smoothing over one-tile swaps, confident tiles only, robust pick | ≤ 20 | all null or worse |
 
 Ideas not pursued: switching early inference off (it helps: +0.045 ± 0.031
 per position at bag 51+ in the headroom map).
@@ -1132,3 +1140,133 @@ set, judge 5-ply): carry applied in 1,976 positions and changed 103 moves
 Early placebo: +0.006 ± 0.009. The first change to move early decisions;
 the gain falls with tiles played, as fewer tiles carry over. A match tests
 it at every bag (late carry unscreened).
+
+## Confirming matches: tau cap 0.1, two-turn reads, both
+
+2-ply paired matches on the baseline config (build f4e4300b; carry runs on
+the same build plus the carry patch, `MACONDO_CARRY_POWER=1`), each on the
+seed of a baseline run, so every pair compares one to one with the baseline's
+pair. Win % against the plain sim bot; difference = variant minus baseline on
+the same pairs.
+
+| variant | seed | pairs | vs plain | minus baseline | pairs changed |
+|---|---|---|---|---|---|
+| cap 0.1 | 20261020 | 1,202 | 50.31 ± 1.17 | +0.23 ± 0.46 | 331 |
+| cap 0.1 | 20261022 | 2,840 | 50.77 ± 0.81 | +0.13 ± 0.32 | 738 |
+| cap 0.1 | 20261023 | 7,843 | 51.37 ± 0.49 | +0.20 ± 0.21 | 2,202 |
+| cap 0.1 | 20261025 | 6,301 | 50.81 ± 0.56 | +0.06 ± 0.22 | 1,714 |
+| **cap 0.1, pooled** | | 18,186 | 51.01 ± 0.32 | **+0.14 ± 0.13** | |
+| carry | 20261023 | 10,000 | 51.18 ± 0.44 | +0.04 ± 0.29 | 3,837 |
+| carry | 20261025 | 6,301 | 50.77 ± 0.55 | +0.02 ± 0.38 | 2,443 |
+| **carry, pooled** | | 16,301 | 51.02 ± 0.34 | **+0.03 ± 0.23** | |
+| carry + cap 0.1 | 20261025 | 6,301 | 50.90 ± 0.56 | +0.18 ± 0.41 | 3,285 |
+| carry + cap 0.1 | 20261026 | 10,000 | 50.96 ± 0.44 | +0.04 ± 0.32 | 5,201 |
+| **carry + cap, pooled** | | 16,301 | 50.94 ± 0.34 | **+0.10 ± 0.25** | |
+
+- The cap is the only one near significance (about 2 SE), and its size is
+  what screening predicted: about +0.09 win points per late position, one or
+  two such positions a game.
+- The carry changes about a third of all pairs but moves nothing: a correct
+  model with no measurable gain. It stays (it does no harm).
+- The baseline itself, on the same build over seven seeds (53,155 pairs):
+  **50.82% ± 0.19** against the plain sim bot.
+
+## How close must a read be? Near-miss oracles
+
+The oracle (the sim told the opponent's true leave) is worth much more than
+our read. Is that because it is exact, or would any leave *like* the truth
+do? `screendecide -oracle -oraclemode` hands the sim a substitute in place of
+the truth, always of the truth's length, different from it, and one the
+opponent could hold:
+
+- `similar`: the nearest leave by hand-built features (bingo chance and leave
+  value counted double, scoring tiles, balance), among leaves drawn from the
+  prior;
+- `value`: a leave of about the same leave value;
+- `swap`: the truth with one tile swapped;
+- `random`: a leave drawn from the prior.
+
+Late set (9,664 positions, bag ≤ 20), judged against the logged inference
+move, win points per position (our read = 0):
+
+| told | all | bag 1–7 | bag 8–20 |
+|---|---|---|---|
+| truth | +0.81 ± 0.07 | +1.14 | +0.50 |
+| similar | −0.14 | −0.27 | ~0 |
+| swap | −0.20 | | ~0 |
+| value | −0.61 | | |
+| plain (told nothing) | −0.10 | −0.06 | −0.14 |
+| random | −0.96 | | |
+
+- **Every single substitute is worse than our read**, and at bag 1–7 worse
+  than no read at all. Late, leave and bag are complements, so a wrong leave
+  also puts a wrong tile in the bag. At bag 8–20 a near miss recovers about a
+  fifth of the gain.
+- Leave value alone is a bad notion of similarity (similar beats value by
+  +0.47 ± 0.09); similar is about a one-tile swap (+0.06 ± 0.09), and 46% of
+  its picks were one-tile swaps anyway.
+
+**Mixtures** (`mix-` modes): a posterior, the truth at weight p and the rest
+over 8 neighbours.
+
+| neighbours | truth 0% | truth 5% |
+|---|---|---|
+| one-tile swaps | +0.47 | +0.51 |
+| similar | +0.23 | +0.29 |
+| same value | −0.11 | +0.04 |
+| prior draws | | −0.01 |
+
+A read spread over leaves that share tiles with the truth keeps more than
+half the oracle's gain without ever naming it. Tile overlap is what pays;
+value similarity is worthless. Caveat: the neighbourhood is built from the
+truth, so it leaks the truth's tiles.
+
+**Partial oracles** (`part` modes: the sim is told k of the truth's tiles,
+the rest drawn fresh): one tile +0.00, two +0.18, three +0.40; the power
+tiles only (blanks, S, J, Q, X, Z) +0.01. Our read is worth about one known
+tile.
+
+## Reshaping the read
+
+All on the late set, per position against our read:
+
+| change | setting | per position |
+|---|---|---|
+| blend with the prior (`-readmix`) | 0.1 / 0.25 / 0.5 | −0.00 / −0.01 / −0.03 |
+| smooth over one-tile swaps (`-readsmooth`) | 0.25 / 0.5 / 0.75 | −0.005 ± 0.007 / −0.002 ± 0.011 / −0.017 ± 0.014 |
+| same, early (bag 21+) | 0.5 | +0.003 ± 0.021 |
+| tell the sim only confident tiles (`-readmarg`) | 0.7 / 0.85 | −0.12 / −0.04 |
+| same, keeping the read's leaves that hold them (`-readmargcond`) | 0.7 / 0.85 | −0.03 / −0.01 |
+| robust pick (`montecarlo.RobustLambda`, entropic risk over the read's leaves) | λ 3 / 10 / 30 | −0.01 / −0.01 / −0.17 |
+
+Nothing helps. Smoothing was the mixture result's natural follow-up (spread
+weight over one-tile swaps); it moves nothing, because the mixtures' gain
+came from neighbours of the *truth*, which a read does not know.
+
+## Calibration
+
+`screendecide -dumpreads` logs how every read scores the true leave. Reads
+are well calibrated, by leave (observed / expected 0.76–1.22 per probability
+band) and by tile (within about 0.02 of the diagonal). Late reads are a
+little underconfident (leaves read at 1–30% are the truth about 7% more often
+than read), early ones a little overconfident at the top. The information is
+small: 0.65 bits over the prior late (0.39 at bag 1–7), 0.85 early; the top
+leave is the truth 6% of the time late.
+
+So the read uses its evidence correctly; the limit is how much one play
+tells. Reshaping the posterior cannot add information it does not have.
+
+## Does the value net read better than inference?
+
+The value net (nwl23l12) sees the opponent's last play and plays about even
+with the 2-ply sim bot. Its moves were judged twice by a 5-ply sim, once
+knowing the opponent's true leave and once with random racks; known minus
+random measures how much a bot's choices lean on the true leave.
+
+- At first divergences between the net and the plain 2-ply sim (4,674
+  positions): known minus random +0.22 ± 0.04 win points, and zero on the
+  first turn of the game (no last play to read). The net reads the last play.
+- Over every net turn (100,437, bag 3+): net vs plain sim +0.082 ± 0.012
+  per turn, **net vs the inference bot +0.002 ± 0.012**. The inference bot
+  leans on the true leave as much as the net does; the net's read holds no
+  extra information to borrow.
