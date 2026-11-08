@@ -174,6 +174,7 @@ func init() {
 			{Name: "useinferences", Type: OptString,
 				Values: []string{"weightedrandomtiles", "weightedrandomracks"}},
 			{Name: "collect-heatmap", Type: OptBool, Values: boolValues},
+			{Name: "endgame-leaves", Type: OptBool, Values: boolValues},
 			{Name: "fixedsimiters", Type: OptInt},
 			{Name: "fixedsimplies", Type: OptInt},
 			{Name: "fixedsimcount", Type: OptInt},

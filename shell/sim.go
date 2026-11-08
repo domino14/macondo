@@ -47,6 +47,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	}
 
 	inferMode := montecarlo.InferenceOff
+	endgameLeaves := true
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
@@ -153,6 +154,9 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 			default:
 				return nil, errors.New("that inference mode is not supported")
 			}
+		case "endgame-leaves":
+			endgameLeaves = options.Bool(opt)
+
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -197,6 +201,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		knownOppRack:          kr,
 		inferMode:             inferMode,
 		avoidTrimMoves:        avoidTrimMoves,
+		endgameLeaves:         endgameLeaves,
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -276,6 +281,7 @@ type simParams struct {
 	knownOppRack          []tilemapping.MachineLetter
 	inferMode             montecarlo.InferenceMode
 	avoidTrimMoves        []*move.Move
+	endgameLeaves         bool
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -286,6 +292,7 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	if params.threads != 0 {
 		simmer.SetThreads(params.threads)
 	}
+	simmer.SetEndgameLeaves(params.endgameLeaves)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)
 	if err != nil {
 		return err

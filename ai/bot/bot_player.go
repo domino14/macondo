@@ -72,6 +72,10 @@ type BotConfig struct {
 	QuickEndgameCapMs  int
 	// QuickEndgameNoPrune skips the solver's pruned word graph.
 	QuickEndgameNoPrune bool
+	// NoSimEndgameLeaves makes the bot's sims play endgames out with static
+	// moves even with one or two tiles in the bag, instead of searching them
+	// (montecarlo.EndgameLeafMaxBag).
+	NoSimEndgameLeaves bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
