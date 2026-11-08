@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -171,6 +172,10 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float
 	if v, ok := s.egCache.Load(key); ok {
 		EndgameLeafCacheHits.Add(1)
 		cached, hit = v.(int), true
+		if cached == egLeafFailed {
+			// This endgame ran out of time before; it would again.
+			return fallback()
+		}
 		if !egLeafCheck {
 			return s.egLeafResult(cached, onTurn), spread
 		}
@@ -193,6 +198,7 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float
 	}
 	if err != nil || ctx.Err() != nil {
 		EndgameLeafFallbacks.Add(1)
+		s.egCache.Store(key, egLeafFailed)
 		return winProbability(spread, 0, false, s.winPcts, 0, onRack, oppRack,
 			onTurn != s.initialPlayer), spread
 	}
@@ -280,6 +286,10 @@ func (s *Simmer) auditLeaf(g *game.Game, thread, pliesLeft, onTurn, onTurnSpread
 	fmt.Fprintf(os.Stderr, "EGAUDIT %s\n", b)
 	egAuditMu.Unlock()
 }
+
+// egLeafFailed marks a cached endgame whose solve ran out of time, so the
+// rollouts that reach it again fall back without solving.
+const egLeafFailed = math.MinInt32
 
 // egLeafResult scores a solved endgame's final spread for the player on
 // turn as a win, loss or tie for the sim's player.
