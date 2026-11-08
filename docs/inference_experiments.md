@@ -17,6 +17,10 @@ Conventions:
   finished run's turn log; the run's own logged lifts are the baseline, and
   every default that is not under test is pinned (`-tau`, `-lambda`,
   `-value`, `-order`).
+- **Code**: the bot options (tau cap, two-turn reads, InfoBits) and
+  decidelab are on master; the screening and judging tools named below
+  (`screendecide`, `divjudge`, `latepairs`) and the MAGPIE engine they run
+  on are on branch `claude/inference-experiments`.
 - **Decisions** are graded with `cmd/decidelab`: for logged positions the
   sim bot, a second copy of it (noise floor) and the inference bot choose a
   move, and a long sim that knows the opponent's true leave judges them.
@@ -601,8 +605,9 @@ What is on deb192 and when it changed. Results go in the sections above.
    50.55, ceiling 53.51). It costs almost nothing per turn, so the sim keeps
    its full budget. Result: hurts early, helps a little late; late-only ×1
    adds little on top of tau 0.1 (screening rounds 1-3).
-8. **Adopt the tau cap 0.1** as the default: +0.14 ± 0.13 over 18,186
-   paired pairs, at no cost.
+8. **Adopt the tau cap 0.1.** Done: `DefaultInferenceTauCap` (0.1) applies
+   whenever a bot config sets no cap; a negative `InferenceTauCap` /
+   `inferenceTauCap` turns it off.
 9. **More information per read.** Calibration says the read is used
    correctly and the limit is how much one play tells; the two-turn read
    was the first attempt and moved nothing in matches. Other sources: the
@@ -985,7 +990,7 @@ set; confirmation runs use unscreened seeds (20261023, 20261025).
 | tau 0.15, 0.2 pinned | as above | screened ≤ 20 | weaker than 0.1 |
 | tau 0.05, 0.075, 0.125 pinned | as above | screened ≤ 20 | plateau with 0.1 (+0.075 to +0.094 per position) |
 | rule ×1, ≤ 4 tiles | leave-quality reweight | ≤ 20 | +0.049 ± 0.027; adds little to tau 0.1 |
-| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | matches on four seeds: +0.14 ± 0.13 vs the baseline on the same pairs (18,186 pairs) |
+| tau cap 0.1 (`inferenceTauCap`) | min(curve, 0.1) | about ≤ 17, plus early one-tile reads at bag 21–30 (doubled curve above 0.1) | matches on four seeds: +0.14 ± 0.13 vs the baseline on the same pairs (18,186 pairs); **adopted as the default** |
 | budget 1,000 | 1,000 leaves instead of 200 | > 20 (late it changes ~1% of moves) | early +0.011 ± 0.008 per position, placebo +0.006 ± 0.009: no clear gain |
 | 5-ply mini-sims | `MACONDO_MINISIM_PLIES=5`, lab build only | ≤ 20 | with the curve +0.011 ± 0.022 (null); with tau 0.1 +0.103 ± 0.046, same as tau 0.1 alone: closed |
 | net read in place of the mini-sim read | value-net likelihood of the opponent's play, `-readmode replace` | ≤ 20 (not exchanges or passes) | −0.006 ± 0.034; worse than placebo at bag 8–20: closed |
@@ -1165,9 +1170,10 @@ the same pairs.
 
 - The cap is the only one near significance (about 2 SE), and its size is
   what screening predicted: about +0.09 win points per late position, one or
-  two such positions a game.
+  two such positions a game. It is now the default (0.1).
 - The carry changes about a third of all pairs but moves nothing: a correct
-  model with no measurable gain. It stays (it does no harm).
+  model with no measurable gain. It stays as an option, off by default: a
+  bot new to the game must rebuild last turn's read, a second inference.
 - The baseline itself, on the same build over seven seeds (53,155 pairs):
   **50.82% ± 0.19** against the plain sim bot.
 
