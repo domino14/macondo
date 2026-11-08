@@ -19,8 +19,9 @@ Conventions:
   `-value`, `-order`).
 - **Code**: the bot options (tau cap, two-turn reads, InfoBits) and
   decidelab are on master; the screening and judging tools named below
-  (`screendecide`, `divjudge`, `latepairs`) and the MAGPIE engine they run
-  on are on branch `claude/inference-experiments`.
+  (`screendecide`, `divjudge`, `latepairs`), the lab-only bot settings
+  (leave-quality rule, read reshaping) and the MAGPIE engine they run on are
+  on branch `claude/inference-experiments`.
 - **Decisions** are graded with `cmd/decidelab`: for logged positions the
   sim bot, a second copy of it (noise floor) and the inference bot choose a
   move, and a long sim that knows the opponent's true leave judges them.
