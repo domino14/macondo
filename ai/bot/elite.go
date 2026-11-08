@@ -178,6 +178,13 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 
 	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).
 		Dur("took", time.Since(start)).Int("threads", egThreads).Msg("endgame-solve-done")
+	if len(seq) == 0 {
+		// A solve cut off before its first ply finished has no line; play
+		// the static best move instead.
+		logger.Warn().Str("cgp", p.Game.ToCGP(false)).Dur("took", time.Since(start)).
+			AnErr("ctx", ctx.Err()).Int16("val", v).Msg("endgame-solve-empty-seq")
+		return p.GenerateMoves(1)[0], nil
+	}
 	return seq[0], nil
 }
 
