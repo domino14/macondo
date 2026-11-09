@@ -248,4 +248,22 @@ macondo> setconfig openai-model gpt-4-turbo
 macondo> setconfig gemini-model gemini-2.0-flash
 ```
 
+### Using a local model
+
+You can run explanations on your own GPU with llama.cpp. Start `llama-server` with a model that supports tool calling:
+
+```
+llama-server -hf unsloth/Qwen3.8-27B-GGUF:UD-IQ3_XXS -c 32768 --no-mmproj --reasoning off
+```
+
+Then point Macondo at it:
+
+```
+macondo> setconfig genai-provider llamacpp
+```
+
+The server is expected at `http://127.0.0.1:8080/v1`. Use `setconfig llamacpp-base-url` for a different address, and `setconfig llamacpp-api-key` if you started the server with `--api-key`.
+
+Leaving thinking on is allowed, but a reasoning model can take minutes per explanation on a consumer GPU.
+
 Use `help setconfig` for more configuration options.
