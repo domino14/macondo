@@ -53,6 +53,9 @@ type BotConfig struct {
 	// SimEndgameLeaves lets the bot's own sim solve the endgames its
 	// rollouts reach, when MACONDO_SIM_EGPLIES is set (montecarlo).
 	SimEndgameLeaves bool
+	// SimEndgameLeafCap caps each of those solves; 0 keeps the montecarlo
+	// default (MACONDO_SIM_EGCAPMS).
+	SimEndgameLeafCap time.Duration
 	// InferenceMinInfoBits skips reads that moved less than this far from
 	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
 	// sim bot's. 0 uses every read.
@@ -224,6 +227,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		}
 		btp.simmer = &montecarlo.Simmer{}
 		btp.simmer.SetEndgameLeaves(conf.SimEndgameLeaves)
+		btp.simmer.SetEndgameLeafCap(conf.SimEndgameLeafCap)
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)

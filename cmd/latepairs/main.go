@@ -328,6 +328,8 @@ func main() {
 	parallel := flag.Int("parallel", 8, "pairs at once (each single-threaded)")
 	leafK := flag.Int("leafaudit", 0, "instead of pairs: audit static endgame judgement at the leaves of the top K static candidates")
 	pegs := flag.Int("pegsecs", 0, "pre-endgame (one tile in the bag) budget, seconds; 0 = none")
+	capA := flag.Int("capa", 0, "bot A's endgame-leaf solve cap, ms (0 = MACONDO_SIM_EGCAPMS)")
+	capB := flag.Int("capb", 0, "if > 0, bot B also searches its endgame leaves, with this cap in ms")
 	flag.BoolVar(&firstOnly, "firstonly", false, "only bot A's first decision at each position (endgame-leaf audit)")
 	flag.Parse()
 	pegSecs = time.Duration(*pegs) * time.Second
@@ -395,6 +397,12 @@ func main() {
 			EndgameTTableFraction: *ttFraction, EndgameThreads: 1, PreendgameThreads: 1}
 	}
 	confs[0].SimEndgameLeaves = true
+	confs[0].SimEndgameLeafCap = time.Duration(*capA) * time.Millisecond
+	if *capB > 0 {
+		// Both bots search their endgame leaves, A and B with their own caps.
+		confs[1].SimEndgameLeaves = true
+		confs[1].SimEndgameLeafCap = time.Duration(*capB) * time.Millisecond
+	}
 
 	f, err := os.Create(*out)
 	if err != nil {
@@ -447,10 +455,10 @@ func main() {
 	}
 	close(jobs)
 	wg.Wait()
-	fmt.Fprintf(os.Stderr, "done: %d pairs, A %.2f%% over %d scored; endgame leaves: %d solved (%.2f ms each), %d from cache (%d checked wrong), %d fell back\n",
+	fmt.Fprintf(os.Stderr, "done: %d pairs, A %.2f%% over %d scored; endgame leaves: %d solved (%.2f ms each), %d from cache (%d checked wrong), %d fell back (%d distinct timeouts)\n",
 		len(pos), 100*scoreSum/float64(max(1, scored)), scored,
 		montecarlo.EndgameLeafSolves.Load(),
 		float64(montecarlo.EndgameLeafNanos.Load())/1e6/float64(max(1, montecarlo.EndgameLeafSolves.Load())),
 		montecarlo.EndgameLeafCacheHits.Load(), montecarlo.EndgameLeafCacheMismatches.Load(),
-		montecarlo.EndgameLeafFallbacks.Load())
+		montecarlo.EndgameLeafFallbacks.Load(), montecarlo.EndgameLeafTimeouts.Load())
 }

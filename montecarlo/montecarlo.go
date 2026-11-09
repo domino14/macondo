@@ -284,6 +284,8 @@ type Simmer struct {
 	// egSolvers solve the endgames rollouts reach (see endgame_leaf.go).
 	egSolvers     []*negamax.Solver
 	endgameLeaves bool
+	egCap         time.Duration // 0 = egLeafCap
+	egTable       *negamax.TranspositionTable
 	egKWG         *magpie.KWG
 	egCache       sync.Map // egLeafKey -> final spread for the player on turn
 	// movegens          []movegen.MoveGenerator

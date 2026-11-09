@@ -40,6 +40,11 @@ var (
 	// egLeafTable is one shared, lock-free transposition table for every
 	// leaf solve in the process, as the quick-endgame bots share theirs.
 	egLeafTable = &negamax.TranspositionTable{}
+	// egCapTables holds a table of its own for each per-sim cap
+	// (SetEndgameLeafCap), so bots with different caps playing each other
+	// don't search on each other's results.
+	egCapTables   = map[time.Duration]*negamax.TranspositionTable{}
+	egCapTablesMu sync.Mutex
 )
 
 // EndgameLeafSolves, EndgameLeafFallbacks, EndgameLeafNanos and
@@ -51,6 +56,9 @@ var EndgameLeafSolves, EndgameLeafFallbacks, EndgameLeafNanos, EndgameLeafCacheH
 // MACONDO_SIM_EGCHECK=1 solves cache hits anyway and counts in
 // EndgameLeafCacheMismatches the ones whose result differs from the cache's.
 var EndgameLeafCacheMismatches atomic.Int64
+
+// EndgameLeafTimeouts counts the distinct endgames whose solve ran out of time.
+var EndgameLeafTimeouts atomic.Int64
 var egLeafCheck = os.Getenv("MACONDO_SIM_EGCHECK") == "1"
 
 // egLeafKey identifies an endgame leaf: the position's hash (board, both
@@ -85,6 +93,12 @@ func (s *Simmer) SetEndgameLeaves(on bool) {
 	s.endgameLeaves = on
 }
 
+// SetEndgameLeafCap caps each of this sim's endgame-leaf solves; 0 keeps
+// MACONDO_SIM_EGCAPMS.
+func (s *Simmer) SetEndgameLeafCap(d time.Duration) {
+	s.egCap = d
+}
+
 // prepareEndgameLeaves sizes each thread's state stack for a solve on top of
 // the rollout's one backed-up play and gives each thread a solver on its game.
 func (s *Simmer) prepareEndgameLeaves() error {
@@ -97,6 +111,17 @@ func (s *Simmer) prepareEndgameLeaves() error {
 	egTableOnce.Do(func() {
 		egLeafTable.Reset(0.02, s.origGame.Board().Dim())
 	})
+	s.egTable = egLeafTable
+	if s.egCap > 0 {
+		egCapTablesMu.Lock()
+		if egCapTables[s.egCap] == nil {
+			t := &negamax.TranspositionTable{}
+			t.Reset(0.02, s.origGame.Board().Dim())
+			egCapTables[s.egCap] = t
+		}
+		s.egTable = egCapTables[s.egCap]
+		egCapTablesMu.Unlock()
+	}
 	// One pruned word graph for the whole sim, as the pre-endgame builds:
 	// every rollout deals from the same pool (our rack, the opponent's rack
 	// and the bag), and the pruning draws on that union only.
@@ -123,7 +148,7 @@ func (s *Simmer) prepareEndgameLeaves() error {
 		if err := es.Init(g); err != nil {
 			return err
 		}
-		es.SetTTable(egLeafTable)
+		es.SetTTable(s.egTable)
 		es.SetThreads(1)
 		es.SetFirstWinOptim(true)
 		es.SetSkipMaterialize(true)
@@ -166,7 +191,7 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float
 	}
 	onTurnSpread := g.CurrentSpread()
 	onRack, oppRack := int(g.RackFor(onTurn).NumTiles()), int(g.RackFor(1-onTurn).NumTiles())
-	key := egLeafKey{spread: onTurnSpread, hash: egLeafTable.Zobrist().Hash(g.Board().GetSquares(),
+	key := egLeafKey{spread: onTurnSpread, hash: s.egTable.Zobrist().Hash(g.Board().GetSquares(),
 		g.RackFor(onTurn), g.RackFor(1-onTurn), false, g.ScorelessTurns())}
 	cached, hit := 0, false
 	if v, ok := s.egCache.Load(key); ok {
@@ -180,7 +205,11 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float
 			return s.egLeafResult(cached, onTurn), spread
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), egLeafCap)
+	limit := egLeafCap
+	if s.egCap > 0 {
+		limit = s.egCap
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	g.SetBackupMode(game.SimulationMode)
 	g.SetEndgameMode(true)
@@ -198,6 +227,7 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread, pliesLeft int) (winProb float
 	}
 	if err != nil || ctx.Err() != nil {
 		EndgameLeafFallbacks.Add(1)
+		EndgameLeafTimeouts.Add(1)
 		s.egCache.Store(key, egLeafFailed)
 		return winProbability(spread, 0, false, s.winPcts, 0, onRack, oppRack,
 			onTurn != s.initialPlayer), spread
