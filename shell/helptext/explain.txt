@@ -1,6 +1,6 @@
 explain [options] - Generate AI explanation for the current position
 
-  Uses AI (Gemini, OpenAI, OpenRouter, or DeepSeek) to provide detailed explanations of the best plays
+  Uses AI (Gemini, OpenAI, OpenRouter, DeepSeek, or a local llama.cpp model) to provide detailed explanations of the best plays
   in the current position. The AI analyzes simulation results and provides
   insights about tile leaves, strategic considerations, and play selection.
 
@@ -132,12 +132,18 @@ explain [options] - Generate AI explanation for the current position
   1000. One explanation is several requests, because the model calls tools and
   each round trip counts, so budget roughly a dozen explanations a day.
 
-  Local LLM (LM Studio, Ollama, vLLM, etc.):
-  Any OpenAI-compatible local server works by pointing the openai provider at it:
-  - setconfig genai-provider openai
-  - setconfig openai-base-url http://127.0.0.1:1234/v1   (LM Studio default port)
-  - setconfig openai-model <model-id>   (copy the model ID shown in LM Studio)
-  No API key is required for local servers.
+  Local LLM (llama.cpp):
+  Run explanations on your own GPU through llama-server:
+  - setconfig genai-provider llamacpp
+  - setconfig llamacpp-base-url http://127.0.0.1:8080/v1   (the default)
+  - setconfig llamacpp-model <model-id>   (only if your server hosts several models)
+  - setconfig llamacpp-api-key <key>      (only if you started the server with a key)
+
+  This provider keeps its own settings, and moves the system message to the front
+  of each request because some models' chat templates refuse anything else.
+
+  A model that reasons before it answers can spend minutes on one explanation.
+  To turn that off, start llama-server with --reasoning off.
 
   Note: tool-calling support depends on the local model. Models with function-
   calling capability (e.g. Llama 3.1+, Mistral, Gemma 3) work best.
