@@ -315,6 +315,7 @@ func main() {
 	turns := flag.String("turns", "", "per-turn logs of seeded game-pair runs, comma-separated")
 	botCode := flag.String("bot", "SIMMING_BOT", "bot code of both bots")
 	plies := flag.Int("plies", 2, "minSimPlies")
+	fixedPlies := flag.Int("fixedplies", 0, "if > 0, every sim exactly this deep; with a bot that has no pre-endgame (SIMMING_BOT_NO_EG) it also sims at one tile in the bag, as the shell's sim does")
 	minBag := flag.Int("minbag", 2, "first turn that sees at least this many tiles in the bag ...")
 	maxBag := flag.Int("maxbag", 6, "... and at most this many")
 	margin := flag.Int("margin", 60, "only positions with the mover's spread within this many points")
@@ -393,7 +394,7 @@ func main() {
 
 	confs := [2]bot.BotConfig{}
 	for i := range confs {
-		confs[i] = bot.BotConfig{Config: *cfg, MinSimPlies: *plies, SimThreads: 1,
+		confs[i] = bot.BotConfig{Config: *cfg, MinSimPlies: *plies, FixedSimPlies: *fixedPlies, SimThreads: 1,
 			EndgameTTableFraction: *ttFraction, EndgameThreads: 1, PreendgameThreads: 1}
 	}
 	confs[0].SimEndgameLeaves = true
