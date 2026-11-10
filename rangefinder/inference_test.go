@@ -417,6 +417,25 @@ func TestTauSchedule(t *testing.T) {
 	}
 }
 
+// A cap clips the scheduled temperature late and leaves it alone early.
+func TestTauCap(t *testing.T) {
+	r := &RangeFinder{}
+	r.SetTauCap(0.05)
+	r.scheduleTau(3)
+	if r.Tau() != 0.05 {
+		t.Fatalf("late, capped: %v", r.Tau())
+	}
+	r.scheduleTau(60)
+	if r.Tau() != tauFittedForBag(60) {
+		t.Fatalf("early, under the cap: %v", r.Tau())
+	}
+	r.SetTauCap(0)
+	r.scheduleTau(3)
+	if r.Tau() != tauFittedForBag(3) {
+		t.Fatalf("no cap: %v", r.Tau())
+	}
+}
+
 // The fitted curve hits its knots, interpolates between them in log tau,
 // falls as the bag fills, and holds its end values outside them.
 func TestTauFitted(t *testing.T) {

@@ -95,6 +95,11 @@ func (p *SimpleSimmer) SetMaxIters(n int) {
 	p.maxIters = n
 }
 
+// SetPlies sets how deep the simmer looks (default 2).
+func (p *SimpleSimmer) SetPlies(n int) {
+	p.numPlies = n
+}
+
 func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())
 	oppRack := p.RackFor(p.NextPlayer())
