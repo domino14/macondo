@@ -308,6 +308,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if p.simThreads != 0 {
 		p.simmer.SetThreads(p.simThreads)
 	}
+	p.simmer.SetEndgameLeaves(!p.cfg.NoSimEndgameLeaves)
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	if p.cfg.StochasticStaticEval {
