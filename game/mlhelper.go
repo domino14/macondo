@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,32 +19,15 @@ import (
 	"github.com/domino14/macondo/triton"
 )
 
-const (
-	NN_C        = 85
-	NN_H, NN_W  = 15, 15
-	NN_N_PLANES = NN_C * NN_H * NN_W
-	NN_N_SCAL   = 72
-	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
-)
+// NN_H x NN_W is the board the net sees. The number of planes and scalars
+// depends on the alphabet (see MLLayout).
+const NN_H, NN_W = 15, 15
 
-const (
-	HistoryStartIdx      = NN_N_PLANES + 54
-	HistoryEndIdx        = HistoryStartIdx + 3
-	PowerTilesStartIdx   = HistoryEndIdx
-	PowerTilesEndIdx     = PowerTilesStartIdx + 6
-	VCRatioBagStartIdx   = PowerTilesEndIdx
-	VCRatioBagEndIdx     = VCRatioBagStartIdx + 2
-	VCRatioRackStartIdx  = VCRatioBagEndIdx
-	VCRatioRackEndIdx    = VCRatioRackStartIdx + 2
-	AddlFeaturesStartIdx = VCRatioRackEndIdx
-	AddlFeaturesEndIdx   = AddlFeaturesStartIdx + 5
-)
-
+// MLVectorPool holds feature vectors (BuildMLVector); a vector is grown to
+// the layout's row length when taken.
 var MLVectorPool = sync.Pool{
 	New: func() interface{} {
-		// The Pool's New function should return a pointer to a slice of float32.
-		v := make([]float32, NN_RowLen)
-		return &v
+		return new([]float32)
 	},
 }
 
@@ -72,8 +54,9 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Move,
 	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (*triton.ModelOutputs, error) {
 
-	if strings.ToLower(g.letterDistribution.Name) != "english" {
-		return nil, fmt.Errorf("machine learning evaluation is only supported for English lexica at this time, got %s", g.letterDistribution.Name)
+	lay, err := g.mlLayout()
+	if err != nil {
+		return nil, err
 	}
 
 	start := time.Now()
@@ -91,6 +74,11 @@ func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Mo
 		if c == nil {
 			c = g.tritonClient
 		}
+		if c != nil {
+			if err := checkMLModelShape(c.ModelName(), c.InputShape, lay, g.letterDistribution.Name); err != nil {
+				return nil, err
+			}
+		}
 		if c != nil && c.BoardUint8() {
 			boards, scalars, err := g.mlByteVectorsInto(g.mlBoardBytesBuf[:0], g.mlScalarsBuf[:0], moves, leaveCalc, lastMoves)
 			if err != nil {
@@ -98,8 +86,8 @@ func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Mo
 			}
 			g.mlBoardBytesBuf, g.mlScalarsBuf = boards, scalars
 			return mlInferBatches(len(moves), func(from, to int) (*triton.ModelOutputs, error) {
-				return c.InferUint8(boards[from*NN_N_PLANES:to*NN_N_PLANES],
-					scalars[from*NN_N_SCAL:to*NN_N_SCAL], to-from)
+				return c.InferUint8(boards[from*lay.PlaneLen:to*lay.PlaneLen],
+					scalars[from*lay.NumScalars:to*lay.NumScalars], to-from)
 			})
 		}
 	}
@@ -111,9 +99,9 @@ func (g *Game) MLEvaluateMovesWith(client *triton.TritonClient, moves []*move.Mo
 	// are consumed before this returns: the inference call is synchronous.
 	g.mlPlanesBuf, g.mlScalarsBuf = allPlaneVectors, allScalarVectors
 	if g.config.GetBool(config.ConfigTritonUseTriton) {
-		return g.mlevaluateMovesTriton(client, len(moves), allPlaneVectors, allScalarVectors)
+		return g.mlevaluateMovesTriton(client, lay, len(moves), allPlaneVectors, allScalarVectors)
 	}
-	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+	return g.mlevaluateMovesLocal(lay, len(moves), allPlaneVectors, allScalarVectors)
 }
 
 // MLVectorsForMoves builds the feature vectors the net sees for each
@@ -132,16 +120,20 @@ func (g *Game) MLVectorsForMoves(moves []*move.Move, leaveCalc *equity.Exhaustiv
 func (g *Game) mlVectorsInto(allPlaneVectors, allScalarVectors []float32, moves []*move.Move,
 	leaveCalc *equity.ExhaustiveLeaveCalculator, lastMoves []*move.Move) (planes, scalars []float32, err error) {
 
+	lay, err := g.mlLayout()
+	if err != nil {
+		return nil, nil, err
+	}
 	numMoves := len(moves)
-	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*NN_N_PLANES)
-	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*NN_N_SCAL)
+	allPlaneVectors = slices.Grow(allPlaneVectors[:0], numMoves*lay.PlaneLen)
+	allScalarVectors = slices.Grow(allScalarVectors[:0], numMoves*lay.NumScalars)
 	err = g.forEachMLMove(moves, func(m *move.Move) error {
 		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMoves)
 		if err != nil {
 			return fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
-		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
-		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
+		allPlaneVectors = append(allPlaneVectors, (*vec)[:lay.PlaneLen]...)
+		allScalarVectors = append(allScalarVectors, (*vec)[lay.PlaneLen:]...)
 		MLVectorPool.Put(vec) // Return the vector to the pool
 		return nil
 	})
@@ -212,18 +204,21 @@ func (g *Game) forEachMLMove(moves []*move.Move, f func(m *move.Move) error) err
 	return nil
 }
 
-func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
+func (g *Game) mlevaluateMovesTriton(client *triton.TritonClient, lay *MLLayout, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
 	if client == nil {
 		client = g.tritonClient
 	}
 	if client == nil {
+		if _, err := g.MLModelName(); err != nil {
+			return nil, err // no model for this lexicon
+		}
 		return nil, errors.New("triton client is not initialized")
 	}
 	log.Debug().Int("num_moves", nmoves).
 		Msg("evaluating moves with Triton")
 	return mlInferBatches(nmoves, func(from, to int) (*triton.ModelOutputs, error) {
-		return client.Infer(planeVectors[from*NN_N_PLANES:to*NN_N_PLANES],
-			scalarVectors[from*NN_N_SCAL:to*NN_N_SCAL], to-from)
+		return client.Infer(planeVectors[from*lay.PlaneLen:to*lay.PlaneLen],
+			scalarVectors[from*lay.NumScalars:to*lay.NumScalars], to-from)
 	})
 }
 
@@ -295,43 +290,48 @@ func InverseScaleScoreWithTanh(y float32, center float32, scaleFactor float32) f
 func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves []*move.Move) (
 	*[]float32, error) {
 
-	vecPtr := MLVectorPool.Get().(*[]float32)
-	vec := *vecPtr
-	// Clear the vector
-	for i := range vec {
-		vec[i] = 0
+	lay, err := g.mlLayout()
+	if err != nil {
+		return nil, err
 	}
+	vecPtr := MLVectorPool.Get().(*[]float32)
+	if cap(*vecPtr) < lay.RowLen {
+		*vecPtr = make([]float32, lay.RowLen)
+	}
+	*vecPtr = (*vecPtr)[:lay.RowLen]
+	vec := *vecPtr
+	clear(vec)
 
 	// Define slices for each feature plane, pointing into the main vector `vec`.
-	const planeSize = 15 * 15
-	tilePlanes := vec[0 : 26*planeSize]
-	isBlankPlane := vec[26*planeSize : 27*planeSize]
-	horCCs := vec[27*planeSize : 53*planeSize]
-	verCCs := vec[53*planeSize : 79*planeSize]
-	bonus2LPlane := vec[79*planeSize : 80*planeSize]
-	bonus3LPlane := vec[80*planeSize : 81*planeSize]
-	bonus2WPlane := vec[81*planeSize : 82*planeSize]
-	bonus3WPlane := vec[82*planeSize : 83*planeSize]
+	const planeSize = mlPlaneSize
+	tilePlanes := vec[0:lay.blankPlane]
+	isBlankPlane := vec[lay.blankPlane:lay.horCCPlanes]
+	horCCs := vec[lay.horCCPlanes:lay.verCCPlanes]
+	verCCs := vec[lay.verCCPlanes:lay.bonusPlanes]
+	bonus2LPlane := vec[lay.bonusPlanes : lay.bonusPlanes+planeSize]
+	bonus3LPlane := vec[lay.bonusPlanes+planeSize : lay.bonusPlanes+2*planeSize]
+	bonus2WPlane := vec[lay.bonusPlanes+2*planeSize : lay.bonusPlanes+3*planeSize]
+	bonus3WPlane := vec[lay.bonusPlanes+3*planeSize : lay.historyPlanes]
 	// historyPlane indices: 0 is used for the immediate move that is being evaluated, on our
 	// side, 1 is the last move played by the opponent
-	historyPlanes := vec[83*planeSize : 85*planeSize]
+	historyPlanes := vec[lay.historyPlanes:lay.PlaneLen]
 
 	// Board features
 	b := g.Board()
-	for r := range 15 {
-		for c := range 15 {
-			idx := r*15 + c
+	for r := range NN_H {
+		for c := range NN_W {
+			idx := r*NN_W + c
 			tile := b.GetLetter(r, c)
 			if tile != 0 {
 				unblanked := tile.Unblank()
 				if unblanked != tile {
 					isBlankPlane[idx] = 1.0
 				}
-				ll := unblanked - 1
-				if ll >= 26 {
+				ll := int(unblanked) - 1
+				if ll >= lay.Letters {
 					return nil, fmt.Errorf("invalid tile index %d for tile %d at position (%d, %d)", ll, tile, r, c)
 				}
-				tilePlanes[int(ll)*planeSize+idx] = 1.0
+				tilePlanes[ll*planeSize+idx] = 1.0
 
 			} else { // Empty square, check for bonuses
 				bonus := b.GetBonus(r, c)
@@ -350,7 +350,7 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 			// Cross-checks
 			hc := b.GetCrossSet(r, c, board.HorizontalDirection)
 			vc := b.GetCrossSet(r, c, board.VerticalDirection)
-			for t := range 26 {
+			for t := range lay.Letters {
 				letter := tilemapping.MachineLetter(t + 1)
 				if hc.Allowed(letter) {
 					horCCs[t*planeSize+idx] = 1.0
@@ -377,34 +377,34 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 			for i := range lastMove.Tiles() {
 				curR := r + i*ri
 				curC := c + i*ci
-				if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
+				if curR < 0 || curR >= NN_H || curC < 0 || curC >= NN_W {
 					return nil, fmt.Errorf("last move out of bounds at (%d, %d)", curR, curC)
 				}
 				if lastMove.Tiles()[i] != 0 {
-					idx := curR*15 + curC
+					idx := curR*NN_W + curC
 					historyPlanes[lmIdx*planeSize+idx] = 1.0 // Mark the square where the last move was played
 				}
 			}
 		}
 	}
 
-	g.mlScalarsInto(vec[NN_N_PLANES:], m, evalMoveLeaveVal, lastMoves)
-	return &vec, nil
+	g.mlScalarsInto(lay, vec[lay.PlaneLen:], m, evalMoveLeaveVal, lastMoves)
+	return vecPtr, nil
 }
 
-// mlScalarsInto writes the NN_N_SCAL scalar features into sc, which must
+// mlScalarsInto writes the layout's scalar features into sc, which must
 // be zeroed.
-func (g *Game) mlScalarsInto(sc []float32, m *move.Move, evalMoveLeaveVal float64, lastMoves []*move.Move) {
-	rackVector := sc[0:27]
-	unseenVector := sc[27:54]
+func (g *Game) mlScalarsInto(lay *MLLayout, sc []float32, m *move.Move, evalMoveLeaveVal float64, lastMoves []*move.Move) {
+	rackVector := sc[0 : lay.Letters+1]
+	unseenVector := sc[lay.Letters+1 : lay.historyScal]
 
 	// History vectors have three elements each, in order:
 	// score, n tiles played, n tiles exchanged.
-	historyVectors := sc[HistoryStartIdx-NN_N_PLANES : HistoryEndIdx-NN_N_PLANES]
-	powerTilesVector := sc[PowerTilesStartIdx-NN_N_PLANES : PowerTilesEndIdx-NN_N_PLANES]
-	vcRatioBag := sc[VCRatioBagStartIdx-NN_N_PLANES : VCRatioBagEndIdx-NN_N_PLANES]
-	vcRatioRack := sc[VCRatioRackStartIdx-NN_N_PLANES : VCRatioRackEndIdx-NN_N_PLANES]
-	addlFeatures := sc[AddlFeaturesStartIdx-NN_N_PLANES : AddlFeaturesEndIdx-NN_N_PLANES]
+	historyVectors := sc[lay.historyScal:lay.powerScal]
+	powerTilesVector := sc[lay.powerScal:lay.vcBagScal]
+	vcRatioBag := sc[lay.vcBagScal:lay.vcRackScal]
+	vcRatioRack := sc[lay.vcRackScal:lay.addlScal]
+	addlFeatures := sc[lay.addlScal:lay.NumScalars]
 	var lastOpp *move.Move
 	if len(lastMoves) > 0 {
 		lastOpp = lastMoves[len(lastMoves)-1]
@@ -414,27 +414,18 @@ func (g *Game) mlScalarsInto(sc []float32, m *move.Move, evalMoveLeaveVal float6
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
-	for i := 0; i < 27; i++ {
+	for i := 0; i <= lay.Letters; i++ {
 		rackVector[i] = float32(rack.LetArr[i]) / 7 // Rack tiles
 		if tr > 0 {
 			unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
 		}
-		// power tiles seem very redundant since this info is already in the bag
-		// vector. However, it's not scaled there the same. Let's try it anyway.
-		switch i {
-		case 0: // Blank tile
-			powerTilesVector[0] = float32(bag[i]) / 2.0
-		case 10: // J tile
-			powerTilesVector[1] = float32(bag[i])
-		case 17: // Q tile
-			powerTilesVector[2] = float32(bag[i])
-		case 19: // S tile
-			powerTilesVector[3] = float32(bag[i]) / 4.0
-		case 24: // X tile
-			powerTilesVector[4] = float32(bag[i])
-		case 26: // Z tile
-			powerTilesVector[5] = float32(bag[i])
-		}
+	}
+	// power tiles seem very redundant since this info is already in the bag
+	// vector. However, it's not scaled there the same. Let's try it anyway.
+	// Each is the fraction of that tile still unseen (English: blank/2,
+	// J, Q, S/4, X, Z).
+	for k, ml := range lay.power {
+		powerTilesVector[k] = float32(bag[ml]) / lay.powerCount[k]
 	}
 	// The last opponent move, if any:
 	if lastMove := lastOpp; lastMove != nil {
@@ -451,8 +442,12 @@ func (g *Game) mlScalarsInto(sc []float32, m *move.Move, evalMoveLeaveVal float6
 		historyVectors[lmIdx*3+2] = tilesExchanged // last move tiles exchanged
 	}
 
-	vowelsBag := bag[1] + bag[5] + bag[9] + bag[15] + bag[21] // AEIOU
-	vowelsRack := rack.LetArr[1] + rack.LetArr[5] + rack.LetArr[9] + rack.LetArr[15] + rack.LetArr[21]
+	var vowelsBag uint8 // English: AEIOU
+	vowelsRack := 0
+	for _, v := range lay.vowels {
+		vowelsBag += bag[v]
+		vowelsRack += rack.LetArr[v]
+	}
 	if tr > 0 {
 		vcRatioBag[0] = float32(vowelsBag) / float32(tr)         // Vowel ratio in bag
 		vcRatioBag[1] = float32(tr-int(vowelsBag)) / float32(tr) // Consonant ratio in bag

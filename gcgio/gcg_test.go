@@ -368,3 +368,116 @@ func TestEndRackPointsAfterPlay(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, pb.PlayState_GAME_OVER, history.PlayState)
 }
+
+// TestEventsWithoutRacks covers event lines that leave out the rack, as a GCG
+// does when its annotator did not know it: one run of spaces or two stand
+// where the rack would be. A line that shows tiles takes them for its rack; a
+// pass shows none.
+func TestEventsWithoutRacks(t *testing.T) {
+	const opening = "#player1 alice Alice\n#player2 bob Bob\n>alice: ACDEFGT 8H CAT +10 10\n"
+	testcases := []struct {
+		name      string
+		line      string
+		evtType   pb.GameEvent_Type
+		rack      string
+		exchanged string
+	}{
+		{"play", ">bob:  I7 B.D +12 12", pb.GameEvent_TILE_PLACEMENT_MOVE, "BD", ""},
+		{"play, one space", ">bob: I7 B.D +12 12", pb.GameEvent_TILE_PLACEMENT_MOVE, "BD", ""},
+		{"play naming the tile it plays through", ">bob: I7 BAD +12 12", pb.GameEvent_TILE_PLACEMENT_MOVE, "BD", ""},
+		{"play with a blank", ">bob: I7 b.D +9 9", pb.GameEvent_TILE_PLACEMENT_MOVE, "?D", ""},
+		{"exchange", ">bob:  -QZ +0 0", pb.GameEvent_EXCHANGE, "QZ", "QZ"},
+		{"exchange, one space", ">bob: -QZ +0 0", pb.GameEvent_EXCHANGE, "QZ", "QZ"},
+		{"pass", ">bob:  - +0 0", pb.GameEvent_PASS, "", ""},
+		{"pass, one space", ">bob: - +0 0", pb.GameEvent_PASS, "", ""},
+		{"phony", ">alice: -- -10 0", pb.GameEvent_PHONY_TILES_RETURNED, "", ""},
+		{"challenge bonus, one space", ">alice: (challenge) +5 15", pb.GameEvent_CHALLENGE_BONUS, "", ""},
+		{"last rack penalty", ">bob: (EIOU) -4 -4", pb.GameEvent_END_RACK_PENALTY, "EIOU", ""},
+		// Lines with a rack read as they did. A play's tiles are never a
+		// "-..." or a "(...)", so a rack is not taken for a play's position.
+		{"pass with a rack", ">bob: U - +0 0", pb.GameEvent_PASS, "U", ""},
+		{"exchange with a rack", ">bob: SEQSPOT -QO +0 0", pb.GameEvent_EXCHANGE, "SEQSPOT", "QO"},
+		{"challenge bonus with a rack", ">alice: DEFG (challenge) +5 15", pb.GameEvent_CHALLENGE_BONUS, "DEFG", ""},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			history, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(opening+tc.line+"\n"))
+			is.NoErr(err)
+			evt := history.Events[len(history.Events)-1]
+			is.Equal(evt.Type, tc.evtType)
+			is.Equal(evt.Rack, tc.rack)
+			is.Equal(evt.Exchanged, tc.exchanged)
+		})
+	}
+}
+
+// TestPlayWithParentheses: a play's tiles can start and end with tiles played
+// through in parentheses, as "(Q)I(S)" does, and the line is read as a play
+// with or without its rack; only a lone "(...)" marks another event.
+func TestPlayWithParentheses(t *testing.T) {
+	is := is.New(t)
+	tokenFor := func(line string) Token {
+		for _, datum := range GCGRegexes {
+			if datum.regex.MatchString(line) {
+				return datum.token
+			}
+		}
+		return UndefinedToken
+	}
+	is.Equal(tokenFor(">bob: BCDEFGI H8 (Q)I +11 11"), MoveToken)
+	is.Equal(tokenFor(">bob: H8 (Q)I +11 11"), MoveToken)
+	is.Equal(tokenFor(">bob: BCDEFGI H8 (Q)I(S) +12 12"), MoveToken)
+	is.Equal(tokenFor(">bob: H8 (Q)I(S) +12 12"), MoveToken)
+	is.Equal(tokenFor(">bob: DEFG (challenge) +5 15"), ChallengeBonusToken)
+	is.Equal(tokenFor(">bob: (challenge) +5 15"), ChallengeBonusToken)
+}
+
+func TestExchangeOfANumberWithoutRack(t *testing.T) {
+	// Without the rack there are no tiles to count the exchanged ones from.
+	reader := strings.NewReader(`#player1 alice Alice
+#player2 bob Bob
+>alice: ACDEFGT 8H CAT +10 10
+>bob: -3 +0 0`)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, history)
+	assert.EqualError(t, err, "error in line `>bob: -3 +0 0`: an exchange given as a number of tiles needs the rack")
+}
+
+// TestRoundTripWithoutRacks: a game whose racks were left out is written with
+// the passes' racks still left out, reads back the same, and replays.
+func TestRoundTripWithoutRacks(t *testing.T) {
+	is := is.New(t)
+	history, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(`#player1 alice Alice
+#player2 bob Bob
+>alice: ACDEFGT 8H CAT +10 10
+>bob: - +0 0
+>alice: DEFGIOR 9G DOG +11 21
+>bob: J6 OA. +3 3
+>alice: EFGINRR 10I FIG +14 35
+>bob: - +0 3`))
+	is.NoErr(err)
+
+	gcg, err := GameHistoryToGCG(history, false)
+	is.NoErr(err)
+	is.True(strings.Contains(gcg, ">bob:  - +0 0\n"))
+	is.True(strings.Contains(gcg, ">bob: OA J6 OA. +3 3\n"))
+	reparsed, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(gcg))
+	is.NoErr(err)
+	is.Equal(len(reparsed.Events), len(history.Events))
+	for i, evt := range reparsed.Events {
+		is.Equal(evt.Type, history.Events[i].Type)
+		is.Equal(evt.Rack, history.Events[i].Rack)
+		is.Equal(evt.PlayedTiles, history.Events[i].PlayedTiles)
+	}
+
+	rules, err := game.NewBasicGameRules(
+		DefaultConfig, "", board.CrosswordGameLayout, "english",
+		game.CrossScoreOnly, "")
+	is.NoErr(err)
+	g, err := game.NewFromHistory(reparsed, rules, 0)
+	is.NoErr(err)
+	for turn := 0; turn <= len(reparsed.Events); turn++ {
+		is.NoErr(g.PlayToTurn(turn))
+	}
+}

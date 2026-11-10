@@ -1742,6 +1742,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		})
 		s.principalVariation = pv
 		s.bestPVValue = val - int16(s.initialSpread)
+		s.lastCompletedPly = p
 	}
 	return nil
 
@@ -2202,6 +2203,15 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	err := g.Wait()
 	// Go down tree and find best variation:
 
+	// Lines can come back cut short by transposition-table hits; finish them
+	// while the table still holds this search.
+	tcomplete := time.Now()
+	for i := range s.variations {
+		s.completeLine(ctx, &s.variations[i])
+	}
+	s.completeLine(ctx, &s.principalVariation)
+	log.Debug().Dur("took", time.Since(tcomplete)).Int("variations", len(s.variations)).
+		Msg("completed-variations")
 	s.principalVariation.MaterializeFull()
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue

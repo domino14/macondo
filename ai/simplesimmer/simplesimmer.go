@@ -70,6 +70,9 @@ func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
 	}
 	btp.Game = g
 	btp.simmer = &montecarlo.Simmer{}
+	// Inference mini-sims are many and short; they play endgames out
+	// statically.
+	btp.simmer.SetEndgameLeaves(false)
 	btp.simmerCalcs = []equity.EquityCalculator{c}
 
 	aip, err := aiturnplayer.AddAIFields(&btp.BaseTurnPlayer, g.Config(), []equity.EquityCalculator{c})
@@ -90,6 +93,11 @@ func (p *SimpleSimmer) SetLogging(l bool) {
 
 func (p *SimpleSimmer) SetMaxIters(n int) {
 	p.maxIters = n
+}
+
+// SetPlies sets how deep the simmer looks (default 2).
+func (p *SimpleSimmer) SetPlies(n int) {
+	p.numPlies = n
 }
 
 func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {

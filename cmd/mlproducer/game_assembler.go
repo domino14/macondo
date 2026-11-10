@@ -254,8 +254,12 @@ func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 	gw := &gameWindow{}
 	// The lexicon sets the cross-sets, which are features: it must be the
 	// one the games were played in.
+	dist, err := tilemapping.ProbableLetterDistributionName(lexiconName)
+	if err != nil {
+		panic(err)
+	}
 	rules, err := game.NewBasicGameRules(DefaultConfig, lexiconName,
-		board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+		board.CrosswordGameLayout, dist, game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
 		panic(err)
 	}

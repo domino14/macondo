@@ -33,6 +33,7 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -240,6 +241,14 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 	sp.winPctStats.Push(float64(winPct))
 }
 
+// addWinProbStat records a rollout whose win probability is already known
+// (a searched endgame).
+func (sp *SimmedPlay) addWinProbStat(p float64) {
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(p)
+}
+
 func (s *SimmedPlay) Move() *move.Move {
 	return s.play
 }
@@ -341,6 +350,13 @@ type Simmer struct {
 	rngs []*frand.RNG
 
 	wmp *wmppkg.WMP
+
+	// Endgame leaves (endgame_leaf.go): noEndgameLeaves turns them off;
+	// egSolvers search the endgames the rollouts reach, one per thread, and
+	// egCache keeps each searched endgame's result for the rest of the sim.
+	noEndgameLeaves bool
+	egSolvers       []*negamax.Solver
+	egCache         sync.Map
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -714,6 +730,13 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 		return err
 	}
 	s.resetStats(plies, plays)
+	// After resetStats, which sizes the copies' state stacks for a plain
+	// rollout; endgame searches need deeper ones.
+	if err := s.prepareEndgameLeaves(); err != nil {
+		// The sim still runs; its rollouts play endgames out statically.
+		log.Err(err).Msg("endgame-leaves-unavailable")
+		s.egSolvers = nil
+	}
 	s.readyToSim = true
 	s.knownOppRack = nil
 	s.inferenceMode = InferenceOff
@@ -1043,12 +1066,20 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		g.PlayMove(simmedPlay.play, false, 0)
 		s.nodeCount.Add(1)
 		g.SetBackupMode(game.NoBackup)
+		egWin, egDone := 0.0, false
 		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := g.PlayerOnTurn()
 			if g.Playing() != pb.PlayState_PLAYING {
 				break
+			}
+			if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && endgameLeafClose(g) {
+				// The bag is empty: search the endgame rather than play it
+				// out with static moves.
+				if egWin, egDone = s.endgameLeaf(g, thread); egDone {
+					break
+				}
 			}
 			// Assume there are exactly two players.
 
@@ -1098,21 +1129,28 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
 		spread := g.SpreadFor(s.initialPlayer)
-		simmedPlay.addEquityStat(
-			s.initialSpread,
-			spread,
-			leftover,
-		)
-		simmedPlay.addWinPctStat(
-			spread,
-			leftover,
-			g.Playing() == pb.PlayState_GAME_OVER,
-			s.winPcts,
-			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-			g.Bag().TilesRemaining()+
-				int(g.RackFor(1-s.initialPlayer).NumTiles()),
-			plies%2 == 0,
-		)
+		if egDone {
+			// Scored at the empty bag: the searched result, and the spread
+			// the endgame starts from with no leftover.
+			simmedPlay.addEquityStat(s.initialSpread, spread, 0)
+			simmedPlay.addWinProbStat(egWin)
+		} else {
+			simmedPlay.addEquityStat(
+				s.initialSpread,
+				spread,
+				leftover,
+			)
+			simmedPlay.addWinPctStat(
+				spread,
+				leftover,
+				g.Playing() == pb.PlayState_GAME_OVER,
+				s.winPcts,
+				// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
+				g.Bag().TilesRemaining()+
+					int(g.RackFor(1-s.initialPlayer).NumTiles()),
+				plies%2 == 0,
+			)
+		}
 		g.ResetToFirstState()
 		if s.logStream != nil {
 			logPlay.WinRatio = simmedPlay.winPctStats.Last()

@@ -501,6 +501,8 @@ const (
 	BotRequest_SIMMING_WITH_ML_EVAL_BOT    BotRequest_BotCode = 16
 	// No-endgame variants: sim only, no preendgame or endgame solver.
 	// Used for controlled experiments isolating midgame sim quality.
+	// With the bag empty they play the static best move, or, when autoplay's
+	// -quickendgame is set, the quick N-ply search every non-solving bot uses.
 	BotRequest_SIMMING_BOT_NO_EG       BotRequest_BotCode = 17
 	BotRequest_SIMMING_INFER_BOT_NO_EG BotRequest_BotCode = 18
 	// custom bots can be used to run custom algorithms.
@@ -1238,8 +1240,11 @@ type SingleEvaluation struct {
 	PossibleStarPlay bool                   `protobuf:"varint,4,opt,name=possible_star_play,json=possibleStarPlay,proto3" json:"possible_star_play,omitempty"`
 	MissedStarPlay   bool                   `protobuf:"varint,5,opt,name=missed_star_play,json=missedStarPlay,proto3" json:"missed_star_play,omitempty"`
 	TopIsBingo       bool                   `protobuf:"varint,6,opt,name=top_is_bingo,json=topIsBingo,proto3" json:"top_is_bingo,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The main word formed by the top (highest-equity) move, with designated
+	// blanks in lowercase. Empty if the top move is not a tile placement.
+	TopMoveWord   string `protobuf:"bytes,7,opt,name=top_move_word,json=topMoveWord,proto3" json:"top_move_word,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SingleEvaluation) Reset() {
@@ -1312,6 +1317,13 @@ func (x *SingleEvaluation) GetTopIsBingo() bool {
 		return x.TopIsBingo
 	}
 	return false
+}
+
+func (x *SingleEvaluation) GetTopMoveWord() string {
+	if x != nil {
+		return x.TopMoveWord
+	}
+	return ""
 }
 
 type BotResponse struct {
@@ -2878,8 +2890,22 @@ type AutoplayPlayerConfig struct {
 	// preendgame_threads sets the number of threads used inside a single
 	// pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
 	PreendgameThreads int32 `protobuf:"varint,23,opt,name=preendgame_threads,json=preendgameThreads,proto3" json:"preendgame_threads,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// sim_plays, when positive, is how many of the top plays by static equity
+	// a simming bot starts its sim from (default 100). Lets a sim bot consider
+	// as many plays as FastMlBot ranks.
+	SimPlays int32 `protobuf:"varint,24,opt,name=sim_plays,json=simPlays,proto3" json:"sim_plays,omitempty"`
+	// inference_tau_cap caps the inference temperature, pinned or scheduled.
+	// The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
+	// keeps its early values and sharpens only the late reads. 0 = the bot's
+	// default cap (0.1), negative = no cap.
+	InferenceTauCap float64 `protobuf:"fixed64,25,opt,name=inference_tau_cap,json=inferenceTauCap,proto3" json:"inference_tau_cap,omitempty"`
+	// no_sim_endgame_leaves makes a simming bot's sims play endgames out with
+	// static moves. By default a sim of a position with one or two tiles in the
+	// bag searches each endgame its rollouts reach (a quick 2-ply result-only
+	// search, cached per sim) instead.
+	NoSimEndgameLeaves bool `protobuf:"varint,26,opt,name=no_sim_endgame_leaves,json=noSimEndgameLeaves,proto3" json:"no_sim_endgame_leaves,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -3064,6 +3090,27 @@ func (x *AutoplayPlayerConfig) GetPreendgameThreads() int32 {
 		return x.PreendgameThreads
 	}
 	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetSimPlays() int32 {
+	if x != nil {
+		return x.SimPlays
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceTauCap() float64 {
+	if x != nil {
+		return x.InferenceTauCap
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetNoSimEndgameLeaves() bool {
+	if x != nil {
+		return x.NoSimEndgameLeaves
+	}
+	return false
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
@@ -3387,7 +3434,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x04user\x18\x01 \x01(\tR\x04user\"D\n" +
 	"\n" +
 	"Evaluation\x126\n" +
-	"\tplay_eval\x18\x01 \x03(\v2\x19.macondo.SingleEvaluationR\bplayEval\"\xf2\x01\n" +
+	"\tplay_eval\x18\x01 \x03(\v2\x19.macondo.SingleEvaluationR\bplayEval\"\x96\x02\n" +
 	"\x10SingleEvaluation\x12\x1f\n" +
 	"\vequity_loss\x18\x01 \x01(\x01R\n" +
 	"equityLoss\x12 \n" +
@@ -3397,7 +3444,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x12possible_star_play\x18\x04 \x01(\bR\x10possibleStarPlay\x12(\n" +
 	"\x10missed_star_play\x18\x05 \x01(\bR\x0emissedStarPlay\x12 \n" +
 	"\ftop_is_bingo\x18\x06 \x01(\bR\n" +
-	"topIsBingo\"\x9d\x01\n" +
+	"topIsBingo\x12\"\n" +
+	"\rtop_move_word\x18\a \x01(\tR\vtopMoveWord\"\x9d\x01\n" +
 	"\vBotResponse\x12(\n" +
 	"\x04move\x18\x01 \x01(\v2\x12.macondo.GameEventH\x00R\x04move\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05error\x12'\n" +
@@ -3554,7 +3602,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\x8c\b\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\x88\t\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3580,7 +3628,10 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x16external_engine_binary\x18\x14 \x01(\tR\x14externalEngineBinary\x120\n" +
 	"\x14external_engine_args\x18\x15 \x03(\tR\x12externalEngineArgs\x12'\n" +
 	"\x0fendgame_threads\x18\x16 \x01(\x05R\x0eendgameThreads\x12-\n" +
-	"\x12preendgame_threads\x18\x17 \x01(\x05R\x11preendgameThreadsJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
+	"\x12preendgame_threads\x18\x17 \x01(\x05R\x11preendgameThreads\x12\x1b\n" +
+	"\tsim_plays\x18\x18 \x01(\x05R\bsimPlays\x12*\n" +
+	"\x11inference_tau_cap\x18\x19 \x01(\x01R\x0finferenceTauCap\x121\n" +
+	"\x15no_sim_endgame_leaves\x18\x1a \x01(\bR\x12noSimEndgameLeavesJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

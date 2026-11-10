@@ -37,3 +37,6 @@ data/strategy/default/models-bak*
 *.gcg
 # TensorRT engines are built per machine: pytorch/build-engines.sh
 *.plan
+
+# Value nets are downloaded from Hugging Face (see README)
+data/strategy/default/models/

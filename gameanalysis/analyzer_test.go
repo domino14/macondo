@@ -356,21 +356,26 @@ func TestIsAnalyzableEvent(t *testing.T) {
 
 	tests := []struct {
 		eventType pb.GameEvent_Type
+		rack      string
 		expected  bool
 	}{
-		{pb.GameEvent_TILE_PLACEMENT_MOVE, true},
-		{pb.GameEvent_EXCHANGE, true},
-		{pb.GameEvent_PASS, true},
-		{pb.GameEvent_CHALLENGE, false},
-		{pb.GameEvent_END_RACK_PTS, false},
-		{pb.GameEvent_PHONY_TILES_RETURNED, false},
+		{pb.GameEvent_TILE_PLACEMENT_MOVE, "AEINRST", true},
+		{pb.GameEvent_EXCHANGE, "AEINRST", true},
+		{pb.GameEvent_PASS, "AEINRST", true},
+		{pb.GameEvent_CHALLENGE, "AEINRST", false},
+		{pb.GameEvent_END_RACK_PTS, "AEINRST", false},
+		{pb.GameEvent_PHONY_TILES_RETURNED, "AEINRST", false},
+		// Recorded without a rack.
+		{pb.GameEvent_TILE_PLACEMENT_MOVE, "", false},
+		{pb.GameEvent_EXCHANGE, "", false},
+		{pb.GameEvent_PASS, "", false},
 	}
 
 	for _, tt := range tests {
-		evt := &pb.GameEvent{Type: tt.eventType}
+		evt := &pb.GameEvent{Type: tt.eventType, Rack: tt.rack}
 		got := analyzer.isAnalyzableEvent(evt)
 		if got != tt.expected {
-			t.Errorf("event type %v: expected %v, got %v", tt.eventType, tt.expected, got)
+			t.Errorf("event type %v, rack %q: expected %v, got %v", tt.eventType, tt.rack, tt.expected, got)
 		}
 	}
 }

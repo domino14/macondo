@@ -39,6 +39,9 @@ type BotConfig struct {
 	// FixedSimPlies, when positive, makes every sim exactly this deep while
 	// tiles are left in the bag (see eliteBestPlay).
 	FixedSimPlies int
+	// SimPlays, when positive, is how many of the top plays by static
+	// equity a simming bot sims (default 100).
+	SimPlays int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation
 	// queries (version 1) instead of the game's global one.
 	TritonModel          string
@@ -47,12 +50,26 @@ type BotConfig struct {
 	// InferenceTau overrides the default softmax temperature for inference.
 	// If 0, the default SoftmaxTemperature constant is used.
 	InferenceTau float64
+	// InferenceTauScale multiplies the temperature in use, pinned or
+	// scheduled. 0 leaves it alone.
+	InferenceTauScale float64
+	// InferenceTauCap caps the temperature in use (after any scale). 0 means
+	// DefaultInferenceTauCap; negative means no cap.
+	InferenceTauCap float64
+	// InferenceMinInfoBits skips reads that moved less than this far from
+	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
+	// sim bot's. 0 uses every read.
+	InferenceMinInfoBits float64
 	// InferenceTimeSecs is the wall-clock budget per turn for inference.
 	// If 0, defaults to 20 seconds.
 	InferenceTimeSecs int
 	// InferenceSimIters is the max mini-sim iterations per rack candidate.
 	// If 0, defaults to 200.
 	InferenceSimIters int
+	// InferenceMiniSimPlays and InferenceMiniSimPlies shape each mini-sim: top
+	// static plays considered beside the observed one, and plies. 0 = 10 and 2.
+	InferenceMiniSimPlays int
+	InferenceMiniSimPlies int
 	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
 	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
 	InferenceMaxEnumeratedLeaves int
@@ -69,6 +86,10 @@ type BotConfig struct {
 	QuickEndgameCapMs  int
 	// QuickEndgameNoPrune skips the solver's pruned word graph.
 	QuickEndgameNoPrune bool
+	// NoSimEndgameLeaves makes the bot's sims play endgames out with static
+	// moves even with one or two tiles in the bag, instead of searching them
+	// (montecarlo.EndgameLeafMaxBag).
+	NoSimEndgameLeaves bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
@@ -102,11 +123,14 @@ type BotTurnPlayer struct {
 	simThreads            int
 	minSimPlies           int
 	fixedSimPlies         int
+	simPlays              int
 	tritonClient          *triton.TritonClient
 	cfg                   *BotConfig
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// prevRead is the last turn's read, for the two-turn read (carry.go).
+	prevRead *cachedRead
 	// endgameTTable is the bot's transposition table, shared between endgame
 	// and pre-endgame solvers (they never run simultaneously within a turn).
 	// Lazily allocated on first use when not injected via BotConfig.
@@ -115,6 +139,21 @@ type BotTurnPlayer struct {
 	preendgameThreads int
 	// QuickEndgameSolves counts the moves chosen by the quick endgame search.
 	QuickEndgameSolves int
+	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
+	// when there was none.
+	lastInfoBits float64
+}
+
+// LastInferenceInfoBits is how informative the last turn's read was
+// (RangeFinder.InfoBits), NaN when the bot did not infer.
+func (p *BotTurnPlayer) LastInferenceInfoBits() float64 {
+	return p.lastInfoBits
+}
+
+// Inferencer is the bot's range finder, holding the last turn's read; nil for
+// a bot that does not infer.
+func (p *BotTurnPlayer) Inferencer() *rangefinder.RangeFinder {
+	return p.inferencer
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -169,22 +208,31 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		cfg:                conf,
 	}
 	if conf.TritonModel != "" {
-		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), conf.TritonModel, "1")
+		// The bot's own model, as a base name: its variant for this
+		// lexicon if there is one (see game.ResolveMLModel).
+		name, err := p.Game.ResolveMLModel(conf.TritonModel)
 		if err != nil {
-			return nil, fmt.Errorf("triton client for %s: %w", conf.TritonModel, err)
+			return nil, err
+		}
+		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, "1")
+		if err != nil {
+			return nil, fmt.Errorf("triton client for %s: %w", name, err)
 		}
 		if err := tc.DetectOutputs(); err != nil {
 			if botType == pb.BotRequest_FAST_ML_BOT {
-				return nil, fmt.Errorf("triton model %s is not ready: %w", conf.TritonModel, err)
+				return nil, fmt.Errorf("triton model %s is not ready: %w", name, err)
 			}
-			log.Warn().Err(err).Str("model", conf.TritonModel).Msg("could not read the model's outputs; requesting value only")
+			log.Warn().Err(err).Str("model", name).Msg("could not read the model's outputs; requesting value only")
 		}
 		btp.tritonClient = tc
 	} else if botType == pb.BotRequest_FAST_ML_BOT && conf.Config.GetBool(config.ConfigTritonUseTriton) {
 		// The ML bot plays through the game's client, on the configured
-		// model: check that it is served before the first game rather than
-		// on the first move.
-		name := conf.Config.GetString(config.ConfigTritonModelName)
+		// model for this lexicon: check that it is served before the first
+		// game rather than on the first move.
+		name, err := p.Game.MLModelName()
+		if err != nil {
+			return nil, err
+		}
 		ver := conf.Config.GetString(config.ConfigTritonModelVersion)
 		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, ver)
 		if err != nil {
@@ -213,6 +261,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
 		btp.fixedSimPlies = conf.FixedSimPlies
+		btp.simPlays = conf.SimPlays
 		if conf.SimThreads > 0 {
 			btp.SetSimThreads(conf.SimThreads)
 		}

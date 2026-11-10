@@ -21,7 +21,8 @@ import (
 // github.com/microsoft/onnxruntime/releases): onnxruntime-lib gives its
 // path, otherwise the system's library search path is used. The model is
 // the one Triton would serve: models/<triton-model-name>/<version>/model.onnx
-// under the strategy directory (lexicon directory first, then default).
+// under the strategy directory (lexicon directory first, then default),
+// downloaded from ml-models-url when it is not there (see mlfetch.go).
 
 var (
 	ortInitOnce sync.Once
@@ -31,8 +32,10 @@ var (
 )
 
 type ortModel struct {
-	sess    *ort.DynamicAdvancedSession
-	outputs []string
+	name            string
+	sess            *ort.DynamicAdvancedSession
+	outputs         []string
+	planes, scalars int // the inputs' per-position sizes, 0 if unknown
 }
 
 func ortLibrary(cfg *config.Config) string {
@@ -56,18 +59,21 @@ func (g *Game) ortModelFor() (*ortModel, error) {
 	if ortInitErr != nil {
 		return nil, fmt.Errorf("ONNX Runtime (set onnxruntime-lib to libonnxruntime's path): %w", ortInitErr)
 	}
-	name := g.config.GetString(config.ConfigTritonModelName)
-	ver := g.config.GetString(config.ConfigTritonModelVersion)
-	if ver == "" {
-		ver = "1"
+	name, err := g.MLModelName()
+	if err != nil {
+		return nil, err
 	}
-	file := fmt.Sprintf("models/%s/%s/model.onnx", name, ver)
+	ver := mlModelVersion(g.config)
+	file := mlModelFile(name, ver)
 	key := g.LexiconName() + ":" + file
 
 	ortMu.Lock()
 	defer ortMu.Unlock()
 	if m := ortModels[key]; m != nil {
 		return m, nil
+	}
+	if err := ensureMLModel(g.config, name, ver, g.LexiconName()); err != nil {
+		return nil, fmt.Errorf("no model %s for %s: %w", name, g.LexiconName(), err)
 	}
 	r, err := dataloaders.StratFileForLexicon(dataloaders.StrategyParamsPath(g.config.WGLConfig()), file, g.LexiconName())
 	if err != nil {
@@ -85,7 +91,13 @@ func (g *Game) ortModelFor() (*ortModel, error) {
 	if len(ins) != 2 {
 		return nil, fmt.Errorf("%s: expected 2 inputs (board, scalars), got %d", file, len(ins))
 	}
-	m := &ortModel{}
+	m := &ortModel{name: name}
+	if d := ins[0].Dimensions; len(d) == 4 {
+		m.planes = int(d[1]) // (batch, planes, rows, cols)
+	}
+	if d := ins[1].Dimensions; len(d) == 2 {
+		m.scalars = int(d[1])
+	}
 	inNames := []string{ins[0].Name, ins[1].Name}
 	for _, o := range outs {
 		switch o.Name {
@@ -116,17 +128,20 @@ func (g *Game) ortModelFor() (*ortModel, error) {
 	return m, nil
 }
 
-func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
+func (g *Game) mlevaluateMovesLocal(lay *MLLayout, nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
 	m, err := g.ortModelFor()
 	if err != nil {
 		return nil, err
 	}
-	board, err := ort.NewTensor(ort.NewShape(int64(nmoves), NN_C, NN_H, NN_W), planeVectors[:nmoves*NN_N_PLANES])
+	if err := checkMLModelShape(m.name, func() (int, int) { return m.planes, m.scalars }, lay, g.letterDistribution.Name); err != nil {
+		return nil, err
+	}
+	board, err := ort.NewTensor(ort.NewShape(int64(nmoves), int64(lay.NumPlanes), NN_H, NN_W), planeVectors[:nmoves*lay.PlaneLen])
 	if err != nil {
 		return nil, err
 	}
 	defer board.Destroy()
-	scal, err := ort.NewTensor(ort.NewShape(int64(nmoves), NN_N_SCAL), scalarVectors[:nmoves*NN_N_SCAL])
+	scal, err := ort.NewTensor(ort.NewShape(int64(nmoves), int64(lay.NumScalars)), scalarVectors[:nmoves*lay.NumScalars])
 	if err != nil {
 		return nil, err
 	}

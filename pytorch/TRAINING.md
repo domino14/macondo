@@ -95,7 +95,9 @@ What it does (the defaults are the shipped recipe):
    `bin/mlproducer -lexicon $LEXICON -labeler result -per-game`
    into `training.py`, which trains:
    - the transformer (8 layers, width 192, 6 attention heads, 3.7M
-     parameters);
+     parameters; the published `macondo-tf` and `macondo-tf-csw` are 12
+     layers, width 256, 8 heads, 9.6M parameters, trained on 81M games with
+     `TRAIN_EXTRA="--d-model 256 --layers 12 --heads 8" BATCH=128 ACCUM=16`);
    - WDL cross-entropy as the main target (the exported `value` is
      P(win) − P(loss));
    - auxiliary heads (spread, opponent bingo, opponent score) balanced to
@@ -139,20 +141,26 @@ NWL23 it lost 0.5 points against HastyBot but beat its parent 50.37% ±
 
 ## 4. Ship it
 
-Install the checkpoint under its permanent name and commit the ONNX file
-and Triton config (engines are built per machine, never committed):
+Install the checkpoint under its permanent name, then publish the ONNX
+file and Triton config to the Hugging Face repository the code downloads
+from (engines are built per machine, never published):
 
     ./copy_model.sh macondo-tf-${L} best-tf-${L}stream.pt
-    git add -f ../data/strategy/default/models/macondo-tf-${L}/config.pbtxt \
-               ../data/strategy/default/models/macondo-tf-${L}/1/model.onnx
+    M=../data/strategy/default/models/macondo-tf-${L}
+    hf upload domino14/macondo-value-nets $M/config.pbtxt macondo-tf-${L}/config.pbtxt
+    hf upload domino14/macondo-value-nets $M/1/model.onnx macondo-tf-${L}/1/model.onnx
 
-Add it to the Models table in the top-level `README.md`, and archive the
+Each upload is a new commit of that repository. Macondo downloads from a
+fixed revision (`DefaultMLModelsURL` in `config/config.go`), so the new
+net reaches users only when that revision is moved to the new commit, in a
+PR here. Add the net to the Models table in the top-level `README.md` and
+to the model card (the repository's `README.md`), and archive the
 checkpoint, loss CSV and match logs outside the repo (as in
 `results/streamed/REPRO.md`).
 
-**Choosing the model at play time.** Macondo does not pick a model by
-lexicon: `triton-model-name` (or `MACONDO_TRITON_MODEL_NAME`) is global and
-defaults to the NWL23 model, which would happily, and wrongly, score CSW
-positions. Set it for a CSW session, or per player in autoplay with
-`-tritonmodel1/-tritonmodel2`. A lexicon-to-model default belongs in the
-config once a second lexicon ships.
+**Choosing the model at play time.** `triton-model-name` is a base name:
+a game in a Collins lexicon plays with `<base>-csw`, and a game in another
+alphabet with `<base>-<distribution>`, when that model exists (see Models
+in the top-level `README.md`). Name a new lexicon's net that way and it is
+picked up with no configuration.
+

@@ -241,6 +241,8 @@ type RangeFinder struct {
 	phaseTau float64
 	// tauScale multiplies whatever temperature is in use; 0 means 1.
 	tauScale float64
+	// tauCap caps the temperature in use, after tauScale; 0 means no cap.
+	tauCap float64
 	// oneTileScale is the default scale PrepareFinder picked for this
 	// position (oneTileTauScale on an early one-tile play, else 1). It
 	// applies only when neither tau nor tauScale was pinned.
@@ -251,6 +253,10 @@ type RangeFinder struct {
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
+	// miniPlays and miniPlies shape each mini-sim: how many top static plays
+	// it sims beside the observed one, and how deep. 0 means 10 and 2.
+	miniPlays int
+	miniPlies int
 	// maxEnumeratedLeaves is the threshold for switching from Monte Carlo sampling
 	// to exhaustive enumeration. When the number of distinct leaves drawable from
 	// the bag (countMultisets) is ≤ this value, inferEnumerated is used instead of
@@ -341,6 +347,21 @@ func (r *RangeFinder) SetTau(tau float64) {
 // Tau is the softmax temperature in use: the value SetTau pinned, or else
 // the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
+	t := r.uncappedTau()
+	if r.tauCap > 0 && t > r.tauCap {
+		return r.tauCap
+	}
+	return t
+}
+
+// SetTauCap caps the temperature in use, pinned or scheduled: the fitted
+// schedule is very flat late in the game, and decisions do better with a
+// sharper read there than the fit's best calibration. 0 removes the cap.
+func (r *RangeFinder) SetTauCap(c float64) {
+	r.tauCap = c
+}
+
+func (r *RangeFinder) uncappedTau() float64 {
 	scale := 1.0
 	if r.tauScale != 0 {
 		scale = r.tauScale
@@ -453,7 +474,7 @@ func (r *RangeFinder) measureExchange(g *game.Game, simmer *simplesimmer.SimpleS
 	copy(kept, leave)
 	exch := move.NewExchangeMove(thrown, kept, g.Alphabet())
 
-	if _, err := simmer.GenAndSim(context.Background(), 10, exch); err != nil {
+	if _, err := simmer.GenAndSim(context.Background(), r.MiniSimPlays(), exch); err != nil {
 		return 0, err
 	}
 	r.simCount.Add(1)
@@ -576,6 +597,20 @@ func (r *RangeFinder) MaxRounds() int { return max(0, r.maxRounds) }
 
 func (r *RangeFinder) SetSimIters(n int) {
 	r.simIters = n
+}
+
+// SetMiniSim sets how many top static plays each mini-sim considers beside
+// the observed play, and how many plies it sims. 0 keeps a default (10, 2).
+func (r *RangeFinder) SetMiniSim(plays, plies int) {
+	r.miniPlays, r.miniPlies = plays, plies
+}
+
+// MiniSimPlays is how many top static plays each mini-sim considers.
+func (r *RangeFinder) MiniSimPlays() int {
+	if r.miniPlays <= 0 {
+		return 10
+	}
+	return r.miniPlays
 }
 
 func (r *RangeFinder) SimIters() int {
@@ -862,6 +897,9 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		}
 		if r.simIters > 0 {
 			simmer.SetMaxIters(r.simIters)
+		}
+		if r.miniPlies > 0 {
+			simmer.SetPlies(r.miniPlies)
 		}
 		r.aiplayers = append(r.aiplayers, simmer)
 	}
@@ -1191,7 +1229,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	}
 
 	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
-		context.Background(), 10, lastOppMove)
+		context.Background(), r.MiniSimPlays(), lastOppMove)
 	if err != nil {
 		return nil, err
 	}
@@ -1310,6 +1348,38 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 
 func (r *RangeFinder) Inferences() *Inference {
 	return r.inference
+}
+
+// InfoBits is how far the read moved from the tile counts alone: the KL
+// divergence of the posterior from the combinatorial prior, in bits. It is
+// what the bot knows about a read's strength without the true leave. NaN when
+// the posterior is not complete (the exchange path), as its weights then do
+// not cover every leave.
+func (r *RangeFinder) InfoBits() float64 {
+	inf := r.inference
+	if inf == nil || !inf.Complete || len(inf.InferredRacks) == 0 {
+		return math.NaN()
+	}
+	total := 0.0
+	for _, ir := range inf.InferredRacks {
+		total += ir.Weight
+	}
+	if total <= 0 {
+		return math.NaN()
+	}
+	kl := 0.0
+	for _, ir := range inf.InferredRacks {
+		w := ir.Weight / total
+		if w <= 0 {
+			continue
+		}
+		prior := combinatorialPrior(ir.Leave, r.inferenceBagMap)
+		if prior <= 0 {
+			continue
+		}
+		kl += w * math.Log2(w/prior)
+	}
+	return kl
 }
 
 func (r *RangeFinder) Reset() {

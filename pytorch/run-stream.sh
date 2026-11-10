@@ -11,13 +11,22 @@
 #   (0.1), TRANSPOSE (0), BATCH x ACCUM (probed: fastest of 128x16, 256x8,
 #   256x8 --compile; set BATCH/ACCUM/COMPILE/GPU_MEM to skip the probe),
 #   VAL_SIZE (150000), SHUFFLE (1024 frames per loader worker), DEVICE,
-#   LEXICON (NWL23: the games' lexicon, for the producer and the match)
+#   LEXICON (NWL23: the games' lexicon, for the producer and the match),
+#   LETTERS (the lexicon's alphabet size: 29 for German, else 26)
+#   RESUME=1: carry on a crashed run of TAG from its last validation
+#   (best-tf-TAG-resume.pt), on fresh passes, to the same STEPS; give the
+#   run's BATCH, ACCUM, COMPILE and its other settings again.
 set -o pipefail
 cd "$(dirname "$0")"
 source venv/bin/activate
 log() { echo "$(date '+%F %T') $*"; }
 
 TAG=${TAG:-stream}
+RESUME=${RESUME:-0}
+if [ "$RESUME" = 1 ]; then
+    [ -f "best-tf-$TAG-resume.pt" ] || { log "RESUME=1 but best-tf-$TAG-resume.pt is missing"; exit 1; }
+    [ -n "${BATCH:-}" ] && [ -n "${ACCUM:-}" ] || { log "RESUME=1 needs the run's BATCH and ACCUM (and COMPILE)"; exit 1; }
+fi
 LOGS=${LOGS:-"$HOME/data/nwl23a.txt.gz $HOME/data/nwl23b.txt.gz $HOME/data/nwl23c.txt.gz"}
 VAL_LOG=${VAL_LOG:-$HOME/data/nwl23c.txt.gz}
 PASSES=${PASSES:-6}
@@ -33,6 +42,14 @@ SHUFFLE=${SHUFFLE:-1024}
 DEVICE=${DEVICE:-auto}
 # PRODUCER_EXTRA adds producer flags.
 export LEXICON=${LEXICON:-NWL23}
+# The feature sizes follow the lexicon's alphabet (features.py): German has
+# 29 letters, Spanish 28 (CH LL Ñ RR are tiles), English and French 26.
+case "$LEXICON" in
+    RD*) DEFAULT_LETTERS=29 ;;
+    FILE*|FISE*) DEFAULT_LETTERS=28 ;;
+    *) DEFAULT_LETTERS=26 ;;
+esac
+export MACONDO_LETTERS=${LETTERS:-$DEFAULT_LETTERS}
 PRODUCER="../bin/mlproducer -lexicon $LEXICON -labeler result -per-game -holdout-mod $HOLDOUT_MOD ${PRODUCER_EXTRA:-}"
 export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 
@@ -107,7 +124,16 @@ LR_ARGS=""
 SNAP_EVERY=10000
 [ "${DEPLOY_FINAL:-0}" = 1 ] && SNAP_EVERY=$STEPS
 log "training $TAG: $PASSES passes over $LOGS, ~$ROWS_PER_PASS rows/pass, $STEPS steps, batch $BATCH x $ACCUM${COMPILE:+ $COMPILE}"
-rm -f best-tf-$TAG*.pt "producer-$TAG.log" "producer-$TAG-passes.log"
+RESUME_ARGS=""
+TEE_APPEND=""
+if [ "$RESUME" = 1 ]; then
+    RESUME_ARGS="--resume best-tf-$TAG-resume.pt"
+    TEE_APPEND="-a"
+    log "resuming $TAG from step $(python -c "import torch; print(torch.load('best-tf-$TAG-resume.pt', map_location='cpu', weights_only=False)['step'])")"
+    echo "$(date '+%F %T') resumed" >> "producer-$TAG-passes.log"
+else
+    rm -f best-tf-$TAG*.pt "producer-$TAG.log" "producer-$TAG-passes.log"
+fi
 
 # The trainer reads a FIFO; the passes are written into it by a feeder
 # whose every producer must succeed. A producer that dies mid-frame leaves
@@ -118,7 +144,7 @@ python training.py --arch transformer --ckpt "best-tf-$TAG.pt" --csv "loss_tf_$T
   --primary wdl --w-wdl 1 --w-value 0 --aux-share 0.15 --spatial-share "$SPATIAL_SHARE" \
   --transpose-prob "$TRANSPOSE" --batch-size "$BATCH" --accum "$ACCUM" $COMPILE --gpu-mem-mib "$GPU_MEM" \
   --epochs 1 --val-cache "$VAL" --val-size "$VAL_SIZE" --shuffle-buffer "$SHUFFLE" \
-  --total-steps "$STEPS" --snapshot-every "$SNAP_EVERY" --device "$DEVICE" $LR_ARGS ${TRAIN_EXTRA:-} < "$FIFO" 2>&1 | tee "train-tf-$TAG.log" > /dev/null &
+  --total-steps "$STEPS" --snapshot-every "$SNAP_EVERY" --device "$DEVICE" $LR_ARGS $RESUME_ARGS ${TRAIN_EXTRA:-} < "$FIFO" 2>&1 | tee $TEE_APPEND "train-tf-$TAG.log" > /dev/null &
 TRAIN_PIPE=$!
 (
   set -o pipefail
