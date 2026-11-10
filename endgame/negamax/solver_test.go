@@ -674,3 +674,49 @@ func TestConcurrentSolvesIndependentTables(t *testing.T) {
 	t.Logf("max solves in flight at once: %d of %d", maxInFlight.Load(), len(positions))
 	is.True(maxInFlight.Load() > 1)
 }
+
+// TestPVReachesEndOfGame is a position whose principal variation used to come
+// back cut off mid-game: transposition-table hits at non-PV nodes return a
+// value without its moves, so the line stopped at the ply limit with tiles on
+// both racks while its value counted the rest of the game. Summing the moves
+// then gave +19 against a value of +27.
+func TestPVReachesEndOfGame(t *testing.T) {
+	is := is.New(t)
+
+	rules, err := game.NewBasicGameRules(DefaultConfig, "CSW24", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/truncated_endgame_pv.gcg")
+	is.NoErr(err)
+	// p2 to move with ?FIINNT, down 393-418; p1 holds BEFLT.
+	g, err := game.NewFromHistory(gameHistory, rules, 23)
+	is.NoErr(err)
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW24")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+
+	s := new(Solver)
+	is.NoErr(s.Init(gen, g))
+	// Multithreaded, as the game analyzer runs it; this is where most of the
+	// truncation came from.
+	s.SetThreads(8)
+	solver := g.PlayerOnTurn()
+	initialSpread := g.SpreadFor(solver)
+
+	v, seq, err := s.Solve(context.Background(), 7)
+	is.NoErr(err)
+	is.Equal(v, int16(27))
+
+	replay := g.Copy()
+	replay.SetBackupMode(game.SimulationMode)
+	replay.SetEndgameMode(true)
+	for i, m := range seq {
+		t.Logf("%d: %s %d  searched=%v", i+1, m.ShortDescription(), m.Score(), i < s.NumSearchedMoves())
+		is.NoErr(replay.PlayMove(m, false, 0))
+	}
+	t.Logf("spread after line %d, playing %v", replay.SpreadFor(solver)-initialSpread, replay.Playing())
+	// The line plays the game out instead of stopping at the ply limit.
+	is.Equal(replay.Playing(), pb.PlayState_GAME_OVER)
+	// And it adds up to the value it reports.
+	is.Equal(replay.SpreadFor(solver)-initialSpread, int(v))
+}
