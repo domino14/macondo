@@ -650,7 +650,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 			// 	moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 			// }
 		} else if depth > 2 {
-			if thread >= 6 {
+			if thread >= 6 && s.lazySMPOptim {
 				// add some more jitter for lazysmp
 				moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
 			} else {
@@ -937,7 +937,8 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	}
 
 	// Iterative deepening loop
-	for p := 2; p <= plies; p++ {
+	rootPure := false
+	for p := s.nextIDDepth(1, plies); p <= plies && !rootPure; p = s.nextIDDepth(p, plies) {
 		log.Info().Int("plies", p).Msg("deepening-iteratively-abdada")
 
 		// Set current depth for all threads
@@ -981,7 +982,9 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 
 			// Main thread search
 			mainPV := PVLine{g: s.game}
+			impureBefore := s.impureEvents[0].n
 			val, err := s.negamax(ctx, initialHashKey, p, aspα, aspβ, &mainPV, 0, true)
+			rootPure = s.impureEvents[0].n == impureBefore
 
 			// Stop helper threads
 			for _, c := range cancels {
@@ -1011,6 +1014,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 				s.lastCompletedPly = p
 				break aspirationLoop
 			}
+			rootPure = false
 
 			// Widen window
 			window *= 2
@@ -1029,6 +1033,11 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 			}
 			log.Debug().Int16("new-α", aspα).Int16("new-β", aspβ).Msg("abdada-re-iterating")
 		}
+	}
+	if rootPure {
+		// The main thread's search reached only finished games, so its value
+		// is the game's and holds at the requested depth.
+		s.lastCompletedPly = plies
 	}
 	return nil
 }
@@ -1563,6 +1572,22 @@ searchLoop:
 	return nil
 }
 
+// nextIDDepth is the iteration after depth p in a solve to plies. Iterations
+// cost in pairs: depths 2k+1 and 2k+2 search about as many nodes, and each pair
+// costs several times the last. One whose parity differs from the target's
+// mostly orders moves for the next, so a solve to a fixed depth skips it
+// (1, 2, 4, 6 for six plies; 1, 3, 5 for five), as MAGPIE does (e84f23cb).
+// A solve that runs out of time may so report a depth one less than it
+// otherwise would, but it gets there sooner. A solve for several variations
+// keeps every depth: its intermediate results are used.
+func (s *Solver) nextIDDepth(p, plies int) int {
+	if s.solveMultipleVariations > 1 || s.alsoSolveMove != tinymove.InvalidTinyMove ||
+		p+1 >= plies || (plies-(p+1))%2 == 0 {
+		return p + 1
+	}
+	return p + 2
+}
+
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen.
@@ -1639,7 +1664,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		start = plies
 	}
 
-	for p := start; p <= plies; p++ {
+	for p := start; p <= plies; p = s.nextIDDepth(p, plies) {
 		if s.iterativeDeepeningOptim {
 			log.Info().Int("plies", p).Msg("deepening-iteratively")
 		}
@@ -1648,10 +1673,12 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 		pv := PVLine{g: g}
+		impureBefore := s.impureEvents[0].n
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0, true)
 		if err != nil {
 			return err
 		}
+		rootPure := s.impureEvents[0].n == impureBefore
 		nodes := s.nodes.Load()
 		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
 		// Sort top layer of moves by value for the next time around.
@@ -1661,6 +1688,12 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		s.principalVariation = pv
 		s.bestPVValue = val - int16(s.initialSpread)
 		s.lastCompletedPly = p
+		if rootPure {
+			// The search reached only finished games, so its value is the
+			// game's and every deeper iteration would return it again.
+			s.lastCompletedPly = plies
+			break
+		}
 	}
 	return nil
 
