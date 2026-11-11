@@ -1590,8 +1590,12 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		}
 	}
 
-	// Single variation - call algorithm directly
-	if s.lazySMPOptim {
+	// Single variation - call algorithm directly. The parallel searches need
+	// at least two plies, and a one-ply search gains nothing from threads, so
+	// it runs single-threaded.
+	if plies < 2 {
+		// fall through to the single-threaded search
+	} else if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)

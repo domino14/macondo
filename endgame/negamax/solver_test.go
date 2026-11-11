@@ -826,3 +826,39 @@ func TestPVReachesEndOfGame(t *testing.T) {
 	// And it adds up to the value it reports.
 	is.Equal(replay.SpreadFor(solver)-initialSpread, int(v))
 }
+
+// The parallel searches need at least two plies; a one-ply solve with several
+// threads used to fail with an error and return 0.
+func TestOnePlySolveWithThreads(t *testing.T) {
+	is := is.New(t)
+	pos := "14W/13TA/12SIG/11NOME/11ERE1/5Z5GID1/O4OD5C1V/LA1LININ4O1I/" +
+		"EL3ON2ULTIMO/AA2HIT4IDYl/1A2ED8i/1POUR6V2N/4B5JEFES/1TRAYF3WAXES1/" +
+		"PIET1ANCHO1TUSK AEEERRU/BGQR 281/428 0 lex CSW21;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	var values []int16
+	for _, threads := range []int{1, 4} {
+		for _, algo := range []string{ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA} {
+			g, err := cgp.ParseCGP(DefaultConfig, pos)
+			is.NoErr(err)
+			g.SetBackupMode(game.SimulationMode)
+			g.RecalculateBoard()
+			gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+			s := new(Solver)
+			is.NoErr(s.Init(gen, g.Game))
+			s.SetTTable(&TranspositionTable{})
+			s.SetTTableFraction(0.01)
+			s.SetThreads(threads)
+			if threads > 1 {
+				is.NoErr(s.SetParallelAlgorithm(algo))
+			}
+			v, _, err := s.Solve(context.Background(), 1)
+			is.NoErr(err)
+			values = append(values, v)
+		}
+	}
+	for _, v := range values {
+		is.Equal(v, values[0])
+	}
+	is.True(values[0] != 0)
+}
