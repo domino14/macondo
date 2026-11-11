@@ -1750,12 +1750,15 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 // impureCounter is one thread's count of the leaves of unfinished games and
 // the hits on impure table entries its search has met. A node whose search
-// leaves the count unchanged reached only finished games, so its value holds
-// at any depth and is stored at ttPureDepth. The padding keeps each thread's
-// counter on its own cache line.
+// leaves the count unchanged reached only finished games, so it is stored
+// pure. reach is how many plies the node just searched needed to reach them
+// all: its value holds at that depth and every greater one, but not at a
+// smaller one, where some of those lines would be cut off and estimated. The
+// padding keeps each thread's counter on its own cache line.
 type impureCounter struct {
-	n uint64
-	_ [56]byte
+	n     uint64
+	reach uint64
+	_     [48]byte
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
@@ -1776,39 +1779,55 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 	impure := &s.impureEvents[thread].n
 	impureAtEntry := *impure
+	// The plies this node's value needs, if it turns out pure.
+	reach := &s.impureEvents[thread].reach
+	maxReach := uint64(0)
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
-		// An impure entry stored deeper than this node holds a deeper
-		// search's value. Nodes meet those through passes (the moves A, Z, B
-		// and pass, Z, A, pass, B reach the same position, the second with two
+		// An entry's value is this node's value only if it was searched to
+		// the same depth, or if it is pure (its search reached only finished
+		// games) and needed no more plies than this node has left: a node
+		// with fewer cuts some of those lines off and estimates them. Nodes meet
+		// entries from other depths through passes (the moves A, Z, B and
+		// pass, Z, A, pass, B reach the same position, the second with two
 		// fewer plies left) and through threads searching other depths, and
-		// which ones a solve meets depends on thread timing. Only its move is
-		// used, so the value stays the fixed-depth value. A pure entry is the
-		// game's value at any depth.
-		if ttEntry.valid() && ttEntry.depth() > uint8(depth) &&
-			ttEntry.depth() != ttPureDepth {
+		// which ones a solve meets depends on thread timing. A deeper entry's
+		// move is still the best guess for ordering.
+		entryDepth := ttEntry.depth()
+		usable := ttEntry.valid() && (entryDepth == uint8(depth) ||
+			(ttEntry.pure() && entryDepth <= uint8(depth)))
+		if !usable && ttEntry.valid() && entryDepth > uint8(depth) {
 			ttMove = ttEntry.getPlay()
-		} else if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
-			if ttEntry.depth() != ttPureDepth {
+		} else if usable {
+			if ttEntry.pure() {
+				maxReach = max(maxReach, uint64(entryDepth))
+			} else {
 				*impure++
 			}
 			score := ttEntry.getScore()
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
-			if flag == TTExact {
-				if !pvNode {
+			if !pvNode {
+				if flag == TTExact {
+					*reach = maxReach
+					return score, nil
+				} else if flag == TTLower {
+					α = max(α, score)
+				} else if flag == TTUpper {
+					β = min(β, score)
+				}
+				if α >= β {
+					*reach = maxReach
 					return score, nil
 				}
-			} else if flag == TTLower {
-				α = max(α, score)
-			} else if flag == TTUpper {
-				β = min(β, score)
-			}
-			if α >= β {
-				if !pvNode { // don't cut off PV node
-					return score, nil
-				}
+			} else if flag == TTLower && score > α && score < β {
+				// A PV node searches on, so that its line is complete, and
+				// narrows its window only while the window stays open: a
+				// search with α >= β returns a bound on the wrong side.
+				α = score
+			} else if flag == TTUpper && score < β && score > α {
+				β = score
 			}
 			// search hash move first.
 			ttMove = ttEntry.getPlay()
@@ -1840,12 +1859,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 						tinymove.InvalidTinyMove)
 				}
 			}
+			*reach = 0
 			return val, nil
 		}
 		// Nothing follows this node, so don't leave a sibling's variation
 		// sitting in the caller's line.
 		pv.Clear()
 		spreadNow := g.SpreadFor(g.PlayerOnTurn())
+		*reach = 0
 		return int16(spreadNow), nil
 	}
 	childPV := PVLine{g: g}
@@ -1944,6 +1965,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			return value, err
 		}
 		g.UnplayLastMove()
+		maxReach = max(maxReach, *reach+1)
 
 		// ABDADA: finished searching this move
 		if s.abdadaOptim {
@@ -2018,6 +2040,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				return value, err
 			}
 			g.UnplayLastMove()
+			maxReach = max(maxReach, *reach+1)
 			s.abdadaTable.finishedSearch(nodeKey, children[idx])
 
 			if -value > bestValue {
@@ -2051,15 +2074,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		} else {
 			flag = TTExact
 		}
-		// A depth that reaches ttPureDepth is stored just below it, which
-		// only makes the entry answer fewer probes.
-		storedDepth := uint8(min(depth, ttPureDepth-1))
-		if *impure == impureAtEntry {
-			storedDepth = ttPureDepth
+		pure := *impure == impureAtEntry
+		storedDepth := uint8(min(depth, depthMask))
+		if pure {
+			storedDepth = uint8(maxReach)
 		}
 		flagAndDepth := flag<<6 + storedDepth
 		play := bestMove.TinyMove()
-		s.ttable.store(nodeKey, score, flagAndDepth, play)
+		s.ttable.storeEntry(nodeKey, score, flagAndDepth, play, pure)
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
 			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
@@ -2070,6 +2092,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			fmt.Fprintf(s.logStream, " cgp: %v\n\n", g.ToCGP(false))
 		}
 	}
+	*reach = maxReach
 	return bestValue, nil
 
 }
