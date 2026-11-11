@@ -77,15 +77,11 @@ Options:
     -parallel-algo auto
 
     Select the parallel search algorithm. Options: auto, lazysmp, abdada, treesplit.
-    - auto (default): Runs a quick 4-ply probe (max 2 seconds) to measure the tree's
-      effective branching factor (EBF), then selects the best algorithm:
-        * Very few root moves (<50): LazySMP
-        * Very high root moves (>500): ABDADA
-        * High EBF (>=17): ABDADA (bushy trees benefit from ABDADA's work distribution)
-        * Low EBF (<12): LazySMP (narrow trees benefit from shared transposition table)
-        * Default: LazySMP (simpler, lower overhead)
+    - auto (default): ABDADA, the fastest of the four in our tests.
     - lazysmp: Lazy Symmetric Multi-Processing. Threads search independently with a
-      shared transposition table. Works well for most endgames.
+      shared transposition table. Its helpers search deeper than the requested
+      depth, and a fixed-depth search can use only their moves, not their values,
+      so it is slower than ABDADA, about two times as slow on deep endgames.
     - abdada: Alpha-Bêta Distribué avec Droit d'Aînesse. Coordinates thread work to avoid
       redundant searches. Excels at high-branching endgames with bushy search trees.
     - treesplit: Simple root-level move distribution across threads. Works well

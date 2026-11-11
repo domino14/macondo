@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -497,13 +496,7 @@ func (s *Solver) SetABDADA(enable bool) {
 
 // SetParallelAlgorithm sets the parallelization algorithm to use.
 // Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit
-// ParallelAlgoAuto uses a probe-based heuristic:
-//   - < 50 root moves: LazySMP (not enough parallel work for ABDADA)
-//   - > 500 root moves: ABDADA (high branching factor)
-//   - Otherwise: runs a 4-ply probe (max 2s) to measure EBF (effective branching factor)
-//   - EBF >= 17: ABDADA (bushy tree benefits from ABDADA's work distribution)
-//   - EBF < 12: LazySMP (narrow tree, TT sharing works well)
-//   - Default: LazySMP (simpler, lower overhead)
+// ParallelAlgoAuto uses ABDADA when there is more than one thread.
 func (s *Solver) SetParallelAlgorithm(algo string) error {
 	switch algo {
 	case ParallelAlgoAuto:
@@ -1572,93 +1565,14 @@ searchLoop:
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
-	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen
+	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen.
+	// ABDADA: lazy SMP's speed came from the main thread taking the values its
+	// deeper-searching helpers stored, which a fixed-depth search cannot use,
+	// and without them ABDADA was faster at every thread count we measured.
 	if s.threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
-		// Generate initial moves to determine branching factor
-		s.currentIDDepths = make([]int, 1)
-		s.impureEvents = make([]impureCounter, 1)
-		s.currentIDDepths[0] = -1
-		s.initialMoves = make([][]tinymove.SmallMove, 1)
-		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
-
-		rootMoves := len(s.initialMoves[0])
-
-		// Quick decisions without probe
-		if rootMoves < 50 {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting LazySMP (few root moves)")
-			s.SetLazySMP(true)
-		} else if rootMoves > 500 {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting ABDADA (very high branching factor)")
-			s.SetABDADA(true)
-		} else {
-			// Run a 4-ply probe with 2-second timeout to measure EBF
-			probePlies := 4
-			if probePlies > plies {
-				probePlies = plies
-			}
-
-			// Create timeout context for probe
-			probeCtx, probeCancel := context.WithTimeout(ctx, 2*time.Second)
-
-			// Temporarily enable LazySMP for probe
-			s.lazySMPOptim = true
-			s.ttable.ResetStats()
-
-			log.Info().Int("probe-plies", probePlies).Int("root-moves", rootMoves).Msg("running probe for auto-selection")
-			err := s.iterativelyDeepenLazySMP(probeCtx, probePlies)
-			probeCancel()
-
-			probeTimedOut := err == context.DeadlineExceeded
-			probeCompleted := err == nil
-
-			// Calculate EBF from probe stats
-			created := s.ttable.Created()
-			var ebf float64
-			if created > 0 && probePlies > 0 {
-				ebf = math.Pow(float64(created), 1.0/float64(probePlies))
-			}
-
-			log.Info().
-				Uint64("created", created).
-				Float64("ebf", ebf).
-				Int("root-moves", rootMoves).
-				Int("threads", s.threads).
-				Bool("timed-out", probeTimedOut).
-				Msg("probe stats for auto-selection")
-
-			// If probe completed the full solve and we don't need multiple variations, we're done
-			if probeCompleted && probePlies >= plies && s.solveMultipleVariations <= 1 {
-				log.Info().Msg("probe completed full solve")
-				return nil
-			}
-
-			// Apply heuristic based on EBF
-			// EBF >= 17: ABDADA (bushy tree)
-			// EBF < 12: LazySMP (narrow tree)
-			// 12-17 with many threads and EBF >= 15: try ABDADA
-			// Otherwise: LazySMP (safe default)
-			if ebf >= 17.0 {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting ABDADA (high EBF)")
-				s.lazySMPOptim = false
-				s.SetABDADA(true)
-			} else if ebf < 12.0 {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (low EBF)")
-				// Already set to LazySMP
-			} else if s.threads >= 16 && ebf >= 15.0 {
-				log.Info().Float64("ebf", ebf).Int("threads", s.threads).Msg("auto-selecting ABDADA (high thread count, moderate EBF)")
-				s.lazySMPOptim = false
-				s.SetABDADA(true)
-			} else {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (default)")
-				// Already set to LazySMP
-			}
-
-			// Continue with full solve - TT entries from probe are kept
-			// Reset stats for clean metrics on full solve
-			s.ttable.ResetStats()
-			// Reset variations from probe - they should come from the actual solve
-			s.variations = []PVLine{}
-		}
+		log.Info().Int("threads", s.threads).Msg("auto-selecting ABDADA")
+		s.initialMoves = nil
+		s.SetABDADA(true)
 	}
 
 	// Dispatch to the appropriate algorithm, wrapping with multiple variations if needed
@@ -1808,26 +1722,24 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
-			if !pvNode {
-				if flag == TTExact {
-					*reach = maxReach
-					return score, nil
-				} else if flag == TTLower {
-					α = max(α, score)
-				} else if flag == TTUpper {
-					β = min(β, score)
-				}
-				if α >= β {
+			if flag == TTExact {
+				if !pvNode {
 					*reach = maxReach
 					return score, nil
 				}
-			} else if flag == TTLower && score > α && score < β {
-				// A PV node searches on, so that its line is complete, and
-				// narrows its window only while the window stays open: a
-				// search with α >= β returns a bound on the wrong side.
-				α = score
-			} else if flag == TTUpper && score < β && score > α {
-				β = score
+			} else if flag == TTLower {
+				α = max(α, score)
+			} else if flag == TTUpper {
+				β = min(β, score)
+			}
+			if α >= β {
+				// The stored bound shows this node can't improve the caller's
+				// window, so return it at PV nodes too. Searching on with
+				// α >= β gives every child an inverted window, and a bound on
+				// the wrong side comes back as the node's value. A line cut
+				// short here is finished by completeLine.
+				*reach = maxReach
+				return score, nil
 			}
 			// search hash move first.
 			ttMove = ttEntry.getPlay()
