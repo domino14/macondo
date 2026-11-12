@@ -57,6 +57,7 @@ const (
 	ParallelAlgoLazySMP   = "lazysmp"
 	ParallelAlgoABDADA    = "abdada"
 	ParallelAlgoTreeSplit = "treesplit"
+	ParallelAlgoPVSplit   = "pvsplit"
 )
 
 // Bitflags for move estimates.
@@ -307,6 +308,10 @@ type Solver struct {
 	abdadaOptim bool
 	// treeSplit distributes root moves across threads with work-stealing
 	treeSplitOptim bool
+	// pvSplit searches the principal variation's first moves one after the
+	// other and the siblings at each of its nodes in parallel (pvsplit.go).
+	pvSplitOptim bool
+	pvs          *pvSplitState
 	// prunedKWGOptim builds a smaller word graph before solving, containing
 	// only words playable with the tiles remaining in the endgame position.
 	prunedKWGOptim bool
@@ -507,11 +512,6 @@ func (s *Solver) Variations() []PVLine {
 
 func (s *Solver) SetThreads(threads int) {
 	s.threads = max(1, threads)
-	// Auto-enable parallel algorithm selection when using multiple threads
-	if threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
-		// Default to "auto" mode - will be resolved based on root move count
-		// No need to set any flag - the dispatcher will handle it
-	}
 }
 
 func (s *Solver) SetLazySMP(enable bool) {
@@ -519,6 +519,7 @@ func (s *Solver) SetLazySMP(enable bool) {
 	if enable {
 		s.treeSplitOptim = false
 		s.abdadaOptim = false
+		s.pvSplitOptim = false
 	}
 }
 
@@ -527,6 +528,17 @@ func (s *Solver) SetTreeSplit(enable bool) {
 	if enable {
 		s.lazySMPOptim = false
 		s.abdadaOptim = false
+		s.pvSplitOptim = false
+	}
+}
+
+// SetPVSplit turns on PV-splitting (Marsland and Campbell, 1982).
+func (s *Solver) SetPVSplit(enable bool) {
+	s.pvSplitOptim = enable
+	if enable {
+		s.lazySMPOptim = false
+		s.abdadaOptim = false
+		s.treeSplitOptim = false
 	}
 }
 
@@ -535,6 +547,7 @@ func (s *Solver) SetABDADA(enable bool) {
 	if enable {
 		s.lazySMPOptim = false
 		s.treeSplitOptim = false
+		s.pvSplitOptim = false
 		if s.abdadaTable == nil {
 			s.abdadaTable = NewABDADATable()
 		}
@@ -542,24 +555,30 @@ func (s *Solver) SetABDADA(enable bool) {
 }
 
 // SetParallelAlgorithm sets the parallelization algorithm to use.
-// Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit
-// ParallelAlgoAuto uses ABDADA when there is more than one thread.
+// Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA,
+// ParallelAlgoTreeSplit, ParallelAlgoPVSplit
+// ParallelAlgoAuto uses PV-splitting when there is more than one thread; the
+// others run only when they are asked for by name.
 func (s *Solver) SetParallelAlgorithm(algo string) error {
 	switch algo {
 	case ParallelAlgoAuto:
-		// Auto mode: will be resolved via probe in iterativelyDeepen
+		// Resolved to PV-splitting in iterativelyDeepen.
 		s.lazySMPOptim = false
 		s.abdadaOptim = false
 		s.treeSplitOptim = false
+		s.pvSplitOptim = false
 	case ParallelAlgoLazySMP:
 		s.SetLazySMP(true)
 	case ParallelAlgoABDADA:
 		s.SetABDADA(true)
 	case ParallelAlgoTreeSplit:
 		s.SetTreeSplit(true)
+	case ParallelAlgoPVSplit:
+		s.SetPVSplit(true)
 	default:
-		return fmt.Errorf("unknown parallel algorithm: %s (options: %s, %s, %s, %s)",
-			algo, ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit)
+		return fmt.Errorf("unknown parallel algorithm: %s (options: %s, %s, %s, %s, %s)",
+			algo, ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit,
+			ParallelAlgoPVSplit)
 	}
 	return nil
 }
@@ -1210,14 +1229,51 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	return nil
 }
 
+// rootSearch searches the root to depth plies with the window (α, β) on all
+// the solver's threads. The main thread's line goes in pv.
+type rootSearch func(ctx context.Context, rootKey uint64, plies int, α, β int16, pv *PVLine) (int16, error)
+
 func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	// ABDADA (Alpha-Beta Distributed Asynchronous Distributed Asynchronous)
 	// https://dl.acm.org/doi/pdf/10.1145/228329.228345
+	return s.iterativelyDeepenParallel(ctx, plies, "abdada", s.abdadaRootSearch)
+}
+
+// abdadaRootSearch runs the same search on every thread; they share the
+// transposition table and defer the moves another thread is searching.
+func (s *Solver) abdadaRootSearch(ctx context.Context, rootKey uint64, p int, α, β int16, pv *PVLine) (int16, error) {
+	g := errgroup.Group{}
+	cancels := make([]context.CancelFunc, s.threads-1)
+
+	for t := 1; t < s.threads; t++ {
+		helperCtx, cancel := context.WithCancel(ctx)
+		cancels[t-1] = cancel
+		threadID := t
+
+		g.Go(func() error {
+			pv := PVLine{g: s.gameCopies[threadID-1]}
+			_, err := s.negamax(helperCtx, rootKey, p, α, β, &pv, threadID, true)
+			return err
+		})
+	}
+
+	val, err := s.negamax(ctx, rootKey, p, α, β, pv, 0, true)
+
+	for _, c := range cancels {
+		c()
+	}
+	g.Wait()
+	return val, err
+}
+
+// iterativelyDeepenParallel is the iterative-deepening and aspiration-window
+// loop the parallel searches share; search is what they differ in.
+func (s *Solver) iterativelyDeepenParallel(ctx context.Context, plies int, name string, search rootSearch) error {
 	if plies < 2 {
 		return errors.New("use at least 2 plies")
 	}
 	s.makeGameCopies()
-	log.Info().Int("threads", s.threads).Msg("using-abdada")
+	log.Info().Int("threads", s.threads).Msg("using-" + name)
 	s.currentIDDepths = make([]int, s.threads)
 	s.impureEvents = make([]impureCounter, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
@@ -1274,7 +1330,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	// Iterative deepening loop
 	rootPure := false
 	for p := s.nextIDDepth(1, plies); p <= plies && !rootPure; p = s.nextIDDepth(p, plies) {
-		log.Info().Int("plies", p).Msg("deepening-iteratively-abdada")
+		log.Info().Int("plies", p).Msg("deepening-iteratively-" + name)
 
 		// Set current depth for all threads
 		for t := 0; t < s.threads; t++ {
@@ -1297,40 +1353,15 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 		for {
 			aspα = max(-HugeNumber, aspα)
 			aspβ = min(HugeNumber, aspβ)
-			log.Info().Int16("α", aspα).Int16("β", aspβ).Msg("abdada-search")
+			log.Info().Int16("α", aspα).Int16("β", aspβ).Msg(name + "-search")
 
-			// Start helper threads
-			g := errgroup.Group{}
-			cancels := make([]context.CancelFunc, s.threads-1)
-
-			for t := 1; t < s.threads; t++ {
-				helperCtx, cancel := context.WithCancel(ctx)
-				cancels[t-1] = cancel
-				threadID := t
-
-				g.Go(func() error {
-					pv := PVLine{g: s.gameCopies[threadID-1]}
-					_, err := s.negamax(helperCtx, initialHashKey, p, aspα, aspβ, &pv, threadID, true)
-					return err
-				})
-			}
-
-			// Main thread search
 			mainPV := PVLine{g: s.game}
 			impureBefore := s.impureEvents[0].n
-			val, err := s.negamax(ctx, initialHashKey, p, aspα, aspβ, &mainPV, 0, true)
+			val, err := search(ctx, initialHashKey, p, aspα, aspβ, &mainPV)
 			rootPure = s.impureEvents[0].n == impureBefore
 
-			// Stop helper threads
-			for _, c := range cancels {
-				if c != nil {
-					c()
-				}
-			}
-			g.Wait()
-
 			if err != nil {
-				log.Err(err).Msg("abdada-error")
+				log.Err(err).Msg(name + "-error")
 				return err
 			}
 
@@ -1340,7 +1371,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 
 			s.principalVariation = mainPV
 			s.bestPVValue = val - int16(s.initialSpread)
-			log.Info().Int16("spread", val).Int("ply", p).Str("pv", mainPV.NLBString()).Msg("abdada-best-val")
+			log.Info().Int16("spread", val).Int("ply", p).Str("pv", mainPV.NLBString()).Msg(name + "-best-val")
 
 			// Check if we're within the aspiration window
 			if val > aspα && val < aspβ {
@@ -1366,7 +1397,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 				aspβ += window
 				aspα += window / 3
 			}
-			log.Debug().Int16("new-α", aspα).Int16("new-β", aspβ).Msg("abdada-re-iterating")
+			log.Debug().Int16("new-α", aspα).Int16("new-β", aspβ).Msg(name + "-re-iterating")
 		}
 	}
 	if rootPure {
@@ -1925,20 +1956,24 @@ func (s *Solver) nextIDDepth(p, plies int) int {
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
-	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen.
-	// ABDADA: lazy SMP's speed came from the main thread taking the values its
-	// deeper-searching helpers stored, which a fixed-depth search cannot use,
-	// and without them ABDADA was faster at every thread count we measured.
-	if s.threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
-		log.Info().Int("threads", s.threads).Msg("auto-selecting ABDADA")
-		s.initialMoves = nil
-		s.SetABDADA(true)
+	// With more than one thread and no algorithm chosen by name, use
+	// PV-splitting. It was as fast as ABDADA or faster on every position and
+	// at every thread count we measured, about twice as fast on long solves
+	// from 16 threads up, and its node count stays close to the one-thread
+	// search's where ABDADA's keeps growing with the thread count.
+	// The parallel searches work through the transposition table, so without
+	// one the solve stays single-threaded.
+	if s.threads >= 2 && s.transpositionTableOptim &&
+		!s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim && !s.pvSplitOptim {
+		s.SetPVSplit(true)
 	}
 
 	// Dispatch to the appropriate algorithm, wrapping with multiple variations if needed
 	if s.solveMultipleVariations > 1 || s.alsoSolveMove != tinymove.InvalidTinyMove {
 		// Multiple variations requested or also-solve-var specified - wrap the algorithm
-		if s.lazySMPOptim {
+		if s.pvSplitOptim {
+			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenPVSplit)
+		} else if s.lazySMPOptim {
 			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenLazySMP)
 		} else if s.abdadaOptim {
 			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenABDADA)
@@ -1955,6 +1990,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// it runs single-threaded.
 	if plies < 2 {
 		// fall through to the single-threaded search
+	} else if s.pvSplitOptim {
+		return s.iterativelyDeepenPVSplit(ctx, plies)
 	} else if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
@@ -2640,7 +2677,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.lazySMPOptim && s.treeSplitOptim {
 		return 0, nil, errors.New("you can only use lazySMP OR treeSplit, but not both")
 	}
-	if s.lazySMPOptim || s.abdadaOptim || s.treeSplitOptim {
+	if s.lazySMPOptim || s.abdadaOptim || s.treeSplitOptim || s.pvSplitOptim {
 		if s.transpositionTableOptim {
 			s.ttable.SetMultiThreadedMode()
 		} else {
