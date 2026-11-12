@@ -1728,7 +1728,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			score += int16(ourSpread)
 			// The root never returns from the table: its caller needs a
 			// move. It narrows its window only while the window stays open.
-			root := depth == s.requestedPlies || depth == s.currentIDDepths[thread]
+			root := depth == s.requestedPlies || (depth > 0 && depth == s.currentIDDepths[thread])
 			if flag == TTExact {
 				if !pvNode {
 					*reach = maxReach
