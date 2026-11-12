@@ -110,7 +110,21 @@ static void mgs_read_nodes(KWG *kwg, const uint8_t *buf, size_t n) {
 static KWG *mgs_kwg_from_bytes(const uint8_t *buf, int64_t len) {
   KWG *kwg = calloc_or_die(1, sizeof(KWG));
   kwg->name = string_duplicate("macondo");
-  mgs_read_nodes(kwg, buf, (size_t)len / sizeof(uint32_t));
+  const size_t n = (size_t)len / sizeof(uint32_t);
+  mgs_read_nodes(kwg, buf, n);
+  // Some graphs (the alpha graphs WordSmog uses) carry all-zero padding
+  // nodes that no arc reaches. Each becomes a list of its own, so the tiles
+  // of every list still ascend.
+  for (size_t i = 1; i < n; i++) {
+    if (kwg->nodes[i] == 0) {
+      kwg->nodes[i] = KWG_NODE_IS_END_FLAG;
+    }
+  }
+  // Movegen and cross sets find a list's arcs through its tile bitsets.
+  if (!kwg_try_build_tile_bitsets(kwg)) {
+    kwg_destroy(kwg);
+    return NULL;
+  }
   return kwg;
 }
 
@@ -186,6 +200,10 @@ mg_data *MGS(data_create)(const uint8_t *kwg_buf, int64_t kwg_len,
   d->players_data = players_data_create(wmp_path != NULL || build_wmp);
 
   KWG *kwg = mgs_kwg_from_bytes(kwg_buf, kwg_len);
+  if (!kwg) {
+    snprintf(err, err_len, "word graph has a node list whose tiles don't ascend");
+    goto fail;
+  }
   players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KWG, 0, kwg);
   players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_KWG, 1, kwg);
   players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_KWG, true);
@@ -202,12 +220,23 @@ mg_data *MGS(data_create)(const uint8_t *kwg_buf, int64_t kwg_len,
   if (wmp_path) {
     wmp = calloc_or_die(1, sizeof(WMP));
     wmp_load_from_filename(wmp, wmp_path, wmp_path, es);
-    if (mgs_take_error(es, err, err_len)) {
+    if (!error_stack_is_empty(es) &&
+        error_stack_top(es) == ERROR_STATUS_WMP_RESULT_TOO_LARGE) {
+      // A lexicon whose words of one alphagram don't fit movegen's buffers
+      // (Spanish, with its digraphs) generates without a word map.
+      error_stack_reset(es);
+      wmp_destroy(wmp);
+      wmp = NULL;
+    } else if (mgs_take_error(es, err, err_len)) {
       wmp_destroy(wmp);
       goto fail;
     }
   } else if (build_wmp && variant == MG_VARIANT_CLASSIC) {
     wmp = make_wmp_from_kwg(kwg, d->ld, 0);
+    if (wmp && wmp->max_word_lookup_bytes > WMP_RESULT_BUFFER_SIZE) {
+      wmp_destroy(wmp);
+      wmp = NULL;
+    }
   }
   if (wmp) {
     players_data_set_data(d->players_data, PLAYERS_DATA_TYPE_WMP, 0, wmp);
@@ -215,11 +244,7 @@ mg_data *MGS(data_create)(const uint8_t *kwg_buf, int64_t kwg_len,
     players_data_set_is_shared(d->players_data, PLAYERS_DATA_TYPE_WMP, true);
   }
 
-  if (rit_path) {
-    if (!wmp) {
-      mgs_set_err(err, err_len, "a rack info table needs a word map");
-      goto fail;
-    }
+  if (rit_path && wmp) {
     RackInfoTable *rit = calloc_or_die(1, sizeof(RackInfoTable));
     rit->instance_id = rack_info_table_next_instance_id();
     rack_info_table_load_mmap(rit, rit_path, rit_path, es);
