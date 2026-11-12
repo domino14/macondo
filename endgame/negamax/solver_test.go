@@ -675,6 +675,112 @@ func TestConcurrentSolvesIndependentTables(t *testing.T) {
 	is.True(maxInFlight.Load() > 1)
 }
 
+// A transposition-table entry stored deeper than the node holds a deeper
+// search's value, and nodes met those through passes and through threads
+// searching other depths. Multi-threaded 5-ply solves of this position
+// returned anything from 36 to 43 instead of 41, the value with one thread
+// and with the table off; lazy SMP on two threads returned 40 every time.
+func TestMultiThreadedSolveKeepsFixedDepthValue(t *testing.T) {
+	is := is.New(t)
+	pos := "14W/13TA/12SIG/11NOME/11ERE1/5Z5GID1/O4OD5C1V/LA1LININ4O1I/" +
+		"EL3ON2ULTIMO/AA2HIT4IDYl/1A2ED8i/1POUR6V2N/4B5JEFES/1TRAYF3WAXES1/" +
+		"PIET1ANCHO1TUSK AEEERRU/BGQR 281/428 0 lex CSW21;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	configs := []struct {
+		algo    string
+		threads int
+	}{
+		{ParallelAlgoLazySMP, 2},
+		{ParallelAlgoLazySMP, 4},
+		{ParallelAlgoABDADA, 4},
+		{ParallelAlgoTreeSplit, 4},
+	}
+	for _, c := range configs {
+		for run := 0; run < 3; run++ {
+			g, err := cgp.ParseCGP(DefaultConfig, pos)
+			is.NoErr(err)
+			g.SetBackupMode(game.SimulationMode)
+			g.RecalculateBoard()
+			gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+			s := new(Solver)
+			is.NoErr(s.Init(gen, g.Game))
+			s.SetTTable(&TranspositionTable{})
+			s.SetTTableFraction(0.01)
+			s.SetThreads(c.threads)
+			is.NoErr(s.SetParallelAlgorithm(c.algo))
+			v, _, err := s.Solve(context.Background(), 5)
+			is.NoErr(err)
+			t.Logf("%s, %d threads, run %d: %d", c.algo, c.threads, run+1, v)
+			is.Equal(v, int16(41))
+		}
+	}
+}
+
+// A pure entry, from a search that reached only finished games, holds the
+// value at the depth that search needed and every greater one, not at a
+// smaller one: there some of its lines are cut off and estimated. Solving
+// AEEERRU/BGQR to 11 plies (38) and then to 5 on the same table used to return
+// 38 instead of the 5-ply value, 41.
+func TestDeeperSolveLeavesFixedDepthValue(t *testing.T) {
+	is := is.New(t)
+	pos := "14W/13TA/12SIG/11NOME/11ERE1/5Z5GID1/O4OD5C1V/LA1LININ4O1I/" +
+		"EL3ON2ULTIMO/AA2HIT4IDYl/1A2ED8i/1POUR6V2N/4B5JEFES/1TRAYF3WAXES1/" +
+		"PIET1ANCHO1TUSK AEEERRU/BGQR 281/428 0 lex CSW21;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	g, err := cgp.ParseCGP(DefaultConfig, pos)
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.RecalculateBoard()
+	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	s := new(Solver)
+	is.NoErr(s.Init(gen, g.Game))
+	s.SetTTable(&TranspositionTable{})
+	s.SetTTableFraction(0.01)
+	s.SetThreads(1)
+	v, _, err := s.Solve(context.Background(), 11)
+	is.NoErr(err)
+	is.Equal(v, int16(38))
+	// Solve resets the table, so search 5 plies on the one the 11-ply solve
+	// left behind.
+	s.game.SetEndgameMode(true)
+	err = s.iterativelyDeepen(context.Background(), 5)
+	s.game.SetEndgameMode(false)
+	is.NoErr(err)
+	is.Equal(s.bestPVValue, int16(41))
+}
+
+// TestVeryDeep's position with many threads. Helpers stored bounds for the
+// main line's positions, and a principal-variation node narrowed its window
+// with them until it closed; searching on with α >= β returned bounds on the
+// wrong side, stored as finished-game values. Solves came back -115 to -118.
+func TestManySolveThreadsVeryDeep(t *testing.T) {
+	is := is.New(t)
+	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	for _, algo := range []string{ParallelAlgoLazySMP, ParallelAlgoABDADA} {
+		for run := 0; run < 2; run++ {
+			g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
+			is.NoErr(err)
+			g.SetBackupMode(game.SimulationMode)
+			g.RecalculateBoard()
+			gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+			s := new(Solver)
+			is.NoErr(s.Init(gen, g.Game))
+			s.SetTTable(&TranspositionTable{})
+			s.SetTTableFraction(0.01)
+			s.SetThreads(64)
+			is.NoErr(s.SetParallelAlgorithm(algo))
+			v, _, err := s.Solve(context.Background(), 25)
+			is.NoErr(err)
+			t.Logf("%s, run %d: %d", algo, run+1, v)
+			is.Equal(v, int16(-116))
+		}
+	}
+}
+
 // TestPVReachesEndOfGame is a position whose principal variation used to come
 // back cut off mid-game: transposition-table hits at non-PV nodes return a
 // value without its moves, so the line stopped at the ply limit with tiles on
@@ -719,4 +825,40 @@ func TestPVReachesEndOfGame(t *testing.T) {
 	is.Equal(replay.Playing(), pb.PlayState_GAME_OVER)
 	// And it adds up to the value it reports.
 	is.Equal(replay.SpreadFor(solver)-initialSpread, int(v))
+}
+
+// The parallel searches need at least two plies; a one-ply solve with several
+// threads used to fail with an error and return 0.
+func TestOnePlySolveWithThreads(t *testing.T) {
+	is := is.New(t)
+	pos := "14W/13TA/12SIG/11NOME/11ERE1/5Z5GID1/O4OD5C1V/LA1LININ4O1I/" +
+		"EL3ON2ULTIMO/AA2HIT4IDYl/1A2ED8i/1POUR6V2N/4B5JEFES/1TRAYF3WAXES1/" +
+		"PIET1ANCHO1TUSK AEEERRU/BGQR 281/428 0 lex CSW21;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	var values []int16
+	for _, threads := range []int{1, 4} {
+		for _, algo := range []string{ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA} {
+			g, err := cgp.ParseCGP(DefaultConfig, pos)
+			is.NoErr(err)
+			g.SetBackupMode(game.SimulationMode)
+			g.RecalculateBoard()
+			gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+			s := new(Solver)
+			is.NoErr(s.Init(gen, g.Game))
+			s.SetTTable(&TranspositionTable{})
+			s.SetTTableFraction(0.01)
+			s.SetThreads(threads)
+			if threads > 1 {
+				is.NoErr(s.SetParallelAlgorithm(algo))
+			}
+			v, _, err := s.Solve(context.Background(), 1)
+			is.NoErr(err)
+			values = append(values, v)
+		}
+	}
+	for _, v := range values {
+		is.Equal(v, values[0])
+	}
+	is.True(values[0] != 0)
 }

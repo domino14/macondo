@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -338,9 +337,12 @@ type Solver struct {
 	abdadaTable    *ABDADATable
 
 	currentIDDepths []int
-	requestedPlies  int
-	threads         int
-	nodes           atomic.Uint64
+	// impureEvents counts, per thread, what made its search depend on depth:
+	// leaves of an unfinished game and hits on impure table entries.
+	impureEvents   []impureCounter
+	requestedPlies int
+	threads        int
+	nodes          atomic.Uint64
 
 	logStream  io.Writer
 	busy       bool
@@ -494,13 +496,7 @@ func (s *Solver) SetABDADA(enable bool) {
 
 // SetParallelAlgorithm sets the parallelization algorithm to use.
 // Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit
-// ParallelAlgoAuto uses a probe-based heuristic:
-//   - < 50 root moves: LazySMP (not enough parallel work for ABDADA)
-//   - > 500 root moves: ABDADA (high branching factor)
-//   - Otherwise: runs a 4-ply probe (max 2s) to measure EBF (effective branching factor)
-//   - EBF >= 17: ABDADA (bushy tree benefits from ABDADA's work distribution)
-//   - EBF < 12: LazySMP (narrow tree, TT sharing works well)
-//   - Default: LazySMP (simpler, lower overhead)
+// ParallelAlgoAuto uses ABDADA when there is more than one thread.
 func (s *Solver) SetParallelAlgorithm(algo string) error {
 	switch algo {
 	case ParallelAlgoAuto:
@@ -773,6 +769,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
@@ -887,6 +884,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-abdada")
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
@@ -1044,6 +1042,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 	log.Info().Int("threads", s.threads).Msg("using-tree-split")
 
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	g := s.game
 
 	initialHashKey := uint64(0)
@@ -1407,6 +1406,7 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 
 	// Generate initial moves ONCE before the loop, like the original code did
 	s.currentIDDepths = make([]int, s.threads)
+	s.impureEvents = make([]impureCounter, s.threads)
 	s.currentIDDepths[0] = -1
 	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
@@ -1565,92 +1565,14 @@ searchLoop:
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
-	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen
+	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen.
+	// ABDADA: lazy SMP's speed came from the main thread taking the values its
+	// deeper-searching helpers stored, which a fixed-depth search cannot use,
+	// and without them ABDADA was faster at every thread count we measured.
 	if s.threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
-		// Generate initial moves to determine branching factor
-		s.currentIDDepths = make([]int, 1)
-		s.currentIDDepths[0] = -1
-		s.initialMoves = make([][]tinymove.SmallMove, 1)
-		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
-
-		rootMoves := len(s.initialMoves[0])
-
-		// Quick decisions without probe
-		if rootMoves < 50 {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting LazySMP (few root moves)")
-			s.SetLazySMP(true)
-		} else if rootMoves > 500 {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting ABDADA (very high branching factor)")
-			s.SetABDADA(true)
-		} else {
-			// Run a 4-ply probe with 2-second timeout to measure EBF
-			probePlies := 4
-			if probePlies > plies {
-				probePlies = plies
-			}
-
-			// Create timeout context for probe
-			probeCtx, probeCancel := context.WithTimeout(ctx, 2*time.Second)
-
-			// Temporarily enable LazySMP for probe
-			s.lazySMPOptim = true
-			s.ttable.ResetStats()
-
-			log.Info().Int("probe-plies", probePlies).Int("root-moves", rootMoves).Msg("running probe for auto-selection")
-			err := s.iterativelyDeepenLazySMP(probeCtx, probePlies)
-			probeCancel()
-
-			probeTimedOut := err == context.DeadlineExceeded
-			probeCompleted := err == nil
-
-			// Calculate EBF from probe stats
-			created := s.ttable.Created()
-			var ebf float64
-			if created > 0 && probePlies > 0 {
-				ebf = math.Pow(float64(created), 1.0/float64(probePlies))
-			}
-
-			log.Info().
-				Uint64("created", created).
-				Float64("ebf", ebf).
-				Int("root-moves", rootMoves).
-				Int("threads", s.threads).
-				Bool("timed-out", probeTimedOut).
-				Msg("probe stats for auto-selection")
-
-			// If probe completed the full solve and we don't need multiple variations, we're done
-			if probeCompleted && probePlies >= plies && s.solveMultipleVariations <= 1 {
-				log.Info().Msg("probe completed full solve")
-				return nil
-			}
-
-			// Apply heuristic based on EBF
-			// EBF >= 17: ABDADA (bushy tree)
-			// EBF < 12: LazySMP (narrow tree)
-			// 12-17 with many threads and EBF >= 15: try ABDADA
-			// Otherwise: LazySMP (safe default)
-			if ebf >= 17.0 {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting ABDADA (high EBF)")
-				s.lazySMPOptim = false
-				s.SetABDADA(true)
-			} else if ebf < 12.0 {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (low EBF)")
-				// Already set to LazySMP
-			} else if s.threads >= 16 && ebf >= 15.0 {
-				log.Info().Float64("ebf", ebf).Int("threads", s.threads).Msg("auto-selecting ABDADA (high thread count, moderate EBF)")
-				s.lazySMPOptim = false
-				s.SetABDADA(true)
-			} else {
-				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (default)")
-				// Already set to LazySMP
-			}
-
-			// Continue with full solve - TT entries from probe are kept
-			// Reset stats for clean metrics on full solve
-			s.ttable.ResetStats()
-			// Reset variations from probe - they should come from the actual solve
-			s.variations = []PVLine{}
-		}
+		log.Info().Int("threads", s.threads).Msg("auto-selecting ABDADA")
+		s.initialMoves = nil
+		s.SetABDADA(true)
 	}
 
 	// Dispatch to the appropriate algorithm, wrapping with multiple variations if needed
@@ -1668,8 +1590,12 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		}
 	}
 
-	// Single variation - call algorithm directly
-	if s.lazySMPOptim {
+	// Single variation - call algorithm directly. The parallel searches need
+	// at least two plies, and a one-ply search gains nothing from threads, so
+	// it runs single-threaded.
+	if plies < 2 {
+		// fall through to the single-threaded search
+	} else if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)
@@ -1677,6 +1603,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		return s.iterativelyDeepenTreeSplit(ctx, plies)
 	}
 	s.currentIDDepths = make([]int, 1)
+	s.impureEvents = make([]impureCounter, 1)
 	g := s.game
 
 	initialHashKey := uint64(0)
@@ -1739,6 +1666,19 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
+// impureCounter is one thread's count of the leaves of unfinished games and
+// the hits on impure table entries its search has met. A node whose search
+// leaves the count unchanged reached only finished games, so it is stored
+// pure. reach is how many plies the node just searched needed to reach them
+// all: its value holds at that depth and every greater one, but not at a
+// smaller one, where some of those lines would be cut off and estimated. The
+// padding keeps each thread's counter on its own cache line.
+type impureCounter struct {
+	n     uint64
+	reach uint64
+	_     [48]byte
+}
+
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -1755,16 +1695,50 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if !(pvNode || α == β-1) {
 		panic("bad conditions")
 	}
+	impure := &s.impureEvents[thread].n
+	impureAtEntry := *impure
+	// The plies this node's value needs, if it turns out pure.
+	reach := &s.impureEvents[thread].reach
+	maxReach := uint64(0)
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
-		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
+		// An entry's value is this node's value only if it was searched to
+		// the same depth, or if it is pure (its search reached only finished
+		// games) and needed no more plies than this node has left: a node
+		// with fewer cuts some of those lines off and estimates them. Nodes meet
+		// entries from other depths through passes (the moves A, Z, B and
+		// pass, Z, A, pass, B reach the same position, the second with two
+		// fewer plies left) and through threads searching other depths, and
+		// which ones a solve meets depends on thread timing. A deeper entry's
+		// move is still the best guess for ordering.
+		entryDepth := ttEntry.depth()
+		usable := ttEntry.valid() && (entryDepth == uint8(depth) ||
+			(ttEntry.pure() && entryDepth <= uint8(depth)))
+		if !usable && ttEntry.valid() && entryDepth > uint8(depth) {
+			ttMove = ttEntry.getPlay()
+		} else if usable {
+			if ttEntry.pure() {
+				maxReach = max(maxReach, uint64(entryDepth))
+			} else {
+				*impure++
+			}
 			score := ttEntry.getScore()
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
+			// The root never returns from the table: its caller needs a
+			// move. It narrows its window only while the window stays open.
+			root := depth == s.requestedPlies || (depth > 0 && depth == s.currentIDDepths[thread])
 			if flag == TTExact {
 				if !pvNode {
+					*reach = maxReach
 					return score, nil
+				}
+			} else if root {
+				if flag == TTLower && score > α && score < β {
+					α = score
+				} else if flag == TTUpper && score < β && score > α {
+					β = score
 				}
 			} else if flag == TTLower {
 				α = max(α, score)
@@ -1772,9 +1746,13 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				β = min(β, score)
 			}
 			if α >= β {
-				if !pvNode { // don't cut off PV node
-					return score, nil
-				}
+				// The stored bound shows this node can't improve the caller's
+				// window, so return it at PV nodes too. Searching on with
+				// α >= β gives every child an inverted window, and a bound on
+				// the wrong side comes back as the node's value. A line cut
+				// short here is finished by completeLine.
+				*reach = maxReach
+				return score, nil
 			}
 			// search hash move first.
 			ttMove = ttEntry.getPlay()
@@ -1782,6 +1760,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
+		if g.Playing() == pb.PlayState_PLAYING {
+			*impure++
+		}
 		// Evaluate the state. If the game is still going, play it out greedily
 		// from here; otherwise the spread is already final.
 		if s.useHeuristics && g.Playing() == pb.PlayState_PLAYING {
@@ -1803,12 +1784,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 						tinymove.InvalidTinyMove)
 				}
 			}
+			*reach = 0
 			return val, nil
 		}
 		// Nothing follows this node, so don't leave a sibling's variation
 		// sitting in the caller's line.
 		pv.Clear()
 		spreadNow := g.SpreadFor(g.PlayerOnTurn())
+		*reach = 0
 		return int16(spreadNow), nil
 	}
 	childPV := PVLine{g: g}
@@ -1907,6 +1890,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			return value, err
 		}
 		g.UnplayLastMove()
+		maxReach = max(maxReach, *reach+1)
 
 		// ABDADA: finished searching this move
 		if s.abdadaOptim {
@@ -1981,6 +1965,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				return value, err
 			}
 			g.UnplayLastMove()
+			maxReach = max(maxReach, *reach+1)
 			s.abdadaTable.finishedSearch(nodeKey, children[idx])
 
 			if -value > bestValue {
@@ -2014,9 +1999,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		} else {
 			flag = TTExact
 		}
-		flagAndDepth := flag<<6 + uint8(depth)
+		pure := *impure == impureAtEntry
+		storedDepth := uint8(min(depth, depthMask))
+		if pure {
+			storedDepth = uint8(maxReach)
+		}
+		flagAndDepth := flag<<6 + storedDepth
 		play := bestMove.TinyMove()
-		s.ttable.store(nodeKey, score, flagAndDepth, play)
+		s.ttable.storeEntry(nodeKey, score, flagAndDepth, play, pure)
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
 			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
@@ -2027,6 +2017,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			fmt.Fprintf(s.logStream, " cgp: %v\n\n", g.ToCGP(false))
 		}
 	}
+	*reach = maxReach
 	return bestValue, nil
 
 }
@@ -2285,6 +2276,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	}
 	if s.currentIDDepths == nil {
 		s.currentIDDepths = make([]int, 1) // a hack; allocate once per solver lifetime
+		s.impureEvents = make([]impureCounter, 1)
 	}
 	pv := PVLine{g: s.game}
 	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0, true)
