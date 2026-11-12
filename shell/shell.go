@@ -1690,11 +1690,20 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 			p.BotCode = pb.BotRequest_BotCode(code)
 		}
 	}
+	if v := options.String("leavefile" + suffix); v != "" {
+		p.LeaveFile = v
+	}
+	if v := options.String("pegfile" + suffix); v != "" {
+		p.PegFile = v
+	}
 	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
 		p.MinSimPlies = int32(v)
 	}
 	if v, err := options.IntDefault("fixedsimplies"+suffix, -1); err == nil && v >= 0 {
 		p.FixedSimPlies = int32(v)
+	}
+	if v, err := options.IntDefault("simplays"+suffix, -1); err == nil && v > 0 {
+		p.SimPlays = int32(v)
 	}
 	if v := options.String("tritonmodel" + suffix); v != "" {
 		p.TritonModel = v
@@ -1716,6 +1725,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	}
 	if v, err := options.IntDefault("inferencebudget"+suffix, -1); err == nil && v >= 0 {
 		p.InferenceBudget = int32(v)
+	}
+	if options.Bool("stochastic" + suffix) {
+		p.StochasticStaticEval = true
 	}
 	if options.Bool("oracle" + suffix) {
 		p.OracleInference = true
@@ -2037,12 +2049,15 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 	log.Debug().Msgf("Exiting readline loop...")
 }
 
-func (sc *ShellController) Execute(sig chan os.Signal, line string) {
+// Execute runs one command line (the shell's command-line mode) and returns
+// its error, after showing it, so the caller can exit non-zero.
+func (sc *ShellController) Execute(sig chan os.Signal, line string) error {
 	defer sc.l.Close()
 	if sc.curMode == StandardMode {
 		resp, err := sc.standardModeSwitch(line, sig)
 		if err != nil {
 			sc.showError(err)
+			return err
 		} else if resp != nil {
 			sc.showMessage(resp.message)
 		}
@@ -2050,6 +2065,8 @@ func (sc *ShellController) Execute(sig chan os.Signal, line string) {
 		err := sc.endgameDebugModeSwitch(line, sig)
 		if err != nil {
 			sc.showError(err)
+			return err
 		}
 	}
+	return nil
 }

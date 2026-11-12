@@ -59,7 +59,7 @@ if ! ./copy_model.sh "$MODEL" "$CKPT"; then
     log "NOT RUNNING MATCH: copy_model.sh failed"
     exit 1
 fi
-VER_DIR=$(ls -d "$REPO/data/strategy/default/models/$MODEL"/[0-9]* | sort -V | tail -1)
+VER_DIR=$(ls -d "${MODELS_ROOT:-$REPO/data/strategy/default/models}/$MODEL"/[0-9]* | sort -V | tail -1)
 VER=$(basename "$VER_DIR")
 log "installed version $VER at $VER_DIR"
 
@@ -78,11 +78,14 @@ if ! ./triton-models.sh load "$MODEL" "$VER"; then
 fi
 
 # --- match -----------------------------------------------------------------
+# Both bots search close endgames, as the training games did (QUICK_ENDGAME;
+# set it empty for static endgames).
+QUICK_ENDGAME=${QUICK_ENDGAME-"-quickendgame 2 -quickendgamemargin 60 -quickendgamecap 250"}
 cd "$REPO"
 log "starting paired match: FAST_ML_BOT($MODEL v$VER) vs HASTY_BOT, ${LEXICON:-NWL23}, 100k pairs, 12 threads"
 setsid nohup env MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_URL=localhost:8101 \
     MACONDO_TRITON_MODEL_NAME=$MODEL MACONDO_TRITON_MODEL_VERSION=$VER \
-    ./bin/shell autoplay -botcode1 FAST_ML_BOT -botcode2 HASTY_BOT -lexicon ${LEXICON:-NWL23} -numgames 100000 \
+    ./bin/shell autoplay -botcode1 FAST_ML_BOT -botcode2 HASTY_BOT -lexicon ${LEXICON:-NWL23} $QUICK_ENDGAME -numgames 100000 \
     -gamepairs true -threads 12 -block true -experimentid $EXP \
     > $EXP.log 2>&1 < /dev/null &
 sleep 90

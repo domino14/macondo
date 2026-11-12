@@ -26,7 +26,7 @@ import (
 
 // Config holds configuration for the explainer service
 type Config struct {
-	Provider  string // "gemini", "openai", "openrouter", or "deepseek"
+	Provider  string // "gemini", "openai", "openrouter", "deepseek", or "llamacpp"
 	APIKey    string
 	Model     string
 	BaseURL   string // optional: override base URL (e.g. for LM Studio at http://127.0.0.1:1234/v1)
@@ -189,6 +189,11 @@ func (s *Service) Explain(ctx context.Context, in *ExplainInput) (*ExplainResult
 			return nil, fmt.Errorf("failed to generate explanation: %w", err)
 		}
 		result.Explanation = resp.Content
+		if s.config.Provider == "llamacpp" {
+			result.Explanation = afterThinking(resp.Content)
+		}
+		// Kept as it came back, even when the explanation was cleaned up: this
+		// is what you read to find out what the model really sent.
 		response = resp.Content
 		if resp.Usage != nil {
 			result.InputTokens = resp.Usage.InputTokens
@@ -243,7 +248,7 @@ var transientStatuses = map[int]bool{
 // it is only wired into Generate and Chat - never into the tool-calling path
 // this uses - so retrying is ours to do.
 //
-// Only the OpenAI-protocol providers (openai, openrouter, and any local server
+// Only the OpenAI-protocol providers (openai, openrouter, and llama.cpp
 // behind them) report a status code we can read. Gemini and DeepSeek errors
 // come back untyped and so are never retried.
 func generateWithRetry(ctx context.Context, client interfaces.LLM, prompt *Prompt,
@@ -335,6 +340,9 @@ func (s *Service) createClient(ctx context.Context) (interfaces.LLM, error) {
 	case "deepseek":
 		log.Info().Msg("Using DeepSeek client")
 		return s.createDeepSeekClient()
+	case "llamacpp":
+		log.Info().Msg("Using llama.cpp client")
+		return s.createLlamaCppClient()
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", s.config.Provider)
 	}
@@ -433,6 +441,10 @@ func DefaultConfig(macondoConfig *macondo.Config) *Config {
 	case "deepseek":
 		apiKey = macondoConfig.GetString(macondo.ConfigDeepseekApiKey)
 		model = macondoConfig.GetString(macondo.ConfigDeepseekModel)
+	case "llamacpp":
+		apiKey = macondoConfig.GetString(macondo.ConfigLlamaCppApiKey)
+		model = macondoConfig.GetString(macondo.ConfigLlamaCppModel)
+		baseURL = macondoConfig.GetString(macondo.ConfigLlamaCppBaseURL)
 	}
 
 	useQuirky := os.Getenv("GENAI_QUIRKY") != ""

@@ -160,7 +160,7 @@ func (ev *Evaluator) Regrets(b *board.GameBoard, plays []*move.Move) ([]WordRegr
 
 // firstAvoiding returns the equity of the best move none of whose formed words
 // is in the excluded set, and false (with a pass's equity) if there is none in
-// the list.
+// the list. A pass counts as StaticPassPenalty, as on the Go engine.
 func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, excluded func(Key) bool) (float64, bool) {
 	for i := 1; i < len(plays); i++ {
 		ok := true
@@ -171,6 +171,12 @@ func (ev *Evaluator) firstAvoiding(b *board.GameBoard, plays []*move.Move, exclu
 			}
 		}
 		if ok {
+			if plays[i].Action() == move.MoveTypePass {
+				// A pass is worth StaticPassPenalty here whatever the engine
+				// says: MAGPIE gives it a huge negative sentinel once the bag
+				// is empty, which would turn into a regret of ~2 million.
+				return turnplayer.StaticPassPenalty, true
+			}
 			return plays[i].Equity(), true
 		}
 	}

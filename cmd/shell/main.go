@@ -111,10 +111,11 @@ func main() {
 	argsLineTrimmed := strings.TrimSpace(argsLine)
 
 	sc := shell.NewShellController(cfg, exPath, GitVersion)
+	var cmdErr error
 	if argsLineTrimmed == "" {
 		go sc.Loop(sig)
 	} else {
-		sc.Execute(sig, argsLineTrimmed)
+		cmdErr = sc.Execute(sig, argsLineTrimmed)
 		sig <- syscall.SIGINT
 	}
 
@@ -141,4 +142,9 @@ func main() {
 
 	sc.Cleanup()
 	log.Info().Msg("server gracefully shutting down")
+	if cmdErr != nil {
+		// A failed command-line command (a script's autoplay, say) must
+		// not look like success.
+		os.Exit(1)
+	}
 }

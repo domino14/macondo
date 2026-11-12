@@ -688,6 +688,13 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 		return err
 	}
 	s.resetStats(plies, plays)
+	// After resetStats, which sizes the copies' state stacks for a plain
+	// rollout; endgame searches need deeper ones.
+	if err := s.prepareEndgameLeaves(); err != nil {
+		// The sim still runs; its rollouts play endgames out statically.
+		log.Err(err).Msg("endgame-leaves-unavailable")
+		s.egSolvers = nil
+	}
 	s.readyToSim = true
 	s.knownOppRack = nil
 	s.inferenceMode = InferenceOff

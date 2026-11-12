@@ -70,10 +70,11 @@ def main():
         L = x["len"]
         al = x["alpha"]
         f = [1.0]
-        # Lengths 3-10 get their own level; 11+ share one with a linear slope,
-        # since few long alphagrams are well measured.
+        # Lengths 3-11 get their own level. 12+ have almost no well-measured
+        # alphagrams (0-2 per lexicon), so they share 11's level and the step
+        # from 10 to 11 is extended per extra letter (see the fit below).
         f += [1.0 if L == k else 0.0 for k in range(3, 11)]
-        f += [1.0 if L >= 11 else 0.0, max(L - 10, 0)]
+        f += [1.0 if L >= 11 else 0.0]
         lc = math.log(max(x["combos"], 1.0))
         f += [lc, lc * L / 7.0]
         f += [math.log1p(len(x["words"])), math.log1p(x["hooks"])]
@@ -84,10 +85,14 @@ def main():
     X = np.array([feats(x) for x in rows])
     y = np.array([math.log(x["est"] + delta) for x in rows])
     vy = np.array([(x["se"] / (x["est"] + delta)) ** 2 for x in rows])
-    good = np.array([x["est"] > 0 and x["se"] / x["est"] < 0.25 for x in rows])
+    good = np.array([x["est"] > 0 and x["se"] / x["est"] < 0.25 and x["len"] <= 11 for x in rows])
     print(f"games {G:.0f}; prior fit on {good.sum()} well-measured alphagrams of {len(rows)}")
     beta, *_ = np.linalg.lstsq(X[good], y[good], rcond=None)
-    mu = X @ beta
+    # Columns 1-8 are the 3..10 levels, 9 is 11+. Extend the 10 -> 11 step
+    # (the length-by-probability term carries on by itself).
+    step = beta[9] - beta[8]
+    print(f"prior level step per letter past 11 (log): {step:.2f}")
+    mu = X @ beta + step * np.array([max(x["len"] - 11, 0) for x in rows])
     resid = y[good] - mu[good]
     tau2 = max(float(np.mean(resid**2) - np.mean(vy[good])), 0.05)
     print(f"prior residual sd (log) {math.sqrt(tau2):.2f}")

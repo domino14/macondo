@@ -43,7 +43,10 @@ type GameRunner struct {
 	logchan            chan string
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
-	order              [2]int
+	// quickEndgame[i]: player i plays close endgames with a quick search
+	// (QuickEndgamePlies > 0), which HastyBot's static shortcut would skip.
+	quickEndgame [2]bool
+	order        [2]int
 	// threads is the number of concurrent games in the parent autoplay run.
 	// Used to divide the TT memory fraction and default endgame thread counts.
 	threads int
@@ -123,6 +126,7 @@ type AutomaticRunnerPlayer struct {
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
 	FixedSimPlies        int
+	SimPlays             int
 	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
@@ -144,8 +148,10 @@ type AutomaticRunnerPlayer struct {
 	QuickEndgameCapMs  int
 	// QuickEndgameNoPrune: no pruned word graph for the quick solves.
 	QuickEndgameNoPrune bool
-	OracleInference     bool
-	ExternalEngine      *externalengine.Config // nil unless BotCode == CUSTOM_BOT
+	// NoSimEndgameLeaves: the sims play endgames out statically.
+	NoSimEndgameLeaves bool
+	OracleInference    bool
+	ExternalEngine     *externalengine.Config // nil unless BotCode == CUSTOM_BOT
 	// EndgameThreads / PreendgameThreads: threads inside a single solve.
 	// 0 means "default" — the runner resolves it to max(1, NumCPU/concurrentGames).
 	EndgameThreads    int
@@ -236,6 +242,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			LeavesFile:                   leavefile,
 			MinSimPlies:                  players[idx].MinSimPlies,
 			FixedSimPlies:                players[idx].FixedSimPlies,
+			SimPlays:                     players[idx].SimPlays,
 			TritonModel:                  players[idx].TritonModel,
 			SimThreads:                   simThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,
@@ -250,6 +257,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
 			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
 			QuickEndgameNoPrune:          players[idx].QuickEndgameNoPrune,
+			NoSimEndgameLeaves:           players[idx].NoSimEndgameLeaves,
 			OracleInference:              players[idx].OracleInference,
 			EndgameTTable:                gameTT,
 			EndgameTTableFraction:        perGameFraction,
@@ -262,6 +270,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			return err
 		}
 		r.aiplayers[idx] = btp
+		r.quickEndgame[idx] = players[idx].QuickEndgamePlies > 0
 
 	}
 	r.order = [2]int{0, 1}
@@ -349,8 +358,10 @@ func (r *GameRunner) genStochasticStaticTurn(playerIdx int) *move.Move {
 }
 
 func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
-	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
-		// For HastyBot we only need to generate one single best static turn.
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT &&
+		!(r.quickEndgame[playerIdx] && r.game.Bag().TilesRemaining() == 0) {
+		// For HastyBot we only need to generate one single best static turn,
+		// except in an endgame it may search (BestPlay's quick endgame).
 		return r.genBestStaticTurn(playerIdx), nil
 	}
 	maxTime := MaxTimePerTurn
@@ -377,10 +388,13 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
 	}
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
-	if err != nil && r.aiplayers[playerIdx].GetBotType() != pb.BotRequest_CUSTOM_BOT {
+	if bt := r.aiplayers[playerIdx].GetBotType(); err != nil &&
+		bt != pb.BotRequest_CUSTOM_BOT && bt != pb.BotRequest_FAST_ML_BOT {
 		// A built-in bot that fails (a solver error, say) plays its best
 		// static move, so the game still finishes and counts. An external
-		// engine failing is a broken setup, and stops the game.
+		// engine or the ML bot failing is a broken setup (for the ML bot, an
+		// unserved model, which would otherwise quietly play HastyBot's
+		// moves), and stops the run.
 		log.Err(err).Int("playerIdx", playerIdx).Msg("bot-error-playing-static-move")
 		return r.genBestStaticTurn(playerIdx), nil
 	}

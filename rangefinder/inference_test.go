@@ -417,8 +417,7 @@ func TestTauSchedule(t *testing.T) {
 	}
 }
 
-// The fitted curve hits its knots, interpolates between them in log tau,
-// falls as the bag fills, and holds its end values outside them.
+// A cap clips the scheduled temperature late and leaves it alone early.
 func TestTauCap(t *testing.T) {
 	r := &RangeFinder{}
 	r.SetTauCap(0.05)
@@ -437,6 +436,8 @@ func TestTauCap(t *testing.T) {
 	}
 }
 
+// The fitted curve hits its knots, interpolates between them in log tau,
+// falls as the bag fills, and holds its end values outside them.
 func TestTauFitted(t *testing.T) {
 	for _, k := range fittedTauKnots {
 		if got := tauFittedForBag(k.bag); math.Abs(got-k.tau) > 1e-12 {

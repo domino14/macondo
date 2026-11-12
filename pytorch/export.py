@@ -12,6 +12,7 @@ import onnx
 import torch
 
 from training import build_model, load_state_dict_compat, C, H, W, N_SCAL
+from features import check_letters
 
 # Heads exported, in output order. `value` is what the bot ranks on; `spread`
 # is the predicted spread change (decided-game ranking, the simmer's equity
@@ -49,6 +50,7 @@ class ModelWrapper(torch.nn.Module):
 
 def load_net(ckpt_path):
     ckpt = torch.load(ckpt_path, map_location="cpu")
+    check_letters(ckpt, ckpt_path)
     arch = ckpt.get("arch", "cnn")
     hparams = ckpt.get("hparams", {"ch": 96, "blocks": 10})
     net = build_model(arch, hparams)

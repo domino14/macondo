@@ -154,6 +154,8 @@ message BotRequest {
     SIMMING_WITH_ML_EVAL_BOT = 16;
     // No-endgame variants: sim only, no preendgame or endgame solver.
     // Used for controlled experiments isolating midgame sim quality.
+    // With the bag empty they play the static best move, or, when autoplay's
+    // -quickendgame is set, the quick N-ply search every non-solving bot uses.
     SIMMING_BOT_NO_EG = 17;
     SIMMING_INFER_BOT_NO_EG = 18;
     // custom bots can be used to run custom algorithms.
@@ -187,6 +189,9 @@ message SingleEvaluation {
   bool possible_star_play = 4;
   bool missed_star_play = 5;
   bool top_is_bingo = 6;
+  // The main word formed by the top (highest-equity) move, with designated
+  // blanks in lowercase. Empty if the top move is not a tile placement.
+  string top_move_word = 7;
 }
 
 message BotResponse {
@@ -517,14 +522,24 @@ message AutoplayPlayerConfig {
   // preendgame_threads sets the number of threads used inside a single
   // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
   int32 preendgame_threads = 23;
+  // sim_plays, when positive, is how many of the top plays by static equity
+  // a simming bot starts its sim from (default 100). Lets a sim bot consider
+  // as many plays as FastMlBot ranks.
+  int32 sim_plays = 24;
   // inference_tau_cap caps the inference temperature, pinned or scheduled.
-  // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap of
-  // 0.05 keeps its early values and sharpens only the late reads. 0 = no cap.
-  double inference_tau_cap = 24;
+  // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
+  // keeps its early values and sharpens only the late reads. On master 0 means
+  // the bot's default cap (0.1); on this lab branch 0 means no cap.
+  double inference_tau_cap = 25;
+  // no_sim_endgame_leaves makes a simming bot's sims play endgames out with
+  // static moves. By default a sim of a position with one or two tiles in the
+  // bag searches each endgame its rollouts reach (a quick 2-ply result-only
+  // search, cached per sim) instead.
+  bool no_sim_endgame_leaves = 26;
   // sim_endgame_leaves makes this bot's sim solve the endgames its rollouts
   // reach (MACONDO_SIM_EGPLIES and friends set how) instead of playing them
   // out with static moves. Off, the env knobs leave this bot alone.
-  bool sim_endgame_leaves = 25;
+  bool sim_endgame_leaves = 27;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
