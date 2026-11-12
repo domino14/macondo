@@ -11,6 +11,7 @@
 #   ./run-inference-experiment.sh --dry-run       # set up and stop before launching
 #   ./run-inference-experiment.sh --pairs 3       # a short smoke test first
 #   MACONDO_DIR=/scratch/macondo ./run-inference-experiment.sh
+#   MAGPIE_MARCH=x86-64-v2 ./run-inference-experiment.sh   # MAGPIE without AVX
 #
 set -euo pipefail
 
@@ -28,7 +29,7 @@ while [ $# -gt 0 ]; do
     --threads)  THREADS="$2"; shift 2 ;;
     --dir)      MACONDO_DIR="$2"; shift 2 ;;
     --branch)   BRANCH="$2"; shift 2 ;;
-    -h|--help)  sed -n '2,14p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    -h|--help)  sed -n '2,15p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *)          echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -70,8 +71,13 @@ else
 fi
 echo "  now at $(git rev-parse --short HEAD)  $(git log -1 --format=%s)"
 
+# MAGPIE (the move generator) is a submodule; the build compiles it.
+git submodule sync --quiet
+git submodule update --init third_party/magpie
+
 # -------------------------------------------------------------------- build
 say "Building"
+command -v cc >/dev/null || die "no C compiler (cc) on PATH; MAGPIE is built from source"
 make macondo_shell
 [ -x ./bin/shell ] || die "build finished but ./bin/shell is missing"
 
@@ -148,6 +154,7 @@ cat <<EOF
   pairs         $NUMGAMES   (= $((NUMGAMES * 2)) games; numGames counts PAIRS)
   threads       $THREADS concurrent games, 1 sim thread + 1 inference thread each
   lexicon       $LEX
+  MAGPIE        -march=${MAGPIE_MARCH:-native}
   experiment    $EXPID
   estimate      ~$EST_HOURS hours
   output        $MACONDO_DIR/experiments/games-$EXPID.txt

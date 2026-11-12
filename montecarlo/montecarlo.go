@@ -32,6 +32,7 @@ import (
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
@@ -280,6 +281,13 @@ type Simmer struct {
 	origGame *game.Game
 
 	gameCopies []*game.Game
+	// egSolvers solve the endgames rollouts reach (see endgame_leaf.go).
+	egSolvers     []*negamax.Solver
+	endgameLeaves bool
+	egCap         time.Duration // 0 = egLeafCap
+	egTable       *negamax.TranspositionTable
+	egKWG         *magpie.KWG
+	egCache       sync.Map // egLeafKey -> final spread for the player on turn
 	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
@@ -339,13 +347,6 @@ type Simmer struct {
 	rotations int
 	// logMu serializes log writes from several sample workers.
 	logMu sync.Mutex
-
-	// Endgame leaves (endgame_leaf.go): noEndgameLeaves turns them off;
-	// egSolvers search the endgames the rollouts reach, one per thread, and
-	// egCache keeps each searched endgame's result for the rest of the sim.
-	noEndgameLeaves bool
-	egSolvers       []*negamax.Solver
-	egCache         sync.Map
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -611,6 +612,10 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	for _, g := range s.gameCopies {
 		g.SetStateStackLength(1)
 	}
+	if err := s.prepareEndgameLeaves(); err != nil {
+		log.Error().Err(err).Msg("endgame-leaves")
+		s.egSolvers = nil
+	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
 	s.baiRunner = nil
@@ -668,6 +673,10 @@ func (s *Simmer) releaseGameCopies() {
 
 func (s *Simmer) Reset() {
 	s.releaseGameCopies()
+	if s.egKWG != nil {
+		s.egKWG.Close()
+		s.egKWG = nil
+	}
 	s.gameCopies = nil
 	s.readyToSim = false
 }

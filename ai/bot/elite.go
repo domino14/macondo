@@ -21,6 +21,15 @@ import (
 
 const InferencesSimLimit = 2
 
+// ExternalRead, when set, supplies the opponent read for a position in place
+// of the bot's own inference: a lab hook for reads computed elsewhere (by the
+// net, on a machine with a GPU). ok false falls back to the bot's own read.
+var ExternalRead func(g *game.Game) (racks []montecarlo.InferredRack, rackLength int, ok bool)
+
+// ReadAdjust, when set, reweights the bot's own complete posterior before the
+// sim uses it: a lab hook for combining it with a read computed elsewhere.
+var ReadAdjust func(g *game.Game, racks []montecarlo.InferredRack) []montecarlo.InferredRack
+
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
 
@@ -254,7 +263,13 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	var cancel context.CancelFunc
 	inferenceRan := false
 	p.lastInfoBits = math.NaN()
-	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
+	var extRacks []montecarlo.InferredRack
+	var extLen int
+	extOK := false
+	if HasInfer(p.botType) && ExternalRead != nil && p.Game.Bag().TilesRemaining() > 0 {
+		extRacks, extLen, extOK = ExternalRead(p.Game)
+	}
+	if HasInfer(p.botType) && !extOK && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.setupInferencer(p.inferencer, p.Game)
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
@@ -298,7 +313,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if p.simThreads != 0 {
 		p.simmer.SetThreads(p.simThreads)
 	}
-	p.simmer.SetEndgameLeaves(!p.cfg.NoSimEndgameLeaves)
+	// This branch's leaves are a lab knob: on for bots with SimEndgameLeaves
+	// (and MACONDO_SIM_EGPLIES set); NoSimEndgameLeaves turns them off.
+	p.simmer.SetEndgameLeaves(p.cfg.SimEndgameLeaves && !p.cfg.NoSimEndgameLeaves)
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	if p.cfg.StochasticStaticEval {
@@ -307,6 +324,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
+	if extOK {
+		logger.Info().Int("inferences", len(extRacks)).Msg("using external read in sim")
+		p.simmer.SetInferences(extRacks, extLen, montecarlo.InferenceCompletePosterior)
+	}
 	if HasInfer(p.botType) && inferenceRan {
 		p.lastInfoBits = p.inferencer.InfoBits()
 	}
@@ -324,6 +345,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			if carried, ok := p.carryRead(); ok {
 				racks = carried
 			}
+			racks = leaveQualityReweight(p.Game, racks, leaveValuer(p.simmerCalcs))
+			if ReadAdjust != nil {
+				racks = ReadAdjust(p.Game, racks)
+			}
 			p.simmer.SetInferences(racks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
 		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
@@ -335,6 +360,11 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if HasInfer(p.botType) && inferenceRan {
 		// After the carry above, which reads the one kept last turn.
 		p.cacheRead()
+	}
+	if !HasInfer(p.botType) {
+		if racks, k, ok := leaveQualityPure(p.Game, leaveValuer(p.simmerCalcs)); ok {
+			p.simmer.SetInferences(racks, k, montecarlo.InferenceCompletePosterior)
+		}
 	}
 	if p.cfg.UseOppRacksInAnalysis {
 		oppRack := p.Game.RackFor(p.Game.NextPlayer())
@@ -362,24 +392,6 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	return play.Move(), nil
 }
 
-// DefaultInferenceTauCap caps the inference temperature when the bot config
-// sets no cap. The fitted tau schedule is very flat late in the game (about
-// 0.45 at bag 7, 2.5 at bag 2); capping it at 0.1 sharpens only the late
-// reads (bag ~17 and below). Paired 2-ply matches against the uncapped bot:
-// +0.14 ± 0.13 win % over 18,186 pairs (docs/inference_experiments.md).
-const DefaultInferenceTauCap = 0.1
-
-// inferenceTauCap resolves a configured cap: 0 is the default, negative none.
-func inferenceTauCap(c float64) float64 {
-	switch {
-	case c == 0:
-		return DefaultInferenceTauCap
-	case c < 0:
-		return 0
-	}
-	return c
-}
-
 // setupInferencer readies rf to read the opponent in g with the bot's
 // inference settings.
 func (p *BotTurnPlayer) setupInferencer(rf *rangefinder.RangeFinder, g *game.Game) {
@@ -393,7 +405,7 @@ func (p *BotTurnPlayer) setupInferencer(rf *rangefinder.RangeFinder, g *game.Gam
 	if p.cfg.InferenceTauScale > 0 {
 		rf.SetTauScale(p.cfg.InferenceTauScale)
 	}
-	rf.SetTauCap(inferenceTauCap(p.cfg.InferenceTauCap))
+	rf.SetTauCap(p.cfg.InferenceTauCap)
 	if p.cfg.InferenceSimIters > 0 {
 		rf.SetSimIters(p.cfg.InferenceSimIters)
 	}

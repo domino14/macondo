@@ -50,9 +50,15 @@ type BotConfig struct {
 	// InferenceTauScale multiplies the temperature in use, pinned or
 	// scheduled. 0 leaves it alone.
 	InferenceTauScale float64
-	// InferenceTauCap caps the temperature in use (after any scale). 0 means
-	// DefaultInferenceTauCap; negative means no cap.
+	// InferenceTauCap caps the temperature in use (after any scale). 0 = no
+	// cap.
 	InferenceTauCap float64
+	// SimEndgameLeaves lets the bot's own sim solve the endgames its
+	// rollouts reach, when MACONDO_SIM_EGPLIES is set (montecarlo).
+	SimEndgameLeaves bool
+	// SimEndgameLeafCap caps each of those solves; 0 keeps the montecarlo
+	// default (MACONDO_SIM_EGCAPMS).
+	SimEndgameLeafCap time.Duration
 	// InferenceMinInfoBits skips reads that moved less than this far from
 	// the tile counts (RangeFinder.InfoBits): the sim then runs as the plain
 	// sim bot's. 0 uses every read.
@@ -126,6 +132,9 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
+	// when there was none.
+	lastInfoBits float64
 	// prevRead is the last turn's read, for the two-turn read (carry.go).
 	prevRead *cachedRead
 	// endgameTTable is the bot's transposition table, shared between endgame
@@ -136,9 +145,6 @@ type BotTurnPlayer struct {
 	preendgameThreads int
 	// QuickEndgameSolves counts the moves chosen by the quick endgame search.
 	QuickEndgameSolves int
-	// lastInfoBits is the InfoBits of the read behind the last BestPlay, NaN
-	// when there was none.
-	lastInfoBits float64
 }
 
 // LastInferenceInfoBits is how informative the last turn's read was
@@ -253,6 +259,8 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			return nil, err
 		}
 		btp.simmer = &montecarlo.Simmer{}
+		btp.simmer.SetEndgameLeaves(conf.SimEndgameLeaves)
+		btp.simmer.SetEndgameLeafCap(conf.SimEndgameLeafCap)
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
@@ -571,4 +579,17 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 	m.CopyFrom(seq[0])
 	p.QuickEndgameSolves++
 	return m, true
+}
+
+// Release frees the MAGPIE positions the bot's last sim and endgame solve
+// copied, for a caller that is done with the bot.
+func (p *BotTurnPlayer) Release() {
+	if p.simmer != nil {
+		p.simmer.Reset()
+	}
+	if p.endgamer != nil {
+		if g := p.endgamer.Game(); g != nil {
+			g.ReleaseMagpie()
+		}
+	}
 }
