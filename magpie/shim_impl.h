@@ -521,7 +521,6 @@ int MGS(gen)(mg_pos *p, int record, int sort, int32_t margin, mg_move *out,
       .override_kwg = p->override_kwg,
       .eq_margin_movegen = margin,
       .target_equity = EQUITY_MAX_VALUE,
-      .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
   };
   generate_moves(&args);
   if (record != MG_RECORD_BEST) {
@@ -740,7 +739,6 @@ int MGS(gen_small)(mg_pos *p, int player, int gen_pass, mg_small_move *out,
       .override_kwg = p->override_kwg,
       .eq_margin_movegen = 0,
       .target_equity = EQUITY_MAX_VALUE,
-      .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
   };
   generate_moves(&args);
   const Board *board = game_get_board(p->game);
@@ -785,7 +783,6 @@ uint64_t MGS(tiles_played)(mg_pos *p, int player, uint64_t known) {
       .move_sort_type = MOVE_SORT_SCORE,
       .override_kwg = p->override_kwg,
       .target_equity = EQUITY_MAX_VALUE,
-      .target_leave_size_for_exchange_cutoff = UNSET_LEAVE_SIZE,
       .tiles_played_bv = &bv,
       .initial_tiles_bv = known,
   };
