@@ -1726,10 +1726,19 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
+			// The root never returns from the table: its caller needs a
+			// move. It narrows its window only while the window stays open.
+			root := depth == s.requestedPlies || depth == s.currentIDDepths[thread]
 			if flag == TTExact {
 				if !pvNode {
 					*reach = maxReach
 					return score, nil
+				}
+			} else if root {
+				if flag == TTLower && score > α && score < β {
+					α = score
+				} else if flag == TTUpper && score < β && score > α {
+					β = score
 				}
 			} else if flag == TTLower {
 				α = max(α, score)
