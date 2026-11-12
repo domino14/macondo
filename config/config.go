@@ -46,6 +46,9 @@ const (
 	ConfigOpenrouterModel                  = "openrouter-model"
 	ConfigOpenrouterBaseURL                = "openrouter-base-url"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
+	ConfigLlamaCppApiKey                   = "llamacpp-api-key"
+	ConfigLlamaCppModel                    = "llamacpp-model"
+	ConfigLlamaCppBaseURL                  = "llamacpp-base-url"
 	ConfigWooglesApiKey                    = "woogles-api-key"
 	ConfigWooglesURL                       = "woogles-url"
 	ConfigAliases                          = "aliases"
@@ -135,6 +138,9 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigOpenrouterModel)
 	c.BindEnv(ConfigOpenrouterBaseURL)
 	c.BindEnv(ConfigDeepseekApiKey)
+	c.BindEnv(ConfigLlamaCppApiKey)
+	c.BindEnv(ConfigLlamaCppModel)
+	c.BindEnv(ConfigLlamaCppBaseURL)
 	c.BindEnv(ConfigWooglesApiKey)
 	c.BindEnv(ConfigWooglesURL)
 
@@ -194,6 +200,9 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigOpenrouterApiKey, "")
 	c.SetDefault(ConfigOpenrouterBaseURL, "https://openrouter.ai/api/v1")
 	c.SetDefault(ConfigDeepseekApiKey, "")
+	c.SetDefault(ConfigLlamaCppApiKey, "")
+	c.SetDefault(ConfigLlamaCppModel, "llamacpp") // llama-server answers with whatever it loaded
+	c.SetDefault(ConfigLlamaCppBaseURL, "http://127.0.0.1:8080/v1")
 	c.SetDefault(ConfigWooglesApiKey, "")
 	c.SetDefault(ConfigWooglesURL, "https://woogles.io")
 
@@ -237,6 +246,7 @@ func (c *Config) SanitizedSettings() map[string]interface{} {
 		ConfigOpenaiApiKey,
 		ConfigOpenrouterApiKey,
 		ConfigDeepseekApiKey,
+		ConfigLlamaCppApiKey,
 		ConfigWooglesApiKey,
 	}
 

@@ -310,10 +310,18 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 	g.PlayMove(simmedPlay.play, false, 0)
 	s.nodeCount.Add(1)
 	g.SetBackupMode(game.NoBackup)
+	egWin, egDone := 0.0, false
 	for ply := 0; ply < plies; ply++ {
 		onTurn := g.PlayerOnTurn()
 		if g.Playing() != pb.PlayState_PLAYING {
 			break
+		}
+		if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && endgameLeafClose(g) {
+			// The bag is empty: search the endgame rather than play it out
+			// with static moves (see endgame_leaf.go).
+			if egWin, egDone = s.endgameLeaf(g, thread); egDone {
+				break
+			}
 		}
 		bestPlay := s.bestStaticTurn(onTurn, thread)
 		// On the last ply no further move generation happens, so cross-set
@@ -363,6 +371,11 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 		int(g.RackFor(1-onTurn).NumTiles()),
 		plies%2 == 0,
 	)
+	if egDone {
+		// Scored at the empty bag: the searched result, and the spread the
+		// endgame starts from with no leftover.
+		winProb, leftover = egWin, 0
+	}
 	g.ResetToFirstState()
 	res := rolloutResult{
 		equity:   float64(spread-s.initialSpread) + leftover,

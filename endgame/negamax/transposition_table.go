@@ -26,6 +26,12 @@ const entrySize = 16
 const bottom3ByteMask = (1 << 24) - 1
 const depthMask = (1 << 6) - 1
 
+// pureBit marks an entry whose search reached only finished games within its
+// depth. Such a value holds at that depth and every greater one, but not at a
+// smaller one, where some of those lines would be cut off and estimated. It is
+// the top bit of the fifth hash byte, so the hash check uses one bit fewer.
+const pureBit = 0x80
+
 // 16 bytes (entrySize) - lockless version using two atomic uint64s
 type TableEntry struct {
 	// atomic1: packed top4bytes(32) | score(16) | fifthbyte(8) | flagAndDepth(8)
@@ -53,7 +59,7 @@ func unpackTableEntry(atomic1, atomic2 uint64) (top4bytes uint32, score int16, f
 
 // fullHash calculates the full 64-bit hash for this table entry
 func fullHashFromPacked(top4bytes uint32, fifthbyte uint8, idx uint64) uint64 {
-	return uint64(top4bytes)<<32 + uint64(fifthbyte)<<24 + (idx & bottom3ByteMask)
+	return uint64(top4bytes)<<32 + uint64(fifthbyte&^pureBit)<<24 + (idx & bottom3ByteMask)
 }
 
 // Helper functions for unpacked data
@@ -106,6 +112,12 @@ func (e *TableEntry) getFifthbyte() uint8 {
 	return fifthbyte
 }
 
+// pure reports whether the entry's search reached only finished games.
+func (e *TableEntry) pure() bool {
+	_, _, fifthbyte, _, _ := e.unpack()
+	return fifthbyte&pureBit != 0
+}
+
 func (e *TableEntry) getPlay() tinymove.TinyMove {
 	_, _, _, _, play := e.unpack()
 	return play
@@ -156,7 +168,7 @@ func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 	// Unpack and validate hash
 	top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1Before, atomic2)
 	fullHash := fullHashFromPacked(top4bytes, fifthbyte, idx)
-	if fullHash != zval {
+	if fullHash != zval&^(pureBit<<24) {
 		if validFromPacked(flagAndDepth) {
 			// There is another unrelated node at this position.
 			t.t2collisions.Add(1)
@@ -174,9 +186,18 @@ func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 }
 
 func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove) {
+	t.storeEntry(zval, score, flagAndDepth, play, false)
+}
+
+// storeEntry stores an entry; pure marks one whose search reached only
+// finished games.
+func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool) {
 	idx := zval & t.sizeMask
 	top4bytes := uint32(zval >> 32)
-	fifthbyte := uint8(zval >> 24)
+	fifthbyte := uint8(zval>>24) &^ pureBit
+	if pure {
+		fifthbyte |= pureBit
+	}
 	t.created.Add(1)
 
 	// Pack into two uint64s for atomic storage

@@ -59,7 +59,7 @@ jobs:
         run: make
 
       - name: Run tests
-        run: go test ./...
+        run: go test -timeout 30m ./...
 
       - name: Discord notification
         env:

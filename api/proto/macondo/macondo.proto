@@ -526,6 +526,16 @@ message AutoplayPlayerConfig {
   // a simming bot starts its sim from (default 100). Lets a sim bot consider
   // as many plays as FastMlBot ranks.
   int32 sim_plays = 24;
+  // inference_tau_cap caps the inference temperature, pinned or scheduled.
+  // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
+  // keeps its early values and sharpens only the late reads. 0 = the bot's
+  // default cap (0.1), negative = no cap.
+  double inference_tau_cap = 25;
+  // no_sim_endgame_leaves makes a simming bot's sims play endgames out with
+  // static moves. By default a sim of a position with one or two tiles in the
+  // bag searches each endgame its rollouts reach (a quick 2-ply result-only
+  // search, cached per sim) instead.
+  bool no_sim_endgame_leaves = 26;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

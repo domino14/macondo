@@ -17,6 +17,7 @@ Example:
     sim playstats "H3 FOO"
     sim tilestats
     sim -useinferences weightedrandomracks
+    sim -endgame-leaves false
 
 A list of plays must have been generated or added in another way already.
 
@@ -128,6 +129,27 @@ Options:
 
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.
+
+    -endgame-leaves false
+
+    With one or two tiles in the bag, every rollout of the sim empties the
+    bag within a ply or two. By default the sim then searches that endgame
+    (both racks are known once the bag is empty) instead of playing it out
+    with static moves, which get the winner wrong in about one close endgame
+    in twelve. The search is a quick 2-ply result-only search, capped at
+    100 ms, of endgames within 60 points; each endgame is searched once per
+    sim and its result reused, since the rollouts keep reaching the same few.
+    An endgame whose search runs out of time is played out statically, as
+    are all of them with this option set to false. It makes a sim with two
+    tiles in the bag about three times slower, and one with one tile in the
+    bag about one and a half times slower.
+
+    With three or more tiles in the bag the sim plays its rollouts out
+    statically as before: searching there is too slow, and in our tests it
+    did not make the bot stronger.
+
+    With one or two tiles in the bag and time to spare, prefer `peg`, which
+    solves the pre-endgame exhaustively instead of sampling it.
 
     -collect-heatmap true
 

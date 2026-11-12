@@ -138,6 +138,7 @@ type AutomaticRunnerPlayer struct {
 	InferenceSimIters            int
 	InferenceMaxEnumeratedLeaves int
 	InferenceBudget              int
+	InferenceTauCap              float64
 	// QuickEndgamePlies > 0: close endgames (|spread| <= QuickEndgameMargin,
 	// 0 = always) are played with a quick N-ply search capped at
 	// QuickEndgameCapMs per move. See AutoplayPlayerConfig.
@@ -146,8 +147,10 @@ type AutomaticRunnerPlayer struct {
 	QuickEndgameCapMs  int
 	// QuickEndgameNoPrune: no pruned word graph for the quick solves.
 	QuickEndgameNoPrune bool
-	OracleInference     bool
-	ExternalEngine      *externalengine.Config // nil unless BotCode == CUSTOM_BOT
+	// NoSimEndgameLeaves: the sims play endgames out statically.
+	NoSimEndgameLeaves bool
+	OracleInference    bool
+	ExternalEngine     *externalengine.Config // nil unless BotCode == CUSTOM_BOT
 	// EndgameThreads / PreendgameThreads: threads inside a single solve.
 	// 0 means "default" — the runner resolves it to max(1, NumCPU/concurrentGames).
 	EndgameThreads    int
@@ -247,10 +250,12 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceSimIters:            players[idx].InferenceSimIters,
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
 			InferenceBudget:              players[idx].InferenceBudget,
+			InferenceTauCap:              players[idx].InferenceTauCap,
 			QuickEndgamePlies:            players[idx].QuickEndgamePlies,
 			QuickEndgameMargin:           players[idx].QuickEndgameMargin,
 			QuickEndgameCapMs:            players[idx].QuickEndgameCapMs,
 			QuickEndgameNoPrune:          players[idx].QuickEndgameNoPrune,
+			NoSimEndgameLeaves:           players[idx].NoSimEndgameLeaves,
 			OracleInference:              players[idx].OracleInference,
 			EndgameTTable:                gameTT,
 			EndgameTTableFraction:        perGameFraction,

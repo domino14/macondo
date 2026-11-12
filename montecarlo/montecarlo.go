@@ -29,6 +29,7 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo/bai"
@@ -338,6 +339,13 @@ type Simmer struct {
 	rotations int
 	// logMu serializes log writes from several sample workers.
 	logMu sync.Mutex
+
+	// Endgame leaves (endgame_leaf.go): noEndgameLeaves turns them off;
+	// egSolvers search the endgames the rollouts reach, one per thread, and
+	// egCache keeps each searched endgame's result for the rest of the sim.
+	noEndgameLeaves bool
+	egSolvers       []*negamax.Solver
+	egCache         sync.Map
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -671,6 +679,13 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 		return err
 	}
 	s.resetStats(plies, plays)
+	// After resetStats, which sizes the copies' state stacks for a plain
+	// rollout; endgame searches need deeper ones.
+	if err := s.prepareEndgameLeaves(); err != nil {
+		// The sim still runs; its rollouts play endgames out statically.
+		log.Err(err).Msg("endgame-leaves-unavailable")
+		s.egSolvers = nil
+	}
 	s.readyToSim = true
 	s.knownOppRack = nil
 	s.inferenceMode = InferenceOff

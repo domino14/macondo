@@ -66,11 +66,13 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		InferenceSimIters:            int(p.InferenceSimIters),
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
 		InferenceBudget:              int(p.InferenceBudget),
+		InferenceTauCap:              p.InferenceTauCap,
 		OracleInference:              p.OracleInference,
 		QuickEndgamePlies:            int(p.QuickEndgamePlies),
 		QuickEndgameMargin:           int(p.QuickEndgameMargin),
 		QuickEndgameCapMs:            int(p.QuickEndgameCapMs),
 		QuickEndgameNoPrune:          p.QuickEndgameNoPrune,
+		NoSimEndgameLeaves:           p.NoSimEndgameLeaves,
 		EndgameThreads:               int(p.EndgameThreads),
 		PreendgameThreads:            int(p.PreendgameThreads),
 	}

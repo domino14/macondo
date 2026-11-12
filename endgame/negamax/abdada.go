@@ -9,7 +9,7 @@ import (
 const (
 	ABDADA_SIZE = 32768 // 2^15
 	ABDADA_WAYS = 4     // 4-way associative
-	DEFER_DEPTH = 3     // Only defer moves at depth >= 3
+	DEFER_DEPTH = 2     // Only defer moves at depth >= 2 (MAGPIE 5eec29bb)
 )
 
 // ABDADAEntry represents a move currently being searched

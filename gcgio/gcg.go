@@ -76,6 +76,12 @@ type gcgdatum struct {
 
 var GCGRegexes []gcgdatum
 
+// An event line can leave out the rack (an annotator may not know it), so
+// one run of spaces can stand where the rack and the spaces around it would
+// be. After the rack every other event has a "-..." or a lone "(...)", which a
+// play's tiles never are (they can start and end with tiles played through in
+// parentheses, as "(Q)I(S)" does), so the play's tiles may be neither: that
+// keeps a rack from being taken for a play's position.
 const (
 	PlayerRegex               = `^#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
 	TitleRegex                = `^#title\s*(?P<title>.*)`
@@ -83,7 +89,7 @@ const (
 	IDRegex                   = `^#id\s+(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex                = `^#rack1\s+(?P<rack>\S+)`
 	Rack2Regex                = `^#rack2\s+(?P<rack>\S+)`
-	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	MoveRegex                 = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+(?P<pos>\w+)\s+(?P<play>[^\s(-]\S*|\([^\s)]*\)\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex                 = `^#note\s+(?P<note>.*)`
 	LexiconRegex              = `^#lexicon\s+(?P<lexicon>.+)`
 	CharacterEncodingRegex    = `^#character-encoding\s+(?P<encoding>[[:graph:]]+)`
@@ -93,13 +99,13 @@ const (
 	BoardLayoutRegex          = `^#board-layout\s+(?P<boardLayoutName>.*)`
 	TileDistributionNameRegex = `^#tile-distribution\s+(?P<tileDistributionName>.*)`
 	ContinuationRegex         = `^#- (?P<continuation>.*)`
-	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
-	PassRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
-	ChallengeBonusRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
-	ExchangeRegex             = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
+	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
+	PassRegex                 = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+-\s+\+0\s+(?P<cumul>\d+)`
+	ChallengeBonusRegex       = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
+	ExchangeRegex             = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
 	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
 	TimePenaltyRegex          = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+\(time\)\s+\+?\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
-	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PtsLostForLastRackRegex   = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	IncompleteRegex           = "^#incomplete.*"
 	TileDeclarationRegex      = `^#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
 )
@@ -166,6 +172,29 @@ func nickToPIndex(nick string, players []*pb.PlayerInfo) (uint32, error) {
 		}
 	}
 	return 0, errPlayerDoesNotExist
+}
+
+// placedTiles returns the tiles a play puts on the board: its tiles less the
+// ones it plays through (a "." or a tile already on the board), with a blank
+// as "?".
+func placedTiles(b *board.GameBoard, evt *pb.GameEvent, tiles []tilemapping.MachineLetter,
+	tm *tilemapping.TileMapping) (string, error) {
+	row, col := int(evt.Row), int(evt.Column)
+	placed := tilemapping.MachineWord{}
+	for _, t := range tiles {
+		if row < 0 || col < 0 || row >= b.Dim() || col >= b.Dim() {
+			return "", errors.New("play out of bounds of board")
+		}
+		if t != 0 && !b.HasLetter(row, col) {
+			placed = append(placed, t.IntrinsicTileIdx())
+		}
+		if evt.Direction == pb.GameEvent_VERTICAL {
+			row++
+		} else {
+			col++
+		}
+	}
+	return placed.UserVisible(tm), nil
 }
 
 func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []string) error {
@@ -299,6 +328,14 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		}
 
 		evt.IsBingo = tp == game.RackTileLimit
+		if evt.Rack == "" {
+			// The rack was left out. Take it to be the tiles the play puts on
+			// the board, which the player must have held.
+			evt.Rack, err = placedTiles(p.game.Board(), evt, tiles, ld.TileMapping())
+			if err != nil {
+				return err
+			}
+		}
 		p.history.Events = append(p.history.Events, evt)
 		// Try playing the move
 		log.Debug().Msg("PLAYING LATEST EVENT for MoveToken")
@@ -408,6 +445,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return errPlayerDoesNotExist
 		}
 		evt.Rack = match[2]
+		if evt.Rack == "" {
+			// The rack was left out; the penalty gives it in brackets.
+			evt.Rack = match[3]
+		}
 		if evt.Rack != match[3] {
 			return fmt.Errorf("last rack penalty event malformed")
 		}
@@ -490,7 +531,15 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		nexch, err := matchToInt32(match[3])
 		if err != nil {
 			evt.Exchanged = match[3]
+			if evt.Rack == "" {
+				// The rack was left out. Take it to be the tiles exchanged,
+				// which the player must have held.
+				evt.Rack = evt.Exchanged
+			}
 		} else {
+			if evt.Rack == "" {
+				return errors.New("error in line `" + match[0] + "`: an exchange given as a number of tiles needs the rack")
+			}
 			if int(nexch) > len(match[2]) {
 				return errors.New("error in line `" + match[0] + "`: exchanged more tiles than are on rack")
 			}
