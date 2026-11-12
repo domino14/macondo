@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"os/signal"
@@ -17,7 +18,10 @@ import (
 )
 
 const (
-	GracefulShutdownTimeout = 20 * time.Second
+	// GracefulShutdownTimeout bounds the drain after SIGTERM. ECS kills the
+	// container stopTimeout after SIGTERM (30s unless the task definition
+	// sets it), so this, plus a 2s flush, stays under that.
+	GracefulShutdownTimeout = 25 * time.Second
 )
 
 var profilePath = flag.String("profilepath", "", "path for profile")
@@ -43,20 +47,17 @@ func main() {
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
-	idleConnsClosed := make(chan struct{})
-	sig := make(chan os.Signal, 1)
+	// On SIGTERM, stop taking requests and finish the ones already taken
+	// (see bot.Main).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	go func() {
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-		<-sig
-		// We received an interrupt signal, shut down.
+		<-ctx.Done()
 		log.Info().Msg("got quit signal...")
-		close(idleConnsClosed)
 	}()
 
 	opts := &turnplayer.GameOptions{}
 	b := bot.NewBot(cfg, opts)
-	go bot.Main("bot.commands", b)
-
-	<-idleConnsClosed
+	bot.Main(ctx, "bot.commands", b, GracefulShutdownTimeout)
 	log.Info().Msg("server gracefully shutting down")
 }

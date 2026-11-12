@@ -20,4 +20,5 @@ FROM alpine
 COPY --from=build-env /opt/program/cmd/bot/bot /opt/bot
 
 WORKDIR /opt
-CMD ./bot
+# Exec form, so the bot itself gets SIGTERM and drains (see bot.Main).
+CMD ["./bot"]

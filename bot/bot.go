@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -322,7 +321,10 @@ func (b *Bot) asyncLambdaCall(data []byte) {
 // It does not respond on a reply channel, because that implies the
 // caller would need to block and wait for a response. Instead, we must
 // send a bot move on a separate per-game-id channel when ready.
-func Main(channel string, bot *Bot) {
+//
+// It listens until ctx is done, then drains (see serve) for at most
+// drainTimeout, and returns.
+func Main(ctx context.Context, channel string, bot *Bot, drainTimeout time.Duration) {
 	err := bot.newGame()
 	if err != nil {
 		log.Fatal().AnErr("newGameErr", err).Msg(":(")
@@ -331,64 +333,112 @@ func Main(channel string, bot *Bot) {
 	if err != nil {
 		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}
-	// A user of the bot should send the data to only one bot instance.
-	// Using a QueueSubscribe guarantees that only one listening bot will
-	// receive a message.
-	nc.QueueSubscribe(channel, "bot_queue", func(m *nats.Msg) {
-		log.Info().Str("replyChannel", m.Reply).Msgf("RECV: %d bytes", len(m.Data))
-		resp := bot.handle(m.Data)
-		respErr := resp.GetError()
-		if respErr != "" {
-			if respErr == ErrNeedSimmingBot.Error() {
-				// Handle this with an async call to an external Lambda function.
-				bot.asyncLambdaCall(m.Data)
-				return
-			}
-		}
+	err = serve(ctx, nc, channel, func(m *nats.Msg) { bot.handleMsg(nc, m) }, drainTimeout)
+	if err != nil {
+		log.Fatal().Err(err).Msg("bot-serve")
+	}
+}
 
-		// debugWriteln(proto.MarshalTextString(resp))
-		data, err := proto.Marshal(resp)
-		if err != nil {
-			// Should never happen, ideally, but we need to do something sensible here.
-			m.Respond([]byte(err.Error()))
-		} else {
-			if m.Reply != "" {
-				err = m.Respond(data)
-				if err != nil {
-					log.Err(err).Msg("error-responding")
-				}
-			} else {
-				err := retry.Do(
-					func() error {
-						_, err := nc.Request(
-							"bot.publish_event."+resp.GameId, data, 3*time.Second)
-						if err != nil {
-							return err
-						}
-						// We're just waiting for an acknowledgement. The actual
-						// data doesn't matter.
-						return nil
-					},
-					retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
-						log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
-							Msg("did-not-receive-ack-try-again")
-						return retry.BackOffDelay(n, err, config)
-					}),
-				)
-				if err != nil {
-					log.Err(err).Msg("bot-move-failed")
-				}
-			}
-		}
-	})
-	nc.Flush()
+// drainPoll is how often serve checks whether the drain has finished.
+const drainPoll = 20 * time.Millisecond
 
+// serve runs handle for each request on channel until ctx is done. A user
+// of the bot should send the data to only one bot instance: a queue
+// subscription guarantees that only one listening bot receives a message.
+//
+// Then it drains, so a deploy or restart doesn't lose a move: the
+// subscription stops taking requests (NATS sends new ones to the other bots
+// in the queue group), the requests already delivered are handled, and
+// their moves are sent before the connection closes. NATS handles one
+// message at a time per subscription, and only marks a draining
+// subscription finished after the handler for its last message returns, so
+// once it is no longer valid every request delivered here has been answered.
+// If that takes longer than drainTimeout, serve gives up and closes anyway.
+func serve(ctx context.Context, nc *nats.Conn, channel string, handle nats.MsgHandler,
+	drainTimeout time.Duration) error {
+	sub, err := nc.QueueSubscribe(channel, "bot_queue", handle)
+	if err != nil {
+		return err
+	}
+	if err := nc.Flush(); err != nil {
+		return err
+	}
 	if err := nc.LastError(); err != nil {
-		log.Fatal()
+		return err
 	}
 	log.Info().Msgf("Listening on [%s]", channel)
 
-	runtime.Goexit()
-	fmt.Println("exiting")
+	<-ctx.Done()
+	start := time.Now()
+	pending, _, _ := sub.Pending()
+	log.Info().Int("pending", pending).Msg("bot-draining")
+	if err := sub.Drain(); err != nil {
+		log.Err(err).Msg("bot-drain-error")
+	}
+	deadline := start.Add(drainTimeout)
+	for sub.IsValid() && time.Now().Before(deadline) {
+		time.Sleep(drainPoll)
+	}
+	if sub.IsValid() {
+		pending, _, _ := sub.Pending()
+		log.Error().Int("pending", pending).Dur("took", time.Since(start)).Msg("bot-drain-timed-out")
+	} else {
+		log.Info().Dur("took", time.Since(start)).Msg("bot-drained")
+	}
+	// The moves handled during the drain were published on this connection.
+	if err := nc.FlushTimeout(2 * time.Second); err != nil {
+		log.Err(err).Msg("bot-flush-on-shutdown")
+	}
+	nc.Close()
+	return nil
+}
 
+// handleMsg answers one bot request, sending the move on
+// bot.publish_event.<game ID> (or the request's reply subject).
+func (bot *Bot) handleMsg(nc *nats.Conn, m *nats.Msg) {
+	log.Info().Str("replyChannel", m.Reply).Msgf("RECV: %d bytes", len(m.Data))
+	resp := bot.handle(m.Data)
+	respErr := resp.GetError()
+	if respErr != "" {
+		if respErr == ErrNeedSimmingBot.Error() {
+			// Handle this with an async call to an external Lambda function.
+			bot.asyncLambdaCall(m.Data)
+			return
+		}
+	}
+
+	// debugWriteln(proto.MarshalTextString(resp))
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		// Should never happen, ideally, but we need to do something sensible here.
+		m.Respond([]byte(err.Error()))
+	} else {
+		if m.Reply != "" {
+			err = m.Respond(data)
+			if err != nil {
+				log.Err(err).Msg("error-responding")
+			}
+		} else {
+			err := retry.Do(
+				func() error {
+					_, err := nc.Request(
+						"bot.publish_event."+resp.GameId, data, 3*time.Second)
+					if err != nil {
+						return err
+					}
+					// We're just waiting for an acknowledgement. The actual
+					// data doesn't matter.
+					return nil
+				},
+				retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
+					log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
+						Msg("did-not-receive-ack-try-again")
+					return retry.BackOffDelay(n, err, config)
+				}),
+			)
+			if err != nil {
+				log.Err(err).Msg("bot-move-failed")
+			}
+		}
+	}
 }
