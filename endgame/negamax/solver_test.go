@@ -695,6 +695,8 @@ func TestMultiThreadedSolveKeepsFixedDepthValue(t *testing.T) {
 		{ParallelAlgoLazySMP, 4},
 		{ParallelAlgoABDADA, 4},
 		{ParallelAlgoTreeSplit, 4},
+		{ParallelAlgoPVSplit, 4},
+		{ParallelAlgoPVSplit, 16},
 	}
 	for _, c := range configs {
 		for run := 0; run < 3; run++ {
@@ -760,7 +762,7 @@ func TestManySolveThreadsVeryDeep(t *testing.T) {
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
 	is.NoErr(err)
-	for _, algo := range []string{ParallelAlgoLazySMP, ParallelAlgoABDADA} {
+	for _, algo := range []string{ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoPVSplit} {
 		for run := 0; run < 2; run++ {
 			g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 			is.NoErr(err)
@@ -838,7 +840,7 @@ func TestOnePlySolveWithThreads(t *testing.T) {
 	is.NoErr(err)
 	var values []int16
 	for _, threads := range []int{1, 4} {
-		for _, algo := range []string{ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA} {
+		for _, algo := range []string{ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoPVSplit} {
 			g, err := cgp.ParseCGP(DefaultConfig, pos)
 			is.NoErr(err)
 			g.SetBackupMode(game.SimulationMode)
