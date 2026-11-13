@@ -623,10 +623,10 @@ func smallMoveTiles(b *board.GameBoard, m *tinymove.SmallMove,
 //
 //   - a play of the whole rack ends the game at the mover's spread plus the
 //     play's score and twice the opponent's tiles;
-//   - one ply above the leaves, a child whose leaf value the transposition
-//     table holds returns it, when the child's node would have returned from
-//     the table (an exact value at a non-PV node, or a bound that closes the
-//     window).
+//   - a child whose value the transposition table holds returns it, when
+//     the child's node would have returned from the table (an exact value
+//     at a non-PV node, or a bound that closes the window). The child's key
+//     is worked out from the move, so the move is never put on the board.
 //
 // firstOrFullWindow says the child gets the full window (the first move, or
 // no negascout); otherwise it gets the null window, and a value inside
@@ -645,7 +645,7 @@ func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey
 		s.impureEvents[thread].reach = 0
 		return -int16(ourSpread + m.Score() + 2*oppTiles), true
 	}
-	if depth != 1 || !s.transpositionTableOptim || !s.useHeuristics {
+	if !s.transpositionTableOptim || nodeKey == 0 {
 		return 0, false
 	}
 	var tiles [board.MaxBoardDim]tilemapping.MachineLetter
@@ -653,8 +653,11 @@ func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey
 	childKey := s.ttable.Zobrist().AddTilePlayUnplayed(nodeKey, m, stmRack, &tiles,
 		onTurn == s.solvingPlayer, g.ScorelessTurns())
 	entry := s.ttable.lookup(childKey, thread)
-	// The child is a depth-0 node: only a depth-0 entry is its value.
-	if !entry.valid() || entry.depth() != 0 {
+	// The same test the child's node makes of its entry (see negamax).
+	childDepth := uint8(depth - 1)
+	entryDepth := entry.depth()
+	if !entry.valid() || !(entryDepth == childDepth ||
+		(entry.pure() && entryDepth <= childDepth)) {
 		return 0, false
 	}
 	score := entry.getScore() - int16(ourSpread+m.Score())
@@ -679,9 +682,13 @@ func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey
 	if !firstOrFullWindow && α < -score && -score < β {
 		return 0, false
 	}
-	// A leaf's entry is an estimate, so the value depends on the depth.
-	s.impureEvents[thread].n++
-	s.impureEvents[thread].reach = 0
+	if entry.pure() {
+		s.impureEvents[thread].reach = uint64(entryDepth)
+	} else {
+		// The entry holds an estimate, so the value depends on the depth.
+		s.impureEvents[thread].n++
+		s.impureEvents[thread].reach = 0
+	}
 	return score, true
 }
 

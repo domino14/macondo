@@ -174,3 +174,23 @@ func TestKeepOneBoundKeepsValue(t *testing.T) {
 		is.Equal(values[0], values[1])
 	}
 }
+
+// TestSelfCheckedSolve solves with the solver's self-checks on, whatever the
+// environment says: every incremental move list is compared with a full
+// generation of the position, every derived one-tile play with a scan of the
+// board, and every move the keep-one bound would skip is searched to see
+// that it fails low. Any difference panics.
+func TestSelfCheckedSolve(t *testing.T) {
+	is := is.New(t)
+	was := checkMoveLists
+	checkMoveLists = true
+	defer func() { checkMoveLists = was }()
+	for _, threads := range []int{1, 3} {
+		s, err := setUpSolver("NWL20", "english", board.VsCanik, 5, "DEHILOR", "BGIV", 389, 384, 1)
+		is.NoErr(err)
+		s.SetThreads(threads)
+		v, _, err := s.Solve(context.Background(), 5)
+		is.NoErr(err)
+		is.Equal(v, int16(11))
+	}
+}
