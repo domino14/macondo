@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -309,6 +310,13 @@ type Solver struct {
 	// prunedKWGOptim builds a smaller word graph before solving, containing
 	// only words playable with the tiles remaining in the endgame position.
 	prunedKWGOptim bool
+	// crossSetCacheOptim gives each thread a memory of the cross-sets it
+	// has worked out (see cross_set.CachedGenerator). It changes only the
+	// speed of a solve.
+	crossSetCacheOptim bool
+	// crossSetCaches are the threads' cross-set generators, kept between
+	// solves: 0 is the main game's, i+1 game copy i's.
+	crossSetCaches []*cross_set.CachedGenerator
 	// useHeuristics turns on the MAGPIE-derived endgame heuristics: the greedy
 	// leaf playout (instead of a static spread at depth 0) and the stuck-tile
 	// aware move ordering (conservation bonus + build chains). On by default.
@@ -434,6 +442,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.iterativeDeepeningOptim = true
 	s.negascoutOptim = true
 	s.prunedKWGOptim = true
+	s.crossSetCacheOptim = true
 	s.useHeuristics = true
 	s.magpieOrdering = false
 	s.incrementalLists = true
@@ -583,6 +592,11 @@ func (s *Solver) makeGameCopies() error {
 		// Copies are made inside a solve; Solve turns this off again.
 		s.gameCopies[i].SetIncrementalUndo(true)
 		s.gameCopies[i].SetSkipExtensionSets(true)
+		// The copy shares the main game's cross-set generator; a caching
+		// one is for a single thread, so the copy gets its own.
+		if c, ok := s.game.CrossSetGen().(*cross_set.CachedGenerator); ok {
+			s.gameCopies[i].SetCrossSetGen(s.crossSetCacheFor(i+1, c.Dist, c.Gaddag))
+		}
 	}
 	s.movegens = []movegen.MoveGenerator{}
 	gaddag := s.stmMovegen.(*movegen.GordonGenerator).GADDAG()
@@ -727,6 +741,48 @@ func (s *Solver) setIncrementalUndo(on bool) {
 		g.SetIncrementalUndo(on)
 		g.SetSkipExtensionSets(on)
 	}
+}
+
+// crossSetCacheBits sizes a thread's cross-set cache: 2^14 entries of 32
+// bytes, half a megabyte.
+const crossSetCacheBits = 14
+
+// crossSetCacheFor returns cross-set generator i, emptied and set to answer
+// from the given lexicon.
+func (s *Solver) crossSetCacheFor(i int, dist *tilemapping.LetterDistribution,
+	gd gaddag.WordGraph) *cross_set.CachedGenerator {
+	for len(s.crossSetCaches) <= i {
+		s.crossSetCaches = append(s.crossSetCaches, nil)
+	}
+	c := s.crossSetCaches[i]
+	if c == nil {
+		c = cross_set.NewCachedGenerator(dist, gd, crossSetCacheBits)
+		s.crossSetCaches[i] = c
+	} else {
+		c.Reset(dist, gd)
+	}
+	c.Verify = checkMoveLists
+	return c
+}
+
+// useCrossSetCache swaps the main game's cross-set generator for a caching
+// one that answers from the same lexicon, and returns a function that puts
+// the old one back. Game copies made meanwhile get caches of their own (see
+// makeGameCopies). Call it once the generator has the solve's lexicon.
+func (s *Solver) useCrossSetCache() func() {
+	orig := s.game.CrossSetGen()
+	csg, ok := orig.(*cross_set.GaddagCrossSetGenerator)
+	if !ok || !s.crossSetCacheOptim {
+		return func() {}
+	}
+	s.game.SetCrossSetGen(s.crossSetCacheFor(0, csg.Dist, csg.Gaddag))
+	return func() { s.game.SetCrossSetGen(orig) }
+}
+
+// SetCrossSetCache turns the threads' cross-set caches on or off. They are
+// on by default and change only the speed of a solve.
+func (s *Solver) SetCrossSetCache(v bool) {
+	s.crossSetCacheOptim = v
 }
 
 // releasePathLists detaches every thread's incremental lists from its game.
@@ -2471,6 +2527,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 				Msg("endgame-using-pruned-kwg")
 		}
 	}
+	defer s.useCrossSetCache()()
 
 	s.ensureArenas()
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
@@ -2653,6 +2710,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 			}
 		}
 	}
+	defer s.useCrossSetCache()()
 
 	s.initialSpread = s.game.CurrentSpread()
 	log.Debug().Int("thread", thread).Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())

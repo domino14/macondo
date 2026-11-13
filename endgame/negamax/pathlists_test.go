@@ -222,3 +222,37 @@ func TestSelfCheckedSolve(t *testing.T) {
 		is.Equal(v, int16(11))
 	}
 }
+
+// The cross-set caches change only the speed of a solve: the value is the
+// same with them off, they are actually consulted, each thread has its own,
+// and the game gets its own generator back afterwards.
+func TestCrossSetCacheKeepsValue(t *testing.T) {
+	is := is.New(t)
+	for _, threads := range []int{1, 3} {
+		values := []int16{}
+		for _, on := range []bool{false, true} {
+			s, err := setUpSolver("NWL20", "english", board.VsCanik, 5, "DEHILOR", "BGIV", 389, 384, 1)
+			is.NoErr(err)
+			s.SetThreads(threads)
+			s.SetCrossSetCache(on)
+			orig := s.game.CrossSetGen()
+			v, _, err := s.Solve(context.Background(), 5)
+			is.NoErr(err)
+			values = append(values, v)
+			is.Equal(s.game.CrossSetGen(), orig)
+			if !on {
+				is.Equal(len(s.crossSetCaches), 0)
+				continue
+			}
+			is.Equal(len(s.crossSetCaches), threads)
+			for i, c := range s.crossSetCaches {
+				is.True(c.Hits > c.Misses)
+				for j := 0; j < i; j++ {
+					is.True(c != s.crossSetCaches[j])
+				}
+			}
+		}
+		is.Equal(values[0], int16(11))
+		is.Equal(values[1], int16(11))
+	}
+}
