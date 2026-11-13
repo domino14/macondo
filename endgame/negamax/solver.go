@@ -310,6 +310,10 @@ type Solver struct {
 	// prunedKWGOptim builds a smaller word graph before solving, containing
 	// only words playable with the tiles remaining in the endgame position.
 	prunedKWGOptim bool
+	// lineMismatches counts the lines of the last solve that ran to the end
+	// of the game without adding up to their value (see completeLine). It
+	// should stay 0.
+	lineMismatches int
 	// crossSetCacheOptim gives each thread a memory of the cross-sets it
 	// has worked out (see cross_set.CachedGenerator). It changes only the
 	// speed of a solve.
@@ -2079,33 +2083,28 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
-			// The root never returns from the table: its caller needs a
-			// move. It narrows its window only while the window stays open.
-			root := depth == s.requestedPlies || (depth > 0 && depth == s.currentIDDepths[thread])
-			if flag == TTExact {
-				if !pvNode {
+			// Only a node searched with a null window takes its value or its
+			// bounds from the table. A principal-variation node has to say
+			// which move is best, and it finds that out only by searching
+			// with its window open: once another thread's lower bound lifts
+			// α to the node's true value no move can beat α, every child
+			// fails low, and the "best" move is whichever one happened to
+			// return that bound first. The value would be right and the
+			// line wrong. The entry still orders the moves.
+			if !pvNode {
+				if flag == TTExact {
 					*reach = maxReach
 					return score, nil
 				}
-			} else if root {
-				if flag == TTLower && score > α && score < β {
-					α = score
-				} else if flag == TTUpper && score < β && score > α {
-					β = score
+				if flag == TTLower {
+					α = max(α, score)
+				} else if flag == TTUpper {
+					β = min(β, score)
 				}
-			} else if flag == TTLower {
-				α = max(α, score)
-			} else if flag == TTUpper {
-				β = min(β, score)
-			}
-			if α >= β {
-				// The stored bound shows this node can't improve the caller's
-				// window, so return it at PV nodes too. Searching on with
-				// α >= β gives every child an inverted window, and a bound on
-				// the wrong side comes back as the node's value. A line cut
-				// short here is finished by completeLine.
-				*reach = maxReach
-				return score, nil
+				if α >= β {
+					*reach = maxReach
+					return score, nil
+				}
 			}
 			// search hash move first.
 			ttMove = ttEntry.getPlay()
@@ -2485,6 +2484,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	defer s.releasePathLists()
 	s.setIncrementalUndo(true)
 	defer s.setIncrementalUndo(false)
+	s.lineMismatches = 0
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	// Make sure the other player's rack isn't empty.
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {

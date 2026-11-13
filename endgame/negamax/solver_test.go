@@ -755,6 +755,7 @@ func TestDeeperSolveLeavesFixedDepthValue(t *testing.T) {
 // main line's positions, and a principal-variation node narrowed its window
 // with them until it closed; searching on with α >= β returned bounds on the
 // wrong side, stored as finished-game values. Solves came back -115 to -118.
+// Principal-variation nodes no longer take bounds from the table at all.
 func TestManySolveThreadsVeryDeep(t *testing.T) {
 	is := is.New(t)
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
@@ -777,6 +778,11 @@ func TestManySolveThreadsVeryDeep(t *testing.T) {
 			is.NoErr(err)
 			t.Logf("%s, run %d: %d", algo, run+1, v)
 			is.Equal(v, int16(-116))
+			// The line must add up to the value. It did not, a few times in
+			// a hundred: a principal-variation node took a lower bound from
+			// the table, which left it unable to tell its best move from
+			// the first one it tried.
+			is.Equal(s.lineMismatches, 0)
 		}
 	}
 }
