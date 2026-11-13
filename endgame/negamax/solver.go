@@ -569,6 +569,8 @@ func (s *Solver) makeGameCopies() error {
 	for i := 0; i < s.threads-1; i++ {
 		s.gameCopies = append(s.gameCopies, s.game.Copy())
 		s.gameCopies[i].SetBackupMode(game.SimulationMode)
+		// Copies are made inside a solve; Solve turns this off again.
+		s.gameCopies[i].SetIncrementalUndo(true)
 	}
 	s.movegens = []movegen.MoveGenerator{}
 	gaddag := s.stmMovegen.(*movegen.GordonGenerator).GADDAG()
@@ -693,6 +695,16 @@ func (s *Solver) listsFor(thread int, g *game.Game, mg movegen.MoveGenerator) *p
 		p.bind(g, mg, checkMoveLists)
 	}
 	return p
+}
+
+// setIncrementalUndo switches the solver's games between undoing moves from
+// the board's journal (on, for the length of a solve) and from whole-board
+// copies.
+func (s *Solver) setIncrementalUndo(on bool) {
+	s.game.SetIncrementalUndo(on)
+	for _, g := range s.gameCopies {
+		g.SetIncrementalUndo(on)
+	}
 }
 
 // releasePathLists detaches every thread's incremental lists from its game.
@@ -2227,6 +2239,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		s.busy = false
 	}()
 	defer s.releasePathLists()
+	s.setIncrementalUndo(true)
+	defer s.setIncrementalUndo(false)
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	// Make sure the other player's rack isn't empty.
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
@@ -2407,6 +2421,8 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	// The caller moves the game to another position between solves, which
 	// the lists would not see.
 	defer s.releasePathLists()
+	s.setIncrementalUndo(true)
+	defer s.setIncrementalUndo(false)
 	// Make sure the other player's rack isn't empty.
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {

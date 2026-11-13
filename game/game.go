@@ -82,6 +82,8 @@ type Game struct {
 	stackPtr   int
 	// smallMoveHook, when set, sees each small move before it is played.
 	smallMoveHook func(m *tinymove.SmallMove)
+	// incrementalUndo: see SetIncrementalUndo.
+	incrementalUndo bool
 	// rules contains the original game rules passed in to create this game.
 	rules         *GameRules
 	exchangeLimit int

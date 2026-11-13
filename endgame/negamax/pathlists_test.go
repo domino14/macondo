@@ -9,6 +9,8 @@ import (
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 )
@@ -88,4 +90,67 @@ func TestListsAndShortcutsKeepValue(t *testing.T) {
 		is.NoErr(err)
 		is.Equal(v, int16(11))
 	}
+}
+
+// boardsIdentical compares everything a move can change on a board,
+// extension sets included (GameBoard.Equals leaves those out).
+func boardsIdentical(a, b *board.GameBoard) bool {
+	if !a.Equals(b) {
+		return false
+	}
+	n := a.Dim() * a.Dim()
+	for _, dir := range []board.BoardDirection{board.HorizontalDirection, board.VerticalDirection} {
+		for pos := 0; pos < n; pos++ {
+			if a.GetLeftExtSetIdx(pos, dir) != b.GetLeftExtSetIdx(pos, dir) ||
+				a.GetRightExtSetIdx(pos, dir) != b.GetRightExtSetIdx(pos, dir) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// TestIncrementalUndo plays every move and every reply to it with the board's
+// undo journal on, and checks that unplaying leaves the board exactly as a
+// whole-board copy has it, and that the board after a move is the same
+// either way.
+func TestIncrementalUndo(t *testing.T) {
+	is := is.New(t)
+	s, err := setUpSolver("NWL20", "english", board.VsCanik, 4, "DEHILOR", "BGIV", 389, 384, 1)
+	is.NoErr(err)
+	g := s.game
+	g.SetStateStackLength(4)
+	ref := g.Copy()
+	ref.SetBackupMode(game.SimulationMode)
+	g.SetIncrementalUndo(true)
+	defer g.SetIncrementalUndo(false)
+
+	root := g.Board().Copy()
+	s.stmMovegen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	plays := append([]tinymove.SmallMove{}, s.stmMovegen.SmallPlays()...)
+	replies := 0
+	for i := range plays {
+		_, err := g.PlaySmallMove(&plays[i])
+		is.NoErr(err)
+		_, err = ref.PlaySmallMove(&plays[i])
+		is.NoErr(err)
+		is.True(boardsIdentical(g.Board(), ref.Board()))
+		if i%7 == 0 && g.Playing() == pb.PlayState_PLAYING {
+			after := g.Board().Copy()
+			s.stmMovegen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+			second := append([]tinymove.SmallMove{}, s.stmMovegen.SmallPlays()...)
+			for j := range second {
+				_, err := g.PlaySmallMove(&second[j])
+				is.NoErr(err)
+				g.UnplayLastMove()
+				is.True(boardsIdentical(g.Board(), after))
+				replies++
+			}
+		}
+		g.UnplayLastMove()
+		ref.UnplayLastMove()
+		is.True(boardsIdentical(g.Board(), root))
+		is.Equal(g.Board().UndoMark(), 0)
+	}
+	is.True(replies > 10)
 }

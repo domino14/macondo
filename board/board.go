@@ -140,6 +140,110 @@ type GameBoard struct {
 
 	rowMul int
 	colMul int
+
+	// journal records the old value of everything written to the board while
+	// journaling is on, so that a move can be undone by rolling the writes
+	// back instead of restoring a copy of the whole board. See
+	// SetUndoJournal.
+	journal    []undoEntry
+	journaling bool
+}
+
+// undoKind names the board array an undoEntry belongs to.
+type undoKind uint8
+
+const (
+	undoSquare undoKind = iota
+	undoHAnchor
+	undoVAnchor
+	undoHCrossSet
+	undoVCrossSet
+	undoHCrossScore
+	undoVCrossScore
+	undoHLeftExt
+	undoHRightExt
+	undoVLeftExt
+	undoVRightExt
+)
+
+// undoEntry is one overwritten value: which array, where, and what it held.
+type undoEntry struct {
+	old  uint64
+	pos  uint16
+	kind undoKind
+}
+
+// SetUndoJournal turns the undo journal on or off. While it is on, every
+// write that playing a move makes -- tiles, anchors, cross-sets, cross-scores
+// and extension sets -- records the value it replaces, and UndoTo rolls the
+// board back to an earlier UndoMark. Turning it off stops the recording but
+// keeps what was recorded, so marks taken earlier can still be undone to.
+//
+// Whole-board operations (Clear, CopyFrom, SetAllCrosses and the like) are
+// not recorded; they are not part of playing a move.
+func (g *GameBoard) SetUndoJournal(on bool) {
+	g.journaling = on
+}
+
+// UndoMark returns the current position in the undo journal.
+func (g *GameBoard) UndoMark() int {
+	return len(g.journal)
+}
+
+// UndoTo undoes every recorded write made since mark (from UndoMark), newest
+// first, and sets the number of tiles on the board, which the journal does
+// not track.
+func (g *GameBoard) UndoTo(mark int, tilesPlayed int) {
+	for i := len(g.journal) - 1; i >= mark; i-- {
+		e := &g.journal[i]
+		pos := int(e.pos)
+		switch e.kind {
+		case undoSquare:
+			g.squares[pos] = tilemapping.MachineLetter(e.old)
+		case undoHAnchor:
+			g.hAnchors[pos] = e.old != 0
+		case undoVAnchor:
+			g.vAnchors[pos] = e.old != 0
+		case undoHCrossSet:
+			g.hCrossSets[pos] = CrossSet(e.old)
+		case undoVCrossSet:
+			g.vCrossSets[pos] = CrossSet(e.old)
+		case undoHCrossScore:
+			g.hCrossScores[pos] = int(int64(e.old))
+		case undoVCrossScore:
+			g.vCrossScores[pos] = int(int64(e.old))
+		case undoHLeftExt:
+			g.hLeftExtSets[pos] = e.old
+		case undoHRightExt:
+			g.hRightExtSets[pos] = e.old
+		case undoVLeftExt:
+			g.vLeftExtSets[pos] = e.old
+		case undoVRightExt:
+			g.vRightExtSets[pos] = e.old
+		}
+	}
+	g.journal = g.journal[:mark]
+	g.tilesPlayed = tilesPlayed
+}
+
+// DropUndoFrom forgets the writes recorded since mark without undoing them,
+// for a caller that has restored the board some other way.
+func (g *GameBoard) DropUndoFrom(mark int) {
+	if mark < len(g.journal) {
+		g.journal = g.journal[:mark]
+	}
+}
+
+// record notes the value a write is about to replace.
+func (g *GameBoard) record(kind undoKind, pos int, old uint64) {
+	g.journal = append(g.journal, undoEntry{old: old, pos: uint16(pos), kind: kind})
+}
+
+func boolBits(b bool) uint64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // MakeBoard creates a board from a description string.
@@ -264,6 +368,10 @@ func (g *GameBoard) GetWordMultiplier(sqIdx int) int {
 }
 
 func (g *GameBoard) SetLetter(row int, col int, letter tilemapping.MachineLetter) {
+	if g.journaling {
+		pos := g.GetSqIdx(row, col)
+		g.record(undoSquare, pos, uint64(g.squares[pos]))
+	}
 	g.squares[g.GetSqIdx(row, col)] = letter
 }
 
@@ -293,8 +401,14 @@ func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
 
 	switch dir {
 	case HorizontalDirection:
+		if g.journaling {
+			g.record(undoHCrossScore, pos, uint64(int64(g.hCrossScores[pos])))
+		}
 		g.hCrossScores[pos] = score
 	case VerticalDirection:
+		if g.journaling {
+			g.record(undoVCrossScore, pos, uint64(int64(g.vCrossScores[pos])))
+		}
 		g.vCrossScores[pos] = score
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
@@ -331,8 +445,14 @@ func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
 	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
+		if g.journaling {
+			g.record(undoHCrossSet, pos, uint64(g.hCrossSets[pos]))
+		}
 		g.hCrossSets[pos] = 0
 	case VerticalDirection:
+		if g.journaling {
+			g.record(undoVCrossSet, pos, uint64(g.vCrossSets[pos]))
+		}
 		g.vCrossSets[pos] = 0
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
@@ -344,8 +464,14 @@ func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
 	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
+		if g.journaling {
+			g.record(undoHCrossSet, pos, uint64(g.hCrossSets[pos]))
+		}
 		g.hCrossSets[pos].Set(ml)
 	case VerticalDirection:
+		if g.journaling {
+			g.record(undoVCrossSet, pos, uint64(g.vCrossSets[pos]))
+		}
 		g.vCrossSets[pos].Set(ml)
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
@@ -357,8 +483,14 @@ func (g *GameBoard) SetCrossSet(row int, col int, cs CrossSet,
 	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
+		if g.journaling {
+			g.record(undoHCrossSet, pos, uint64(g.hCrossSets[pos]))
+		}
 		g.hCrossSets[pos] = cs
 	case VerticalDirection:
+		if g.journaling {
+			g.record(undoVCrossSet, pos, uint64(g.vCrossSets[pos]))
+		}
 		g.vCrossSets[pos] = cs
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
@@ -489,8 +621,14 @@ func BonusWordMul(b BonusSquare) int {
 func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
 	pos := g.GetSqIdx(row, col)
 	if dir == HorizontalDirection {
+		if g.journaling {
+			g.record(undoHLeftExt, pos, g.hLeftExtSets[pos])
+		}
 		g.hLeftExtSets[pos] = es
 	} else {
+		if g.journaling {
+			g.record(undoVLeftExt, pos, g.vLeftExtSets[pos])
+		}
 		g.vLeftExtSets[pos] = es
 	}
 }
@@ -498,8 +636,14 @@ func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
 func (g *GameBoard) SetRightExtSet(row, col int, dir BoardDirection, es uint64) {
 	pos := g.GetSqIdx(row, col)
 	if dir == HorizontalDirection {
+		if g.journaling {
+			g.record(undoHRightExt, pos, g.hRightExtSets[pos])
+		}
 		g.hRightExtSets[pos] = es
 	} else {
+		if g.journaling {
+			g.record(undoVRightExt, pos, g.vRightExtSets[pos])
+		}
 		g.vRightExtSets[pos] = es
 	}
 }
@@ -533,6 +677,10 @@ func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
 	}
 	// Always reset the anchors before applying anything else.
 	pos := g.GetSqIdx(row, col)
+	if g.journaling {
+		g.record(undoHAnchor, pos, boolBits(g.hAnchors[pos]))
+		g.record(undoVAnchor, pos, boolBits(g.vAnchors[pos]))
+	}
 	g.hAnchors[pos] = false
 	g.vAnchors[pos] = false
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
@@ -698,7 +846,7 @@ func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
 			col = colStart + idx
 			row = rowStart
 		}
-		g.squares[g.GetSqIdx(row, col)] = tile
+		g.SetLetter(row, col, tile)
 	}
 }
 
@@ -716,7 +864,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 			col = colStart + idx
 			row = rowStart
 		}
-		g.squares[g.GetSqIdx(row, col)] = 0
+		g.SetLetter(row, col, 0)
 	}
 }
 
@@ -779,6 +927,9 @@ func (g *GameBoard) PlaySmallMove(m *tinymove.SmallMove, moveTiles *[MaxBoardDim
 		}
 		tidx++
 		tileShift += 6
+		if g.journaling {
+			g.record(undoSquare, sqIdx, uint64(g.squares[sqIdx]))
+		}
 		g.squares[sqIdx] = tile
 		moveTiles[lidx] = tile
 		rack.Take(tile.IntrinsicTileIdx())

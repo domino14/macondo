@@ -32,6 +32,35 @@ type stateBackup struct {
 	onturn         int
 	turnnum        int
 	players        playerStates
+	// boardMark is where the board's undo journal stood. journaled says the
+	// board was not copied into this backup: it is restored by undoing the
+	// journal back to boardMark, and boardTiles is its tile count. See
+	// SetIncrementalUndo.
+	journaled  bool
+	boardMark  int
+	boardTiles int
+}
+
+// SetIncrementalUndo makes backups in SimulationMode record where the board's
+// undo journal stands instead of copying the whole board, and
+// UnplayLastMove roll the journal back instead of copying the board back.
+// It is much cheaper for searches that play and unplay millions of moves.
+// Backups taken before it was turned on, or after it is turned off, are whole
+// copies as usual, and the two kinds can be mixed on the stack.
+func (g *Game) SetIncrementalUndo(on bool) {
+	g.incrementalUndo = on
+	g.board.SetUndoJournal(on)
+}
+
+// restoreBoard puts the board back as it was when b was taken.
+func (g *Game) restoreBoard(b *stateBackup) {
+	if b.journaled {
+		g.board.UndoTo(b.boardMark, b.boardTiles)
+	} else {
+		g.board.CopyFrom(b.board)
+		// Whatever the journal recorded since then is undone with it.
+		g.board.DropUndoFrom(b.boardMark)
+	}
 }
 
 func (g *Game) SetBackupMode(m BackupMode) {
@@ -44,7 +73,14 @@ func (g *Game) backupState() {
 	}
 	st := g.stateStack[g.stackPtr]
 
-	st.board.CopyFrom(g.board)
+	st.boardMark = g.board.UndoMark()
+	if g.incrementalUndo && g.backupMode == SimulationMode {
+		st.journaled = true
+		st.boardTiles = g.board.TilesPlayed()
+	} else {
+		st.journaled = false
+		st.board.CopyFrom(g.board)
+	}
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
@@ -132,7 +168,7 @@ func (g *Game) UnplayLastMove() {
 		// because we typically use this when a word is challenged off, or similar.
 		b = g.stateStack[0]
 	}
-	g.board.CopyFrom(b.board)
+	g.restoreBoard(b)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
@@ -149,7 +185,7 @@ func (g *Game) ResetToFirstState() {
 	g.turnnum = b.turnnum
 	g.stackPtr = 0
 
-	g.board.CopyFrom(b.board)
+	g.restoreBoard(b)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
