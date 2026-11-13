@@ -26,12 +26,20 @@ import (
 var compareTable = &TranspositionTable{}
 
 func useCompareTable(s *Solver) {
-	fraction := 0.02
+	// The shell's default (config.ConfigTtableMemFraction).
+	fraction := 0.25
 	if v := os.Getenv("ENDGAME_COMPARE_TT_FRACTION"); v != "" {
 		fraction, _ = strconv.ParseFloat(v, 64)
 	}
 	s.SetTTable(compareTable)
 	s.SetTTableFraction(fraction)
+	// A/B switches for the speedups that do not change a solve's value.
+	if os.Getenv("ENDGAME_COMPARE_NO_LISTS") != "" {
+		s.SetIncrementalMoveLists(false)
+	}
+	if os.Getenv("ENDGAME_COMPARE_NO_SHORTCUTS") != "" {
+		s.SetChildShortcuts(false)
+	}
 }
 
 // TestCompareParallelAlgorithms times the parallel searches against each
