@@ -147,6 +147,9 @@ type GameBoard struct {
 	// SetUndoJournal.
 	journal    []undoEntry
 	journaling bool
+
+	// skipExtSets: see SetSkipExtensionSets.
+	skipExtSets bool
 }
 
 // undoKind names the board array an undoEntry belongs to.
@@ -183,6 +186,21 @@ type undoEntry struct {
 // not recorded; they are not part of playing a move.
 func (g *GameBoard) SetUndoJournal(on bool) {
 	g.journaling = on
+}
+
+// SetSkipExtensionSets makes the board ignore writes to its extension sets,
+// and tells the cross-set generators (see SkipExtensionSets) not to compute
+// them. Only shadow move generation reads extension sets, so a caller that
+// generates every play, like the endgame solver, can save the work. The sets
+// go stale while this is on: turn it on only with the undo journal, and off
+// again once every move played meanwhile has been undone.
+func (g *GameBoard) SetSkipExtensionSets(on bool) {
+	g.skipExtSets = on
+}
+
+// SkipExtensionSets reports whether extension sets are being ignored.
+func (g *GameBoard) SkipExtensionSets() bool {
+	return g.skipExtSets
 }
 
 // UndoMark returns the current position in the undo journal.
@@ -619,6 +637,9 @@ func BonusWordMul(b BonusSquare) int {
 }
 
 func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
+	if g.skipExtSets {
+		return
+	}
 	pos := g.GetSqIdx(row, col)
 	if dir == HorizontalDirection {
 		if g.journaling {
@@ -634,6 +655,9 @@ func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
 }
 
 func (g *GameBoard) SetRightExtSet(row, col int, dir BoardDirection, es uint64) {
+	if g.skipExtSets {
+		return
+	}
 	pos := g.GetSqIdx(row, col)
 	if dir == HorizontalDirection {
 		if g.journaling {

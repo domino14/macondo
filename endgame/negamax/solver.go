@@ -571,6 +571,7 @@ func (s *Solver) makeGameCopies() error {
 		s.gameCopies[i].SetBackupMode(game.SimulationMode)
 		// Copies are made inside a solve; Solve turns this off again.
 		s.gameCopies[i].SetIncrementalUndo(true)
+		s.gameCopies[i].SetSkipExtensionSets(true)
 	}
 	s.movegens = []movegen.MoveGenerator{}
 	gaddag := s.stmMovegen.(*movegen.GordonGenerator).GADDAG()
@@ -699,11 +700,14 @@ func (s *Solver) listsFor(thread int, g *game.Game, mg movegen.MoveGenerator) *p
 
 // setIncrementalUndo switches the solver's games between undoing moves from
 // the board's journal (on, for the length of a solve) and from whole-board
-// copies.
+// copies. While it is on the boards also stop keeping their extension sets,
+// which only shadow move generation reads and the solver never runs.
 func (s *Solver) setIncrementalUndo(on bool) {
 	s.game.SetIncrementalUndo(on)
+	s.game.SetSkipExtensionSets(on)
 	for _, g := range s.gameCopies {
 		g.SetIncrementalUndo(on)
+		g.SetSkipExtensionSets(on)
 	}
 }
 

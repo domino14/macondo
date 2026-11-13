@@ -52,6 +52,14 @@ func (g *Game) SetIncrementalUndo(on bool) {
 	g.board.SetUndoJournal(on)
 }
 
+// SetSkipExtensionSets stops the board's extension sets from being kept up
+// as moves are played (see board.GameBoard.SetSkipExtensionSets). Use it
+// only together with SetIncrementalUndo, for a search that never runs shadow
+// move generation, and turn it off once the search has unplayed its moves.
+func (g *Game) SetSkipExtensionSets(on bool) {
+	g.board.SetSkipExtensionSets(on)
+}
+
 // restoreBoard puts the board back as it was when b was taken.
 func (g *Game) restoreBoard(b *stateBackup) {
 	if b.journaled {

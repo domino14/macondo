@@ -110,6 +110,30 @@ type pathLevel struct {
 	// tiles (and so shrank their rack).
 	mover    int8
 	tilePlay bool
+	// changed lists the empty squares whose cross-sets, cross-scores or
+	// neighbours that move changes (row<<8 | col): what a one-tile play on
+	// a square depends on.
+	changed  [maxChangedSquares]uint16
+	nChanged uint8
+	// lone caches each player's best one-tile play in this position, for a
+	// player down to a single tile.
+	lone [2]lonePlay
+}
+
+// maxChangedSquares bounds pathLevel.changed: the two ends of the word, and
+// the two ends of the crossing run through each of up to seven tiles.
+const maxChangedSquares = 16
+
+// lonePlay is the best play of a player's last tile in one position: the
+// highest-scoring square, the first of those in row order, as scanLoneTile
+// finds it.
+type lonePlay struct {
+	valid bool
+	found bool
+	tile  tilemapping.MachineLetter
+	row   int8
+	col   int8
+	score int32
 }
 
 // pathLists is one thread's incremental move lists. Levels are indexed by the
@@ -141,6 +165,8 @@ func (p *pathLists) bind(g *game.Game, mg movegen.MoveGenerator, check bool) {
 	for i := range p.levels {
 		p.levels[i].lists[0].valid = false
 		p.levels[i].lists[1].valid = false
+		p.levels[i].lone[0].valid = false
+		p.levels[i].lone[1].valid = false
 	}
 	g.SetSmallMoveHook(p.onMove)
 }
@@ -167,10 +193,117 @@ func (p *pathLists) onMove(m *tinymove.SmallMove) {
 	lv := &p.levels[n]
 	lv.mover = int8(p.g.PlayerOnTurn())
 	lv.tilePlay = !m.IsPass()
-	lv.hits = p.moveHits(m)
+	// A player holding one tile has its best play kept at every level of
+	// the path, so that each position's is derived from its parent's.
+	for player := 0; player < 2; player++ {
+		if rack := p.g.RackFor(player); rack.NumTiles() == 1 {
+			p.lonePlayAt(n, player, loneTile(rack))
+		}
+	}
+	lv.hits = p.moveHits(m, lv)
 	next := &p.levels[n+1]
 	next.lists[0].valid = false
 	next.lists[1].valid = false
+	next.lone[0].valid = false
+	next.lone[1].valid = false
+}
+
+// bestLoneTilePlay is bestSingleTilePlay for the player's one tile, worked
+// out from the nearest position up the path that has it: only the squares
+// the moves since then changed can have become a better play.
+func (p *pathLists) bestLoneTilePlay(player int) (tinymove.SmallMove, bool) {
+	n := p.g.StateStackDepth()
+	p.grow(n + 1)
+	tile := loneTile(p.g.RackFor(player))
+	c := p.lonePlayAt(n, player, tile)
+	if !c.found {
+		return tinymove.SmallMove{}, false
+	}
+	return loneTileMove(p.g.Board(), tile, p.g.Bag().LetterDistribution(),
+		int(c.row), int(c.col), int(c.score)), true
+}
+
+// lonePlayAt returns level n's cached play of the player's one tile, filling
+// it in if needed. The game must be at level n.
+func (p *pathLists) lonePlayAt(n, player int, tile tilemapping.MachineLetter) *lonePlay {
+	c := &p.levels[n].lone[player]
+	if c.valid && c.tile == tile {
+		return c
+	}
+	b := p.g.Board()
+	ld := p.g.Bag().LetterDistribution()
+	c.valid = true
+	c.tile = tile
+	// The nearest ancestor that has the play. The player has not moved since
+	// then (it would hold a different rack), so the tile is the same.
+	src := -1
+	for j := n - 1; j >= p.base; j-- {
+		lv := &p.levels[j]
+		if lv.lone[player].valid && lv.lone[player].tile == tile {
+			src = j
+			break
+		}
+		if lv.tilePlay && int(lv.mover) == player {
+			break
+		}
+	}
+	if src >= 0 {
+		old := &p.levels[src].lone[player]
+		derived := true
+		if old.found {
+			// The old best stands unless a tile now covers its square or it
+			// is one of the changed squares.
+			if b.HasLetter(int(old.row), int(old.col)) {
+				derived = false
+			}
+			key := uint16(old.row)<<8 | uint16(old.col)
+			for j := src; j < n && derived; j++ {
+				lv := &p.levels[j]
+				for i := 0; i < int(lv.nChanged); i++ {
+					if lv.changed[i] == key {
+						derived = false
+						break
+					}
+				}
+			}
+		}
+		if derived {
+			c.found, c.row, c.col, c.score = old.found, old.row, old.col, old.score
+			tileFace := loneTileFace(tile, ld)
+			for j := src; j < n; j++ {
+				lv := &p.levels[j]
+				for i := 0; i < int(lv.nChanged); i++ {
+					r, col := int(lv.changed[i]>>8), int(lv.changed[i]&0xff)
+					if b.HasLetter(r, col) {
+						continue
+					}
+					score, ok := loneTileAt(b, tile, tileFace, r, col)
+					if !ok {
+						continue
+					}
+					// Higher score, or the same score earlier in row order.
+					if !c.found || int32(score) > c.score || (int32(score) == c.score &&
+						(r < int(c.row) || (r == int(c.row) && col < int(c.col)))) {
+						c.found = true
+						c.row, c.col, c.score = int8(r), int8(col), int32(score)
+					}
+				}
+			}
+			if p.check {
+				score, row, col, found := scanLoneTile(b, tile, ld)
+				if found != c.found || (found && (int32(score) != c.score ||
+					int8(row) != c.row || int8(col) != c.col)) {
+					panic(fmt.Sprintf("derived one-tile play (%v %d,%d for %d) differs from the scan (%v %d,%d for %d)",
+						c.found, c.row, c.col, c.score, found, row, col, score))
+				}
+			}
+			return c
+		}
+	}
+	score, row, col, found := scanLoneTile(b, tile, ld)
+	c.found = found
+	c.row, c.col, c.score = int8(row), int8(col), int32(score)
+	return c
 }
 
 // moveHits returns the lanes whose plays the move changes, from the board
@@ -184,7 +317,8 @@ func (p *pathLists) onMove(m *tinymove.SmallMove) {
 //     lanes (parallel to the move's) of the empty squares at the two ends of
 //     the crossing run of tiles through it;
 //   - the crossing lanes of the empty squares at the two ends of the word.
-func (p *pathLists) moveHits(m *tinymove.SmallMove) uint64 {
+func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
+	lv.nChanged = 0
 	if m.IsPass() {
 		return 0
 	}
@@ -206,6 +340,14 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove) uint64 {
 		}
 		return b.HasLetter(lane, pos)
 	}
+	// noteChanged records the square at (lane, pos) for lv.changed.
+	noteChanged := func(lane, pos int) {
+		if vertical {
+			lane, pos = pos, lane
+		}
+		lv.changed[lv.nChanged] = uint16(lane)<<8 | uint16(pos)
+		lv.nChanged++
+	}
 	hits := uint64(1) << uint(ownBase+fixed)
 	for i := 0; i < length; i++ {
 		pos := start + i
@@ -220,6 +362,7 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove) uint64 {
 		}
 		if lo >= 0 {
 			hits |= 1 << uint(ownBase+lo)
+			noteChanged(lo, pos)
 		}
 		hi := fixed + 1
 		for hi < dim && hasLetter(hi, pos) {
@@ -227,13 +370,16 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove) uint64 {
 		}
 		if hi < dim {
 			hits |= 1 << uint(ownBase+hi)
+			noteChanged(hi, pos)
 		}
 	}
 	if start > 0 {
 		hits |= 1 << uint(crossBase+start-1)
+		noteChanged(fixed, start-1)
 	}
 	if start+length < dim {
 		hits |= 1 << uint(crossBase+start+length)
+		noteChanged(fixed, start+length)
 	}
 	return hits
 }

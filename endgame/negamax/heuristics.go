@@ -141,16 +141,76 @@ func stuckFractionFromBV(ld *tilemapping.LetterDistribution, rack *tilemapping.R
 func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 	ld *tilemapping.LetterDistribution) (tinymove.SmallMove, bool) {
 
-	// The single tile on the rack.
-	tile := tilemapping.MachineLetter(0)
+	tile := loneTile(rack)
+	score, row, col, found := scanLoneTile(b, tile, ld)
+	if !found {
+		return tinymove.SmallMove{}, false
+	}
+	return loneTileMove(b, tile, ld, row, col, score), true
+}
+
+// loneTile returns the first tile type on the rack: the tile, when the rack
+// holds just one.
+func loneTile(rack *tilemapping.Rack) tilemapping.MachineLetter {
 	for ml, count := range rack.LetArr {
 		if count > 0 {
-			tile = tilemapping.MachineLetter(ml)
-			break
+			return tilemapping.MachineLetter(ml)
 		}
 	}
-	isBlank := tile == 0
+	return 0
+}
 
+// loneTileFace is what the tile scores on a plain square.
+func loneTileFace(tile tilemapping.MachineLetter, ld *tilemapping.LetterDistribution) int {
+	if tile == 0 {
+		return 0
+	}
+	return ld.Score(tile)
+}
+
+// loneTileAt scores the tile played alone on the empty square (r, c), and
+// reports whether that is a legal play. It depends only on the square's two
+// cross-sets and cross-scores and on which of its four neighbours hold
+// tiles.
+func loneTileAt(b *board.GameBoard, tile tilemapping.MachineLetter, tileFace int,
+	r, c int) (int, bool) {
+
+	dim := b.Dim()
+	hasH := (c > 0 && b.HasLetter(r, c-1)) || (c < dim-1 && b.HasLetter(r, c+1))
+	hasV := (r > 0 && b.HasLetter(r-1, c)) || (r < dim-1 && b.HasLetter(r+1, c))
+	if !hasH && !hasV {
+		return 0, false
+	}
+	idx := b.GetSqIdx(r, c)
+	combined := uint64(b.GetCrossSetIdx(idx, board.HorizontalDirection)) &
+		uint64(b.GetCrossSetIdx(idx, board.VerticalDirection))
+	if tile == 0 {
+		// A blank plays if the intersection admits any real letter. Bit 0
+		// is the blank marker, not a letter, so shift it out.
+		if combined>>1 == 0 {
+			return 0, false
+		}
+	} else if combined&(1<<uint(tile)) == 0 {
+		return 0, false
+	}
+	tileLS := tileFace * b.GetLetterMultiplier(idx)
+	wm := b.GetWordMultiplier(idx)
+	score := 0
+	if hasH {
+		score += (tileLS + b.GetCrossScoreIdx(idx, board.HorizontalDirection)) * wm
+	}
+	if hasV {
+		score += (tileLS + b.GetCrossScoreIdx(idx, board.VerticalDirection)) * wm
+	}
+	return score, true
+}
+
+// scanLoneTile finds the highest-scoring square for the tile played alone:
+// the first such square in row order.
+func scanLoneTile(b *board.GameBoard, tile tilemapping.MachineLetter,
+	ld *tilemapping.LetterDistribution) (bestScore, bestRow, bestCol int, found bool) {
+
+	isBlank := tile == 0
 	dim := b.Dim()
 	squares := b.SquaresSlice()
 	hCrossSets := b.CrossSetsForDir(board.HorizontalDirection)
@@ -169,23 +229,7 @@ func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 		}
 		occupied[r] = mask
 	}
-	occAt := func(r, c int) bool {
-		if r < 0 || r >= dim || c < 0 || c >= dim {
-			return false
-		}
-		return occupied[r]&(1<<uint(c)) != 0
-	}
-
-	found := false
-	bestScore := 0
-	bestRow, bestCol, bestStart, bestLen := 0, 0, 0, 0
-	bestVertical := false
-	bestML := tile
-
-	tileFace := 0
-	if !isBlank {
-		tileFace = ld.Score(tile)
-	}
+	tileFace := loneTileFace(tile, ld)
 
 	full := uint32(1)<<uint(dim) - 1
 	for r := 0; r < dim; r++ {
@@ -204,98 +248,93 @@ func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 		for candidates != 0 {
 			c := bits.TrailingZeros32(candidates)
 			candidates &= candidates - 1
-			hasH := hNbr&(1<<uint(c)) != 0
-			hasV := vNbr&(1<<uint(c)) != 0
-
 			idx := base + c*colMul
 			combined := uint64(hCrossSets[idx]) & uint64(vCrossSets[idx])
 			if isBlank {
-				// A blank plays if the intersection admits any real letter.
-				// Bit 0 is the blank marker, not a letter, so shift it out.
 				if combined>>1 == 0 {
 					continue
 				}
 			} else if combined&(1<<uint(tile)) == 0 {
 				continue
 			}
-
-			lm := b.GetLetterMultiplier(idx)
+			tileLS := tileFace * b.GetLetterMultiplier(idx)
 			wm := b.GetWordMultiplier(idx)
-			tileLS := tileFace * lm
 			score := 0
-			if hasH {
-				score += (tileLS + b.GetCrossScore(r, c, board.HorizontalDirection)) * wm
+			if hNbr&(1<<uint(c)) != 0 {
+				score += (tileLS + b.GetCrossScoreIdx(idx, board.HorizontalDirection)) * wm
 			}
-			if hasV {
-				score += (tileLS + b.GetCrossScore(r, c, board.VerticalDirection)) * wm
+			if vNbr&(1<<uint(c)) != 0 {
+				score += (tileLS + b.GetCrossScoreIdx(idx, board.VerticalDirection)) * wm
 			}
 			if found && score <= bestScore {
 				continue
 			}
-
-			// Only on a strict improvement do we pay for the word extent and,
-			// for a blank, the letter choice.
-			vertical := hasV && !hasH
-			start, end := c, c
-			if !vertical {
-				for start > 0 && occAt(r, start-1) {
-					start--
-				}
-				for end < dim-1 && occAt(r, end+1) {
-					end++
-				}
-			} else {
-				start, end = r, r
-				for start > 0 && occAt(start-1, c) {
-					start--
-				}
-				for end < dim-1 && occAt(end+1, c) {
-					end++
-				}
-			}
-			chosen := tile
-			if isBlank {
-				// A blank scores 0 whatever it is designated, so every allowed
-				// letter ties; take the lowest.
-				numLetters := int(ld.TileMapping().NumLetters())
-				for ml := tilemapping.MachineLetter(1); int(ml) < numLetters; ml++ {
-					if combined&(1<<uint(ml)) != 0 {
-						chosen = ml
-						break
-					}
-				}
-			}
-
 			found = true
-			bestScore = score
-			bestRow, bestCol = r, c
-			bestStart, bestLen = start, end-start+1
-			bestVertical = vertical
-			bestML = chosen
+			bestScore, bestRow, bestCol = score, r, c
 		}
 	}
+	return bestScore, bestRow, bestCol, found
+}
 
-	if !found {
-		return tinymove.SmallMove{}, false
+// loneTileMove builds the play of the tile alone on (r, c), which scores
+// score: the word's extent and, for a blank, its letter.
+func loneTileMove(b *board.GameBoard, tile tilemapping.MachineLetter,
+	ld *tilemapping.LetterDistribution, r, c, score int) tinymove.SmallMove {
+
+	dim := b.Dim()
+	hasH := (c > 0 && b.HasLetter(r, c-1)) || (c < dim-1 && b.HasLetter(r, c+1))
+	vertical := !hasH
+	start, end := c, c
+	if !vertical {
+		for start > 0 && b.HasLetter(r, start-1) {
+			start--
+		}
+		for end < dim-1 && b.HasLetter(r, end+1) {
+			end++
+		}
+	} else {
+		start, end = r, r
+		for start > 0 && b.HasLetter(start-1, c) {
+			start--
+		}
+		for end < dim-1 && b.HasLetter(end+1, c) {
+			end++
+		}
+	}
+	isBlank := tile == 0
+	chosen := tile
+	if isBlank {
+		// A blank scores 0 whatever it is designated, so every allowed
+		// letter ties; take the lowest.
+		idx := b.GetSqIdx(r, c)
+		combined := uint64(b.GetCrossSetIdx(idx, board.HorizontalDirection)) &
+			uint64(b.GetCrossSetIdx(idx, board.VerticalDirection))
+		numLetters := int(ld.TileMapping().NumLetters())
+		for ml := tilemapping.MachineLetter(1); int(ml) < numLetters; ml++ {
+			if combined&(1<<uint(ml)) != 0 {
+				chosen = ml
+				break
+			}
+		}
 	}
 
 	// Encode exactly as AllPlaysSmallRecorder does: true board coordinates,
 	// with the word's start along the play direction.
 	var moveCode uint64
-	moveCode |= uint64(bestML) << 20
+	moveCode |= uint64(chosen) << 20
 	if isBlank {
 		moveCode |= 1 << 12
 	}
-	row, col := bestRow, bestStart
-	if bestVertical {
+	row, col := r, start
+	if vertical {
 		moveCode |= 1
-		row, col = bestStart, bestCol
+		row, col = start, c
 	}
 	moveCode |= uint64(col) << 1
 	moveCode |= uint64(row) << 6
 
-	return tinymove.TilePlayMove(tinymove.TinyMove(moveCode), int16(bestScore), 1,
-		uint8(bestLen)), true
+	return tinymove.TilePlayMove(tinymove.TinyMove(moveCode), int16(score), 1,
+		uint8(end-start+1))
 }
 
 // boardPlayableTilesBV scans the board once and returns a bitvector of every
@@ -492,7 +531,14 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			// one the picker below would choose.
 			buf := &s.singleTileBuf[thread]
 			n := 0
-			if m, ok := bestSingleTilePlay(g.Board(), rack, ld); ok {
+			var m tinymove.SmallMove
+			var ok bool
+			if lists := s.listsFor(thread, g, mg); lists != nil {
+				m, ok = lists.bestLoneTilePlay(onTurn)
+			} else {
+				m, ok = bestSingleTilePlay(g.Board(), rack, ld)
+			}
+			if ok {
 				buf[n] = m
 				n++
 			}
