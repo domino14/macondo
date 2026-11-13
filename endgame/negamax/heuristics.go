@@ -1,8 +1,10 @@
 package negamax
 
 import (
+	"encoding/binary"
 	"math"
 	"math/bits"
+	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -149,6 +151,23 @@ func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 	return loneTileMove(b, tile, ld, row, col, score), true
 }
 
+// keptTile returns the one tile of the rack that the play m, which places
+// all the others, leaves behind.
+func keptTile(rack *tilemapping.Rack, m *tinymove.SmallMove) tilemapping.MachineLetter {
+	sum := 0
+	for ml, n := range rack.LetArr {
+		sum += ml * int(n)
+	}
+	tm := uint64(m.TinyMove())
+	for i, n := 0, m.TilesPlayed(); i < n; i++ {
+		// A blank is tile 0 on the rack, whatever letter it plays as.
+		if tm&(1<<(12+uint(i))) == 0 {
+			sum -= int((tm >> (20 + 6*uint(i))) & 63)
+		}
+	}
+	return tilemapping.MachineLetter(sum)
+}
+
 // loneTile returns the first tile type on the rack: the tile, when the rack
 // holds just one.
 func loneTile(rack *tilemapping.Rack) tilemapping.MachineLetter {
@@ -205,6 +224,17 @@ func loneTileAt(b *board.GameBoard, tile tilemapping.MachineLetter, tileFace int
 	return score, true
 }
 
+// nonzeroBytes returns a bit for each of x's eight bytes that is not zero,
+// the lowest byte's in bit 0.
+func nonzeroBytes(x uint64) uint32 {
+	const low7 = 0x7f7f7f7f7f7f7f7f
+	// The top bit of each byte: set if the byte's low seven bits are not
+	// all zero (the add carries into it) or the byte has it set itself.
+	t := ((x&low7 + low7) | x) &^ low7
+	// Gather the eight top bits into the top byte.
+	return uint32((t >> 7) * 0x0102040810204080 >> 56)
+}
+
 // scanLoneTile finds the highest-scoring square for the tile played alone:
 // the first such square in row order.
 func scanLoneTile(b *board.GameBoard, tile tilemapping.MachineLetter,
@@ -219,15 +249,27 @@ func scanLoneTile(b *board.GameBoard, tile tilemapping.MachineLetter,
 	colMul := b.GetSqIdx(0, 1)
 
 	var occupied [board.MaxBoardDim]uint32
-	for r := 0; r < dim; r++ {
-		var mask uint32
-		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if squares[base+c*colMul] != 0 {
-				mask |= 1 << uint(c)
-			}
+	if dim == 15 && colMul == 1 && len(squares) >= 14*rowMul+15 {
+		// A row's 15 squares are 15 adjacent bytes: read them eight at a
+		// time (the two reads share the eighth square).
+		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&squares[0])), len(squares))
+		for r := 0; r < dim; r++ {
+			base := r * rowMul
+			lo := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base:]))
+			hi := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base+7:]))
+			occupied[r] = lo | hi<<7
 		}
-		occupied[r] = mask
+	} else {
+		for r := 0; r < dim; r++ {
+			var mask uint32
+			base := r * rowMul
+			for c := 0; c < dim; c++ {
+				if squares[base+c*colMul] != 0 {
+					mask |= 1 << uint(c)
+				}
+			}
+			occupied[r] = mask
+		}
 	}
 	tileFace := loneTileFace(tile, ld)
 
@@ -368,15 +410,27 @@ func boardPlayableTilesBV(b *board.GameBoard, targetBV uint64) uint64 {
 	colMul := b.GetSqIdx(0, 1)
 
 	var occupied [board.MaxBoardDim]uint32
-	for r := 0; r < dim; r++ {
-		var mask uint32
-		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if squares[base+c*colMul] != 0 {
-				mask |= 1 << uint(c)
-			}
+	if dim == 15 && colMul == 1 && len(squares) >= 14*rowMul+15 {
+		// A row's 15 squares are 15 adjacent bytes: read them eight at a
+		// time (the two reads share the eighth square).
+		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&squares[0])), len(squares))
+		for r := 0; r < dim; r++ {
+			base := r * rowMul
+			lo := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base:]))
+			hi := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base+7:]))
+			occupied[r] = lo | hi<<7
 		}
-		occupied[r] = mask
+	} else {
+		for r := 0; r < dim; r++ {
+			var mask uint32
+			base := r * rowMul
+			for c := 0; c < dim; c++ {
+				if squares[base+c*colMul] != 0 {
+					mask |= 1 << uint(c)
+				}
+			}
+			occupied[r] = mask
+		}
 	}
 
 	full := uint32(1)<<uint(dim) - 1
@@ -634,6 +688,14 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			wentOut = true
 			played++
 			break
+		}
+		if tiles := int(rack.NumTiles()); tiles >= 2 && plays[bestIdx].TilesPlayed() == tiles-1 {
+			// The play keeps one tile, whose best play the playout will
+			// want next. This position's list has all of that tile's
+			// plays, so note the best now and spare a scan of the board.
+			if lists := s.listsFor(thread, g, mg); lists != nil {
+				lists.noteLonePlay(onTurn, keptTile(rack, &plays[bestIdx]))
+			}
 		}
 		_, err := g.PlaySmallMove(&plays[bestIdx])
 		played++

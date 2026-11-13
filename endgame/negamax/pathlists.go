@@ -246,6 +246,67 @@ func (p *pathLists) bestLoneTilePlay(player int) (tinymove.SmallMove, bool) {
 		int(c.row), int(c.col), int(c.score)), true
 }
 
+// noteLonePlay records, for the game's current position, the best play of
+// the given tile alone by the player, who holds it among other tiles and is
+// about to play the rest. The player's move list for the position has every
+// one-tile play of the tile, so the best comes from the list without a scan
+// of the board; lonePlayAt then derives the play for the positions that
+// follow, where the tile is the player's last.
+func (p *pathLists) noteLonePlay(player int, tile tilemapping.MachineLetter) {
+	n := p.g.StateStackDepth()
+	c := &p.levels[n].lone[player]
+	if c.valid && c.tile == tile {
+		return
+	}
+	l := p.get(player)
+	b := p.g.Board()
+	c.valid = true
+	c.tile = tile
+	c.found = false
+	for i := range l.moves {
+		m := &l.moves[i]
+		if m.TilesPlayed() != 1 {
+			continue
+		}
+		tm := uint64(m.TinyMove())
+		played := tilemapping.MachineLetter((tm >> 20) & 63)
+		if tm&(1<<12) != 0 {
+			played = 0
+		}
+		if played != tile {
+			continue
+		}
+		score := int32(m.Score())
+		if c.found && score < c.score {
+			continue
+		}
+		// The square the tile goes on: the play's one empty square.
+		row, col, vertical := m.CoordsAndVertical()
+		for j, length := 0, m.PlayLength(); j < length && b.HasLetter(row, col); j++ {
+			if vertical {
+				row++
+			} else {
+				col++
+			}
+		}
+		// Higher score, or the same score earlier in row order, as
+		// scanLoneTile has it.
+		if !c.found || score > c.score ||
+			row < int(c.row) || (row == int(c.row) && col < int(c.col)) {
+			c.found = true
+			c.row, c.col, c.score = int8(row), int8(col), score
+		}
+	}
+	if p.check {
+		score, row, col, found := scanLoneTile(b, tile, p.g.Bag().LetterDistribution())
+		if found != c.found || (found && (int32(score) != c.score ||
+			int8(row) != c.row || int8(col) != c.col)) {
+			panic(fmt.Sprintf("one-tile play from the list (%v %d,%d for %d) differs from the scan (%v %d,%d for %d)",
+				c.found, c.row, c.col, c.score, found, row, col, score))
+		}
+	}
+}
+
 // lonePlayAt returns level n's cached play of the player's one tile, filling
 // it in if needed. The game must be at level n.
 func (p *pathLists) lonePlayAt(n, player int, tile tilemapping.MachineLetter) *lonePlay {
