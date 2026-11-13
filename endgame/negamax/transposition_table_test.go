@@ -82,3 +82,69 @@ func TestTTableBucketReplacement(t *testing.T) {
 	is.True(has(4))
 	is.True(has(5))
 }
+
+// The write that puts a part of the table on a huge page (touchHugePage)
+// must change nothing: with several threads storing and looking up all over
+// the table at once, every entry reads back as it was stored, whether its
+// first access was the store or a lookup. Where the kernel has no huge pages
+// to give this is an ordinary store-and-lookup test.
+func TestTTableHugePageTouchKeepsEntries(t *testing.T) {
+	is := is.New(t)
+	tt := &TranspositionTable{}
+	tt.Reset(0, 15)
+	t.Logf("huge pages advised: %v", tt.hugeTouched != nil)
+	const threads, perThread = 4, 20000
+	// A key per (thread, i), spread over the whole table. The low bits pick
+	// the bucket, so keep them distinct.
+	key := func(thread, i int) uint64 {
+		x := uint64(thread*perThread+i+1) * 0x9E3779B97F4A7C15
+		return x ^ x>>29
+	}
+	done := make(chan bool, threads)
+	for thread := 0; thread < threads; thread++ {
+		go func(thread int) {
+			ok := true
+			for i := 0; i < perThread; i++ {
+				k := key(thread, i)
+				if i%2 == 0 {
+					// Read first: on a new page this is what used to keep
+					// the page small.
+					tt.lookup(k, thread)
+				}
+				tt.store(k, int16(i%2000-1000), TTExact<<6+uint8(1+i%60), 0, thread)
+			}
+			for i := 0; i < perThread; i++ {
+				e := tt.lookup(key(thread, i), thread)
+				// Another key in the same bucket may have replaced it; an
+				// entry that is there must be the one stored.
+				if e.valid() && (e.getScore() != int16(i%2000-1000) || e.depth() != uint8(1+i%60)) {
+					ok = false
+				}
+			}
+			done <- ok
+		}(thread)
+	}
+	for thread := 0; thread < threads; thread++ {
+		is.True(<-done)
+	}
+	found := 0
+	for thread := 0; thread < threads; thread++ {
+		for i := 0; i < perThread; i++ {
+			e := tt.lookup(key(thread, i), 0)
+			if e.valid() {
+				found++
+			}
+		}
+	}
+	// Buckets hold four; nearly everything should still be there.
+	is.True(found > threads*perThread*9/10)
+	if tt.hugeTouched != nil {
+		touched := 0
+		for _, w := range tt.hugeTouched {
+			for ; w != 0; w &= w - 1 {
+				touched++
+			}
+		}
+		is.True(touched > 0)
+	}
+}
