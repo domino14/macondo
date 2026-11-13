@@ -232,8 +232,8 @@ func TestCompareParallelAlgorithms(t *testing.T) {
 					if pos.want != 0 && v != pos.want {
 						t.Errorf("%s: %s with %d threads gave %d, want %d", pos.name, label, threads, v, pos.want)
 					}
-					fmt.Printf("RESULT %-9s plies=%-2d threads=%-2d %-14s value=%-5d %8.2fs nodes=%d\n",
-						pos.name, pos.plies, threads, label, v, time.Since(start).Seconds(), s.nodes.Load())
+					fmt.Printf("RESULT %-9s plies=%-2d threads=%-2d %-14s value=%-5d %8.2fs nodes=%d searched=%d\n",
+						pos.name, pos.plies, threads, label, v, time.Since(start).Seconds(), s.nodes.Load(), s.SearchedNodes())
 				}
 			}
 		}
