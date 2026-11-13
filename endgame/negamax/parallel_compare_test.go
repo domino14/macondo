@@ -37,6 +37,12 @@ func useCompareTable(s *Solver) {
 	if os.Getenv("ENDGAME_COMPARE_NO_LISTS") != "" {
 		s.SetIncrementalMoveLists(false)
 	}
+	if os.Getenv("ENDGAME_COMPARE_NO_OUT_REPLY") != "" {
+		s.SetOutReplyBound(false)
+	}
+	if os.Getenv("ENDGAME_COMPARE_NO_KEEP_ONE") != "" {
+		s.SetKeepOneBound(false)
+	}
 	if os.Getenv("ENDGAME_COMPARE_NO_SHORTCUTS") != "" {
 		s.SetChildShortcuts(false)
 	}
