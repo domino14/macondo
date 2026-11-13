@@ -175,11 +175,39 @@ func TestKeepOneBoundKeepsValue(t *testing.T) {
 	}
 }
 
+// TestOutReplyBoundKeepsValue solves with the out-reply bound off and on,
+// with either player to move, and expects the same values.
+func TestOutReplyBoundKeepsValue(t *testing.T) {
+	is := is.New(t)
+	for _, tc := range []struct {
+		rack1, rack2 string
+		pts1, pts2   int
+		onTurn       int
+	}{
+		{"DEHILOR", "BGIV", 389, 384, 1},
+		{"DEHILOR", "BGIV", 389, 384, 0},
+	} {
+		for _, plies := range []int{3, 4} {
+			var values []int16
+			for _, on := range []bool{false, true} {
+				s, err := setUpSolver("NWL20", "english", board.VsCanik, plies, tc.rack1, tc.rack2, tc.pts1, tc.pts2, tc.onTurn)
+				is.NoErr(err)
+				s.SetThreads(1)
+				s.SetOutReplyBound(on)
+				v, _, err := s.Solve(context.Background(), plies)
+				is.NoErr(err)
+				values = append(values, v)
+			}
+			is.Equal(values[0], values[1])
+		}
+	}
+}
+
 // TestSelfCheckedSolve solves with the solver's self-checks on, whatever the
 // environment says: every incremental move list is compared with a full
 // generation of the position, every derived one-tile play with a scan of the
-// board, and every move the keep-one bound would skip is searched to see
-// that it fails low. Any difference panics.
+// board, and every move the keep-one or out-reply bound would skip is
+// searched to see that it fails low. Any difference panics.
 func TestSelfCheckedSolve(t *testing.T) {
 	is := is.New(t)
 	was := checkMoveLists

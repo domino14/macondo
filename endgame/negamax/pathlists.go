@@ -166,6 +166,9 @@ type pathLists struct {
 	check bool
 	// inPlayout is set while the solver plays a leaf out.
 	inPlayout bool
+	// scratch takes the changes of a move that is only being looked at (see
+	// outReplyBound).
+	scratch pathLevel
 }
 
 // bind attaches the lists to a game and its move generator and forgets

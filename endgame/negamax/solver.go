@@ -338,6 +338,9 @@ type Solver struct {
 	// keepOneOptim skips moves the keep-one bound shows cannot beat alpha
 	// (see keepOneBound).
 	keepOneOptim bool
+	// outReplyOptim skips moves the out-reply bound shows cannot beat alpha
+	// (see outReplyBound).
+	outReplyOptim bool
 
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
@@ -436,6 +439,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.incrementalLists = true
 	s.childShortcuts = true
 	s.keepOneOptim = true
+	s.outReplyOptim = true
 	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
@@ -742,6 +746,12 @@ func (s *Solver) SearchedNodes() uint64 {
 // are on by default and change only the speed of a solve.
 func (s *Solver) SetIncrementalMoveLists(v bool) {
 	s.incrementalLists = v
+}
+
+// SetOutReplyBound turns the out-reply bound on or off. It is on by default
+// and changes only the speed of a solve.
+func (s *Solver) SetOutReplyBound(v bool) {
+	s.outReplyOptim = v
 }
 
 // SetKeepOneBound turns the keep-one bound on or off. It is on by default
@@ -2133,12 +2143,49 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		keepOne.init(g, onTurn, ourSpread)
 	}
 
+	// See outReplyBound: a move the opponent can answer by going out, for a
+	// result that does not beat alpha, needs no search. Set up only once a
+	// first move has failed to cut off.
+	var outReply outReplyBound
+	outReplyActive := s.outReplyOptim && depth >= 2 && s.currentIDDepths[thread] != depth
+	stmTiles := int(stmRack.NumTiles())
+
 	// First pass: search non-deferred moves
 	for idx := range children {
-		// checkBound is set when the self-check searches a move the
-		// keep-one bound would have skipped, to see that it does fail low.
+		// checkBound is set when the self-check searches a move a bound
+		// would have skipped, to see that it does fail low.
 		checkBound := false
 		checkAlpha := α
+		if outReplyActive && idx > 0 {
+			if !outReply.ready {
+				mg := s.stmMovegen
+				if thread > 0 {
+					mg = s.movegens[thread-1]
+				}
+				if lists := s.listsFor(thread, g, mg); lists != nil {
+					outReply.init(g, lists, onTurn, ourSpread)
+				} else {
+					outReplyActive = false
+				}
+			}
+			// Not a move that goes out, nor a pass that ends the game:
+			// neither is replied to.
+			m := &children[idx]
+			if outReplyActive && m.TilesPlayed() != stmTiles &&
+				(!m.IsPass() || g.ScorelessTurns() == 0) {
+				if bound, ok := outReply.bound(m, int(α)); ok {
+					if !checkMoveLists {
+						if int16(bound) > bestValue {
+							bestValue = int16(bound)
+							bestMove = children[idx]
+						}
+						s.nodes.add(thread, 1)
+						continue
+					}
+					checkBound = true
+				}
+			}
+		}
 		if keepOneActive && !children[idx].IsPass() &&
 			children[idx].TilesPlayed() == keepOne.rackSize-1 {
 			if bound := keepOne.bound(&children[idx], int(α)); bound <= int(α) {
@@ -2248,7 +2295,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
 		}
 		if checkBound && -value > checkAlpha {
-			panic(fmt.Sprintf("keep-one bound said %s could not beat %d, but it is worth %d (depth %d)",
+			panic(fmt.Sprintf("a bound said %s could not beat %d, but it is worth %d (depth %d)",
 				children[idx].ShortDescription(), checkAlpha, -value, depth))
 		}
 		if -value > bestValue {
