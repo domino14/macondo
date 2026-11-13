@@ -335,6 +335,9 @@ type Solver struct {
 	// childShortcuts values children that need no board without playing
 	// them (see valueChildUnplayed).
 	childShortcuts bool
+	// keepOneOptim skips moves the keep-one bound shows cannot beat alpha
+	// (see keepOneBound).
+	keepOneOptim bool
 
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
@@ -432,6 +435,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.magpieOrdering = false
 	s.incrementalLists = true
 	s.childShortcuts = true
+	s.keepOneOptim = true
 	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
@@ -731,6 +735,12 @@ func (s *Solver) SearchedNodes() uint64 {
 // are on by default and change only the speed of a solve.
 func (s *Solver) SetIncrementalMoveLists(v bool) {
 	s.incrementalLists = v
+}
+
+// SetKeepOneBound turns the keep-one bound on or off. It is on by default
+// and changes only the speed of a solve.
+func (s *Solver) SetKeepOneBound(v bool) {
+	s.keepOneOptim = v
 }
 
 // SetChildShortcuts turns valuing children without playing them on or off.
@@ -2106,8 +2116,36 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// leavesPlayed counts the children played at depth 1.
 	leavesPlayed := 0
 
+	// See keepOneBound: a move that keeps one tile and cannot beat alpha
+	// needs no search. Not at the root of a search, which needs each move's
+	// own value, and only where the opponent's reply is searched.
+	var keepOne keepOneBound
+	keepOneActive := s.keepOneOptim && depth >= 2 && s.currentIDDepths[thread] != depth &&
+		stmRack.NumTiles() >= 2
+	if keepOneActive {
+		keepOne.init(g, onTurn, ourSpread)
+	}
+
 	// First pass: search non-deferred moves
 	for idx := range children {
+		// checkBound is set when the self-check searches a move the
+		// keep-one bound would have skipped, to see that it does fail low.
+		checkBound := false
+		checkAlpha := α
+		if keepOneActive && !children[idx].IsPass() &&
+			children[idx].TilesPlayed() == keepOne.rackSize-1 {
+			if bound := keepOne.bound(&children[idx], int(α)); bound <= int(α) {
+				if !checkMoveLists {
+					if int16(bound) > bestValue {
+						bestValue = int16(bound)
+						bestMove = children[idx]
+					}
+					s.nodes.add(thread, 1)
+					continue
+				}
+				checkBound = true
+			}
+		}
 		// ABDADA: check if this move should be deferred
 		if abdadaHere && s.abdadaTable.deferMove(nodeKey, children[idx], depth) {
 			deferredMoves = append(deferredMoves, idx)
@@ -2201,6 +2239,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
+		}
+		if checkBound && -value > checkAlpha {
+			panic(fmt.Sprintf("keep-one bound said %s could not beat %d, but it is worth %d (depth %d)",
+				children[idx].ShortDescription(), checkAlpha, -value, depth))
 		}
 		if -value > bestValue {
 			bestValue = -value

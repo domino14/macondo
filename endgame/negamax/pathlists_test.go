@@ -154,3 +154,23 @@ func TestIncrementalUndo(t *testing.T) {
 	}
 	is.True(replies > 10)
 }
+
+// TestKeepOneBoundKeepsValue solves with the keep-one bound off and on and
+// expects the same value. With ENDGAME_CHECK_LISTS set the solver also
+// searches every move the bound would skip and panics if one beats alpha.
+func TestKeepOneBoundKeepsValue(t *testing.T) {
+	is := is.New(t)
+	for _, plies := range []int{3, 4, 5} {
+		var values []int16
+		for _, on := range []bool{false, true} {
+			s, err := setUpSolver("NWL20", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384, 1)
+			is.NoErr(err)
+			s.SetThreads(1)
+			s.SetKeepOneBound(on)
+			v, _, err := s.Solve(context.Background(), plies)
+			is.NoErr(err)
+			values = append(values, v)
+		}
+		is.Equal(values[0], values[1])
+	}
+}
