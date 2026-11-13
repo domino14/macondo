@@ -187,17 +187,25 @@ func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 		tileFace = ld.Score(tile)
 	}
 
+	full := uint32(1)<<uint(dim) - 1
 	for r := 0; r < dim; r++ {
 		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if occupied[r]&(1<<uint(c)) != 0 {
-				continue
-			}
-			hasH := occAt(r, c-1) || occAt(r, c+1)
-			hasV := occAt(r-1, c) || occAt(r+1, c)
-			if !hasH && !hasV {
-				continue
-			}
+		// The empty squares next to a tile, across (h) and down (v), found by
+		// shifting the occupancy masks instead of probing every square.
+		hNbr := (occupied[r]<<1 | occupied[r]>>1) & full
+		var vNbr uint32
+		if r > 0 {
+			vNbr |= occupied[r-1]
+		}
+		if r < dim-1 {
+			vNbr |= occupied[r+1]
+		}
+		candidates := (hNbr | vNbr) &^ occupied[r]
+		for candidates != 0 {
+			c := bits.TrailingZeros32(candidates)
+			candidates &= candidates - 1
+			hasH := hNbr&(1<<uint(c)) != 0
+			hasV := vNbr&(1<<uint(c)) != 0
 
 			idx := base + c*colMul
 			combined := uint64(hCrossSets[idx]) & uint64(vCrossSets[idx])
@@ -467,7 +475,11 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	// that the leaf value is a pure function of the position.
 	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
 
-	played := 0
+	// played counts the playout's moves and onBoard those actually made on
+	// the game; they differ by the going-out play, which is only scored.
+	played, onBoard := 0, 0
+	wentOut := false
+	outGain := 0
 	for played < budget && g.Playing() == pb.PlayState_PLAYING {
 		onTurn := g.PlayerOnTurn()
 		rack := g.RackFor(onTurn)
@@ -545,16 +557,29 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 		// allocation cost of the heuristics. plays stays valid until the next
 		// GenAll, and we record the move by value before then.
 		playoutMoves[played] = plays[bestIdx]
+		if !plays[bestIdx].IsPass() && plays[bestIdx].TilesPlayed() == int(rack.NumTiles()) {
+			// The play empties the rack and ends the game: its score plus
+			// twice the other rack is all it changes, so there is no need to
+			// put it on the board (and take it off again).
+			outGain = plays[bestIdx].Score() + 2*g.RackFor(1-onTurn).ScoreOn(ld)
+			if onTurn != leafPlayer {
+				outGain = -outGain
+			}
+			wentOut = true
+			played++
+			break
+		}
 		_, err := g.PlaySmallMove(&plays[bestIdx])
 		played++
+		onBoard++
 		if err != nil {
 			break
 		}
 	}
 	pv.setPlayout(playoutMoves[:played])
 
-	spread := g.SpreadFor(leafPlayer)
-	if g.Playing() == pb.PlayState_PLAYING {
+	spread := g.SpreadFor(leafPlayer) + outGain
+	if !wentOut && g.Playing() == pb.PlayState_PLAYING {
 		// We ran out of budget before the game ended, which is rare. Estimate
 		// who was closer to going out with MAGPIE's rack adjustment
 		// (endgame.c:1932): twice the rack score off the holder, applied to
@@ -563,7 +588,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 		spread += 2 * g.RackFor(1-leafPlayer).ScoreOn(ld)
 	}
 
-	for i := 0; i < played; i++ {
+	for i := 0; i < onBoard; i++ {
 		g.UnplayLastMove()
 	}
 	if played > 0 {
