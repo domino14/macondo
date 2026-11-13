@@ -150,39 +150,59 @@ func (t *TranspositionTable) SetSingleThreadedMode() {}
 // SetMultiThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
 func (t *TranspositionTable) SetMultiThreadedMode() {}
 
+// bucketSize is the number of entries that share a table index. A bucket is
+// one cache line (4 x 16 bytes). A lookup searches the bucket, and a store
+// replaces the entry for the same position, else an empty slot, else the
+// shallowest entry -- so the entry of a leaf, which is cheap to recompute and
+// by far the most common kind, never evicts the result of a deep search while
+// a shallower entry sits beside it. The table holds as many entries as it
+// would unbucketed; only where each may live changes.
+const bucketSize = 4
+
+// loadSlot reads one slot; ok is false if a concurrent store tore the read.
+func (t *TranspositionTable) loadSlot(idx uint64) (atomic1, atomic2 uint64, ok bool) {
+	atomic1 = atomic.LoadUint64(&t.table[idx].atomic1)
+	atomic2 = atomic.LoadUint64(&t.table[idx].atomic2)
+	if atomic.LoadUint64(&t.table[idx].atomic1) != atomic1 {
+		// Very rare ABA risk: the same value stored twice between the two
+		// reads of atomic1 goes unnoticed. See tornReads.
+		t.tornReads.Add(1)
+		return 0, 0, false
+	}
+	return atomic1, atomic2, true
+}
+
+// bucketHash is what identifies zval within its bucket: the hash without the
+// pure bit's position and without the bits that pick the slot in the bucket.
+func bucketHash(zval uint64) uint64 {
+	return zval &^ (pureBit << 24) &^ (bucketSize - 1)
+}
+
 func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 	t.lookups.Add(1)
-	idx := zval & t.sizeMask
-
-	// Validated atomic read: detect torn reads from concurrent writes
-	atomic1Before := atomic.LoadUint64(&t.table[idx].atomic1)
-	atomic2 := atomic.LoadUint64(&t.table[idx].atomic2)
-	atomic1After := atomic.LoadUint64(&t.table[idx].atomic1)
-
-	if atomic1Before != atomic1After {
-		// Torn read detected - concurrent write happened between our reads
-		t.tornReads.Add(1)
-		return TableEntry{}
-	}
-
-	// Unpack and validate hash
-	top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1Before, atomic2)
-	fullHash := fullHashFromPacked(top4bytes, fifthbyte, idx)
-	if fullHash != zval&^(pureBit<<24) {
-		if validFromPacked(flagAndDepth) {
-			// There is another unrelated node at this position.
-			t.t2collisions.Add(1)
+	base := (zval & t.sizeMask) &^ (bucketSize - 1)
+	want := bucketHash(zval)
+	otherValid := false
+	for i := uint64(0); i < bucketSize; i++ {
+		atomic1, atomic2, ok := t.loadSlot(base + i)
+		if !ok {
+			continue
 		}
-		return TableEntry{}
+		top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1, atomic2)
+		if !validFromPacked(flagAndDepth) {
+			continue
+		}
+		if fullHashFromPacked(top4bytes, fifthbyte, base) == want {
+			t.hits.Add(1)
+			return TableEntry{atomic1: atomic1, atomic2: atomic2}
+		}
+		otherValid = true
 	}
-
-	t.hits.Add(1)
-	// Return as a "virtual" TableEntry for the caller to read
-	// Pack it back into the atomic format
-	result := TableEntry{}
-	result.atomic1 = atomic1Before
-	result.atomic2 = atomic2
-	return result
+	if otherValid {
+		// Only unrelated nodes in this bucket.
+		t.t2collisions.Add(1)
+	}
+	return TableEntry{}
 }
 
 func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove) {
@@ -192,7 +212,6 @@ func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8,
 // storeEntry stores an entry; pure marks one whose search reached only
 // finished games.
 func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool) {
-	idx := zval & t.sizeMask
 	top4bytes := uint32(zval >> 32)
 	fifthbyte := uint8(zval>>24) &^ pureBit
 	if pure {
@@ -200,12 +219,42 @@ func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth u
 	}
 	t.created.Add(1)
 
+	// The slot to replace, in order of preference: this position's, an empty
+	// one, the one that cost least to compute.
+	base := (zval & t.sizeMask) &^ (bucketSize - 1)
+	want := bucketHash(zval)
+	victim := base
+	victimRank := math.MaxInt
+	for i := uint64(0); i < bucketSize; i++ {
+		rank := 0
+		if a1, a2, ok := t.loadSlot(base + i); ok {
+			slotTop4, _, slotFifth, slotFlagAndDepth, _ := unpackTableEntry(a1, a2)
+			if validFromPacked(slotFlagAndDepth) {
+				if fullHashFromPacked(slotTop4, slotFifth, base) == want {
+					victim = base + i
+					break
+				}
+				rank = 1 + int(depthFromPacked(slotFlagAndDepth))
+				if slotFifth&pureBit != 0 {
+					// A pure entry's subtree reached only finished games,
+					// which is cheap to search again, so it goes before any
+					// entry that records real search effort.
+					rank = 1
+				}
+			}
+		}
+		if rank < victimRank {
+			victimRank = rank
+			victim = base + i
+		}
+	}
+
 	// Pack into two uint64s for atomic storage
 	atomic1, atomic2 := packTableEntry(top4bytes, score, fifthbyte, flagAndDepth, play)
 
 	// Atomic writes (write atomic1 last so validation check works)
-	atomic.StoreUint64(&t.table[idx].atomic2, atomic2)
-	atomic.StoreUint64(&t.table[idx].atomic1, atomic1)
+	atomic.StoreUint64(&t.table[victim].atomic2, atomic2)
+	atomic.StoreUint64(&t.table[victim].atomic1, atomic1)
 }
 
 func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {

@@ -82,7 +82,7 @@ func DefaultConfig() *Config {
 
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
-	c.SetDefault(ConfigTtableMemFraction, 0.20)
+	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	c.SetDefault(ConfigTritonUseTriton, false)
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
@@ -184,7 +184,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
-	c.SetDefault(ConfigTtableMemFraction, 0.20)
+	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
