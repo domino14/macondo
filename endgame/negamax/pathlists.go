@@ -373,8 +373,18 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 		lv.nChanged++
 	}
 	hits := uint64(1) << uint(ownBase+fixed)
-	// Every square of the move's own lane may have changed.
-	lv.laneHits[ownBase+fixed] = ^uint32(0)
+	// In the move's own lane the squares that change are the ones it
+	// covers and the one at each end, whose anchor flags it can change. The
+	// lane's other squares keep their cross-sets, which come from the lanes
+	// crossing them there.
+	lo, hi := start-1, start+length
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > dim-1 {
+		hi = dim - 1
+	}
+	lv.laneHits[ownBase+fixed] = (uint32(2)<<uint(hi) - 1) &^ (uint32(1)<<uint(lo) - 1)
 	for i := 0; i < length; i++ {
 		pos := start + i
 		if hasLetter(fixed, pos) {
@@ -386,23 +396,23 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 		// squares on either side of it can change.
 		around := uint32(7) << uint(fixed)
 		lv.laneHits[crossBase+pos] |= around >> 1
-		lo := fixed - 1
-		for lo >= 0 && hasLetter(lo, pos) {
-			lo--
+		above := fixed - 1
+		for above >= 0 && hasLetter(above, pos) {
+			above--
 		}
-		if lo >= 0 {
-			hits |= 1 << uint(ownBase+lo)
-			lv.laneHits[ownBase+lo] |= 1 << uint(pos)
-			noteChanged(lo, pos)
+		if above >= 0 {
+			hits |= 1 << uint(ownBase+above)
+			lv.laneHits[ownBase+above] |= 1 << uint(pos)
+			noteChanged(above, pos)
 		}
-		hi := fixed + 1
-		for hi < dim && hasLetter(hi, pos) {
-			hi++
+		below := fixed + 1
+		for below < dim && hasLetter(below, pos) {
+			below++
 		}
-		if hi < dim {
-			hits |= 1 << uint(ownBase+hi)
-			lv.laneHits[ownBase+hi] |= 1 << uint(pos)
-			noteChanged(hi, pos)
+		if below < dim {
+			hits |= 1 << uint(ownBase+below)
+			lv.laneHits[ownBase+below] |= 1 << uint(pos)
+			noteChanged(below, pos)
 		}
 	}
 	if start > 0 {
