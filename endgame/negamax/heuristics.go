@@ -411,8 +411,13 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 		// Some tiles look stuck, but a tile with no single-tile play may still
 		// play inside a longer word. Fall back to real move generation. This is
 		// the expensive branch; most positions return above.
-		mg.GenAll(oppRack, false)
-		plays := mg.SmallPlays()
+		var plays []tinymove.SmallMove
+		if lists := s.listsFor(thread, g, mg); lists != nil {
+			plays = lists.get(1 - s.solvingPlayer).moves
+		} else {
+			mg.GenAll(oppRack, false)
+			plays = mg.SmallPlays()
+		}
 		for i := range plays {
 			tilesBV = orPlayedTiles(tilesBV, &plays[i])
 			if tilesBV&rackBV == rackBV {
@@ -482,6 +487,14 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			buf[n] = tinymove.PassMove()
 			n++
 			plays = buf[:n]
+		} else if lists := s.listsFor(thread, g, mg); lists != nil {
+			// The list has no pass; give it the one GenAll would add at the
+			// end. The list is the path lists' own, so the pass goes in a
+			// copy only when there is no room behind the plays.
+			l := lists.get(onTurn)
+			l.moves = append(l.moves, tinymove.PassMove())
+			plays = l.moves
+			l.moves = l.moves[:len(l.moves)-1]
 		} else {
 			mg.GenAll(rack, false)
 			plays = mg.SmallPlays()

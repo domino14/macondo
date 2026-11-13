@@ -80,6 +80,8 @@ type Game struct {
 
 	stateStack []*stateBackup
 	stackPtr   int
+	// smallMoveHook, when set, sees each small move before it is played.
+	smallMoveHook func(m *tinymove.SmallMove)
 	// rules contains the original game rules passed in to create this game.
 	rules         *GameRules
 	exchangeLimit int
@@ -747,9 +749,26 @@ func (g *Game) PlaySmallMoveNoCrossSet(m *tinymove.SmallMove) (
 	return g.playSmallMove(m, false)
 }
 
+// SetSmallMoveHook sets a function that PlaySmallMove and
+// PlaySmallMoveNoCrossSet call with each move just before playing it (nil
+// removes it). The endgame solver uses it to keep its incremental move lists
+// in step with the game. Copies of the game do not inherit it.
+func (g *Game) SetSmallMoveHook(f func(m *tinymove.SmallMove)) {
+	g.smallMoveHook = f
+}
+
+// StateStackDepth is the number of moves on the backup stack: how many
+// UnplayLastMove calls the game can take. Only meaningful in SimulationMode.
+func (g *Game) StateStackDepth() int {
+	return g.stackPtr
+}
+
 func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
+	if g.smallMoveHook != nil {
+		g.smallMoveHook(m)
+	}
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}

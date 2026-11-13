@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
@@ -326,6 +327,15 @@ type Solver struct {
 	// conservation (which do pay off) are unaffected by this flag.
 	magpieOrdering bool
 
+	// incrementalLists derives each position's move list from an ancestor's
+	// instead of generating it from scratch (see pathlists.go). pathLists
+	// holds each thread's lists.
+	incrementalLists bool
+	pathLists        []pathLists
+	// childShortcuts values children that need no board without playing
+	// them (see valueChildUnplayed).
+	childShortcuts bool
+
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
 	principalVariation      PVLine
@@ -417,6 +427,8 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.prunedKWGOptim = true
 	s.useHeuristics = true
 	s.magpieOrdering = false
+	s.incrementalLists = true
+	s.childShortcuts = true
 	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
@@ -529,6 +541,10 @@ func (s *Solver) SetAlsoSolveMove(m *move.Move) {
 // ensureArenas creates per-thread SmallMoveArenas if not already sized for the
 // current thread count. Call this before any negamax search begins.
 func (s *Solver) ensureArenas() {
+	if len(s.pathLists) != s.threads {
+		s.releasePathLists()
+		s.pathLists = make([]pathLists, s.threads)
+	}
 	if len(s.arenas) == s.threads {
 		return
 	}
@@ -566,6 +582,138 @@ func (s *Solver) makeGameCopies() error {
 	return nil
 }
 
+// smallMoveTiles fills out with the tiles m places on b, by position along
+// the play, with 0 for a square that already holds a tile: what PlaySmallMove
+// returns, without playing the move.
+func smallMoveTiles(b *board.GameBoard, m *tinymove.SmallMove,
+	out *[board.MaxBoardDim]tilemapping.MachineLetter) {
+	row, col, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = 1, 0
+	}
+	tm := uint64(m.TinyMove())
+	tidx := uint(0)
+	for i := 0; i < m.PlayLength(); i++ {
+		if b.HasLetter(row+ri*i, col+ci*i) {
+			out[i] = 0
+			continue
+		}
+		tile := tilemapping.MachineLetter((tm >> (20 + 6*tidx)) & 63)
+		if tm&(1<<(12+tidx)) != 0 {
+			tile = tile.Blank()
+		}
+		out[i] = tile
+		tidx++
+	}
+}
+
+// valueChildUnplayed values two kinds of child exactly as searching them
+// would, without playing the move, which costs far more than either answer:
+//
+//   - a play of the whole rack ends the game at the mover's spread plus the
+//     play's score and twice the opponent's tiles;
+//   - one ply above the leaves, a child whose leaf value the transposition
+//     table holds returns it, when the child's node would have returned from
+//     the table (an exact value at a non-PV node, or a bound that closes the
+//     window).
+//
+// firstOrFullWindow says the child gets the full window (the first move, or
+// no negascout); otherwise it gets the null window, and a value inside
+// (α, β) would be searched again as a PV node, which the table does not
+// answer, so that child is played. The value is from the child's side, as
+// negamax returns it. It leaves the thread's reach and impure count as the
+// child's search would.
+func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey uint64,
+	depth int, α, β int16, firstOrFullWindow, pvNode bool, ourSpread, onTurn, thread int) (int16, bool) {
+	if !s.childShortcuts || m.IsPass() {
+		return 0, false
+	}
+	stmRack := g.RackFor(onTurn)
+	if m.TilesPlayed() == int(stmRack.NumTiles()) {
+		oppTiles := g.RackFor(1 - onTurn).ScoreOn(g.Bag().LetterDistribution())
+		s.impureEvents[thread].reach = 0
+		return -int16(ourSpread + m.Score() + 2*oppTiles), true
+	}
+	if depth != 1 || !s.transpositionTableOptim || !s.useHeuristics {
+		return 0, false
+	}
+	var tiles [board.MaxBoardDim]tilemapping.MachineLetter
+	smallMoveTiles(g.Board(), m, &tiles)
+	childKey := s.ttable.Zobrist().AddTilePlayUnplayed(nodeKey, m, stmRack, &tiles,
+		onTurn == s.solvingPlayer, g.ScorelessTurns())
+	entry := s.ttable.lookup(childKey)
+	// The child is a depth-0 node: only a depth-0 entry is its value.
+	if !entry.valid() || entry.depth() != 0 {
+		return 0, false
+	}
+	score := entry.getScore() - int16(ourSpread+m.Score())
+	childα, childβ, childPV := -β, -α, pvNode
+	if !firstOrFullWindow {
+		childα, childβ, childPV = -α-1, -α, false
+	}
+	switch entry.flag() {
+	case TTExact:
+		if childPV {
+			return 0, false
+		}
+	case TTLower:
+		if max(childα, score) < childβ {
+			return 0, false
+		}
+	case TTUpper:
+		if childα < min(childβ, score) {
+			return 0, false
+		}
+	}
+	if !firstOrFullWindow && α < -score && -score < β {
+		return 0, false
+	}
+	// A leaf's entry is an estimate, so the value depends on the depth.
+	s.impureEvents[thread].n++
+	s.impureEvents[thread].reach = 0
+	return score, true
+}
+
+// checkMoveLists makes every incremental move list verify itself against a
+// full generation. For tests.
+var checkMoveLists = false
+
+// listsFor returns the thread's incremental move lists, bound to its game, or
+// nil when they are off.
+func (s *Solver) listsFor(thread int, g *game.Game, mg movegen.MoveGenerator) *pathLists {
+	if !s.incrementalLists || thread >= len(s.pathLists) {
+		return nil
+	}
+	p := &s.pathLists[thread]
+	if p.g != g || p.mg != mg {
+		if g.Bag().LetterDistribution().TileMapping().NumLetters()+1 > maxListTileTypes {
+			return nil
+		}
+		p.bind(g, mg, checkMoveLists)
+	}
+	return p
+}
+
+// releasePathLists detaches every thread's incremental lists from its game.
+func (s *Solver) releasePathLists() {
+	for i := range s.pathLists {
+		s.pathLists[i].release()
+	}
+}
+
+// SetIncrementalMoveLists turns the incremental move lists on or off. They
+// are on by default and change only the speed of a solve.
+func (s *Solver) SetIncrementalMoveLists(v bool) {
+	s.incrementalLists = v
+}
+
+// SetChildShortcuts turns valuing children without playing them on or off.
+// It is on by default and changes only the speed of a solve.
+func (s *Solver) SetChildShortcuts(v bool) {
+	s.childShortcuts = v
+}
+
 // generateSTMPlays returns the moves to search at this node.
 // fromArena is true when the returned slice was bump-allocated from the
 // per-thread arena and must be Dealloc'd by the caller after use.
@@ -586,6 +734,16 @@ func (s *Solver) generateSTMPlays(depth, thread int) ([]tinymove.SmallMove, bool
 		return s.initialMoves[thread], false
 	}
 
+	if s.currentIDDepths[thread] >= 0 {
+		if lists := s.listsFor(thread, g, mg); lists != nil {
+			l := lists.get(g.PlayerOnTurn())
+			n := len(l.moves)
+			genPlays := s.arenas[thread].Alloc(n + 1)
+			copy(genPlays, l.moves)
+			genPlays[n] = tinymove.PassMove()
+			return genPlays, true
+		}
+	}
 	mg.GenAll(stmRack, false)
 	plays := mg.SmallPlays()
 
@@ -1877,30 +2035,50 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
-		moveTiles, err = playMove(&children[idx])
-		if err != nil {
-			return 0, err
-		}
-		s.nodes.Add(1)
-		childKey := uint64(0)
-		if s.transpositionTableOptim {
-			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
-				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
-		}
-		var value int16
-		// negascout
-		if idx == 0 || !s.negascoutOptim {
-			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
-			if err != nil {
-				g.UnplayLastMove()
-				// ABDADA: clean up on error
-				if s.abdadaOptim {
-					s.abdadaTable.finishedSearch(nodeKey, children[idx])
-				}
-				return value, err
-			}
+		// A child that goes out, or a leaf the table already holds, is valued
+		// without being played (see valueChildUnplayed).
+		value, valued := s.valueChildUnplayed(g, &children[idx], nodeKey, depth, α, β,
+			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread)
+		if valued {
+			s.nodes.Add(1)
+			childPV.Clear()
 		} else {
-			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
+			moveTiles, err = playMove(&children[idx])
+			if err != nil {
+				return 0, err
+			}
+			s.nodes.Add(1)
+			childKey := uint64(0)
+			if s.transpositionTableOptim {
+				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
+					onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			}
+			// negascout
+			if idx == 0 || !s.negascoutOptim {
+				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+				if err != nil {
+					g.UnplayLastMove()
+					// ABDADA: clean up on error
+					if s.abdadaOptim {
+						s.abdadaTable.finishedSearch(nodeKey, children[idx])
+					}
+					return value, err
+				}
+			} else {
+				value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
+				if err != nil {
+					g.UnplayLastMove()
+					// ABDADA: clean up on error
+					if s.abdadaOptim {
+						s.abdadaTable.finishedSearch(nodeKey, children[idx])
+					}
+					return value, err
+				}
+				if α < -value && -value < β {
+					// re-search with wider window
+					value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+				}
+			}
 			if err != nil {
 				g.UnplayLastMove()
 				// ABDADA: clean up on error
@@ -1909,20 +2087,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				}
 				return value, err
 			}
-			if α < -value && -value < β {
-				// re-search with wider window
-				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
-			}
-		}
-		if err != nil {
 			g.UnplayLastMove()
-			// ABDADA: clean up on error
-			if s.abdadaOptim {
-				s.abdadaTable.finishedSearch(nodeKey, children[idx])
-			}
-			return value, err
 		}
-		g.UnplayLastMove()
 		maxReach = max(maxReach, *reach+1)
 
 		// ABDADA: finished searching this move
@@ -2060,6 +2226,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	defer func() {
 		s.busy = false
 	}()
+	defer s.releasePathLists()
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	// Make sure the other player's rack isn't empty.
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
@@ -2237,6 +2404,9 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	defer func() {
 		s.busy = false
 	}()
+	// The caller moves the game to another position between solves, which
+	// the lists would not see.
+	defer s.releasePathLists()
 	// Make sure the other player's rack isn't empty.
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {

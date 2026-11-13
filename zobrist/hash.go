@@ -178,6 +178,52 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 	return key
 }
 
+// AddTilePlayUnplayed is AddMove for a tile play that has not been played: it
+// returns the key of the position the play leads to, from the position before
+// it. rack is the mover's rack before the play, moveTiles the tiles the play
+// places, by position along the play with 0 for a square that already holds a
+// tile (what PlaySmallMove returns), and scorelessTurns the count before the
+// play.
+func (z *Zobrist) AddTilePlayUnplayed(key uint64, m *tinymove.SmallMove,
+	rack *tilemapping.Rack, moveTiles *[board.MaxBoardDim]tilemapping.MachineLetter,
+	wasOurMove bool, scorelessTurns int) uint64 {
+
+	rackTable := z.OurRackTable
+	if !wasOurMove {
+		rackTable = z.TheirRackTable
+	}
+	row, col, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = 1, 0
+	}
+	var counts [MaxLetters]int
+	for idx := 0; idx < m.PlayLength(); idx++ {
+		tile := moveTiles[idx]
+		if tile == 0 {
+			continue
+		}
+		boardTile := tile
+		if tile&0x80 > 0 {
+			boardTile = (tile & (0x7F)) + MaxLetters
+		}
+		key ^= z.PosTable[(row+ri*idx)*z.boardDim+col+ci*idx][boardTile]
+		tileIdx := tile.IntrinsicTileIdx()
+		if counts[tileIdx] == 0 {
+			counts[tileIdx] = rack.LetArr[tileIdx]
+		}
+		key ^= rackTable[tileIdx][counts[tileIdx]]
+		counts[tileIdx]--
+		key ^= rackTable[tileIdx][counts[tileIdx]]
+	}
+	if scorelessTurns != 0 {
+		key ^= z.ScorelessTurns[scorelessTurns]
+		key ^= z.ScorelessTurns[0]
+	}
+	key ^= z.TheirTurn
+	return key
+}
+
 func (z *Zobrist) BoardDim() int {
 	return z.boardDim
 }

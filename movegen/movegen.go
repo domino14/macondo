@@ -56,6 +56,7 @@ type MoveGenerator interface {
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
+	GenLanes(rack *tilemapping.Rack, lanes uint64, laneEnds *[2 * board.MaxBoardDim]int32) []tinymove.SmallMove
 }
 
 // type moveHeap []*move.Move
@@ -355,6 +356,56 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	}
 
 	return gen.plays
+}
+
+// GenLanes generates the tile plays of the given lanes only, as small moves,
+// and returns them (the slice is the generator's, valid until its next
+// generation). Lane r < dim is row r's horizontal plays; lane dim+c is column
+// c's vertical plays. The plays come in lane order, each lane's in the order
+// GenAll emits them, and laneEnds[lane] is set to the count of plays through
+// that lane. No pass is added. It needs a small-move play recorder and does
+// not use the shadow.
+func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
+	laneEnds *[2 * board.MaxBoardDim]int32) []tinymove.SmallMove {
+
+	gen.quitEarly = false
+	gen.smallPlays = gen.smallPlays[:0]
+	dim := gen.boardDim
+	if lanes&(1<<uint(dim)-1) != 0 {
+		gen.vertical = false
+		gen.genLanes(rack, board.HorizontalDirection, lanes, laneEnds, 0)
+	}
+	if lanes>>uint(dim) != 0 {
+		gen.board.Transpose()
+		gen.vertical = true
+		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), laneEnds, dim)
+		gen.board.Transpose()
+	}
+	return gen.smallPlays
+}
+
+func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDirection,
+	rows uint64, laneEnds *[2 * board.MaxBoardDim]int32, laneOffset int) {
+	csDir := board.VerticalDirection
+	if dir == board.VerticalDirection {
+		csDir = board.HorizontalDirection
+	}
+	for row := 0; row < gen.boardDim; row++ {
+		if rows&(1<<uint(row)) == 0 {
+			continue
+		}
+		gen.curRowIdx = row
+		gen.cache.loadRow(gen.board, row, csDir, gen.boardDim)
+		gen.lastAnchorCol = 100
+		for col := 0; col < gen.boardDim; col++ {
+			if gen.board.IsAnchor(row, col, dir) {
+				gen.curAnchorCol = col
+				gen.genForAnchor(rack)
+				gen.lastAnchorCol = col
+			}
+		}
+		laneEnds[laneOffset+row] = int32(len(gen.smallPlays))
+	}
 }
 
 // AtLeastOneTileMove generates moves. We don't care what they are; return true
