@@ -1,6 +1,7 @@
 package negamax
 
 import (
+	"unsafe"
 	"fmt"
 	"math"
 	"runtime"
@@ -215,6 +216,16 @@ func (t *TranspositionTable) loadSlot(idx uint64, st *ttStats) (atomic1, atomic2
 // pure bit's position and without the bits that pick the slot in the bucket.
 func bucketHash(zval uint64) uint64 {
 	return zval &^ (pureBit << 24) &^ (bucketSize - 1)
+}
+
+// prefetch starts loading zval's bucket into cache, for a lookup that is
+// coming soon. The table is far too large to be in cache, so a lookup
+// otherwise waits on memory.
+func (t *TranspositionTable) prefetch(zval uint64) {
+	if len(t.table) == 0 {
+		return
+	}
+	prefetch(unsafe.Pointer(&t.table[(zval&t.sizeMask)&^(bucketSize-1)]))
 }
 
 // lookup returns the entry for zval, or an invalid one. thread is the

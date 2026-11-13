@@ -614,6 +614,17 @@ func (s *Solver) makeGameCopies() error {
 	return nil
 }
 
+// childKeyUnplayed is the table key of the position the tile play m leads to
+// from the game's current position, whose key is nodeKey, without playing
+// the move. onTurn is the player to move.
+func (s *Solver) childKeyUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey uint64,
+	onTurn int) uint64 {
+	var tiles [board.MaxBoardDim]tilemapping.MachineLetter
+	smallMoveTiles(g.Board(), m, &tiles)
+	return s.ttable.Zobrist().AddTilePlayUnplayed(nodeKey, m, g.RackFor(onTurn), &tiles,
+		onTurn == s.solvingPlayer, g.ScorelessTurns())
+}
+
 // smallMoveTiles fills out with the tiles m places on b, by position along
 // the play, with 0 for a square that already holds a tile: what PlaySmallMove
 // returns, without playing the move.
@@ -656,8 +667,12 @@ func smallMoveTiles(b *board.GameBoard, m *tinymove.SmallMove,
 // answer, so that child is played. The value is from the child's side, as
 // negamax returns it. It leaves the thread's reach and impure count as the
 // child's search would.
+//
+// childKey is the child's table key if haveKey is set (see
+// childKeyUnplayed); otherwise it is worked out here.
 func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey uint64,
-	depth int, α, β int16, firstOrFullWindow, pvNode bool, ourSpread, onTurn, thread int) (int16, bool) {
+	depth int, α, β int16, firstOrFullWindow, pvNode bool, ourSpread, onTurn, thread int,
+	childKey uint64, haveKey bool) (int16, bool) {
 	if !s.childShortcuts || m.IsPass() {
 		return 0, false
 	}
@@ -670,10 +685,9 @@ func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey
 	if !s.transpositionTableOptim || nodeKey == 0 {
 		return 0, false
 	}
-	var tiles [board.MaxBoardDim]tilemapping.MachineLetter
-	smallMoveTiles(g.Board(), m, &tiles)
-	childKey := s.ttable.Zobrist().AddTilePlayUnplayed(nodeKey, m, stmRack, &tiles,
-		onTurn == s.solvingPlayer, g.ScorelessTurns())
+	if !haveKey {
+		childKey = s.childKeyUnplayed(g, m, nodeKey, onTurn)
+	}
 	entry := s.ttable.lookup(childKey, thread)
 	// The same test the child's node makes of its entry (see negamax).
 	childDepth := uint8(depth - 1)
@@ -2205,6 +2219,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	outReplyActive := s.outReplyOptim && depth >= 2 && s.currentIDDepths[thread] != depth
 	stmTiles := int(stmRack.NumTiles())
 
+	// See the look-ahead in the loop below.
+	lookAhead := depth == 1 && s.childShortcuts && s.transpositionTableOptim && nodeKey != 0
+	aheadIdx := -1
+	aheadKey := uint64(0)
+
 	// First pass: search non-deferred moves
 	for idx := range children {
 		// checkBound is set when the self-check searches a move a bound
@@ -2270,8 +2289,27 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		// A child that goes out, or a leaf the table already holds, is valued
 		// without being played (see valueChildUnplayed).
+		// One ply above the leaves nearly every child is looked up in the
+		// table and, if it is there, valued without being played; the wait
+		// is for the table's memory. So work out the next child's key now
+		// and start its bucket loading while this child is dealt with.
+		// MAGPIE does the same.
+		childKey, haveKey := uint64(0), false
+		if lookAhead {
+			if aheadIdx == idx {
+				childKey, haveKey = aheadKey, true
+			}
+			if idx+1 < len(children) {
+				next := &children[idx+1]
+				if !next.IsPass() && next.TilesPlayed() != stmTiles {
+					aheadKey = s.childKeyUnplayed(g, next, nodeKey, onTurn)
+					aheadIdx = idx + 1
+					s.ttable.prefetch(aheadKey)
+				}
+			}
+		}
 		value, valued := s.valueChildUnplayed(g, &children[idx], nodeKey, depth, α, β,
-			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread)
+			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread, childKey, haveKey)
 		if valued {
 			s.nodes.add(thread, 1)
 			childPV.Clear()
