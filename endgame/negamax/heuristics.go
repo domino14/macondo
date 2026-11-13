@@ -658,7 +658,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 		g.UnplayLastMove()
 	}
 	if played > 0 {
-		s.nodes.Add(uint64(played))
+		s.nodes.addPlayout(thread, uint64(played))
 	}
 	return int16(spread)
 }

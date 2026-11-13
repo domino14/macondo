@@ -124,12 +124,26 @@ func (e *TableEntry) getPlay() tinymove.TinyMove {
 }
 
 type TranspositionTable struct {
+	// These fields are only read during a search. Nothing a search writes
+	// may live beside them: every probe reads them, on every thread, and a
+	// counter on the same cache line would have the threads take turns.
 	table        []TableEntry
-	created      atomic.Uint64
-	lookups      atomic.Uint64
-	hits         atomic.Uint64
 	sizePowerOf2 int
 	sizeMask     uint64
+	zobrist      *zobrist.Zobrist
+	// stats holds the counters, a set per search thread (see statsFor).
+	stats *[ttStatStripes]ttStats
+}
+
+// ttStatStripes is the number of counter sets; a thread uses the one at its
+// index modulo this.
+const ttStatStripes = 256
+
+// ttStats is one thread's counters, padded to cache lines of its own.
+type ttStats struct {
+	created atomic.Uint64
+	lookups atomic.Uint64
+	hits    atomic.Uint64
 	// "type 2" collisions. A type 2 collision happens when two positions share
 	// the same lower bytes. A type 1 collision happens when two positions share the
 	// same overall hash. We don't have a super easy way to detect the latter,
@@ -140,8 +154,33 @@ type TranspositionTable struct {
 	// atomic1 reads, we may accept corrupted data. Probability is negligible (same position
 	// must hash to same slot within nanoseconds) and impact is minor (one bad cache entry).
 	tornReads atomic.Uint64
+	_         [88]byte
+}
 
-	zobrist *zobrist.Zobrist
+// statsFor returns the counters a search thread adds to.
+func (t *TranspositionTable) statsFor(thread int) *ttStats {
+	return &t.stats[thread&(ttStatStripes-1)]
+}
+
+// ttTotals is the sum of every thread's counters.
+type ttTotals struct {
+	created, lookups, hits, t2collisions, tornReads uint64
+}
+
+func (t *TranspositionTable) totals() ttTotals {
+	var sum ttTotals
+	if t.stats == nil {
+		return sum
+	}
+	for i := range t.stats {
+		st := &t.stats[i]
+		sum.created += st.created.Load()
+		sum.lookups += st.lookups.Load()
+		sum.hits += st.hits.Load()
+		sum.t2collisions += st.t2collisions.Load()
+		sum.tornReads += st.tornReads.Load()
+	}
+	return sum
 }
 
 // SetSingleThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
@@ -160,13 +199,13 @@ func (t *TranspositionTable) SetMultiThreadedMode() {}
 const bucketSize = 4
 
 // loadSlot reads one slot; ok is false if a concurrent store tore the read.
-func (t *TranspositionTable) loadSlot(idx uint64) (atomic1, atomic2 uint64, ok bool) {
+func (t *TranspositionTable) loadSlot(idx uint64, st *ttStats) (atomic1, atomic2 uint64, ok bool) {
 	atomic1 = atomic.LoadUint64(&t.table[idx].atomic1)
 	atomic2 = atomic.LoadUint64(&t.table[idx].atomic2)
 	if atomic.LoadUint64(&t.table[idx].atomic1) != atomic1 {
 		// Very rare ABA risk: the same value stored twice between the two
 		// reads of atomic1 goes unnoticed. See tornReads.
-		t.tornReads.Add(1)
+		st.tornReads.Add(1)
 		return 0, 0, false
 	}
 	return atomic1, atomic2, true
@@ -178,13 +217,16 @@ func bucketHash(zval uint64) uint64 {
 	return zval &^ (pureBit << 24) &^ (bucketSize - 1)
 }
 
-func (t *TranspositionTable) lookup(zval uint64) TableEntry {
-	t.lookups.Add(1)
+// lookup returns the entry for zval, or an invalid one. thread is the
+// caller's search thread, which only picks the counters it adds to.
+func (t *TranspositionTable) lookup(zval uint64, thread int) TableEntry {
+	st := t.statsFor(thread)
+	st.lookups.Add(1)
 	base := (zval & t.sizeMask) &^ (bucketSize - 1)
 	want := bucketHash(zval)
 	otherValid := false
 	for i := uint64(0); i < bucketSize; i++ {
-		atomic1, atomic2, ok := t.loadSlot(base + i)
+		atomic1, atomic2, ok := t.loadSlot(base+i, st)
 		if !ok {
 			continue
 		}
@@ -193,31 +235,32 @@ func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 			continue
 		}
 		if fullHashFromPacked(top4bytes, fifthbyte, base) == want {
-			t.hits.Add(1)
+			st.hits.Add(1)
 			return TableEntry{atomic1: atomic1, atomic2: atomic2}
 		}
 		otherValid = true
 	}
 	if otherValid {
 		// Only unrelated nodes in this bucket.
-		t.t2collisions.Add(1)
+		st.t2collisions.Add(1)
 	}
 	return TableEntry{}
 }
 
-func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove) {
-	t.storeEntry(zval, score, flagAndDepth, play, false)
+func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, thread int) {
+	t.storeEntry(zval, score, flagAndDepth, play, false, thread)
 }
 
 // storeEntry stores an entry; pure marks one whose search reached only
 // finished games.
-func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool) {
+func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool, thread int) {
 	top4bytes := uint32(zval >> 32)
 	fifthbyte := uint8(zval>>24) &^ pureBit
 	if pure {
 		fifthbyte |= pureBit
 	}
-	t.created.Add(1)
+	st := t.statsFor(thread)
+	st.created.Add(1)
 
 	// The slot to replace, in order of preference: this position's, an empty
 	// one, the one that cost least to compute.
@@ -227,7 +270,7 @@ func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth u
 	victimRank := math.MaxInt
 	for i := uint64(0); i < bucketSize; i++ {
 		rank := 0
-		if a1, a2, ok := t.loadSlot(base + i); ok {
+		if a1, a2, ok := t.loadSlot(base+i, st); ok {
 			slotTop4, _, slotFifth, slotFlagAndDepth, _ := unpackTableEntry(a1, a2)
 			if validFromPacked(slotFlagAndDepth) {
 				if fullHashFromPacked(slotTop4, slotFifth, base) == want {
@@ -299,11 +342,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 
-	t.created.Store(0)
-	t.lookups.Store(0)
-	t.hits.Store(0)
-	t.t2collisions.Store(0)
-	t.tornReads.Store(0)
+	t.ResetStats()
 }
 
 func (t *TranspositionTable) Zobrist() *zobrist.Zobrist {
@@ -315,32 +354,29 @@ func (t *TranspositionTable) SetZobrist(z *zobrist.Zobrist) {
 }
 
 func (t *TranspositionTable) Stats() string {
+	sum := t.totals()
 	return fmt.Sprintf("created: %d lookups: %d hits: %d t2collisions: %d tornReads: %d",
-		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load(), t.tornReads.Load())
+		sum.created, sum.lookups, sum.hits, sum.t2collisions, sum.tornReads)
 }
 
 // Created returns the number of TT entries created
 func (t *TranspositionTable) Created() uint64 {
-	return t.created.Load()
+	return t.totals().created
 }
 
 // Lookups returns the number of TT lookups performed
 func (t *TranspositionTable) Lookups() uint64 {
-	return t.lookups.Load()
+	return t.totals().lookups
 }
 
 // Hits returns the number of TT hits
 func (t *TranspositionTable) Hits() uint64 {
-	return t.hits.Load()
+	return t.totals().hits
 }
 
 // ResetStats resets the statistics counters without reallocating the table
 func (t *TranspositionTable) ResetStats() {
-	t.created.Store(0)
-	t.lookups.Store(0)
-	t.hits.Store(0)
-	t.t2collisions.Store(0)
-	t.tornReads.Store(0)
+	t.stats = new([ttStatStripes]ttStats)
 }
 
 // a debug tt

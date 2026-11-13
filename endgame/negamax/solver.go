@@ -352,7 +352,10 @@ type Solver struct {
 	impureEvents   []impureCounter
 	requestedPlies int
 	threads        int
-	nodes          atomic.Uint64
+	// nodes counts the moves made (or valued without being made), and how
+	// many of those were moves of leaf playouts rather than positions the
+	// search visited.
+	nodes nodeCounter
 
 	logStream  io.Writer
 	busy       bool
@@ -645,7 +648,7 @@ func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey
 	smallMoveTiles(g.Board(), m, &tiles)
 	childKey := s.ttable.Zobrist().AddTilePlayUnplayed(nodeKey, m, stmRack, &tiles,
 		onTurn == s.solvingPlayer, g.ScorelessTurns())
-	entry := s.ttable.lookup(childKey)
+	entry := s.ttable.lookup(childKey, thread)
 	// The child is a depth-0 node: only a depth-0 entry is its value.
 	if !entry.valid() || entry.depth() != 0 {
 		return 0, false
@@ -716,6 +719,12 @@ func (s *Solver) releasePathLists() {
 	for i := range s.pathLists {
 		s.pathLists[i].release()
 	}
+}
+
+// SearchedNodes is the number of positions the last solve's search visited:
+// its node count without the moves of the leaf playouts.
+func (s *Solver) SearchedNodes() uint64 {
+	return s.nodes.Load() - s.nodes.playoutMoves()
 }
 
 // SetIncrementalMoveLists turns the incremental move lists on or off. They
@@ -1352,7 +1361,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 					if err != nil {
 						return err
 					}
-					s.nodes.Add(1)
+					s.nodes.add(threadID, 1)
 
 					childKey := uint64(0)
 					if s.transpositionTableOptim {
@@ -1880,10 +1889,64 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 // all: its value holds at that depth and every greater one, but not at a
 // smaller one, where some of those lines would be cut off and estimated. The
 // padding keeps each thread's counter on its own cache line.
+// nodeStripes is the number of per-thread node counters; a thread uses the
+// one at its index modulo this.
+const nodeStripes = 256
+
+// nodeCounter counts nodes per search thread. One shared counter would be
+// written by every thread at every node, and they would spend their time
+// passing its cache line around.
+type nodeCounter struct {
+	_       [120]byte
+	stripes [nodeStripes]nodeStripe
+}
+
+type nodeStripe struct {
+	nodes   atomic.Uint64
+	playout atomic.Uint64
+	_       [112]byte
+}
+
+func (c *nodeCounter) add(thread int, n uint64) {
+	c.stripes[thread&(nodeStripes-1)].nodes.Add(n)
+}
+
+func (c *nodeCounter) addPlayout(thread int, n uint64) {
+	st := &c.stripes[thread&(nodeStripes-1)]
+	st.nodes.Add(n)
+	st.playout.Add(n)
+}
+
+// Load returns the total node count.
+func (c *nodeCounter) Load() uint64 {
+	var sum uint64
+	for i := range c.stripes {
+		sum += c.stripes[i].nodes.Load()
+	}
+	return sum
+}
+
+func (c *nodeCounter) playoutMoves() uint64 {
+	var sum uint64
+	for i := range c.stripes {
+		sum += c.stripes[i].playout.Load()
+	}
+	return sum
+}
+
+// Store sets the total node count, and forgets the playout share.
+func (c *nodeCounter) Store(v uint64) {
+	for i := range c.stripes {
+		c.stripes[i].nodes.Store(0)
+		c.stripes[i].playout.Store(0)
+	}
+	c.stripes[0].nodes.Store(v)
+}
+
 type impureCounter struct {
 	n     uint64
 	reach uint64
-	_     [48]byte
+	_     [112]byte
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
@@ -1908,7 +1971,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	reach := &s.impureEvents[thread].reach
 	maxReach := uint64(0)
 	if s.transpositionTableOptim {
-		ttEntry := s.ttable.lookup(nodeKey)
+		ttEntry := s.ttable.lookup(nodeKey, thread)
 		// An entry's value is this node's value only if it was searched to
 		// the same depth, or if it is pure (its search reached only finished
 		// games) and needed no more plies than this node has left: a node
@@ -1985,10 +2048,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				// there is nothing deeper to clobber; a real search result is
 				// always worth more than an estimate. Same guard MAGPIE uses
 				// (endgame.c:1957).
-				existing := s.ttable.lookup(nodeKey)
+				existing := s.ttable.lookup(nodeKey, thread)
 				if !existing.valid() || existing.depth() == 0 {
 					s.ttable.store(nodeKey, val-int16(ourSpread), TTExact<<6,
-						tinymove.InvalidTinyMove)
+						tinymove.InvalidTinyMove, thread)
 				}
 			}
 			*reach = 0
@@ -2035,19 +2098,24 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 	// ABDADA: track deferred moves for second pass
 	var deferredMoves []int
+	// Moves are only ever deferred at depth DEFER_DEPTH and up, so below
+	// that there is no point telling the other threads which move this one
+	// is searching: it would be two writes to shared memory per child for
+	// nobody to read.
+	abdadaHere := s.abdadaOptim && depth >= DEFER_DEPTH
 	// leavesPlayed counts the children played at depth 1.
 	leavesPlayed := 0
 
 	// First pass: search non-deferred moves
 	for idx := range children {
 		// ABDADA: check if this move should be deferred
-		if s.abdadaOptim && s.abdadaTable.deferMove(nodeKey, children[idx], depth) {
+		if abdadaHere && s.abdadaTable.deferMove(nodeKey, children[idx], depth) {
 			deferredMoves = append(deferredMoves, idx)
 			continue
 		}
 
 		// ABDADA: register that we're starting to search this move
-		if s.abdadaOptim {
+		if abdadaHere {
 			s.abdadaTable.startingSearch(nodeKey, children[idx], depth)
 		}
 		if s.logStream != nil {
@@ -2058,7 +2126,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		value, valued := s.valueChildUnplayed(g, &children[idx], nodeKey, depth, α, β,
 			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread)
 		if valued {
-			s.nodes.Add(1)
+			s.nodes.add(thread, 1)
 			childPV.Clear()
 		} else {
 			if depth == 1 && s.useHeuristics {
@@ -2083,7 +2151,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if err != nil {
 				return 0, err
 			}
-			s.nodes.Add(1)
+			s.nodes.add(thread, 1)
 			childKey := uint64(0)
 			if s.transpositionTableOptim {
 				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
@@ -2095,7 +2163,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				if err != nil {
 					g.UnplayLastMove()
 					// ABDADA: clean up on error
-					if s.abdadaOptim {
+					if abdadaHere {
 						s.abdadaTable.finishedSearch(nodeKey, children[idx])
 					}
 					return value, err
@@ -2105,7 +2173,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				if err != nil {
 					g.UnplayLastMove()
 					// ABDADA: clean up on error
-					if s.abdadaOptim {
+					if abdadaHere {
 						s.abdadaTable.finishedSearch(nodeKey, children[idx])
 					}
 					return value, err
@@ -2118,7 +2186,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if err != nil {
 				g.UnplayLastMove()
 				// ABDADA: clean up on error
-				if s.abdadaOptim {
+				if abdadaHere {
 					s.abdadaTable.finishedSearch(nodeKey, children[idx])
 				}
 				return value, err
@@ -2128,7 +2196,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		maxReach = max(maxReach, *reach+1)
 
 		// ABDADA: finished searching this move
-		if s.abdadaOptim {
+		if abdadaHere {
 			s.abdadaTable.finishedSearch(nodeKey, children[idx])
 		}
 		if s.logStream != nil {
@@ -2167,7 +2235,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if err != nil {
 				return 0, err
 			}
-			s.nodes.Add(1)
+			s.nodes.add(thread, 1)
 			childKey := uint64(0)
 			if s.transpositionTableOptim {
 				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
@@ -2241,7 +2309,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		flagAndDepth := flag<<6 + storedDepth
 		play := bestMove.TinyMove()
-		s.ttable.storeEntry(nodeKey, score, flagAndDepth, play, pure)
+		s.ttable.storeEntry(nodeKey, score, flagAndDepth, play, pure, thread)
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
 			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
