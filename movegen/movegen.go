@@ -56,7 +56,8 @@ type MoveGenerator interface {
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
-	GenLanes(rack *tilemapping.Rack, lanes uint64, laneEnds *[2 * board.MaxBoardDim]int32) []tinymove.SmallMove
+	GenLanes(rack *tilemapping.Rack, lanes uint64, anchors *[2 * board.MaxBoardDim]uint32,
+		laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8)
 }
 
 // type moveHeap []*move.Move
@@ -96,6 +97,9 @@ type GordonGenerator struct {
 	tilesPlayed      int
 	plays            []*move.Move
 	smallPlays       []tinymove.SmallMove
+	// smallPlayAnchors is, for GenLanes, the anchor each small play was
+	// generated from.
+	smallPlayAnchors []uint8
 	sortingParameter SortBy
 
 	// These are pointers to the actual structures in `game`. They are
@@ -365,27 +369,35 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 // GenAll emits them, and laneEnds[lane] is set to the count of plays through
 // that lane. No pass is added. It needs a small-move play recorder and does
 // not use the shadow.
+//
+// Within a lane only the anchors in anchors[lane] are generated (bit i is the
+// lane's i-th square), so a caller that knows which anchors' plays a move
+// could have changed can leave the rest alone. The second slice returned
+// gives, for each play, the anchor it was generated from.
 func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
-	laneEnds *[2 * board.MaxBoardDim]int32) []tinymove.SmallMove {
+	anchors *[2 * board.MaxBoardDim]uint32,
+	laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8) {
 
 	gen.quitEarly = false
 	gen.smallPlays = gen.smallPlays[:0]
+	gen.smallPlayAnchors = gen.smallPlayAnchors[:0]
 	dim := gen.boardDim
 	if lanes&(1<<uint(dim)-1) != 0 {
 		gen.vertical = false
-		gen.genLanes(rack, board.HorizontalDirection, lanes, laneEnds, 0)
+		gen.genLanes(rack, board.HorizontalDirection, lanes, anchors, laneEnds, 0)
 	}
 	if lanes>>uint(dim) != 0 {
 		gen.board.Transpose()
 		gen.vertical = true
-		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), laneEnds, dim)
+		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), anchors, laneEnds, dim)
 		gen.board.Transpose()
 	}
-	return gen.smallPlays
+	return gen.smallPlays, gen.smallPlayAnchors
 }
 
 func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDirection,
-	rows uint64, laneEnds *[2 * board.MaxBoardDim]int32, laneOffset int) {
+	rows uint64, anchors *[2 * board.MaxBoardDim]uint32,
+	laneEnds *[2 * board.MaxBoardDim]int32, laneOffset int) {
 	csDir := board.VerticalDirection
 	if dir == board.VerticalDirection {
 		csDir = board.HorizontalDirection
@@ -397,10 +409,17 @@ func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDire
 		gen.curRowIdx = row
 		gen.cache.loadRow(gen.board, row, csDir, gen.boardDim)
 		gen.lastAnchorCol = 100
+		wanted := anchors[laneOffset+row]
 		for col := 0; col < gen.boardDim; col++ {
 			if gen.board.IsAnchor(row, col, dir) {
-				gen.curAnchorCol = col
-				gen.genForAnchor(rack)
+				if wanted&(1<<uint(col)) != 0 {
+					gen.curAnchorCol = col
+					gen.genForAnchor(rack)
+					for len(gen.smallPlayAnchors) < len(gen.smallPlays) {
+						gen.smallPlayAnchors = append(gen.smallPlayAnchors, uint8(col))
+					}
+				}
+				// A skipped anchor still bounds the next one's plays.
 				gen.lastAnchorCol = col
 			}
 		}

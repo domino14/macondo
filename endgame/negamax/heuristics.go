@@ -437,6 +437,22 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 			rackBV |= 1 << uint(ml)
 		}
 	}
+	if oppRack.NumTiles() == 1 {
+		if lists := s.listsFor(thread, g, mg); lists != nil {
+			// One tile: it is stuck exactly when it has no play alone, which
+			// the path lists keep track of from position to position.
+			var frac float32
+			if _, ok := lists.bestLoneTilePlay(1 - s.solvingPlayer); !ok {
+				frac = stuckFractionFromBV(g.Bag().LetterDistribution(), oppRack, 0)
+			}
+			if slot != nil {
+				slot.key = nodeKey
+				slot.frac = frac
+				slot.gen = s.stuckGen
+			}
+			return frac
+		}
+	}
 	// Cross-set scan: which rack tiles have a legal single-tile play? If they
 	// all do, nobody is stuck and we can skip move generation entirely.
 	playable := boardPlayableTilesBV(g.Board(), rackBV&^1)
@@ -519,6 +535,10 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	played, onBoard := 0, 0
 	wentOut := false
 	outGain := 0
+	if lists := s.listsFor(thread, g, mg); lists != nil {
+		lists.inPlayout = true
+		defer func() { lists.inPlayout = false }()
+	}
 	for played < budget && g.Playing() == pb.PlayState_PLAYING {
 		onTurn := g.PlayerOnTurn()
 		rack := g.RackFor(onTurn)

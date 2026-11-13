@@ -2035,6 +2035,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 	// ABDADA: track deferred moves for second pass
 	var deferredMoves []int
+	// leavesPlayed counts the children played at depth 1.
+	leavesPlayed := 0
 
 	// First pass: search non-deferred moves
 	for idx := range children {
@@ -2059,6 +2061,24 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			s.nodes.Add(1)
 			childPV.Clear()
 		} else {
+			if depth == 1 && s.useHeuristics {
+				// The children are leaves, each played out starting with the
+				// other player's best play. Once a second one needs playing
+				// out, build that player's list here, so that every further
+				// leaf derives its own from this one -- regenerating only
+				// what its own move changes -- instead of from the list two
+				// moves up.
+				leavesPlayed++
+				if leavesPlayed == 2 && g.RackFor(1-onTurn).NumTiles() > 1 {
+					mg := s.stmMovegen
+					if thread > 0 {
+						mg = s.movegens[thread-1]
+					}
+					if lists := s.listsFor(thread, g, mg); lists != nil {
+						lists.get(1 - onTurn)
+					}
+				}
+			}
 			moveTiles, err = playMove(&children[idx])
 			if err != nil {
 				return 0, err

@@ -2,6 +2,7 @@ package negamax
 
 import (
 	"fmt"
+	"math/bits"
 
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -93,8 +94,11 @@ func (rack *tileCounts) holds(used *tileCounts) bool {
 // plays and lane dim+c is column c's vertical plays, which is the order
 // GenAll emits them in.
 type moveList struct {
-	moves     []tinymove.SmallMove
-	used      []tileCounts
+	moves []tinymove.SmallMove
+	used  []tileCounts
+	// anchor is the anchor square (its index along the lane) each play was
+	// generated from; a lane's plays are in anchor order.
+	anchor    []uint8
 	laneBegin [maxLanes + 1]int32
 	valid     bool
 }
@@ -106,6 +110,10 @@ type pathLevel struct {
 	// hits has a bit for each lane whose plays the move played from this
 	// position changes.
 	hits uint64
+	// laneHits says, for each of those lanes, which of its squares changed
+	// (bit i is the lane's i-th square): gained a tile, or had its
+	// cross-set, cross-score or anchor flag changed.
+	laneHits [maxLanes]uint32
 	// mover is the player who made that move, and tilePlay whether it placed
 	// tiles (and so shrank their rack).
 	mover    int8
@@ -149,8 +157,15 @@ type pathLists struct {
 	base int
 	dim  int
 	ends [maxLanes]int32
+	// Scratch for get: the squares changed in each lane since the source
+	// list, each lane's anchors, and those of them to generate again.
+	hit     [maxLanes]uint32
+	anchors [maxLanes]uint32
+	wanted  [maxLanes]uint32
 	// check compares every derived list with a full generation.
 	check bool
+	// inPlayout is set while the solver plays a leaf out.
+	inPlayout bool
 }
 
 // bind attaches the lists to a game and its move generator and forgets
@@ -162,6 +177,7 @@ func (p *pathLists) bind(g *game.Game, mg movegen.MoveGenerator, check bool) {
 	p.dim = g.Board().Dim()
 	p.base = g.StateStackDepth()
 	p.check = check
+	p.inPlayout = false
 	for i := range p.levels {
 		p.levels[i].lists[0].valid = false
 		p.levels[i].lists[1].valid = false
@@ -194,10 +210,14 @@ func (p *pathLists) onMove(m *tinymove.SmallMove) {
 	lv.mover = int8(p.g.PlayerOnTurn())
 	lv.tilePlay = !m.IsPass()
 	// A player holding one tile has its best play kept at every level of
-	// the path, so that each position's is derived from its parent's.
+	// the search's path, so that each position's is derived from its
+	// parent's. In a playout a position is seen once, so there the play is
+	// only carried down, and found from scratch when it is asked for.
 	for player := 0; player < 2; player++ {
 		if rack := p.g.RackFor(player); rack.NumTiles() == 1 {
-			p.lonePlayAt(n, player, loneTile(rack))
+			if !p.inPlayout || (n > p.base && p.levels[n-1].lone[player].valid) {
+				p.lonePlayAt(n, player, loneTile(rack))
+			}
 		}
 	}
 	lv.hits = p.moveHits(m, lv)
@@ -322,6 +342,7 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 	if m.IsPass() {
 		return 0
 	}
+	lv.laneHits = [maxLanes]uint32{}
 	b := p.g.Board()
 	dim := p.dim
 	row, col, vertical := m.CoordsAndVertical()
@@ -349,6 +370,8 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 		lv.nChanged++
 	}
 	hits := uint64(1) << uint(ownBase+fixed)
+	// Every square of the move's own lane may have changed.
+	lv.laneHits[ownBase+fixed] = ^uint32(0)
 	for i := 0; i < length; i++ {
 		pos := start + i
 		if hasLetter(fixed, pos) {
@@ -356,12 +379,17 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 			continue
 		}
 		hits |= 1 << uint(crossBase+pos)
+		// The crossing lane gains the tile, and the anchor flags of the
+		// squares on either side of it can change.
+		around := uint32(7) << uint(fixed)
+		lv.laneHits[crossBase+pos] |= around >> 1
 		lo := fixed - 1
 		for lo >= 0 && hasLetter(lo, pos) {
 			lo--
 		}
 		if lo >= 0 {
 			hits |= 1 << uint(ownBase+lo)
+			lv.laneHits[ownBase+lo] |= 1 << uint(pos)
 			noteChanged(lo, pos)
 		}
 		hi := fixed + 1
@@ -370,15 +398,18 @@ func (p *pathLists) moveHits(m *tinymove.SmallMove, lv *pathLevel) uint64 {
 		}
 		if hi < dim {
 			hits |= 1 << uint(ownBase+hi)
+			lv.laneHits[ownBase+hi] |= 1 << uint(pos)
 			noteChanged(hi, pos)
 		}
 	}
 	if start > 0 {
 		hits |= 1 << uint(crossBase+start-1)
+		lv.laneHits[crossBase+start-1] |= 1 << uint(fixed)
 		noteChanged(fixed, start-1)
 	}
 	if start+length < dim {
 		hits |= 1 << uint(crossBase+start+length)
+		lv.laneHits[crossBase+start+length] |= 1 << uint(fixed)
 		noteChanged(fixed, start+length)
 	}
 	return hits
@@ -400,9 +431,17 @@ func (p *pathLists) get(player int) *moveList {
 	var src *moveList
 	var mask uint64
 	rackChanged := false
+	numLanes := 2 * p.dim
+	for lane := 0; lane < numLanes; lane++ {
+		p.hit[lane] = 0
+	}
 	for j := n - 1; j >= p.base; j-- {
 		lv := &p.levels[j]
 		mask |= lv.hits
+		for lanes := lv.hits; lanes != 0; lanes &= lanes - 1 {
+			lane := bits.TrailingZeros64(lanes)
+			p.hit[lane] |= lv.laneHits[lane]
+		}
 		if lv.tilePlay && int(lv.mover) == player {
 			rackChanged = true
 		}
@@ -411,40 +450,153 @@ func (p *pathLists) get(player int) *moveList {
 			break
 		}
 	}
-	numLanes := 2 * p.dim
 	if src == nil {
 		mask = uint64(1)<<uint(numLanes) - 1
 	}
 	rack := p.g.RackFor(player)
+	// Of the lanes that changed, the ones to merge anchor by anchor
+	// (partial) and the ones with anything to generate (genMask).
+	var partial uint64
+	genMask := mask
+	if src != nil {
+		b := p.g.Board()
+		dim := p.dim
+		full := uint32(1)<<uint(dim) - 1
+		tiles := int(rack.NumTiles())
+		for lanes := mask; lanes != 0; lanes &= lanes - 1 {
+			lane := bits.TrailingZeros64(lanes)
+			hit := p.hit[lane] & full
+			if hit == full {
+				p.wanted[lane] = ^uint32(0)
+				continue
+			}
+			// The lane's anchors and tiles as they are now.
+			var anchors, occupied uint32
+			if lane < dim {
+				for i := 0; i < dim; i++ {
+					if b.IsAnchor(lane, i, board.HorizontalDirection) {
+						anchors |= 1 << uint(i)
+					}
+					if b.HasLetter(lane, i) {
+						occupied |= 1 << uint(i)
+					}
+				}
+			} else {
+				for i := 0; i < dim; i++ {
+					if b.IsAnchor(i, lane-dim, board.VerticalDirection) {
+						anchors |= 1 << uint(i)
+					}
+					if b.HasLetter(i, lane-dim) {
+						occupied |= 1 << uint(i)
+					}
+				}
+			}
+			// An anchor's plays start after the anchor before it and, with
+			// `tiles` tiles to place, end before the (tiles+1)-th empty
+			// square to its right; what they are depends on the squares in
+			// between and on those two bounding squares. If none of them
+			// changed, neither did the anchor's plays, apart from the ones
+			// that need tiles since played.
+			empties := ^occupied & full
+			var wanted uint32
+			prev := 0
+			for as := anchors; as != 0; as &= as - 1 {
+				a := bits.TrailingZeros32(as)
+				right := empties >> uint(a+1)
+				for k := 0; k < tiles && right != 0; k++ {
+					right &= right - 1
+				}
+				last := dim - 1
+				if right != 0 {
+					last = a + 1 + bits.TrailingZeros32(right)
+				}
+				reach := (uint32(2)<<uint(last) - 1) &^ (uint32(1)<<uint(prev) - 1)
+				if hit&reach != 0 {
+					wanted |= 1 << uint(a)
+				}
+				prev = a
+			}
+			p.anchors[lane] = anchors
+			p.wanted[lane] = wanted
+			partial |= 1 << uint(lane)
+			if wanted == 0 {
+				genMask &^= 1 << uint(lane)
+			}
+		}
+	} else {
+		for lane := 0; lane < numLanes; lane++ {
+			p.wanted[lane] = ^uint32(0)
+		}
+	}
 	var generated []tinymove.SmallMove
-	if mask != 0 {
-		generated = p.mg.GenLanes(rack, mask, &p.ends)
+	var generatedAnchors []uint8
+	if genMask != 0 {
+		generated, generatedAnchors = p.mg.GenLanes(rack, genMask, &p.wanted, &p.ends)
 	}
 	rackCounts := rackTileCounts(rack)
 	l.moves = l.moves[:0]
 	l.used = l.used[:0]
+	l.anchor = l.anchor[:0]
 	genPos := 0
 	for lane := 0; lane < numLanes; lane++ {
 		l.laneBegin[lane] = int32(len(l.moves))
-		if mask&(1<<uint(lane)) != 0 {
-			end := int(p.ends[lane])
-			for i := genPos; i < end; i++ {
+		laneBit := uint64(1) << uint(lane)
+		genEnd := genPos
+		if genMask&laneBit != 0 {
+			genEnd = int(p.ends[lane])
+		}
+		if partial&laneBit != 0 {
+			// Anchor by anchor: the regenerated ones' plays from the
+			// generator, the others' from the source list. Plays of an
+			// anchor that is gone are dropped.
+			from, to := int(src.laneBegin[lane]), int(src.laneBegin[lane+1])
+			wanted := p.wanted[lane]
+			for as := p.anchors[lane]; as != 0; as &= as - 1 {
+				a := uint8(bits.TrailingZeros32(as))
+				if wanted&(1<<a) != 0 {
+					for genPos < genEnd && generatedAnchors[genPos] == a {
+						l.moves = append(l.moves, generated[genPos])
+						l.used = append(l.used, playTileCounts(&generated[genPos]))
+						l.anchor = append(l.anchor, a)
+						genPos++
+					}
+					continue
+				}
+				for from < to && src.anchor[from] < a {
+					from++
+				}
+				for ; from < to && src.anchor[from] == a; from++ {
+					if !rackChanged || rackCounts.holds(&src.used[from]) {
+						l.moves = append(l.moves, src.moves[from])
+						l.used = append(l.used, src.used[from])
+						l.anchor = append(l.anchor, a)
+					}
+				}
+			}
+			genPos = genEnd
+			continue
+		}
+		if mask&laneBit != 0 {
+			for i := genPos; i < genEnd; i++ {
 				l.moves = append(l.moves, generated[i])
 				l.used = append(l.used, playTileCounts(&generated[i]))
 			}
-			genPos = end
+			l.anchor = append(l.anchor, generatedAnchors[genPos:genEnd]...)
+			genPos = genEnd
 			continue
 		}
 		from, to := src.laneBegin[lane], src.laneBegin[lane+1]
 		if !rackChanged {
 			l.moves = append(l.moves, src.moves[from:to]...)
 			l.used = append(l.used, src.used[from:to]...)
+			l.anchor = append(l.anchor, src.anchor[from:to]...)
 			continue
 		}
 		for i := from; i < to; i++ {
 			if rackCounts.holds(&src.used[i]) {
 				l.moves = append(l.moves, src.moves[i])
 				l.used = append(l.used, src.used[i])
+				l.anchor = append(l.anchor, src.anchor[i])
 			}
 		}
 	}
