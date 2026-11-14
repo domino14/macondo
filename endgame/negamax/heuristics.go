@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
-	"os"
 	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -573,10 +572,6 @@ const (
 	playoutTailGenStep = 0xD1B54A32D192ED03
 )
 
-// playoutTailsEverywhere caches the tails of playouts with no stuck tiles
-// too.
-var playoutTailsEverywhere = os.Getenv("ENDGAME_TAILS_EVERYWHERE") != ""
-
 // greedyPlayout evaluates a leaf node by playing the game out greedily instead
 // of returning the static spread. Translated from MAGPIE's
 // negamax_greedy_leaf_playout (endgame.c:1740).
@@ -635,8 +630,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 
 	// The keys of the positions the playout passes through, for the cache
 	// of tails, and the solving player's spread at each.
-	cacheTails := s.playoutTailOptim && nodeKey != 0 && thread < len(s.playoutTails) &&
-		(frac > 0 || playoutTailsEverywhere)
+	cacheTails := s.playoutTailOptim && nodeKey != 0 && thread < len(s.playoutTails) && frac > 0
 	var tails []playoutTail
 	var tailKeys [MaxGreedyPlayoutPlies + 1]uint64
 	var tailSpreads [MaxGreedyPlayoutPlies + 1]int32

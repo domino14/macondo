@@ -468,3 +468,64 @@ func absInt(v int) int {
 	}
 	return v
 }
+
+// The cache of playout tails changes only the speed of a solve: the value
+// is the same with it off, tails are actually stored, and in self-check mode
+// every tail found is played out to see that it is what the cache said.
+func TestPlayoutTailCacheKeepsValue(t *testing.T) {
+	is := is.New(t)
+	const trueValue = int16(72)
+	for _, on := range []bool{false, true} {
+		s := solverFromCGP(t, stuckEndgameCGP, "CSW19")
+		s.SetThreads(1)
+		s.SetPlayoutTailCache(on)
+		v, _, err := s.Solve(context.Background(), 4)
+		is.NoErr(err)
+		is.Equal(v, trueValue)
+		stored := 0
+		for _, tails := range s.playoutTails {
+			for i := range tails {
+				if tails[i].key != 0 {
+					stored++
+				}
+			}
+		}
+		is.Equal(stored > 0, on)
+	}
+
+	was := checkMoveLists
+	checkMoveLists = true
+	defer func() { checkMoveLists = was }()
+	for _, threads := range []int{1, 3} {
+		s := solverFromCGP(t, stuckEndgameCGP, "CSW19")
+		s.SetThreads(threads)
+		v, _, err := s.Solve(context.Background(), 3)
+		is.NoErr(err)
+		is.Equal(v, trueValue)
+	}
+}
+
+// sortByEstimate orders by descending estimate and keeps the order of moves
+// with the same estimate, with or without a thread's scratch.
+func TestSortByEstimate(t *testing.T) {
+	is := is.New(t)
+	s := &Solver{threads: 1}
+	s.ensureArenas()
+	estimates := []int16{5, -3, 5, 32767, -32768, 0, 5, 0, 12, -3}
+	for _, thread := range []int{0, 7} {
+		moves := make([]tinymove.SmallMove, len(estimates))
+		for i, e := range estimates {
+			// The score tells the moves apart.
+			moves[i] = tinymove.TilePlayMove(tinymove.TinyMove(i+1), int16(i), 1, 1)
+			moves[i].SetEstimatedValue(e)
+		}
+		s.sortByEstimate(moves, thread)
+		for i := 1; i < len(moves); i++ {
+			a, b := &moves[i-1], &moves[i]
+			is.True(a.EstimatedValue() >= b.EstimatedValue())
+			if a.EstimatedValue() == b.EstimatedValue() {
+				is.True(a.Score() < b.Score())
+			}
+		}
+	}
+}

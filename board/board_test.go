@@ -176,3 +176,48 @@ func TestFENAlmostEmpty(t *testing.T) {
 
 	is.Equal(b.ToFEN(alph), "15/15/15/15/15/15/15/1INCITES7/IS13/T14/15/15/15/15/15")
 }
+
+// RowMasks and ColMasks agree with IsAnchor and HasLetter square by square,
+// on the board as it is and transposed.
+func TestLaneMasks(t *testing.T) {
+	alph := testhelpers.EnglishAlphabet()
+	b := MakeBoard(CrosswordGameBoard)
+	b.SetToGame(alph, VsEd)
+	b.UpdateAllAnchors()
+
+	check := func() {
+		for _, dir := range []BoardDirection{HorizontalDirection, VerticalDirection} {
+			for lane := 0; lane < b.Dim(); lane++ {
+				var rowAnchors, rowTiles, colAnchors, colTiles uint32
+				for i := 0; i < b.Dim(); i++ {
+					if b.IsAnchor(lane, i, dir) {
+						rowAnchors |= 1 << uint(i)
+					}
+					if b.HasLetter(lane, i) {
+						rowTiles |= 1 << uint(i)
+					}
+					if b.IsAnchor(i, lane, dir) {
+						colAnchors |= 1 << uint(i)
+					}
+					if b.HasLetter(i, lane) {
+						colTiles |= 1 << uint(i)
+					}
+				}
+				anchors, tiles := b.RowMasks(lane, dir)
+				if anchors != rowAnchors || tiles != rowTiles {
+					t.Errorf("row %d dir %v: masks %b %b, squares %b %b",
+						lane, dir, anchors, tiles, rowAnchors, rowTiles)
+				}
+				anchors, tiles = b.ColMasks(lane, dir)
+				if anchors != colAnchors || tiles != colTiles {
+					t.Errorf("column %d dir %v: masks %b %b, squares %b %b",
+						lane, dir, anchors, tiles, colAnchors, colTiles)
+				}
+			}
+		}
+	}
+	check()
+	b.Transpose()
+	check()
+	b.Transpose()
+}
