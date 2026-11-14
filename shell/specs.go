@@ -147,7 +147,7 @@ func init() {
 		Verbs: []string{"stop", "metrics", "output"},
 		Options: []Option{
 			{Name: "plies", Type: OptInt, Default: 4},
-			{Name: "maxtime", Type: OptInt, Default: 0},
+			{Name: "maxtime", Type: OptFloat, Default: 0.0},
 			{Name: "threads", Type: OptInt, Default: 0},
 			{Name: "multiple-vars", Type: OptInt, Default: 1},
 			{Name: "parallel-algo", Type: OptString},

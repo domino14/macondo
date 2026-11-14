@@ -546,41 +546,12 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 			return nil, false
 		}
 	}
-	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
-	if err != nil {
-		return nil, false
-	}
-	// One shared, lock-free transposition table for every bot in the process.
-	quickEndgameTableOnce.Do(func() {
-		quickEndgameTable.Reset(0.02, p.Game.Board().Dim())
-	})
-	gameCopy := p.Game.Copy()
-	gameCopy.SetBackupMode(game.SimulationMode)
-	gameCopy.SetStateStackLength(cfg.QuickEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
-	gameCopy.SetEndgameMode(true)
-	gen := movegen.NewGordonGenerator(gd, gameCopy.Board(), gameCopy.Bag().LetterDistribution())
-	s := new(negamax.Solver)
-	if err := s.Init(gen, gameCopy); err != nil {
-		return nil, false
-	}
-	s.SetTTable(quickEndgameTable)
-	s.SetThreads(1)
-	s.SetSkipMaterialize(false)
-	if cfg.QuickEndgameNoPrune {
-		// Building a pruned word graph per solve costs more than a 2-ply
-		// search saves with it (+3.6% net-vs-net generation, 10/17/26).
-		s.SetPrunedKWGOptim(false)
-	}
-	// Result-only search: a (-1, 1) root window. Same game results as the
-	// full window on 500 close endgames, at a tenth of the time.
-	s.SetFirstWinOptim(true)
 	capMs := cfg.QuickEndgameCapMs
 	if capMs <= 0 {
 		capMs = 250
 	}
-	sctx, cancel := context.WithTimeout(ctx, time.Duration(capMs)*time.Millisecond)
-	defer cancel()
-	_, seq, err := s.QuickAndDirtySolve(sctx, cfg.QuickEndgamePlies, 0)
+	_, seq, err := QuickEndgameSearch(ctx, p.Game, cfg.QuickEndgamePlies,
+		time.Duration(capMs)*time.Millisecond, cfg.QuickEndgameNoPrune)
 	if err != nil || len(seq) == 0 {
 		return nil, false
 	}
@@ -588,4 +559,48 @@ func (p *BotTurnPlayer) quickEndgameMove(ctx context.Context) (*move.Move, bool)
 	m.CopyFrom(seq[0])
 	p.QuickEndgameSolves++
 	return m, true
+}
+
+// QuickEndgameSearch is the quick endgame search of the bots that do not
+// solve endgames (see BotConfig.QuickEndgamePlies), for the player on turn
+// in g: one search plies deep on one thread, with no iterative deepening,
+// each leaf valued by a greedy playout, looking only for the game's result
+// (a (-1, 1) window around an even final spread). g is not changed. If limit
+// passes first it returns the context's error; the bots then fall back to
+// their static move. The value is relative to the current spread, and with
+// the result-only window only its sign against that spread means anything.
+func QuickEndgameSearch(ctx context.Context, g *game.Game, plies int,
+	limit time.Duration, noPrune bool) (int16, []*move.Move, error) {
+
+	gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
+	if err != nil {
+		return 0, nil, err
+	}
+	// One shared, lock-free transposition table for every bot in the process.
+	quickEndgameTableOnce.Do(func() {
+		quickEndgameTable.Reset(0.02, g.Board().Dim())
+	})
+	gameCopy := g.Copy()
+	gameCopy.SetBackupMode(game.SimulationMode)
+	gameCopy.SetStateStackLength(plies + negamax.MaxGreedyPlayoutPlies + 5)
+	gameCopy.SetEndgameMode(true)
+	gen := movegen.NewGordonGenerator(gd, gameCopy.Board(), gameCopy.Bag().LetterDistribution())
+	s := new(negamax.Solver)
+	if err := s.Init(gen, gameCopy); err != nil {
+		return 0, nil, err
+	}
+	s.SetTTable(quickEndgameTable)
+	s.SetThreads(1)
+	s.SetSkipMaterialize(false)
+	if noPrune {
+		// Building a pruned word graph per solve costs more than a 2-ply
+		// search saves with it (+3.6% net-vs-net generation, 10/17/26).
+		s.SetPrunedKWGOptim(false)
+	}
+	// Result-only search: a (-1, 1) root window. Same game results as the
+	// full window on 500 close endgames, at a tenth of the time.
+	s.SetFirstWinOptim(true)
+	sctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	return s.QuickAndDirtySolve(sctx, plies, 0)
 }

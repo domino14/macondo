@@ -1306,7 +1306,15 @@ func (s *Solver) iterativelyDeepenParallel(ctx context.Context, plies int, name 
 		// Do initial 1-ply search for move ordering
 		pv := PVLine{g: s.game}
 		s.currentIDDepths[0] = 1
-		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
+		var err1 error
+		lastIteration, err1 = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
+		if err1 == nil {
+			// Keep the 1-ply result: it is the answer if time runs out
+			// before a deeper iteration finishes.
+			s.principalVariation = pv
+			s.bestPVValue = lastIteration - int16(s.initialSpread)
+			s.lastCompletedPly = 1
+		}
 		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
 			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})

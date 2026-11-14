@@ -5,7 +5,7 @@ Example:
     endgame
     endgame -plies 25
     endgame -plies 25 -maxtime 120
-    endgame -quick true
+    endgame -quick true -maxtime 0.1
     endgame stop
 
 About:
@@ -54,7 +54,8 @@ Options:
 
     -maxtime 120
 
-    This option will set a maximum time in seconds. The endgame solver uses
+    This option will set a maximum time in seconds; fractions such as 0.1 are
+    allowed. The endgame solver uses
     iterative deepening by default, so a good enough solution should be found
     rapidly, and this solution will be improved upon.
 
@@ -65,13 +66,15 @@ Options:
     -quick true
 
     The quick endgame: the search the bots use for endgames they do not
-    solve. It looks 2 plies deep on one thread and values each position at
-    the end of those plies by playing the game out greedily. It is not a full
-    solve: the value and the sequence it shows are an estimate.
+    solve, run exactly as they run it. It is one search 2 plies deep on one
+    thread, with no iterative deepening, valuing each position at the end of
+    those plies by playing the game out greedily, and it looks only for the
+    result of the game (win, tie or loss), not for the best spread. It shows
+    the move a bot would play and the line it found.
 
-    It is time limited by -maxtime, 1 second if that is not given. If the
-    time runs out the best move found so far is shown. -plies changes the
-    depth; -first-win-optim true searches only for the result, as the bots do.
+    It is time limited by -maxtime, 0.25 seconds if that is not given. If the
+    time runs out there is no move: a bot would play its static move. -plies
+    changes the depth. The other options do not apply.
 
     -disable-id true
 
