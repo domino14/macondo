@@ -585,16 +585,17 @@ func (p *pathLists) get(player int) *moveList {
 		for lanes := mask; lanes != 0; lanes &= lanes - 1 {
 			lane := bits.TrailingZeros64(lanes)
 			hit := p.hit[lane] & full
-			if hit == full {
-				p.wanted[lane] = ^uint32(0)
-				continue
-			}
 			// The lane's anchors and tiles as they are now.
 			var anchors, occupied uint32
 			if lane < dim {
 				anchors, occupied = b.RowMasks(lane, board.HorizontalDirection)
 			} else {
 				anchors, occupied = b.ColMasks(lane-dim, board.VerticalDirection)
+			}
+			if hit == full {
+				p.anchors[lane] = anchors
+				p.wanted[lane] = ^uint32(0)
+				continue
 			}
 			// An anchor's plays start after the anchor before it and, with
 			// `tiles` tiles to place, end before the (tiles+1)-th empty
@@ -629,24 +630,58 @@ func (p *pathLists) get(player int) *moveList {
 			}
 		}
 	} else {
+		b := p.g.Board()
 		for lane := 0; lane < numLanes; lane++ {
 			p.wanted[lane] = ^uint32(0)
+			if lane < p.dim {
+				p.anchors[lane], _ = b.RowMasks(lane, board.HorizontalDirection)
+			} else {
+				p.anchors[lane], _ = b.ColMasks(lane-p.dim, board.VerticalDirection)
+			}
 		}
 	}
 	var generated []tinymove.SmallMove
 	var generatedAnchors []uint8
 	if genMask != 0 {
-		generated, generatedAnchors = p.mg.GenLanes(rack, genMask, &p.wanted, &p.ends)
+		generated, generatedAnchors = p.mg.GenLanes(rack, genMask, &p.wanted, &p.anchors, &p.ends)
 	}
 	rackCounts := rackTileCounts(rack)
 	l.soloValid = false
-	l.moves = l.moves[:0]
-	l.used = l.used[:0]
-	l.anchor = l.anchor[:0]
+	// The list has at most the generated plays and the ancestor's, so it is
+	// made that long and written by index, k being the next free place.
+	room := len(generated)
+	if src != nil {
+		room += len(src.moves)
+	}
+	if cap(l.moves) < room || cap(l.used) < room || cap(l.anchor) < room {
+		l.moves = make([]tinymove.SmallMove, room, 2*room)
+		l.used = make([]tileCounts, room, 2*room)
+		l.anchor = make([]uint8, room, 2*room)
+	}
+	moves, used, anchor := l.moves[:room], l.used[:room], l.anchor[:room]
+	k := 0
 	genPos := 0
 	for lane := 0; lane < numLanes; lane++ {
-		l.laneBegin[lane] = int32(len(l.moves))
 		laneBit := uint64(1) << uint(lane)
+		if mask&laneBit == 0 && !rackChanged {
+			// The lanes from here to the next changed one are the
+			// ancestor's, in one copy.
+			end := lane + 1
+			for end < numLanes && mask&(uint64(1)<<uint(end)) == 0 {
+				end++
+			}
+			from, to := int(src.laneBegin[lane]), int(src.laneBegin[end])
+			for ; lane < end; lane++ {
+				l.laneBegin[lane] = src.laneBegin[lane] + int32(k-from)
+			}
+			lane--
+			copy(moves[k:], src.moves[from:to])
+			copy(used[k:], src.used[from:to])
+			copy(anchor[k:], src.anchor[from:to])
+			k += to - from
+			continue
+		}
+		l.laneBegin[lane] = int32(k)
 		genEnd := genPos
 		if genMask&laneBit != 0 {
 			genEnd = int(p.ends[lane])
@@ -661,9 +696,10 @@ func (p *pathLists) get(player int) *moveList {
 				a := uint8(bits.TrailingZeros32(as))
 				if wanted&(1<<a) != 0 {
 					for genPos < genEnd && generatedAnchors[genPos] == a {
-						l.moves = append(l.moves, generated[genPos])
-						l.used = append(l.used, playTileCounts(&generated[genPos]))
-						l.anchor = append(l.anchor, a)
+						moves[k] = generated[genPos]
+						used[k] = playTileCounts(&generated[genPos])
+						anchor[k] = a
+						k++
 						genPos++
 					}
 					continue
@@ -673,9 +709,10 @@ func (p *pathLists) get(player int) *moveList {
 				}
 				for ; from < to && src.anchor[from] == a; from++ {
 					if !rackChanged || rackCounts.holds(&src.used[from]) {
-						l.moves = append(l.moves, src.moves[from])
-						l.used = append(l.used, src.used[from])
-						l.anchor = append(l.anchor, a)
+						moves[k] = src.moves[from]
+						used[k] = src.used[from]
+						anchor[k] = a
+						k++
 					}
 				}
 			}
@@ -684,28 +721,25 @@ func (p *pathLists) get(player int) *moveList {
 		}
 		if mask&laneBit != 0 {
 			for i := genPos; i < genEnd; i++ {
-				l.moves = append(l.moves, generated[i])
-				l.used = append(l.used, playTileCounts(&generated[i]))
+				moves[k] = generated[i]
+				used[k] = playTileCounts(&generated[i])
+				anchor[k] = generatedAnchors[i]
+				k++
 			}
-			l.anchor = append(l.anchor, generatedAnchors[genPos:genEnd]...)
 			genPos = genEnd
 			continue
 		}
-		from, to := src.laneBegin[lane], src.laneBegin[lane+1]
-		if !rackChanged {
-			l.moves = append(l.moves, src.moves[from:to]...)
-			l.used = append(l.used, src.used[from:to]...)
-			l.anchor = append(l.anchor, src.anchor[from:to]...)
-			continue
-		}
-		for i := from; i < to; i++ {
+		// An unchanged lane, less the plays of tiles since played.
+		for i, to := int(src.laneBegin[lane]), int(src.laneBegin[lane+1]); i < to; i++ {
 			if rackCounts.holds(&src.used[i]) {
-				l.moves = append(l.moves, src.moves[i])
-				l.used = append(l.used, src.used[i])
-				l.anchor = append(l.anchor, src.anchor[i])
+				moves[k] = src.moves[i]
+				used[k] = src.used[i]
+				anchor[k] = src.anchor[i]
+				k++
 			}
 		}
 	}
+	l.moves, l.used, l.anchor = moves[:k], used[:k], anchor[:k]
 	l.laneBegin[numLanes] = int32(len(l.moves))
 	l.valid = true
 	if p.check {

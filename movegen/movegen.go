@@ -58,6 +58,7 @@ type MoveGenerator interface {
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
 	GenLanes(rack *tilemapping.Rack, lanes uint64, anchors *[2 * board.MaxBoardDim]uint32,
+		laneAnchors *[2 * board.MaxBoardDim]uint32,
 		laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8)
 }
 
@@ -375,10 +376,13 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 //
 // Within a lane only the anchors in anchors[lane] are generated (bit i is the
 // lane's i-th square), so a caller that knows which anchors' plays a move
-// could have changed can leave the rest alone. The second slice returned
+// could have changed can leave the rest alone. laneAnchors, when not nil,
+// has every lane's anchors as the board has them now (GameBoard.RowMasks and
+// ColMasks), which spares reading them again. The second slice returned
 // gives, for each play, the anchor it was generated from.
 func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
 	anchors *[2 * board.MaxBoardDim]uint32,
+	laneAnchors *[2 * board.MaxBoardDim]uint32,
 	laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8) {
 
 	gen.quitEarly = false
@@ -388,12 +392,12 @@ func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
 	dim := gen.boardDim
 	if lanes&(1<<uint(dim)-1) != 0 {
 		gen.vertical = false
-		gen.genLanes(rack, board.HorizontalDirection, lanes, anchors, laneEnds, 0)
+		gen.genLanes(rack, board.HorizontalDirection, lanes, anchors, laneAnchors, laneEnds, 0)
 	}
 	if lanes>>uint(dim) != 0 {
 		gen.board.Transpose()
 		gen.vertical = true
-		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), anchors, laneEnds, dim)
+		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), anchors, laneAnchors, laneEnds, dim)
 		gen.board.Transpose()
 	}
 	return gen.smallPlays, gen.smallPlayAnchors
@@ -401,6 +405,7 @@ func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
 
 func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDirection,
 	rows uint64, anchors *[2 * board.MaxBoardDim]uint32,
+	allAnchors *[2 * board.MaxBoardDim]uint32,
 	laneEnds *[2 * board.MaxBoardDim]int32, laneOffset int) {
 	csDir := board.VerticalDirection
 	if dir == board.VerticalDirection {
@@ -412,7 +417,12 @@ func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDire
 		}
 		// The lane's anchors to generate from. Each needs to know the
 		// anchor before it in the lane, wanted or not.
-		laneAnchors, _ := gen.board.RowMasks(row, dir)
+		var laneAnchors uint32
+		if allAnchors != nil {
+			laneAnchors = allAnchors[laneOffset+row]
+		} else {
+			laneAnchors, _ = gen.board.RowMasks(row, dir)
+		}
 		wanted := anchors[laneOffset+row] & laneAnchors
 		if wanted != 0 {
 			gen.curRowIdx = row

@@ -56,6 +56,12 @@ type rowCache struct {
 func (rc *rowCache) loadRow(b *board.GameBoard, row int, csDir board.BoardDirection, dim int) {
 	crossSets := b.CrossSetsForDir(csDir)
 	leftExtSets := b.LeftExtSetsForDir(csDir)
+	if b.SkipExtensionSets() {
+		// The board is not keeping them (only the shadow reads them), so
+		// the squares are loaded without.
+		rc.loadRowNoExtSets(b, row, csDir, dim)
+		return
+	}
 	crossScores := b.CrossScoresForDir(csDir)
 	squares := b.SquaresSlice()
 	bonuses := b.BonusesSlice()
@@ -67,6 +73,30 @@ func (rc *rowCache) loadRow(b *board.GameBoard, row int, csDir board.BoardDirect
 		rc.squares[col] = cachedSquare{
 			crossSet:   crossSets[sqIdx],
 			leftExtSet: board.CrossSet(leftExtSets[sqIdx]),
+			crossScore: int32(crossScores[sqIdx]),
+			letterMul:  lm,
+			wordMul:    wm,
+			letter:     squares[sqIdx],
+		}
+	}
+	rc.loadedRow = row
+	rc.loadedDir = csDir
+}
+
+// loadRowNoExtSets is loadRow for a board that is not keeping its extension
+// sets: every square's is left empty.
+func (rc *rowCache) loadRowNoExtSets(b *board.GameBoard, row int, csDir board.BoardDirection, dim int) {
+	crossSets := b.CrossSetsForDir(csDir)
+	crossScores := b.CrossScoresForDir(csDir)
+	squares := b.SquaresSlice()
+	bonuses := b.BonusesSlice()
+	sqBase := b.GetSqIdx(row, 0)
+	colMul := b.GetSqIdx(0, 1)
+	for col := 0; col < dim; col++ {
+		sqIdx := sqBase + col*colMul
+		lm, wm := board.BonusMuls(bonuses[sqIdx])
+		rc.squares[col] = cachedSquare{
+			crossSet:   crossSets[sqIdx],
 			crossScore: int32(crossScores[sqIdx]),
 			letterMul:  lm,
 			wordMul:    wm,

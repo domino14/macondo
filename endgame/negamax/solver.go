@@ -681,18 +681,18 @@ func smallMoveTiles(b *board.GameBoard, m *tinymove.SmallMove,
 // child's search would.
 //
 // childKey is the child's table key if haveKey is set (see
-// childKeyUnplayed); otherwise it is worked out here.
+// childKeyUnplayed); otherwise it is worked out here. stmTiles is the count
+// of tiles on the mover's rack and outBonus twice the value of the
+// opponent's, which a node works out once for all its children.
 func (s *Solver) valueChildUnplayed(g *game.Game, m *tinymove.SmallMove, nodeKey uint64,
 	depth int, α, β int16, firstOrFullWindow, pvNode bool, ourSpread, onTurn, thread int,
-	childKey uint64, haveKey bool) (int16, bool) {
+	childKey uint64, haveKey bool, stmTiles, outBonus int) (int16, bool) {
 	if !s.childShortcuts || m.IsPass() {
 		return 0, false
 	}
-	stmRack := g.RackFor(onTurn)
-	if m.TilesPlayed() == int(stmRack.NumTiles()) {
-		oppTiles := g.RackFor(1 - onTurn).ScoreOn(g.Bag().LetterDistribution())
+	if m.TilesPlayed() == stmTiles {
 		s.impureEvents[thread].reach = 0
-		return -int16(ourSpread + m.Score() + 2*oppTiles), true
+		return -int16(ourSpread + m.Score() + outBonus), true
 	}
 	if !s.transpositionTableOptim || nodeKey == 0 {
 		return 0, false
@@ -940,9 +940,10 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	// 	pvMove = conversions.MoveToTinyMove(s.principalVariation.Moves[depth])
 	// }
 
+	outBonus := 2 * otherRack.ScoreOn(ld)
 	for idx := range moves {
 		if moves[idx].TilesPlayed() == numTilesOnRack {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score()+2*otherRack.ScoreOn(ld)) + GoingOutBF)
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score()+outBonus) + GoingOutBF)
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
@@ -2240,6 +2241,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	var outReply outReplyBound
 	outReplyActive := s.outReplyOptim && depth >= 2 && s.currentIDDepths[thread] != depth
 	stmTiles := int(stmRack.NumTiles())
+	// What going out adds: twice the opponent's tiles.
+	outBonus := 2 * g.RackFor(1-onTurn).ScoreOn(g.Bag().LetterDistribution())
 
 	// See the look-ahead in the loop below.
 	lookAhead := depth == 1 && s.childShortcuts && s.transpositionTableOptim && nodeKey != 0
@@ -2331,7 +2334,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			}
 		}
 		value, valued := s.valueChildUnplayed(g, &children[idx], nodeKey, depth, α, β,
-			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread, childKey, haveKey)
+			idx == 0 || !s.negascoutOptim, pvNode, ourSpread, onTurn, thread, childKey, haveKey,
+			stmTiles, outBonus)
 		if valued {
 			s.nodes.add(thread, 1)
 			childPV.Clear()

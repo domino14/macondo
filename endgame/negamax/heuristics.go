@@ -623,6 +623,10 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	// that the leaf value is a pure function of the position.
 	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
 
+	// Each player's rack at face value, kept up as the playout's moves take
+	// tiles off them.
+	rackScores := [2]int{g.RackFor(0).ScoreOn(ld), g.RackFor(1).ScoreOn(ld)}
+
 	// played counts the playout's moves and onBoard those actually made on
 	// the game; they differ by the going-out play, which is only scored.
 	played, onBoard := 0, 0
@@ -720,8 +724,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			// beats every real play once the conservation bonus makes their
 			// adjusted scores negative, and the playout degenerates into
 			// double-passing.
-			passPenalty = int(float32(g.RackFor(onTurn).ScoreOn(ld)+
-				g.RackFor(1-onTurn).ScoreOn(ld)) * frac)
+			passPenalty = int(float32(rackScores[0]+rackScores[1]) * frac)
 		}
 
 		bestIdx := 0
@@ -751,7 +754,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			// The play empties the rack and ends the game: its score plus
 			// twice the other rack is all it changes, so there is no need to
 			// put it on the board (and take it off again).
-			outGain = plays[bestIdx].Score() + 2*g.RackFor(1-onTurn).ScoreOn(ld)
+			outGain = plays[bestIdx].Score() + 2*rackScores[1-onTurn]
 			if onTurn != leafPlayer {
 				outGain = -outGain
 			}
@@ -766,6 +769,9 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			if lists := s.listsFor(thread, g, mg); lists != nil {
 				lists.noteLonePlay(onTurn, keptTile(rack, &plays[bestIdx]))
 			}
+		}
+		if !plays[bestIdx].IsPass() {
+			rackScores[onTurn] -= playedTilesFaceValue(&plays[bestIdx], ld)
 		}
 		moveTiles, err := g.PlaySmallMove(&plays[bestIdx])
 		played++
