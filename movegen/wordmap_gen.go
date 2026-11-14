@@ -63,8 +63,23 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 	// recorder's per-play state are consistent.
 	gen.tilesPlayed = tilesToPlay
 
+	// A subrack's plays all leave the same tiles, so with the recorder that
+	// keeps only the best play (and prices a play as its score plus the leave
+	// map's value, which is the value the subrack carries) the anchor's score
+	// bound plus the subrack's leave bounds every one of them. A subrack whose
+	// bound is below the best play found is skipped before its words are
+	// looked up: the recorder would turn each of its plays away. MAGPIE does
+	// the same (wordmap_gen_leave_prunes_subrack).
+	pruneByLeave := gen.bestPlayOnly && !gen.wmpNoSubrackLeavePrune &&
+		gen.leavemap.Initialized && !gen.board.IsEmpty()
+	scoreBound := float64(anchor.HighestPossibleScore)
+
 	numCombinations := wgen.NumSubrackCombinations()
 	for subrackIdx := 0; subrackIdx < numCombinations; subrackIdx++ {
+		if pruneByLeave && !gen.winner.IsEmpty() &&
+			scoreBound+wgen.GetLeaveValue(subrackIdx) < gen.winner.Equity() {
+			continue
+		}
 		// Look up the WMP entry and expand its words into the wmp
 		// scratch buffer. If no words exist for this subrack, skip.
 		if !wgen.GetSubrackWords(subrackIdx) {

@@ -154,6 +154,12 @@ type GordonGenerator struct {
 	// single-anchor-per-square macondo path. Default false.
 	wmpData             *wmp.WMP
 	wmpMoveGen          wmp.MoveGen
+	// bestPlayOnly is set while the recorder is the one that keeps only the
+	// best play (TopPlayOnlyRecorder).
+	bestPlayOnly bool
+	// wmpNoSubrackLeavePrune switches off wordmapGen's skipping of subracks
+	// whose leave cannot bring any of their plays up to the best play found.
+	wmpNoSubrackLeavePrune bool
 	wmpRecordSubAnchors bool
 	pegValues           []float64 // pre-endgame adjustment values
 	tilesInBag          int       // cached bag state for equity calc
@@ -193,6 +199,13 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		// shadow.useShadow starts false; set by SetPlayRecorderTopPlay/SetRecordNTopPlays
 	}
 	return gen
+}
+
+// SetWMPSubrackLeavePrune switches the word map generator's leave prune,
+// which is on unless switched off. The plays found are the same either way;
+// this is for tests and measurements.
+func (gen *GordonGenerator) SetWMPSubrackLeavePrune(on bool) {
+	gen.wmpNoSubrackLeavePrune = !on
 }
 
 func (gen *GordonGenerator) SetMaxCanExchange(m int) {
@@ -248,6 +261,7 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 
 func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
+	gen.bestPlayOnly = false
 	gen.maxTopMovesSize = 0
 	// AllPlays recorders don't benefit from shadow; disable it to avoid
 	// the overhead of computing upper bounds.
@@ -258,12 +272,14 @@ func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 // with shadow enabled for best-first move finding.
 func (gen *GordonGenerator) SetPlayRecorderTopPlay() {
 	gen.playRecorder = TopPlayOnlyRecorder
+	gen.bestPlayOnly = true
 	gen.maxTopMovesSize = 0
 	gen.shadow.useShadow = true
 }
 
 func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 	gen.playRecorder = TopNPlayRecorder
+	gen.bestPlayOnly = false
 	gen.shadow.useShadow = true
 	gen.maxTopMovesSize = n
 	// Reuse the existing move objects when the size is unchanged, so callers
