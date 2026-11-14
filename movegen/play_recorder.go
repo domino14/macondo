@@ -201,6 +201,15 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 			return
 		}
 		tilesLength = rightstrip
+		fast := gordonGen.leavemap.Initialized && !gordonGen.board.IsEmpty()
+		if fast {
+			// Exchange score is 0; equity comes from leave map (includes peg).
+			eq = gordonGen.leavemap.CurrentValue()
+			if !gordonGen.winner.IsEmpty() && eq < gordonGen.winner.Equity() {
+				// Not the best play: turned away before the move is built.
+				return
+			}
+		}
 		exchanged := gordonGen.exchangestrip[:rightstrip]
 		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
@@ -208,10 +217,7 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 			0, 0, tilesLength, gordonGen.vertical, move.MoveTypeExchange,
 			gordonGen.letterDistribution.TileMapping())
 
-		if gordonGen.leavemap.Initialized && !gordonGen.board.IsEmpty() {
-			// Exchange score is 0; equity comes from leave map (includes peg).
-			eq = gordonGen.leavemap.CurrentValue()
-		} else {
+		if !fast {
 			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
 				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 			})

@@ -184,6 +184,11 @@ type shadowState struct {
 	numLettersOnRack int
 
 	// Best leave values indexed by number of tiles remaining on rack.
+	// lanes keeps the squares of every lane the shadow pass loaded (rows,
+	// then columns as rows of the transposed board), for the pass that
+	// records plays to pick up without reading the board again.
+	lanes [2][maxBoardDim][maxBoardDim]cachedSquare
+
 	// bestLeaves[k] = max leave value over all possible leaves of size k.
 	// Computed before shadow to enable equity-aware upper bounds.
 	bestLeaves [game.RackTileLimit + 1]float64
@@ -1048,9 +1053,13 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	// Horizontal
 	gen.vertical = false
 	for row := 0; row < dim; row++ {
+		if !gen.rowHasAnchor(row, board.HorizontalDirection) {
+			continue
+		}
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
 		gen.cache.loadRow(gen.board, row, board.VerticalDirection, dim)
+		gen.shadow.lanes[0][row] = gen.cache.squares
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.HorizontalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.HorizontalDirection)
@@ -1066,9 +1075,13 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.board.Transpose()
 	gen.vertical = true
 	for row := 0; row < dim; row++ {
+		if !gen.rowHasAnchor(row, board.VerticalDirection) {
+			continue
+		}
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
 		gen.cache.loadRow(gen.board, row, board.HorizontalDirection, dim)
+		gen.shadow.lanes[1][row] = gen.cache.squares
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.VerticalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.VerticalDirection)
@@ -1082,6 +1095,17 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.board.Transpose()
 
 	gen.shadow.anchorHeap.heapifyAll()
+}
+
+// rowHasAnchor reports whether any square of the row, as the board is
+// oriented now, is an anchor for plays in dir.
+func (gen *GordonGenerator) rowHasAnchor(row int, dir board.BoardDirection) bool {
+	for col := 0; col < gen.boardDim; col++ {
+		if gen.board.IsAnchor(row, col, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // genRecordScoringPlaysFromAnchors processes anchors in best-first order,
@@ -1158,7 +1182,14 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			csDir = board.HorizontalDirection
 		}
 		if gen.cache.loadedRow != anchorRow || gen.cache.loadedDir != csDir {
-			gen.cache.loadRow(gen.board, anchorRow, csDir, gen.boardDim)
+			// The shadow pass loaded this lane and kept it.
+			lane := 0
+			if needTransposed {
+				lane = 1
+			}
+			gen.cache.squares = gen.shadow.lanes[lane][anchorRow]
+			gen.cache.loadedRow = anchorRow
+			gen.cache.loadedDir = csDir
 		}
 
 		// WMP-recorded anchors carry per-(blocks, tiles) extension
