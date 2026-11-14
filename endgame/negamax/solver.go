@@ -407,6 +407,9 @@ type Solver struct {
 	// stuckGen invalidates the whole memo in O(1) when the game or lexicon
 	// underneath it changes, the way Reset clears the transposition table.
 	stuckGen uint32
+	// sortKeys and sortMoves are each thread's scratch for sortByEstimate.
+	sortKeys  [][]uint64
+	sortMoves [][]tinymove.SmallMove
 	// playoutTails is each thread's cache of the rest of a playout from a
 	// position one has passed through (see greedyPlayout). stuckGen is in
 	// its keys, so it is forgotten along with the stuck-fraction memo.
@@ -588,6 +591,8 @@ func (s *Solver) ensureArenas() {
 	for i := range s.stuckMemo {
 		s.stuckMemo[i] = make([]stuckEntry, stuckMemoSize)
 	}
+	s.sortKeys = make([][]uint64, s.threads)
+	s.sortMoves = make([][]tinymove.SmallMove, s.threads)
 	s.playoutTails = make([][]playoutTail, s.threads)
 	for i := range s.playoutTails {
 		s.playoutTails[i] = make([]playoutTail, playoutTailCacheSize)
@@ -972,9 +977,36 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 			moves[idx].AddEstimatedValue(EarlyPassBF)
 		}
 	}
-	slices.SortFunc(moves, func(a, b tinymove.SmallMove) int {
-		return int(b.EstimatedValue()) - int(a.EstimatedValue())
-	})
+	s.sortByEstimate(moves, thread)
+}
+
+// sortByEstimate puts the moves in descending order of estimated value,
+// moves of the same estimate staying in the order they came in. It sorts
+// one integer per move, the estimate above the move's index, and then puts
+// the moves in that order: comparing whole moves through a function cost
+// several times as much.
+func (s *Solver) sortByEstimate(moves []tinymove.SmallMove, thread int) {
+	n := len(moves)
+	if n < 2 {
+		return
+	}
+	if thread >= len(s.sortKeys) {
+		slices.SortStableFunc(moves, func(a, b tinymove.SmallMove) int {
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
+		})
+		return
+	}
+	keys := s.sortKeys[thread][:0]
+	for i := range moves {
+		// Larger estimates get smaller keys.
+		keys = append(keys, uint64(32767-int(moves[i].EstimatedValue()))<<32|uint64(i))
+	}
+	slices.Sort(keys)
+	sorted := append(s.sortMoves[thread][:0], moves...)
+	for i, key := range keys {
+		moves[i] = sorted[uint32(key)]
+	}
+	s.sortKeys[thread], s.sortMoves[thread] = keys, sorted
 }
 
 // assignEstimatesHeuristic is the MAGPIE move ordering (assign_estimates,

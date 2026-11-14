@@ -91,8 +91,17 @@ func (g *CachedGenerator) Reset(dist *tilemapping.LetterDistribution, gd gaddag.
 func (g *CachedGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
 	dim := b.Dim()
 	if !b.SkipExtensionSets() || dim > cacheMaxDim ||
-		row < 0 || row >= dim || col < 0 || col >= dim ||
-		b.HasLetter(row, col) || b.LeftAndRightEmpty(row, col) {
+		row < 0 || row >= dim || col < 0 || col >= dim {
+		GenCrossSet(b, row, col, dir, g.Gaddag, g.Dist)
+		return
+	}
+	// The row's squares, read straight from the board's: the square is at
+	// pos and its neighbours along the row a step either way.
+	squares := b.SquaresSlice()
+	pos, step := b.GetSqIdx(row, col), b.GetSqIdx(0, 1)
+	if squares[pos] != 0 ||
+		((col == 0 || squares[pos-step] == 0) && (col == dim-1 || squares[pos+step] == 0)) {
+		// A tile on the square, or none beside it.
 		GenCrossSet(b, row, col, dir, g.Gaddag, g.Dist)
 		return
 	}
@@ -100,8 +109,8 @@ func (g *CachedGenerator) Generate(b *Board, row int, col int, dir board.BoardDi
 	// zero and never the separator, so the bytes decode one way only.
 	var key [2]uint64
 	n := uint(0)
-	for c := col - 1; c >= 0; c-- {
-		ml := b.GetLetter(row, c)
+	for c, i := col-1, pos-step; c >= 0; c, i = c-1, i-step {
+		ml := squares[i]
 		if ml == 0 {
 			break
 		}
@@ -110,8 +119,8 @@ func (g *CachedGenerator) Generate(b *Board, row int, col int, dir board.BoardDi
 	}
 	key[n>>3] |= uint64(cacheSeparator) << (8 * (n & 7))
 	n++
-	for c := col + 1; c < dim; c++ {
-		ml := b.GetLetter(row, c)
+	for c, i := col+1, pos+step; c < dim; c, i = c+1, i+step {
+		ml := squares[i]
 		if ml == 0 {
 			break
 		}
