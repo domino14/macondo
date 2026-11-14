@@ -604,7 +604,17 @@ type endgameParams struct {
 	maxtime    int
 	maxthreads int
 	enableFW   bool // first-win optimization
+	quick      bool // the quick endgame: a shallow one-thread search
 }
+
+// The quick endgame (`endgame -quick`) is the search the bots use for
+// endgames they do not solve: two plies, each leaf valued by playing the
+// game out greedily, on one thread with a small table.
+const (
+	quickEndgamePlies         = 2
+	quickEndgameMaxTime       = 1 // seconds, when -maxtime is not given
+	quickEndgameTableFraction = 0.01
+)
 
 // endgamePrepare parses options and initializes the endgame solver.
 // Returns the params needed for running.
@@ -648,6 +658,21 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	if err != nil {
 		return nil, err
 	}
+	params.quick = cmd.options.Bool("quick")
+	if params.quick {
+		// -plies and -maxtime still apply when given; the search is always
+		// on one thread.
+		if len(cmd.options["plies"]) == 0 {
+			params.plies = quickEndgamePlies
+		}
+		if params.maxtime <= 0 {
+			params.maxtime = quickEndgameMaxTime
+		}
+		if len(cmd.options["threads"]) > 0 && params.maxthreads != 1 {
+			return nil, errors.New("the quick endgame runs on one thread; drop -threads")
+		}
+		params.maxthreads = 1
+	}
 	// clear out the last value of this endgame node; gc should delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
 
@@ -660,9 +685,13 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 		sc.showMessage("endgame will log to " + EndgameLog)
 	}
 
+	quickNote := ""
+	if params.quick {
+		quickNote = "quick endgame: "
+	}
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, maxtime %v, threads %v",
-		params.plies, params.maxtime, params.maxthreads))
+		"%splies %v, maxtime %v, threads %v",
+		quickNote, params.plies, params.maxtime, params.maxthreads))
 
 	sc.game.SetBackupMode(game.SimulationMode)
 
@@ -686,6 +715,9 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(params.maxthreads)
+	if params.quick {
+		sc.endgameSolver.SetTTableFraction(quickEndgameTableFraction)
+	}
 	if err = sc.endgameSolver.SetParallelAlgorithm(parallelAlgo); err != nil {
 		return nil, err
 	}
@@ -722,6 +754,11 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 	}
 
 	var result strings.Builder
+	if params.quick {
+		result.WriteString(fmt.Sprintf(
+			"Quick endgame (%d plies, then greedy play to the end); not a full solve.\n",
+			params.plies))
+	}
 	if !params.enableFW {
 		result.WriteString(fmt.Sprintf("Best sequence has a spread difference (value) of %+d\n", val))
 	} else {

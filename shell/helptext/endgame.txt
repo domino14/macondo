@@ -5,6 +5,7 @@ Example:
     endgame
     endgame -plies 25
     endgame -plies 25 -maxtime 120
+    endgame -quick true
     endgame stop
 
 About:
@@ -60,6 +61,17 @@ Options:
     Note: When using -also-solve-var (see below), if the main solve times out,
     the specified variant will be solved with a fresh 60-second timeout. This
     means the total solve time could be up to maxtime + 60 seconds.
+
+    -quick true
+
+    The quick endgame: the search the bots use for endgames they do not
+    solve. It looks 2 plies deep on one thread and values each position at
+    the end of those plies by playing the game out greedily. It is not a full
+    solve: the value and the sequence it shows are an estimate.
+
+    It is time limited by -maxtime, 1 second if that is not given. If the
+    time runs out the best move found so far is shown. -plies changes the
+    depth; -first-win-optim true searches only for the result, as the bots do.
 
     -disable-id true
 

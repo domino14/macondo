@@ -160,6 +160,7 @@ func init() {
 			{Name: "heuristics", Type: OptBool, Default: true, Values: boolValues},
 			{Name: "log", Type: OptBool, Values: boolValues},
 			{Name: "also-solve-var", Type: OptString},
+			{Name: "quick", Type: OptBool, Values: boolValues},
 		},
 	})
 
