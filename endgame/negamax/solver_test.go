@@ -125,9 +125,8 @@ func TestSolveOther3(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
-	s.lazySMPOptim = true
-	// sweet spot seems to be threads = 8 for now
-	s.threads = 8
+	s.SetThreads(8)
+	is.NoErr(s.SetParallelAlgorithm(ParallelAlgoPVSplit))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }
@@ -691,7 +690,7 @@ func TestMultiThreadedSolveKeepsFixedDepthValue(t *testing.T) {
 		algo    string
 		threads int
 	}{
-		{ParallelAlgoLazySMP, 2},
+		{ParallelAlgoPVSplit, 2},
 		{ParallelAlgoLazySMP, 4},
 		{ParallelAlgoABDADA, 4},
 		{ParallelAlgoTreeSplit, 4},
@@ -872,7 +871,8 @@ func TestOnePlySolveWithThreads(t *testing.T) {
 }
 
 // Endgames from MAGPIE's test suite (test/endgame_test.c), with the values
-// MAGPIE asserts. Each is solved with one thread and with four.
+// MAGPIE asserts. Each is solved with one thread, and with four and sixteen
+// by PV-splitting.
 func TestMagpieEndgames(t *testing.T) {
 	is := is.New(t)
 	viaMover := "5U4OHMIC/5N3WREATH/5T4FAX2/5i3B1VIA1/5N3L1E3/5G2VELDT2/5E3S5/" +
@@ -911,9 +911,28 @@ func TestMagpieEndgames(t *testing.T) {
 		{"via_opp_must_block_3ply", viaOpp, 3, -78},
 		{"lexicon_CSW21", lexChange + "CSW21;", 2, 47},
 		{"lexicon_NWL23", lexChange + "NWL23;", 2, 43},
+		{"solve_standard",
+			"9A1PIXY/9S1L3/2ToWNLETS1O3/9U1DA1R/3GERANIAL1U1I/9g2T1C/8WE2OBI/" +
+				"6EMU4ON/6AID3GO1/5HUN4ET1/4ZA1T4ME1/1Q1FAKEY3JOES/FIVE1E5IT1C/" +
+				"5SPORRAN2A/6ORE2N2D BGIV/DEHILOR 384/389 0 lex NWL20;", 4, 11},
+		// Two positions where MAGPIE once returned a different value with
+		// many threads than with one, through bounds or deeper entries other
+		// threads had put in the table. MAGPIE's own tests assert the values
+		// of shallow searches there (16 at 2 plies, 81 at 5), which depend on
+		// its playouts at the leaves; the values here are the solved ones,
+		// which MAGPIE and Macondo both return at 25 plies and which these
+		// depths already reach.
+		{"tt_pv_bound",
+			"7F3QINS/7E3E2H/6ORBITED1O/3JAMBU2OM2R/1ROATE1L2FAV1T/" +
+				"GI5ED1T1OPE/OD6R3WEN/EL5RUNTY2S/1E6N2U3/1Y5AKA1C3/ES1VAgUIsH1C3/" +
+				"X2I7A3/I2G11/LOOING9/E2A11 ADLRSTZ/EIINPW 451/296 0 lex CSW24;", 6, 28},
+		{"pass_transposition_depth",
+			"5CORDINER2/1G10E2/1O3RECOURED2/1A1B8I1G/1T1AW5L1S1I/1E1PAX4U1T1P/" +
+				"ZE2WO1NOSTRILS/I2HEAME2E1L1Y/T4N4T4/IF2JO3Ki4/1O2AN3NU4/FuDGY4AMI3/" +
+				"ET7R1N3/EH9I3/B9QADIS AAELOUV/V 392/466 0 lex CSW21;", 5, 83},
 	}
 	for _, c := range cases {
-		for _, threads := range []int{1, 4} {
+		for _, threads := range []int{1, 4, 16} {
 			g, err := cgp.ParseCGP(DefaultConfig, c.pos)
 			is.NoErr(err)
 			gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), g.LexiconName())
@@ -926,6 +945,7 @@ func TestMagpieEndgames(t *testing.T) {
 			s.SetTTable(&TranspositionTable{})
 			s.SetTTableFraction(0.01)
 			s.SetThreads(threads)
+			is.NoErr(s.SetParallelAlgorithm(ParallelAlgoPVSplit))
 			v, _, err := s.Solve(context.Background(), c.plies)
 			is.NoErr(err)
 			t.Logf("%s, %d plies, %d threads: %d", c.name, c.plies, threads, v)
