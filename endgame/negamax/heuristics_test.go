@@ -148,7 +148,7 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	stackRemaining := g.StateStackRemaining()
 
 	var pv PVLine
-	v1 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v1 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 
 	is.Equal(bd.SquaresSlice(), squares)
 	is.Equal(bd.CrossSetsForDir(board.HorizontalDirection), hCross)
@@ -163,7 +163,7 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 
 	// Same position, same answer.
-	v2 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v2 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.Equal(v1, v2)
 
 	// And playing a move, evaluating, and taking it back must not disturb the
@@ -174,11 +174,11 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 		_, err := g.PlaySmallMove(&plays[i])
 		is.NoErr(err)
 		if g.Playing() == pb.PlayState_PLAYING {
-			s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+			s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 		}
 		g.UnplayLastMove()
 	}
-	is.Equal(s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0), v1)
+	is.Equal(s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false), v1)
 }
 
 // TestGreedyPlayoutStackBudget checks that the playout respects the backup
@@ -191,20 +191,20 @@ func TestGreedyPlayoutStackBudget(t *testing.T) {
 	g := s.game
 
 	var pv PVLine
-	full := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	full := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.True(pv.NumMoves() > 0)
 
 	// With no room at all, fall back to the static spread and touch nothing.
 	g.SetStateStackLength(0)
 	is.Equal(g.StateStackRemaining(), 0)
-	static := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	static := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.Equal(static, int16(g.SpreadFor(g.PlayerOnTurn())))
 	is.Equal(pv.NumMoves(), 0)
 	is.True(static != full)
 
 	// A short stack should still play what it can rather than panic.
 	g.SetStateStackLength(2)
-	short := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	short := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.True(pv.NumMoves() <= 2)
 	is.Equal(g.StateStackRemaining(), 2)
 	_ = short
@@ -245,7 +245,7 @@ func TestPassPenaltyPreventsDoublePass(t *testing.T) {
 	is.True(bestUnpenalized > -passPenalty)
 
 	var pv PVLine
-	v := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	t.Logf("greedy playout value %d over %d moves", v, pv.NumMoves())
 	// It plays the rack off instead of passing out immediately.
 	is.True(!pv.tinyMoves[0].IsPass())
@@ -467,4 +467,65 @@ func absInt(v int) int {
 		return -v
 	}
 	return v
+}
+
+// The cache of playout tails changes only the speed of a solve: the value
+// is the same with it off, tails are actually stored, and in self-check mode
+// every tail found is played out to see that it is what the cache said.
+func TestPlayoutTailCacheKeepsValue(t *testing.T) {
+	is := is.New(t)
+	const trueValue = int16(72)
+	for _, on := range []bool{false, true} {
+		s := solverFromCGP(t, stuckEndgameCGP, "CSW19")
+		s.SetThreads(1)
+		s.SetPlayoutTailCache(on)
+		v, _, err := s.Solve(context.Background(), 4)
+		is.NoErr(err)
+		is.Equal(v, trueValue)
+		stored := 0
+		for _, tails := range s.playoutTails {
+			for i := range tails {
+				if tails[i].key != 0 {
+					stored++
+				}
+			}
+		}
+		is.Equal(stored > 0, on)
+	}
+
+	was := checkMoveLists
+	checkMoveLists = true
+	defer func() { checkMoveLists = was }()
+	for _, threads := range []int{1, 3} {
+		s := solverFromCGP(t, stuckEndgameCGP, "CSW19")
+		s.SetThreads(threads)
+		v, _, err := s.Solve(context.Background(), 3)
+		is.NoErr(err)
+		is.Equal(v, trueValue)
+	}
+}
+
+// sortByEstimate orders by descending estimate and keeps the order of moves
+// with the same estimate, with or without a thread's scratch.
+func TestSortByEstimate(t *testing.T) {
+	is := is.New(t)
+	s := &Solver{threads: 1}
+	s.ensureArenas()
+	estimates := []int16{5, -3, 5, 32767, -32768, 0, 5, 0, 12, -3}
+	for _, thread := range []int{0, 7} {
+		moves := make([]tinymove.SmallMove, len(estimates))
+		for i, e := range estimates {
+			// The score tells the moves apart.
+			moves[i] = tinymove.TilePlayMove(tinymove.TinyMove(i+1), int16(i), 1, 1)
+			moves[i].SetEstimatedValue(e)
+		}
+		s.sortByEstimate(moves, thread)
+		for i := 1; i < len(moves); i++ {
+			a, b := &moves[i-1], &moves[i]
+			is.True(a.EstimatedValue() >= b.EstimatedValue())
+			if a.EstimatedValue() == b.EstimatedValue() {
+				is.True(a.Score() < b.Score())
+			}
+		}
+	}
 }

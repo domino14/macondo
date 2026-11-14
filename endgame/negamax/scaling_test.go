@@ -10,8 +10,8 @@ import (
 	"github.com/matryer/is"
 )
 
-// TestLazySMPScaling tests how LazySMP performance scales with thread count
-func TestLazySMPScaling(t *testing.T) {
+// TestPVSplitScaling tests how PV-splitting scales with thread count
+func TestPVSplitScaling(t *testing.T) {
 	t.Skip()
 	is := is.New(t)
 
@@ -29,10 +29,8 @@ func TestLazySMPScaling(t *testing.T) {
 		s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371, 1)
 		is.NoErr(err)
 
-		s.threads = threads
-		if threads > 1 {
-			s.lazySMPOptim = true
-		}
+		s.SetThreads(threads)
+		is.NoErr(s.SetParallelAlgorithm(ParallelAlgoPVSplit))
 
 		start := time.Now()
 		v, _, err := s.Solve(context.Background(), plies)

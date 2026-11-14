@@ -1,8 +1,11 @@
 package negamax
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
 	"math/bits"
+	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -141,16 +144,104 @@ func stuckFractionFromBV(ld *tilemapping.LetterDistribution, rack *tilemapping.R
 func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 	ld *tilemapping.LetterDistribution) (tinymove.SmallMove, bool) {
 
-	// The single tile on the rack.
-	tile := tilemapping.MachineLetter(0)
-	for ml, count := range rack.LetArr {
-		if count > 0 {
-			tile = tilemapping.MachineLetter(ml)
-			break
+	tile := loneTile(rack)
+	score, row, col, found := scanLoneTile(b, tile, ld)
+	if !found {
+		return tinymove.SmallMove{}, false
+	}
+	return loneTileMove(b, tile, ld, row, col, score), true
+}
+
+// keptTile returns the one tile of the rack that the play m, which places
+// all the others, leaves behind.
+func keptTile(rack *tilemapping.Rack, m *tinymove.SmallMove) tilemapping.MachineLetter {
+	sum := 0
+	for ml, n := range rack.LetArr {
+		sum += ml * int(n)
+	}
+	tm := uint64(m.TinyMove())
+	for i, n := 0, m.TilesPlayed(); i < n; i++ {
+		// A blank is tile 0 on the rack, whatever letter it plays as.
+		if tm&(1<<(12+uint(i))) == 0 {
+			sum -= int((tm >> (20 + 6*uint(i))) & 63)
 		}
 	}
-	isBlank := tile == 0
+	return tilemapping.MachineLetter(sum)
+}
 
+// loneTile returns the first tile type on the rack: the tile, when the rack
+// holds just one.
+func loneTile(rack *tilemapping.Rack) tilemapping.MachineLetter {
+	for ml, count := range rack.LetArr {
+		if count > 0 {
+			return tilemapping.MachineLetter(ml)
+		}
+	}
+	return 0
+}
+
+// loneTileFace is what the tile scores on a plain square.
+func loneTileFace(tile tilemapping.MachineLetter, ld *tilemapping.LetterDistribution) int {
+	if tile == 0 {
+		return 0
+	}
+	return ld.Score(tile)
+}
+
+// loneTileAt scores the tile played alone on the empty square (r, c), and
+// reports whether that is a legal play. It depends only on the square's two
+// cross-sets and cross-scores and on which of its four neighbours hold
+// tiles.
+func loneTileAt(b *board.GameBoard, tile tilemapping.MachineLetter, tileFace int,
+	r, c int) (int, bool) {
+
+	dim := b.Dim()
+	hasH := (c > 0 && b.HasLetter(r, c-1)) || (c < dim-1 && b.HasLetter(r, c+1))
+	hasV := (r > 0 && b.HasLetter(r-1, c)) || (r < dim-1 && b.HasLetter(r+1, c))
+	if !hasH && !hasV {
+		return 0, false
+	}
+	idx := b.GetSqIdx(r, c)
+	combined := uint64(b.GetCrossSetIdx(idx, board.HorizontalDirection)) &
+		uint64(b.GetCrossSetIdx(idx, board.VerticalDirection))
+	if tile == 0 {
+		// A blank plays if the intersection admits any real letter. Bit 0
+		// is the blank marker, not a letter, so shift it out.
+		if combined>>1 == 0 {
+			return 0, false
+		}
+	} else if combined&(1<<uint(tile)) == 0 {
+		return 0, false
+	}
+	tileLS := tileFace * b.GetLetterMultiplier(idx)
+	wm := b.GetWordMultiplier(idx)
+	score := 0
+	if hasH {
+		score += (tileLS + b.GetCrossScoreIdx(idx, board.HorizontalDirection)) * wm
+	}
+	if hasV {
+		score += (tileLS + b.GetCrossScoreIdx(idx, board.VerticalDirection)) * wm
+	}
+	return score, true
+}
+
+// nonzeroBytes returns a bit for each of x's eight bytes that is not zero,
+// the lowest byte's in bit 0.
+func nonzeroBytes(x uint64) uint32 {
+	const low7 = 0x7f7f7f7f7f7f7f7f
+	// The top bit of each byte: set if the byte's low seven bits are not
+	// all zero (the add carries into it) or the byte has it set itself.
+	t := ((x&low7 + low7) | x) &^ low7
+	// Gather the eight top bits into the top byte.
+	return uint32((t >> 7) * 0x0102040810204080 >> 56)
+}
+
+// scanLoneTile finds the highest-scoring square for the tile played alone:
+// the first such square in row order.
+func scanLoneTile(b *board.GameBoard, tile tilemapping.MachineLetter,
+	ld *tilemapping.LetterDistribution) (bestScore, bestRow, bestCol int, found bool) {
+
+	isBlank := tile == 0
 	dim := b.Dim()
 	squares := b.SquaresSlice()
 	hCrossSets := b.CrossSetsForDir(board.HorizontalDirection)
@@ -159,135 +250,134 @@ func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
 	colMul := b.GetSqIdx(0, 1)
 
 	var occupied [board.MaxBoardDim]uint32
-	for r := 0; r < dim; r++ {
-		var mask uint32
-		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if squares[base+c*colMul] != 0 {
-				mask |= 1 << uint(c)
+	if dim == 15 && colMul == 1 && len(squares) >= 14*rowMul+15 {
+		// A row's 15 squares are 15 adjacent bytes: read them eight at a
+		// time (the two reads share the eighth square).
+		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&squares[0])), len(squares))
+		for r := 0; r < dim; r++ {
+			base := r * rowMul
+			lo := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base:]))
+			hi := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base+7:]))
+			occupied[r] = lo | hi<<7
+		}
+	} else {
+		for r := 0; r < dim; r++ {
+			var mask uint32
+			base := r * rowMul
+			for c := 0; c < dim; c++ {
+				if squares[base+c*colMul] != 0 {
+					mask |= 1 << uint(c)
+				}
 			}
+			occupied[r] = mask
 		}
-		occupied[r] = mask
 	}
-	occAt := func(r, c int) bool {
-		if r < 0 || r >= dim || c < 0 || c >= dim {
-			return false
-		}
-		return occupied[r]&(1<<uint(c)) != 0
-	}
+	tileFace := loneTileFace(tile, ld)
 
-	found := false
-	bestScore := 0
-	bestRow, bestCol, bestStart, bestLen := 0, 0, 0, 0
-	bestVertical := false
-	bestML := tile
-
-	tileFace := 0
-	if !isBlank {
-		tileFace = ld.Score(tile)
-	}
-
+	full := uint32(1)<<uint(dim) - 1
 	for r := 0; r < dim; r++ {
 		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if occupied[r]&(1<<uint(c)) != 0 {
-				continue
-			}
-			hasH := occAt(r, c-1) || occAt(r, c+1)
-			hasV := occAt(r-1, c) || occAt(r+1, c)
-			if !hasH && !hasV {
-				continue
-			}
-
+		// The empty squares next to a tile, across (h) and down (v), found by
+		// shifting the occupancy masks instead of probing every square.
+		hNbr := (occupied[r]<<1 | occupied[r]>>1) & full
+		var vNbr uint32
+		if r > 0 {
+			vNbr |= occupied[r-1]
+		}
+		if r < dim-1 {
+			vNbr |= occupied[r+1]
+		}
+		candidates := (hNbr | vNbr) &^ occupied[r]
+		for candidates != 0 {
+			c := bits.TrailingZeros32(candidates)
+			candidates &= candidates - 1
 			idx := base + c*colMul
 			combined := uint64(hCrossSets[idx]) & uint64(vCrossSets[idx])
 			if isBlank {
-				// A blank plays if the intersection admits any real letter.
-				// Bit 0 is the blank marker, not a letter, so shift it out.
 				if combined>>1 == 0 {
 					continue
 				}
 			} else if combined&(1<<uint(tile)) == 0 {
 				continue
 			}
-
-			lm := b.GetLetterMultiplier(idx)
+			tileLS := tileFace * b.GetLetterMultiplier(idx)
 			wm := b.GetWordMultiplier(idx)
-			tileLS := tileFace * lm
 			score := 0
-			if hasH {
-				score += (tileLS + b.GetCrossScore(r, c, board.HorizontalDirection)) * wm
+			if hNbr&(1<<uint(c)) != 0 {
+				score += (tileLS + b.GetCrossScoreIdx(idx, board.HorizontalDirection)) * wm
 			}
-			if hasV {
-				score += (tileLS + b.GetCrossScore(r, c, board.VerticalDirection)) * wm
+			if vNbr&(1<<uint(c)) != 0 {
+				score += (tileLS + b.GetCrossScoreIdx(idx, board.VerticalDirection)) * wm
 			}
 			if found && score <= bestScore {
 				continue
 			}
-
-			// Only on a strict improvement do we pay for the word extent and,
-			// for a blank, the letter choice.
-			vertical := hasV && !hasH
-			start, end := c, c
-			if !vertical {
-				for start > 0 && occAt(r, start-1) {
-					start--
-				}
-				for end < dim-1 && occAt(r, end+1) {
-					end++
-				}
-			} else {
-				start, end = r, r
-				for start > 0 && occAt(start-1, c) {
-					start--
-				}
-				for end < dim-1 && occAt(end+1, c) {
-					end++
-				}
-			}
-			chosen := tile
-			if isBlank {
-				// A blank scores 0 whatever it is designated, so every allowed
-				// letter ties; take the lowest.
-				numLetters := int(ld.TileMapping().NumLetters())
-				for ml := tilemapping.MachineLetter(1); int(ml) < numLetters; ml++ {
-					if combined&(1<<uint(ml)) != 0 {
-						chosen = ml
-						break
-					}
-				}
-			}
-
 			found = true
-			bestScore = score
-			bestRow, bestCol = r, c
-			bestStart, bestLen = start, end-start+1
-			bestVertical = vertical
-			bestML = chosen
+			bestScore, bestRow, bestCol = score, r, c
 		}
 	}
+	return bestScore, bestRow, bestCol, found
+}
 
-	if !found {
-		return tinymove.SmallMove{}, false
+// loneTileMove builds the play of the tile alone on (r, c), which scores
+// score: the word's extent and, for a blank, its letter.
+func loneTileMove(b *board.GameBoard, tile tilemapping.MachineLetter,
+	ld *tilemapping.LetterDistribution, r, c, score int) tinymove.SmallMove {
+
+	dim := b.Dim()
+	hasH := (c > 0 && b.HasLetter(r, c-1)) || (c < dim-1 && b.HasLetter(r, c+1))
+	vertical := !hasH
+	start, end := c, c
+	if !vertical {
+		for start > 0 && b.HasLetter(r, start-1) {
+			start--
+		}
+		for end < dim-1 && b.HasLetter(r, end+1) {
+			end++
+		}
+	} else {
+		start, end = r, r
+		for start > 0 && b.HasLetter(start-1, c) {
+			start--
+		}
+		for end < dim-1 && b.HasLetter(end+1, c) {
+			end++
+		}
+	}
+	isBlank := tile == 0
+	chosen := tile
+	if isBlank {
+		// A blank scores 0 whatever it is designated, so every allowed
+		// letter ties; take the lowest.
+		idx := b.GetSqIdx(r, c)
+		combined := uint64(b.GetCrossSetIdx(idx, board.HorizontalDirection)) &
+			uint64(b.GetCrossSetIdx(idx, board.VerticalDirection))
+		numLetters := int(ld.TileMapping().NumLetters())
+		for ml := tilemapping.MachineLetter(1); int(ml) < numLetters; ml++ {
+			if combined&(1<<uint(ml)) != 0 {
+				chosen = ml
+				break
+			}
+		}
 	}
 
 	// Encode exactly as AllPlaysSmallRecorder does: true board coordinates,
 	// with the word's start along the play direction.
 	var moveCode uint64
-	moveCode |= uint64(bestML) << 20
+	moveCode |= uint64(chosen) << 20
 	if isBlank {
 		moveCode |= 1 << 12
 	}
-	row, col := bestRow, bestStart
-	if bestVertical {
+	row, col := r, start
+	if vertical {
 		moveCode |= 1
-		row, col = bestStart, bestCol
+		row, col = start, c
 	}
 	moveCode |= uint64(col) << 1
 	moveCode |= uint64(row) << 6
 
-	return tinymove.TilePlayMove(tinymove.TinyMove(moveCode), int16(bestScore), 1,
-		uint8(bestLen)), true
+	return tinymove.TilePlayMove(tinymove.TinyMove(moveCode), int16(score), 1,
+		uint8(end-start+1))
 }
 
 // boardPlayableTilesBV scans the board once and returns a bitvector of every
@@ -321,15 +411,27 @@ func boardPlayableTilesBV(b *board.GameBoard, targetBV uint64) uint64 {
 	colMul := b.GetSqIdx(0, 1)
 
 	var occupied [board.MaxBoardDim]uint32
-	for r := 0; r < dim; r++ {
-		var mask uint32
-		base := r * rowMul
-		for c := 0; c < dim; c++ {
-			if squares[base+c*colMul] != 0 {
-				mask |= 1 << uint(c)
-			}
+	if dim == 15 && colMul == 1 && len(squares) >= 14*rowMul+15 {
+		// A row's 15 squares are 15 adjacent bytes: read them eight at a
+		// time (the two reads share the eighth square).
+		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&squares[0])), len(squares))
+		for r := 0; r < dim; r++ {
+			base := r * rowMul
+			lo := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base:]))
+			hi := nonzeroBytes(binary.LittleEndian.Uint64(bytes[base+7:]))
+			occupied[r] = lo | hi<<7
 		}
-		occupied[r] = mask
+	} else {
+		for r := 0; r < dim; r++ {
+			var mask uint32
+			base := r * rowMul
+			for c := 0; c < dim; c++ {
+				if squares[base+c*colMul] != 0 {
+					mask |= 1 << uint(c)
+				}
+			}
+			occupied[r] = mask
+		}
 	}
 
 	full := uint32(1)<<uint(dim) - 1
@@ -390,6 +492,22 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 			rackBV |= 1 << uint(ml)
 		}
 	}
+	if oppRack.NumTiles() == 1 {
+		if lists := s.listsFor(thread, g, mg); lists != nil {
+			// One tile: it is stuck exactly when it has no play alone, which
+			// the path lists keep track of from position to position.
+			var frac float32
+			if _, ok := lists.bestLoneTilePlay(1 - s.solvingPlayer); !ok {
+				frac = stuckFractionFromBV(g.Bag().LetterDistribution(), oppRack, 0)
+			}
+			if slot != nil {
+				slot.key = nodeKey
+				slot.frac = frac
+				slot.gen = s.stuckGen
+			}
+			return frac
+		}
+	}
 	// Cross-set scan: which rack tiles have a legal single-tile play? If they
 	// all do, nobody is stuck and we can skip move generation entirely.
 	playable := boardPlayableTilesBV(g.Board(), rackBV&^1)
@@ -411,8 +529,13 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 		// Some tiles look stuck, but a tile with no single-tile play may still
 		// play inside a longer word. Fall back to real move generation. This is
 		// the expensive branch; most positions return above.
-		mg.GenAll(oppRack, false)
-		plays := mg.SmallPlays()
+		var plays []tinymove.SmallMove
+		if lists := s.listsFor(thread, g, mg); lists != nil {
+			plays = lists.get(1 - s.solvingPlayer).moves
+		} else {
+			mg.GenAll(oppRack, false)
+			plays = mg.SmallPlays()
+		}
 		for i := range plays {
 			tilesBV = orPlayedTiles(tilesBV, &plays[i])
 			if tilesBV&rackBV == rackBV {
@@ -430,6 +553,25 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 	return frac
 }
 
+// playoutTail is the rest of a playout from a position one passed through:
+// what it adds to the solving player's spread there, and how many moves it
+// is. A key of 0 is an empty entry.
+type playoutTail struct {
+	key    uint64
+	value  int32
+	length int32
+}
+
+const (
+	// playoutTailCacheSize is the number of entries of each thread's cache
+	// of playout tails: half a megabyte, to stay in the thread's own cache.
+	playoutTailCacheSize = 1 << 15
+	// playoutTailSalt keeps a tail's key apart from its position's in the
+	// transposition table, and playoutTailGenStep is what each solve adds.
+	playoutTailSalt    = 0xC2B2AE3D27D4EB4F
+	playoutTailGenStep = 0xD1B54A32D192ED03
+)
+
 // greedyPlayout evaluates a leaf node by playing the game out greedily instead
 // of returning the static spread. Translated from MAGPIE's
 // negamax_greedy_leaf_playout (endgame.c:1740).
@@ -441,8 +583,22 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 // The moves played out are recorded in pv, so that a principal variation that
 // runs off the end of the search still shows how the game is expected to
 // finish. They are marked as estimates when displayed.
+//
+// A playout with stuck tiles is long, the solving player laying its tiles
+// down a few at a time, and it often passes through a position an earlier
+// one reached by the same moves in another order. From there it plays the
+// same moves: the rest of a playout depends only on the position and on the
+// stuck fraction found at the leaf. So each position a playout passes
+// through is remembered with what the rest added to the spread and how long
+// it was, and a later playout that reaches it stops there. The idea is
+// MAGPIE's (its playout tail cache). The thread's own small cache holds
+// them, keyed by the position's hash with the fraction's bits. A playout cut
+// short by its budget stores nothing, and a stored rest is used only where
+// there is room for all of it, so the value is the one the playout would
+// have reached. A principal-variation node plays its playout to the end, for
+// its line.
 func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLine,
-	nodeKey uint64, thread int) int16 {
+	nodeKey uint64, thread int, pvNode bool) int16 {
 	// Capture this before playing anything: handleConsecutiveScorelessTurns
 	// advances the player on turn when the game ends on a double pass, and does
 	// not put it back.
@@ -462,8 +618,50 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	// that the leaf value is a pure function of the position.
 	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
 
-	played := 0
-	for played < budget && g.Playing() == pb.PlayState_PLAYING {
+	// Each player's rack at face value, kept up as the playout's moves take
+	// tiles off them.
+	rackScores := [2]int{g.RackFor(0).ScoreOn(ld), g.RackFor(1).ScoreOn(ld)}
+
+	// played counts the playout's moves and onBoard those actually made on
+	// the game; they differ by the going-out play, which is only scored.
+	played, onBoard := 0, 0
+	wentOut := false
+	outGain := 0
+
+	// The keys of the positions the playout passes through, for the cache
+	// of tails, and the solving player's spread at each.
+	cacheTails := s.playoutTailOptim && nodeKey != 0 && thread < len(s.playoutTails) && frac > 0
+	var tails []playoutTail
+	var tailKeys [MaxGreedyPlayoutPlies + 1]uint64
+	var tailSpreads [MaxGreedyPlayoutPlies + 1]int32
+	var tailSalt uint64
+	key := nodeKey
+	// A rest found in the cache: the playout stops there, except in check
+	// mode, which plays on to see that it gets the same.
+	tailHit, tailChecked := false, false
+	var hit playoutTail
+	hitAt := 0
+	if cacheTails {
+		tails = s.playoutTails[thread]
+		tailSalt = playoutTailSalt ^ uint64(math.Float32bits(frac))<<32 ^
+			uint64(s.stuckGen)*playoutTailGenStep
+		tailKeys[0] = key ^ tailSalt
+		tailSpreads[0] = int32(g.SpreadFor(s.solvingPlayer))
+		if e := &tails[tailKeys[0]&(playoutTailCacheSize-1)]; !pvNode &&
+			e.key == tailKeys[0] && int(e.length) <= budget {
+			hit, hitAt = *e, 0
+			if checkMoveLists {
+				tailChecked = true
+			} else {
+				tailHit = true
+			}
+		}
+	}
+	if lists := s.listsFor(thread, g, mg); lists != nil {
+		lists.inPlayout = true
+		defer func() { lists.inPlayout = false }()
+	}
+	for !tailHit && played < budget && g.Playing() == pb.PlayState_PLAYING {
 		onTurn := g.PlayerOnTurn()
 		rack := g.RackFor(onTurn)
 		var plays []tinymove.SmallMove
@@ -475,13 +673,28 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			// one the picker below would choose.
 			buf := &s.singleTileBuf[thread]
 			n := 0
-			if m, ok := bestSingleTilePlay(g.Board(), rack, ld); ok {
+			var m tinymove.SmallMove
+			var ok bool
+			if lists := s.listsFor(thread, g, mg); lists != nil {
+				m, ok = lists.bestLoneTilePlay(onTurn)
+			} else {
+				m, ok = bestSingleTilePlay(g.Board(), rack, ld)
+			}
+			if ok {
 				buf[n] = m
 				n++
 			}
 			buf[n] = tinymove.PassMove()
 			n++
 			plays = buf[:n]
+		} else if lists := s.listsFor(thread, g, mg); lists != nil {
+			// The list has no pass; give it the one GenAll would add at the
+			// end. The list is the path lists' own, so the pass goes in a
+			// copy only when there is no room behind the plays.
+			l := lists.get(onTurn)
+			l.moves = append(l.moves, tinymove.PassMove())
+			plays = l.moves
+			l.moves = l.moves[:len(l.moves)-1]
 		} else {
 			mg.GenAll(rack, false)
 			plays = mg.SmallPlays()
@@ -505,8 +718,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			// beats every real play once the conservation bonus makes their
 			// adjusted scores negative, and the playout degenerates into
 			// double-passing.
-			passPenalty = int(float32(g.RackFor(onTurn).ScoreOn(ld)+
-				g.RackFor(1-onTurn).ScoreOn(ld)) * frac)
+			passPenalty = int(float32(rackScores[0]+rackScores[1]) * frac)
 		}
 
 		bestIdx := 0
@@ -532,16 +744,65 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 		// allocation cost of the heuristics. plays stays valid until the next
 		// GenAll, and we record the move by value before then.
 		playoutMoves[played] = plays[bestIdx]
-		_, err := g.PlaySmallMove(&plays[bestIdx])
-		played++
-		if err != nil {
+		if !plays[bestIdx].IsPass() && plays[bestIdx].TilesPlayed() == int(rack.NumTiles()) {
+			// The play empties the rack and ends the game: its score plus
+			// twice the other rack is all it changes, so there is no need to
+			// put it on the board (and take it off again).
+			outGain = plays[bestIdx].Score() + 2*rackScores[1-onTurn]
+			if onTurn != leafPlayer {
+				outGain = -outGain
+			}
+			wentOut = true
+			played++
 			break
+		}
+		if tiles := int(rack.NumTiles()); tiles >= 2 && plays[bestIdx].TilesPlayed() == tiles-1 {
+			// The play keeps one tile, whose best play the playout will
+			// want next. This position's list has all of that tile's
+			// plays, so note the best now and spare a scan of the board.
+			if lists := s.listsFor(thread, g, mg); lists != nil {
+				lists.noteLonePlay(onTurn, keptTile(rack, &plays[bestIdx]))
+			}
+		}
+		if !plays[bestIdx].IsPass() {
+			rackScores[onTurn] -= playedTilesFaceValue(&plays[bestIdx], ld)
+		}
+		moveTiles, err := g.PlaySmallMove(&plays[bestIdx])
+		played++
+		onBoard++
+		if err != nil {
+			cacheTails = false
+			break
+		}
+		// A position where the game is over has no rest to keep.
+		if cacheTails && g.Playing() == pb.PlayState_PLAYING {
+			key = s.ttable.Zobrist().AddMove(key, &playoutMoves[played-1], rack, moveTiles,
+				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			tailKeys[played] = key ^ tailSalt
+			tailSpreads[played] = int32(g.SpreadFor(s.solvingPlayer))
+			if e := &tails[tailKeys[played]&(playoutTailCacheSize-1)]; !pvNode && !tailChecked &&
+				e.key == tailKeys[played] && int(e.length) <= budget-played {
+				hit, hitAt = *e, played
+				if checkMoveLists {
+					tailChecked = true
+				} else {
+					tailHit = true
+				}
+			}
 		}
 	}
 	pv.setPlayout(playoutMoves[:played])
 
-	spread := g.SpreadFor(leafPlayer)
-	if g.Playing() == pb.PlayState_PLAYING {
+	spread := g.SpreadFor(leafPlayer) + outGain
+	// Whether the playout ran to the end of the game, or to a stored rest
+	// that did.
+	ended := tailHit || wentOut || g.Playing() != pb.PlayState_PLAYING
+	if tailHit {
+		spread = int(tailSpreads[hitAt] + hit.value)
+		if leafPlayer != s.solvingPlayer {
+			spread = -spread
+		}
+	} else if !wentOut && g.Playing() == pb.PlayState_PLAYING {
 		// We ran out of budget before the game ended, which is rare. Estimate
 		// who was closer to going out with MAGPIE's rack adjustment
 		// (endgame.c:1932): twice the rack score off the holder, applied to
@@ -550,11 +811,35 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 		spread += 2 * g.RackFor(1-leafPlayer).ScoreOn(ld)
 	}
 
-	for i := 0; i < played; i++ {
+	if cacheTails && ended {
+		final := int32(spread)
+		if leafPlayer != s.solvingPlayer {
+			final = -final
+		}
+		total := played
+		if tailHit {
+			total += int(hit.length)
+		}
+		if tailChecked && (final != tailSpreads[hitAt]+hit.value ||
+			total-hitAt != int(hit.length)) {
+			panic(fmt.Sprintf("playout tail cache: the rest stored at step %d is %d in %d moves, played out it is %d in %d",
+				hitAt, hit.value, hit.length, final-tailSpreads[hitAt], total-hitAt))
+		}
+		// The position a rest was found at holds it already, and the one
+		// the game ended at was never keyed.
+		for i := 0; i < played; i++ {
+			e := &tails[tailKeys[i]&(playoutTailCacheSize-1)]
+			e.key = tailKeys[i]
+			e.value = final - tailSpreads[i]
+			e.length = int32(total - i)
+		}
+	}
+
+	for i := 0; i < onBoard; i++ {
 		g.UnplayLastMove()
 	}
 	if played > 0 {
-		s.nodes.Add(uint64(played))
+		s.nodes.addPlayout(thread, uint64(played))
 	}
 	return int16(spread)
 }

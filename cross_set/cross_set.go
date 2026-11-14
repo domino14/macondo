@@ -346,6 +346,9 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		return
 	}
 	tDir := throughDir(dir)
+	// With extension sets off the board ignores the Set*ExtSet calls below;
+	// skip working the sets out as well.
+	skipExt := b.SkipExtensionSets()
 
 	// If the square has a letter in it, its cross set and cross score
 	// should both be 0. Extension sets for filled squares will be set
@@ -382,8 +385,12 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		lNodeIdx, lPathValid = traverseBackwards(b, row, col-1,
 			gd.GetRootNodeIndex(), false, 0, gd)
 		scoreL = b.TraverseBackwardsForScore(row, col-1, ld)
-		if lPathValid {
+		if lPathValid && !skipExt {
 			_, leftsideLeftxSet = getLetterSets(gd, lNodeIdx)
+		}
+		// The right extensions also narrow the letters tried below when
+		// there are tiles on both sides.
+		if lPathValid && (!skipExt || col+1 < b.Dim() && b.HasLetter(row, col+1)) {
 			sIdx := gd.NextNodeIdx(lNodeIdx, 0)
 			if sIdx != 0 {
 				_, leftsideRightxSet = getLetterSets(gd, sIdx)
@@ -404,7 +411,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		rNodeIdx, rPathValid = traverseBackwards(b, row, rightCol,
 			gd.GetRootNodeIndex(), false, 0, gd)
 		scoreR = b.TraverseBackwardsForScore(row, rightCol, ld)
-		if rPathValid {
+		if rPathValid && !skipExt {
 			_, rightsideLeftxSet = getLetterSets(gd, rNodeIdx)
 			sIdx := gd.NextNodeIdx(rNodeIdx, 0)
 			if sIdx != 0 {

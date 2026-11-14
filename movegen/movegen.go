@@ -12,6 +12,7 @@ package movegen
 
 import (
 	"math"
+	"math/bits"
 	"sort"
 
 	"github.com/rs/zerolog/log"
@@ -56,6 +57,9 @@ type MoveGenerator interface {
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
+	GenLanes(rack *tilemapping.Rack, lanes uint64, anchors *[2 * board.MaxBoardDim]uint32,
+		laneAnchors *[2 * board.MaxBoardDim]uint32,
+		laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8)
 }
 
 // type moveHeap []*move.Move
@@ -92,9 +96,15 @@ type GordonGenerator struct {
 
 	vertical bool // Are we generating moves vertically or not?
 
-	tilesPlayed      int
-	plays            []*move.Move
-	smallPlays       []tinymove.SmallMove
+	tilesPlayed int
+	plays       []*move.Move
+	smallPlays  []tinymove.SmallMove
+	// rackBits has a bit for each tile type on the rack being generated
+	// for; see setRackBits.
+	rackBits uint64
+	// smallPlayAnchors is, for GenLanes, the anchor each small play was
+	// generated from.
+	smallPlayAnchors []uint8
 	sortingParameter SortBy
 
 	// These are pointers to the actual structures in `game`. They are
@@ -132,8 +142,8 @@ type GordonGenerator struct {
 	cache rowCache
 
 	// Leave map for O(1) leave value lookup during move generation.
-	leavemap     leavemap.LeaveMap
-	klv          *equity.KLV // cached KLV reference
+	leavemap leavemap.LeaveMap
+	klv      *equity.KLV // cached KLV reference
 
 	// WMP move generator state. Inactive by default; SetWMP enables
 	// it. When active, shadow play uses WMP existence checks to
@@ -145,9 +155,9 @@ type GordonGenerator struct {
 	wmpData             *wmp.WMP
 	wmpMoveGen          wmp.MoveGen
 	wmpRecordSubAnchors bool
-	pegValues    []float64   // pre-endgame adjustment values
-	tilesInBag   int         // cached bag state for equity calc
-	oppRackScore int         // cached for endgame equity
+	pegValues           []float64 // pre-endgame adjustment values
+	tilesInBag          int       // cached bag state for equity calc
+	oppRackScore        int       // cached for endgame equity
 
 	// Shadow play state
 	shadow shadowState
@@ -286,7 +296,6 @@ func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 	gen.maxTileUsage = t
 }
 
-
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 // When shadow is enabled (via SetPlayRecorderTopPlay or SetRecordNTopPlays),
@@ -357,6 +366,84 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	return gen.plays
 }
 
+// GenLanes generates the tile plays of the given lanes only, as small moves,
+// and returns them (the slice is the generator's, valid until its next
+// generation). Lane r < dim is row r's horizontal plays; lane dim+c is column
+// c's vertical plays. The plays come in lane order, each lane's in the order
+// GenAll emits them, and laneEnds[lane] is set to the count of plays through
+// that lane. No pass is added. It needs a small-move play recorder and does
+// not use the shadow.
+//
+// Within a lane only the anchors in anchors[lane] are generated (bit i is the
+// lane's i-th square), so a caller that knows which anchors' plays a move
+// could have changed can leave the rest alone. laneAnchors, when not nil,
+// has every lane's anchors as the board has them now (GameBoard.RowMasks and
+// ColMasks), which spares reading them again. The second slice returned
+// gives, for each play, the anchor it was generated from.
+func (gen *GordonGenerator) GenLanes(rack *tilemapping.Rack, lanes uint64,
+	anchors *[2 * board.MaxBoardDim]uint32,
+	laneAnchors *[2 * board.MaxBoardDim]uint32,
+	laneEnds *[2 * board.MaxBoardDim]int32) ([]tinymove.SmallMove, []uint8) {
+
+	gen.quitEarly = false
+	gen.smallPlays = gen.smallPlays[:0]
+	gen.smallPlayAnchors = gen.smallPlayAnchors[:0]
+	gen.setRackBits(rack)
+	dim := gen.boardDim
+	if lanes&(1<<uint(dim)-1) != 0 {
+		gen.vertical = false
+		gen.genLanes(rack, board.HorizontalDirection, lanes, anchors, laneAnchors, laneEnds, 0)
+	}
+	if lanes>>uint(dim) != 0 {
+		gen.board.Transpose()
+		gen.vertical = true
+		gen.genLanes(rack, board.VerticalDirection, lanes>>uint(dim), anchors, laneAnchors, laneEnds, dim)
+		gen.board.Transpose()
+	}
+	return gen.smallPlays, gen.smallPlayAnchors
+}
+
+func (gen *GordonGenerator) genLanes(rack *tilemapping.Rack, dir board.BoardDirection,
+	rows uint64, anchors *[2 * board.MaxBoardDim]uint32,
+	allAnchors *[2 * board.MaxBoardDim]uint32,
+	laneEnds *[2 * board.MaxBoardDim]int32, laneOffset int) {
+	csDir := board.VerticalDirection
+	if dir == board.VerticalDirection {
+		csDir = board.HorizontalDirection
+	}
+	for row := 0; row < gen.boardDim; row++ {
+		if rows&(1<<uint(row)) == 0 {
+			continue
+		}
+		// The lane's anchors to generate from. Each needs to know the
+		// anchor before it in the lane, wanted or not.
+		var laneAnchors uint32
+		if allAnchors != nil {
+			laneAnchors = allAnchors[laneOffset+row]
+		} else {
+			laneAnchors, _ = gen.board.RowMasks(row, dir)
+		}
+		wanted := anchors[laneOffset+row] & laneAnchors
+		if wanted != 0 {
+			gen.curRowIdx = row
+			gen.cache.loadRow(gen.board, row, csDir, gen.boardDim)
+		}
+		for ; wanted != 0; wanted &= wanted - 1 {
+			col := bits.TrailingZeros32(wanted)
+			gen.lastAnchorCol = 100
+			if before := laneAnchors & (uint32(1)<<uint(col) - 1); before != 0 {
+				gen.lastAnchorCol = bits.Len32(before) - 1
+			}
+			gen.curAnchorCol = col
+			gen.genForAnchor(rack)
+			for len(gen.smallPlayAnchors) < len(gen.smallPlays) {
+				gen.smallPlayAnchors = append(gen.smallPlayAnchors, uint8(col))
+			}
+		}
+		laneEnds[laneOffset+row] = int32(len(gen.smallPlays))
+	}
+}
+
 // AtLeastOneTileMove generates moves. We don't care what they are; return true
 // if there is at least one move that plays tiles, false otherwise.
 func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
@@ -385,7 +472,21 @@ func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
 	return gen.quitEarly
 }
 
+// setRackBits notes which tile types the rack holds, for recursiveGen, which
+// keeps the note up to date as it takes tiles and puts them back. Everything
+// that starts a generation through genForAnchor calls it first.
+func (gen *GordonGenerator) setRackBits(rack *tilemapping.Rack) {
+	var b uint64
+	for ml, n := range rack.LetArr {
+		if n > 0 {
+			b |= uint64(1) << uint(ml)
+		}
+	}
+	gen.rackBits = b
+}
+
 func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.BoardDirection) {
+	gen.setRackBits(rack)
 	var csDir board.BoardDirection
 	if dir == board.HorizontalDirection {
 		csDir = board.VerticalDirection
@@ -409,7 +510,8 @@ func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.B
 	}
 }
 
-// recursiveGen is an implementation of the Gordon Gen function.
+// recursiveGen is an implementation of the Gordon Gen function. The rack's
+// tile types must have been noted with setRackBits.
 func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	nodeIdx uint32, leftstrip, rightstrip int, uniquePlay bool,
 	baseScore int, crossScores int, wordMultiplier int) {
@@ -474,24 +576,30 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		// perspective. The compiler can't see through the goOn call
 		// boundary, so we hoist manually.
 		nBlank := rack.LetArr[0]
+		// The letters that can go on this square: the ones the cross-set
+		// allows and, without a blank to stand for any of them, the rack
+		// holds (see rackBits). One test of this mask per arc stands for
+		// the cross-set test and the two rack tests, and with nothing to
+		// place there are no arcs to look at.
+		allowed := uint64(crossSet) &^ 1
+		if nBlank == 0 {
+			allowed &= gen.rackBits
+		}
+		if allowed == 0 {
+			return
+		}
 		for i := nodeIdx; ; i++ {
 			node := nodes[i]
 			ml := tilemapping.MachineLetter(node >> kwg.KWGNodeTileShift)
-			// Check cross-set before reading nMl: in restrictive
-			// mid-game positions most nodes fail here, so deferring
-			// the LetArr[ml] read avoids the load on the cold path.
-			if ml != 0 && crossSet.Allowed(ml) {
+			if allowed&(uint64(1)<<ml) != 0 {
 				nMl := rack.LetArr[ml]
-				if nMl == 0 && nBlank == 0 {
-					if node&kwg.KWGNodeIsEndBit != 0 {
-						break
-					}
-					continue
-				}
 				arcIdx := node & kwg.KWGNodeArcMask
 				accepts := node&kwg.KWGNodeAcceptsBit != 0
 				if nMl > 0 {
 					rack.Take(ml)
+					if nMl == 1 {
+						gen.rackBits &^= uint64(1) << ml
+					}
 					if gen.leavemap.Initialized {
 						gen.leavemap.TakeLetter(ml, nMl-1)
 					}
@@ -515,6 +623,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						gen.leavemap.AddLetter(ml, nMl-1)
 					}
 					rack.Add(ml)
+					gen.rackBits |= uint64(1) << ml
 				}
 				// check blank
 				if nBlank > 0 {

@@ -1,6 +1,7 @@
 package negamax
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/domino14/word-golib/kwg"
@@ -244,4 +245,65 @@ func TestBestSingleTilePlayStuckTile(t *testing.T) {
 	rack := tilemapping.RackFromString("V", g.Alphabet())
 	_, ok := bestSingleTilePlay(g.Board(), rack, ld)
 	is.True(!ok)
+}
+
+// nonzeroBytes against the obvious loop, on random words with plenty of
+// zero bytes and of bytes with only the top or only the bottom bit set.
+func TestNonzeroBytes(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	choices := []uint64{0, 0, 0, 1, 0x80, 0x7f, 0xff, 0x40, 26}
+	for iter := 0; iter < 100000; iter++ {
+		var x uint64
+		var want uint32
+		for i := uint(0); i < 8; i++ {
+			b := choices[rng.Intn(len(choices))]
+			if iter%3 == 0 {
+				b = uint64(rng.Intn(256))
+			}
+			x |= b << (8 * i)
+			if b != 0 {
+				want |= 1 << i
+			}
+		}
+		if got := nonzeroBytes(x); got != want {
+			t.Fatalf("nonzeroBytes(%016x) = %08b, want %08b", x, got, want)
+		}
+	}
+}
+
+// keptTile names the tile a play leaves, blanks included: a blank is tile 0
+// on the rack whatever letter it is played as.
+func TestKeptTile(t *testing.T) {
+	is := is.New(t)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	alph := dist.TileMapping()
+	for _, tc := range []struct{ rack, play, kept string }{
+		{"AB", "A", "B"},
+		{"AB", "B", "A"},
+		{"AA", "A", "A"},
+		{"A?", "A", "?"},
+		{"A?", "z", "A"},
+		{"??", "q", "?"},
+		{"QZEEIRT", "ZEEIRT", "Q"},
+		{"QZE?IRT", "ZEsIRT", "Q"},
+		{"QZE?IRT", "QZEIRT", "?"},
+	} {
+		rack := tilemapping.RackFromString(tc.rack, alph)
+		mls, err := tilemapping.ToMachineLetters(tc.play, alph)
+		is.NoErr(err)
+		// The packed play: six bits a tile from bit 20, a blank flag each
+		// from bit 12.
+		var tm uint64
+		for i, ml := range mls {
+			tm |= uint64(ml.Unblank()) << (20 + 6*uint(i))
+			if ml.IsBlanked() {
+				tm |= 1 << (12 + uint(i))
+			}
+		}
+		m := tinymove.TilePlayMove(tinymove.TinyMove(tm), 1, uint8(len(mls)), uint8(len(mls)))
+		kept, err := tilemapping.ToMachineLetters(tc.kept, alph)
+		is.NoErr(err)
+		is.Equal(keptTile(rack, &m), kept[0])
+	}
 }

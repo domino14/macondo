@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
@@ -124,12 +125,64 @@ func (e *TableEntry) getPlay() tinymove.TinyMove {
 }
 
 type TranspositionTable struct {
+	// These fields are only read during a search. Nothing a search writes
+	// may live beside them: every probe reads them, on every thread, and a
+	// counter on the same cache line would have the threads take turns.
 	table        []TableEntry
-	created      atomic.Uint64
-	lookups      atomic.Uint64
-	hits         atomic.Uint64
 	sizePowerOf2 int
 	sizeMask     uint64
+	zobrist      *zobrist.Zobrist
+	// stats holds the counters, a set per search thread (see statsFor).
+	stats *[ttStatStripes]ttStats
+	// hugeTouched has a bit for each 2 MB of the table that has been
+	// written to, and hugeMisalign is how far into such a page the table
+	// starts. Nil unless the kernel agreed to huge pages; see
+	// touchHugePage.
+	hugeTouched  []uint64
+	hugeMisalign uint64
+}
+
+// hugePageSize is the size of the huge pages the table asks for.
+const hugePageSize = 2 << 20
+
+// touchHugePage sees to it that the first access to each 2 MB of a new
+// table is a write.
+//
+// The table is gigabytes that lookups hit at random. On ordinary 4 KB pages
+// nearly every lookup also misses the processor's page-translation cache and
+// walks page tables too big to stay in cache themselves; on 2 MB pages the
+// translation is almost always at hand. A solve of a few minutes ran 8%
+// faster.
+//
+// Asking the kernel for huge pages (adviseHugePages) is not enough. A page
+// of a new table is usually read, by a lookup, before it is written, by a
+// store. A read of untouched memory maps the kernel's shared page of zeros,
+// and the write that follows is then given ordinary small pages. So before
+// a part of the table is first used, a slot in it gets a write that changes
+// nothing (an atomic add of zero), which is when the kernel hands over a
+// real huge page. It costs a test of one bit per lookup, and no time up
+// front: a short solve pays only for the pages it uses.
+func (t *TranspositionTable) touchHugePage(idx uint64) {
+	if t.hugeTouched == nil {
+		return
+	}
+	page := (idx*entrySize + t.hugeMisalign) / hugePageSize
+	word, bit := &t.hugeTouched[page>>6], uint64(1)<<(page&63)
+	if atomic.LoadUint64(word)&bit == 0 {
+		atomic.AddUint64(&t.table[idx].atomic1, 0)
+		atomic.OrUint64(word, bit)
+	}
+}
+
+// ttStatStripes is the number of counter sets; a thread uses the one at its
+// index modulo this.
+const ttStatStripes = 256
+
+// ttStats is one thread's counters, padded to cache lines of its own.
+type ttStats struct {
+	created atomic.Uint64
+	lookups atomic.Uint64
+	hits    atomic.Uint64
 	// "type 2" collisions. A type 2 collision happens when two positions share
 	// the same lower bytes. A type 1 collision happens when two positions share the
 	// same overall hash. We don't have a super easy way to detect the latter,
@@ -140,8 +193,33 @@ type TranspositionTable struct {
 	// atomic1 reads, we may accept corrupted data. Probability is negligible (same position
 	// must hash to same slot within nanoseconds) and impact is minor (one bad cache entry).
 	tornReads atomic.Uint64
+	_         [88]byte
+}
 
-	zobrist *zobrist.Zobrist
+// statsFor returns the counters a search thread adds to.
+func (t *TranspositionTable) statsFor(thread int) *ttStats {
+	return &t.stats[thread&(ttStatStripes-1)]
+}
+
+// ttTotals is the sum of every thread's counters.
+type ttTotals struct {
+	created, lookups, hits, t2collisions, tornReads uint64
+}
+
+func (t *TranspositionTable) totals() ttTotals {
+	var sum ttTotals
+	if t.stats == nil {
+		return sum
+	}
+	for i := range t.stats {
+		st := &t.stats[i]
+		sum.created += st.created.Load()
+		sum.lookups += st.lookups.Load()
+		sum.hits += st.hits.Load()
+		sum.t2collisions += st.t2collisions.Load()
+		sum.tornReads += st.tornReads.Load()
+	}
+	return sum
 }
 
 // SetSingleThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
@@ -150,62 +228,127 @@ func (t *TranspositionTable) SetSingleThreadedMode() {}
 // SetMultiThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
 func (t *TranspositionTable) SetMultiThreadedMode() {}
 
-func (t *TranspositionTable) lookup(zval uint64) TableEntry {
-	t.lookups.Add(1)
-	idx := zval & t.sizeMask
+// bucketSize is the number of entries that share a table index. A bucket is
+// one cache line (4 x 16 bytes). A lookup searches the bucket, and a store
+// replaces the entry for the same position, else an empty slot, else the
+// shallowest entry -- so the entry of a leaf, which is cheap to recompute and
+// by far the most common kind, never evicts the result of a deep search while
+// a shallower entry sits beside it. The table holds as many entries as it
+// would unbucketed; only where each may live changes.
+const bucketSize = 4
 
-	// Validated atomic read: detect torn reads from concurrent writes
-	atomic1Before := atomic.LoadUint64(&t.table[idx].atomic1)
-	atomic2 := atomic.LoadUint64(&t.table[idx].atomic2)
-	atomic1After := atomic.LoadUint64(&t.table[idx].atomic1)
-
-	if atomic1Before != atomic1After {
-		// Torn read detected - concurrent write happened between our reads
-		t.tornReads.Add(1)
-		return TableEntry{}
+// loadSlot reads one slot; ok is false if a concurrent store tore the read.
+func (t *TranspositionTable) loadSlot(idx uint64, st *ttStats) (atomic1, atomic2 uint64, ok bool) {
+	atomic1 = atomic.LoadUint64(&t.table[idx].atomic1)
+	atomic2 = atomic.LoadUint64(&t.table[idx].atomic2)
+	if atomic.LoadUint64(&t.table[idx].atomic1) != atomic1 {
+		// Very rare ABA risk: the same value stored twice between the two
+		// reads of atomic1 goes unnoticed. See tornReads.
+		st.tornReads.Add(1)
+		return 0, 0, false
 	}
-
-	// Unpack and validate hash
-	top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1Before, atomic2)
-	fullHash := fullHashFromPacked(top4bytes, fifthbyte, idx)
-	if fullHash != zval&^(pureBit<<24) {
-		if validFromPacked(flagAndDepth) {
-			// There is another unrelated node at this position.
-			t.t2collisions.Add(1)
-		}
-		return TableEntry{}
-	}
-
-	t.hits.Add(1)
-	// Return as a "virtual" TableEntry for the caller to read
-	// Pack it back into the atomic format
-	result := TableEntry{}
-	result.atomic1 = atomic1Before
-	result.atomic2 = atomic2
-	return result
+	return atomic1, atomic2, true
 }
 
-func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove) {
-	t.storeEntry(zval, score, flagAndDepth, play, false)
+// bucketHash is what identifies zval within its bucket: the hash without the
+// pure bit's position and without the bits that pick the slot in the bucket.
+func bucketHash(zval uint64) uint64 {
+	return zval &^ (pureBit << 24) &^ (bucketSize - 1)
+}
+
+// prefetch starts loading zval's bucket into cache, for a lookup that is
+// coming soon. The table is far too large to be in cache, so a lookup
+// otherwise waits on memory.
+func (t *TranspositionTable) prefetch(zval uint64) {
+	if len(t.table) == 0 {
+		return
+	}
+	prefetch(unsafe.Pointer(&t.table[(zval&t.sizeMask)&^(bucketSize-1)]))
+}
+
+// lookup returns the entry for zval, or an invalid one. thread is the
+// caller's search thread, which only picks the counters it adds to.
+func (t *TranspositionTable) lookup(zval uint64, thread int) TableEntry {
+	st := t.statsFor(thread)
+	st.lookups.Add(1)
+	base := (zval & t.sizeMask) &^ (bucketSize - 1)
+	t.touchHugePage(base)
+	want := bucketHash(zval)
+	otherValid := false
+	for i := uint64(0); i < bucketSize; i++ {
+		atomic1, atomic2, ok := t.loadSlot(base+i, st)
+		if !ok {
+			continue
+		}
+		top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1, atomic2)
+		if !validFromPacked(flagAndDepth) {
+			continue
+		}
+		if fullHashFromPacked(top4bytes, fifthbyte, base) == want {
+			st.hits.Add(1)
+			return TableEntry{atomic1: atomic1, atomic2: atomic2}
+		}
+		otherValid = true
+	}
+	if otherValid {
+		// Only unrelated nodes in this bucket.
+		st.t2collisions.Add(1)
+	}
+	return TableEntry{}
+}
+
+func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, thread int) {
+	t.storeEntry(zval, score, flagAndDepth, play, false, thread)
 }
 
 // storeEntry stores an entry; pure marks one whose search reached only
 // finished games.
-func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool) {
-	idx := zval & t.sizeMask
+func (t *TranspositionTable) storeEntry(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove, pure bool, thread int) {
 	top4bytes := uint32(zval >> 32)
 	fifthbyte := uint8(zval>>24) &^ pureBit
 	if pure {
 		fifthbyte |= pureBit
 	}
-	t.created.Add(1)
+	st := t.statsFor(thread)
+	st.created.Add(1)
+
+	// The slot to replace, in order of preference: this position's, an empty
+	// one, the one that cost least to compute.
+	base := (zval & t.sizeMask) &^ (bucketSize - 1)
+	t.touchHugePage(base)
+	want := bucketHash(zval)
+	victim := base
+	victimRank := math.MaxInt
+	for i := uint64(0); i < bucketSize; i++ {
+		rank := 0
+		if a1, a2, ok := t.loadSlot(base+i, st); ok {
+			slotTop4, _, slotFifth, slotFlagAndDepth, _ := unpackTableEntry(a1, a2)
+			if validFromPacked(slotFlagAndDepth) {
+				if fullHashFromPacked(slotTop4, slotFifth, base) == want {
+					victim = base + i
+					break
+				}
+				rank = 1 + int(depthFromPacked(slotFlagAndDepth))
+				if slotFifth&pureBit != 0 {
+					// A pure entry's subtree reached only finished games,
+					// which is cheap to search again, so it goes before any
+					// entry that records real search effort.
+					rank = 1
+				}
+			}
+		}
+		if rank < victimRank {
+			victimRank = rank
+			victim = base + i
+		}
+	}
 
 	// Pack into two uint64s for atomic storage
 	atomic1, atomic2 := packTableEntry(top4bytes, score, fifthbyte, flagAndDepth, play)
 
 	// Atomic writes (write atomic1 last so validation check works)
-	atomic.StoreUint64(&t.table[idx].atomic2, atomic2)
-	atomic.StoreUint64(&t.table[idx].atomic1, atomic1)
+	atomic.StoreUint64(&t.table[victim].atomic2, atomic2)
+	atomic.StoreUint64(&t.table[victim].atomic1, atomic1)
 }
 
 func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
@@ -233,6 +376,12 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		clear(t.table)
 	} else {
 		t.table = make([]TableEntry, numElems)
+		t.hugeTouched = nil
+		if adviseHugePages(t.table) {
+			t.hugeMisalign = uint64(uintptr(unsafe.Pointer(&t.table[0])) & (hugePageSize - 1))
+			pages := (uint64(numElems)*entrySize+t.hugeMisalign)/hugePageSize + 1
+			t.hugeTouched = make([]uint64, (pages+63)/64)
+		}
 	}
 
 	if t.zobrist == nil || t.zobrist.BoardDim() != boardDim {
@@ -250,11 +399,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 
-	t.created.Store(0)
-	t.lookups.Store(0)
-	t.hits.Store(0)
-	t.t2collisions.Store(0)
-	t.tornReads.Store(0)
+	t.ResetStats()
 }
 
 func (t *TranspositionTable) Zobrist() *zobrist.Zobrist {
@@ -266,32 +411,29 @@ func (t *TranspositionTable) SetZobrist(z *zobrist.Zobrist) {
 }
 
 func (t *TranspositionTable) Stats() string {
+	sum := t.totals()
 	return fmt.Sprintf("created: %d lookups: %d hits: %d t2collisions: %d tornReads: %d",
-		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load(), t.tornReads.Load())
+		sum.created, sum.lookups, sum.hits, sum.t2collisions, sum.tornReads)
 }
 
 // Created returns the number of TT entries created
 func (t *TranspositionTable) Created() uint64 {
-	return t.created.Load()
+	return t.totals().created
 }
 
 // Lookups returns the number of TT lookups performed
 func (t *TranspositionTable) Lookups() uint64 {
-	return t.lookups.Load()
+	return t.totals().lookups
 }
 
 // Hits returns the number of TT hits
 func (t *TranspositionTable) Hits() uint64 {
-	return t.hits.Load()
+	return t.totals().hits
 }
 
 // ResetStats resets the statistics counters without reallocating the table
 func (t *TranspositionTable) ResetStats() {
-	t.created.Store(0)
-	t.lookups.Store(0)
-	t.hits.Store(0)
-	t.t2collisions.Store(0)
-	t.tornReads.Store(0)
+	t.stats = new([ttStatStripes]ttStats)
 }
 
 // a debug tt

@@ -601,9 +601,87 @@ func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 // endgameParams holds parsed parameters for endgame solving
 type endgameParams struct {
 	plies      int
-	maxtime    int
+	maxtime    float64 // seconds; 0 is no limit
 	maxthreads int
 	enableFW   bool // first-win optimization
+}
+
+// The quick endgame (`endgame -quick`) is the search the bots use for
+// endgames they do not solve (bot.QuickEndgameSearch).
+const (
+	quickEndgamePlies   = 2
+	quickEndgameMaxTime = 0.25 // seconds, when -maxtime is not given
+)
+
+// endgameMaxTime reads -maxtime, in seconds; fractions are allowed.
+func endgameMaxTime(cmd *shellcmd, def float64) (float64, error) {
+	if len(cmd.options["maxtime"]) == 0 {
+		return def, nil
+	}
+	t, err := cmd.options.Float("maxtime")
+	if err != nil {
+		return 0, err
+	}
+	if t < 0 {
+		return 0, errors.New("maxtime cannot be negative")
+	}
+	return t, nil
+}
+
+// endgameQuick runs the bots' quick endgame search on the position and
+// reports what it found.
+func (sc *ShellController) endgameQuick(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+	plies, err := cmd.options.IntDefault("plies", quickEndgamePlies)
+	if err != nil {
+		return nil, err
+	}
+	maxtime, err := endgameMaxTime(cmd, quickEndgameMaxTime)
+	if err != nil {
+		return nil, err
+	}
+	if maxtime == 0 {
+		maxtime = quickEndgameMaxTime
+	}
+	sc.showMessage(fmt.Sprintf("quick endgame: plies %v, maxtime %v", plies, maxtime))
+	start := time.Now()
+	val, seq, err := bot.QuickEndgameSearch(context.Background(), sc.game.Game, plies,
+		time.Duration(maxtime*float64(time.Second)), false)
+	elapsed := time.Since(start)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("the quick endgame did not finish in %v seconds; "+
+				"a bot would play its static move here", maxtime)
+		}
+		return nil, err
+	}
+	if len(seq) == 0 {
+		return nil, errors.New("the quick endgame found no move")
+	}
+	var result strings.Builder
+	fmt.Fprintf(&result, "Quick endgame, as the bots play it: %d plies, then greedy play "+
+		"to the end; it looks only for the result. (%.1f ms)\n",
+		plies, float64(elapsed.Microseconds())/1000)
+	final := int(val) + sc.game.CurrentSpread()
+	switch {
+	case final > 0:
+		result.WriteString("It sees a win.\n")
+	case final < 0:
+		result.WriteString("It sees no win.\n")
+	default:
+		result.WriteString("It sees a tie.\n")
+	}
+	fmt.Fprintf(&result, "Best move: %s\n", seq[0].ShortDescription())
+	result.WriteString("Sequence it found (moves past the search depth are greedy):\n")
+	for i, m := range seq {
+		fmt.Fprintf(&result, "%d) %s (%d)\n", i+1, m.ShortDescription(), m.Score())
+	}
+	return msg(result.String()), nil
 }
 
 // endgamePrepare parses options and initializes the endgame solver.
@@ -624,7 +702,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	if params.plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
 		return nil, err
 	}
-	if params.maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
+	if params.maxtime, err = endgameMaxTime(cmd, 0); err != nil {
 		return nil, err
 	}
 	if params.maxthreads, err = cmd.options.IntDefault("threads", params.maxthreads); err != nil {
@@ -668,7 +746,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 
 	sc.endgameCtx, sc.endgameCancel = context.WithCancel(context.Background())
 	if params.maxtime > 0 {
-		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime)*time.Second)
+		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime*float64(time.Second)))
 	}
 
 	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
@@ -720,6 +798,12 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 	if err != nil {
 		return "", err
 	}
+	if len(seq) == 0 {
+		// A short -maxtime can run out before the first iteration is done
+		// (setting up the table alone takes part of a second).
+		return "", errors.New("the endgame search stopped before it found any move; " +
+			"give it more time")
+	}
 
 	var result strings.Builder
 	if !params.enableFW {
@@ -749,6 +833,9 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 // endgameSync runs endgame synchronously and returns the result.
 // This is the preferred method for scripts.
 func (sc *ShellController) endgameSync(cmd *shellcmd) (*Response, error) {
+	if cmd.options.Bool("quick") {
+		return sc.endgameQuick(cmd)
+	}
 	params, err := sc.endgamePrepare(cmd)
 	if err != nil {
 		return nil, err
@@ -788,6 +875,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 			return nil, errors.New("no endgame has been run yet")
 		}
 		return msg(sc.endgameSolver.ShortDetails()), nil
+	}
+
+	if cmd.options.Bool("quick") {
+		return sc.endgameQuick(cmd)
 	}
 
 	params, err := sc.endgamePrepare(cmd)

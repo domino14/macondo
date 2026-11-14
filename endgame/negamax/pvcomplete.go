@@ -40,6 +40,7 @@ func (s *Solver) completeLine(ctx context.Context, pv *PVLine) {
 		return
 	}
 	g := s.game
+	searchLength := pv.numMoves
 	played := 0
 	defer func() {
 		for i := 0; i < played; i++ {
@@ -116,7 +117,14 @@ func (s *Solver) completeLine(ctx context.Context, pv *PVLine) {
 	// Searched all the way to the end of the game: the line should now add up
 	// to exactly its value.
 	if got := int16(g.SpreadFor(s.solvingPlayer) - s.initialSpread); got != pv.score {
+		s.lineMismatches++
+		line := ""
+		for i := 0; i < pv.numMoves; i++ {
+			line += pv.tinyMoves[i].ShortDescription() + "; "
+		}
 		log.Warn().Int16("value", pv.score).Int16("line-adds-to", got).
+			Int("moves-from-search", searchLength).Int("horizon", horizon).
+			Str("line", line).
 			Msg("completed-endgame-line-disagrees-with-value")
 	}
 }

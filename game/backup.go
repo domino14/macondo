@@ -32,6 +32,48 @@ type stateBackup struct {
 	onturn         int
 	turnnum        int
 	players        playerStates
+	// boardMark is where the board's undo journal stood. journaled says the
+	// board was not copied into this backup: it is restored by undoing the
+	// journal back to boardMark, and boardTiles is its tile count. See
+	// SetIncrementalUndo.
+	journaled  bool
+	boardMark  int
+	boardTiles int
+	// moverOnly says players holds the rack of the player on turn only
+	// (and every player's points): with the bag empty a move changes no
+	// other rack. Never set for the first backup on the stack, which
+	// ResetToFirstState restores whole.
+	moverOnly bool
+}
+
+// SetIncrementalUndo makes backups in SimulationMode record where the board's
+// undo journal stands instead of copying the whole board, and
+// UnplayLastMove roll the journal back instead of copying the board back.
+// It is much cheaper for searches that play and unplay millions of moves.
+// Backups taken before it was turned on, or after it is turned off, are whole
+// copies as usual, and the two kinds can be mixed on the stack.
+func (g *Game) SetIncrementalUndo(on bool) {
+	g.incrementalUndo = on
+	g.board.SetUndoJournal(on)
+}
+
+// SetSkipExtensionSets stops the board's extension sets from being kept up
+// as moves are played (see board.GameBoard.SetSkipExtensionSets). Use it
+// only together with SetIncrementalUndo, for a search that never runs shadow
+// move generation, and turn it off once the search has unplayed its moves.
+func (g *Game) SetSkipExtensionSets(on bool) {
+	g.board.SetSkipExtensionSets(on)
+}
+
+// restoreBoard puts the board back as it was when b was taken.
+func (g *Game) restoreBoard(b *stateBackup) {
+	if b.journaled {
+		g.board.UndoTo(b.boardMark, b.boardTiles)
+	} else {
+		g.board.CopyFrom(b.board)
+		// Whatever the journal recorded since then is undone with it.
+		g.board.DropUndoFrom(b.boardMark)
+	}
 }
 
 func (g *Game) SetBackupMode(m BackupMode) {
@@ -44,11 +86,23 @@ func (g *Game) backupState() {
 	}
 	st := g.stateStack[g.stackPtr]
 
-	st.board.CopyFrom(g.board)
+	st.boardMark = g.board.UndoMark()
+	if g.incrementalUndo && g.backupMode == SimulationMode {
+		st.journaled = true
+		st.boardTiles = g.board.TilesPlayed()
+	} else {
+		st.journaled = false
+		st.board.CopyFrom(g.board)
+	}
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
-	st.players.copyFrom(g.players)
+	st.moverOnly = st.journaled && g.stackPtr > 0 && g.bag.TilesRemaining() == 0
+	if st.moverOnly {
+		st.players.copyMoverFrom(g.players, g.onturn)
+	} else {
+		st.players.copyFrom(g.players)
+	}
 	if g.backupMode == SimulationMode {
 		st.onturn = g.onturn
 		st.turnnum = g.turnnum
@@ -84,6 +138,17 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		(*ps)[idx].Nickname = other[idx].Nickname
 		(*ps)[idx].RealName = other[idx].RealName
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
+		(*ps)[idx].points = other[idx].points
+		(*ps)[idx].bingos = other[idx].bingos
+		(*ps)[idx].turns = other[idx].turns
+	}
+}
+
+// copyMoverFrom copies the rack of the player on turn and every player's
+// points: all that a move changes when there are no tiles to draw.
+func (ps *playerStates) copyMoverFrom(other playerStates, mover int) {
+	(*ps)[mover].rack.CopyFrom(other[mover].rack)
+	for idx := range other {
 		(*ps)[idx].points = other[idx].points
 		(*ps)[idx].bingos = other[idx].bingos
 		(*ps)[idx].turns = other[idx].turns
@@ -132,10 +197,14 @@ func (g *Game) UnplayLastMove() {
 		// because we typically use this when a word is challenged off, or similar.
 		b = g.stateStack[0]
 	}
-	g.board.CopyFrom(b.board)
+	g.restoreBoard(b)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
-	g.players.copyFrom(b.players)
+	if b.moverOnly {
+		g.players.copyMoverFrom(b.players, b.onturn)
+	} else {
+		g.players.copyFrom(b.players)
+	}
 	g.scorelessTurns = b.scorelessTurns
 }
 
@@ -149,7 +218,7 @@ func (g *Game) ResetToFirstState() {
 	g.turnnum = b.turnnum
 	g.stackPtr = 0
 
-	g.board.CopyFrom(b.board)
+	g.restoreBoard(b)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)

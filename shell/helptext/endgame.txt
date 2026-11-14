@@ -5,6 +5,7 @@ Example:
     endgame
     endgame -plies 25
     endgame -plies 25 -maxtime 120
+    endgame -quick true -maxtime 0.1
     endgame stop
 
 About:
@@ -53,13 +54,27 @@ Options:
 
     -maxtime 120
 
-    This option will set a maximum time in seconds. The endgame solver uses
+    This option will set a maximum time in seconds; fractions such as 0.1 are
+    allowed. The endgame solver uses
     iterative deepening by default, so a good enough solution should be found
     rapidly, and this solution will be improved upon.
 
     Note: When using -also-solve-var (see below), if the main solve times out,
     the specified variant will be solved with a fresh 60-second timeout. This
     means the total solve time could be up to maxtime + 60 seconds.
+
+    -quick true
+
+    The quick endgame: the search the bots use for endgames they do not
+    solve, run exactly as they run it. It is one search 2 plies deep on one
+    thread, with no iterative deepening, valuing each position at the end of
+    those plies by playing the game out greedily, and it looks only for the
+    result of the game (win, tie or loss), not for the best spread. It shows
+    the move a bot would play and the line it found.
+
+    It is time limited by -maxtime, 0.25 seconds if that is not given. If the
+    time runs out there is no move: a bot would play its static move. -plies
+    changes the depth. The other options do not apply.
 
     -disable-id true
 
@@ -76,14 +91,32 @@ Options:
 
     -parallel-algo auto
 
-    Select the parallel search algorithm. Options: auto, lazysmp, abdada, treesplit.
-    - auto (default): ABDADA, the fastest of the four in our tests.
+    Select the parallel search algorithm. Options: auto, pvsplit, abdada, lazysmp,
+    treesplit. All of them share the transposition table, and all of them find
+    the same value; they differ only in speed. The default is pvsplit, and the
+    others run only if you ask for them by name.
+    - auto (default): the same as pvsplit.
+    - pvsplit: Principal variation splitting (Marsland and Campbell, "Parallel
+      Search of Strongly Ordered Game Trees", 1982). The solver orders moves
+      well, so the first move tried at a node is usually the best one. PV-split
+      uses that: along the main line, the first move at each node is searched
+      alone, to get a bound, and the node's other moves are then searched in
+      parallel against that bound, where most of them are refuted cheaply. A
+      move that beats the bound becomes the new main line and is split in the
+      same way. Threads with no move left help with one still being searched.
+
+      In our tests it was as fast as abdada or faster on every position at
+      every thread count: a little faster (about 1.1 to 1.5 times) at 16
+      threads, about twice as fast on long solves at 32 threads and up, and it
+      keeps improving up to around 64 threads, where abdada stops at around 16
+      to 32. It also searches far fewer positions to get there.
+    - abdada: Alpha-Bêta Distribué avec Droit d'Aînesse. Every thread searches
+      the whole tree, and a thread puts off a move that another thread is
+      already searching. The previous default.
     - lazysmp: Lazy Symmetric Multi-Processing. Threads search independently with a
       shared transposition table. Its helpers search deeper than the requested
       depth, and a fixed-depth search can use only their moves, not their values,
-      so it is slower than ABDADA, about two times as slow on deep endgames.
-    - abdada: Alpha-Bêta Distribué avec Droit d'Aînesse. Coordinates thread work to avoid
-      redundant searches. Excels at high-branching endgames with bushy search trees.
+      so it is slower than abdada, about two times as slow on deep endgames.
     - treesplit: Simple root-level move distribution across threads. Works well
       for some endgames with high branching.
 
