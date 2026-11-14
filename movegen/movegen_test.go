@@ -72,6 +72,7 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
+	generator.setRackBits(rack)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 		0, 0, 1)
 
@@ -119,6 +120,7 @@ func TestSimpleRowGen(t *testing.T) {
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
 		cross_set.GenAllCrossSets(board, gd, dist)
+		generator.setRackBits(rack)
 		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 			0, 0, 1)
 		if len(generator.plays) != tc.expectedPlays {
@@ -146,6 +148,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, dist)
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
+	generator.setRackBits(rack)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 		0, 0, 1)
 	// it should generate HITHERMOST only
@@ -176,6 +179,7 @@ func TestRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
+	generator.setRackBits(rack)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 		0, 0, 1)
 
@@ -214,6 +218,7 @@ func TestOtherRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
+	generator.setRackBits(rack)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 		0, 0, 1)
 	// Should generate AVENGED only
@@ -244,6 +249,7 @@ func TestOneMoreRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 0
 	generator.curAnchorCol = 11
+	generator.setRackBits(rack)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 		0, 0, 1)
 
@@ -280,6 +286,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
+		generator.setRackBits(rack)
 		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, false,
 			0, 0, 1)
 		generator.lastAnchorCol = anchorCol

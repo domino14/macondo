@@ -547,23 +547,9 @@ func (p *pathLists) get(player int) *moveList {
 			// The lane's anchors and tiles as they are now.
 			var anchors, occupied uint32
 			if lane < dim {
-				for i := 0; i < dim; i++ {
-					if b.IsAnchor(lane, i, board.HorizontalDirection) {
-						anchors |= 1 << uint(i)
-					}
-					if b.HasLetter(lane, i) {
-						occupied |= 1 << uint(i)
-					}
-				}
+				anchors, occupied = b.RowMasks(lane, board.HorizontalDirection)
 			} else {
-				for i := 0; i < dim; i++ {
-					if b.IsAnchor(i, lane-dim, board.VerticalDirection) {
-						anchors |= 1 << uint(i)
-					}
-					if b.HasLetter(i, lane-dim) {
-						occupied |= 1 << uint(i)
-					}
-				}
+				anchors, occupied = b.ColMasks(lane-dim, board.VerticalDirection)
 			}
 			// An anchor's plays start after the anchor before it and, with
 			// `tiles` tiles to place, end before the (tiles+1)-th empty

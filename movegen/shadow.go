@@ -1088,6 +1088,7 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 // generating actual moves via recursive generation. Stops when no remaining
 // anchor can beat the best move found so far.
 func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.Rack) {
+	gen.setRackBits(rack)
 	gen.tilesPlayed = 0
 
 	// Track current orientation to minimize transpose calls.

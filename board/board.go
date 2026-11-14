@@ -786,6 +786,33 @@ func (g *GameBoard) IsAnchor(row int, col int, dir BoardDirection) bool {
 	return false
 }
 
+// RowMasks returns the anchors of the given direction and the tiles of a
+// row, a bit for each column.
+func (g *GameBoard) RowMasks(row int, dir BoardDirection) (anchors, occupied uint32) {
+	return g.laneMasks(g.GetSqIdx(row, 0), g.colMul, dir)
+}
+
+// ColMasks is RowMasks for a column, a bit for each row.
+func (g *GameBoard) ColMasks(col int, dir BoardDirection) (anchors, occupied uint32) {
+	return g.laneMasks(g.GetSqIdx(0, col), g.rowMul, dir)
+}
+
+func (g *GameBoard) laneMasks(base, step int, dir BoardDirection) (anchors, occupied uint32) {
+	as := g.hAnchors
+	if dir == VerticalDirection {
+		as = g.vAnchors
+	}
+	for i, pos := 0, base; i < g.dim; i, pos = i+1, pos+step {
+		if as[pos] {
+			anchors |= 1 << uint(i)
+		}
+		if g.squares[pos] != 0 {
+			occupied |= 1 << uint(i)
+		}
+	}
+	return anchors, occupied
+}
+
 func (g *GameBoard) PosExists(row int, col int) bool {
 	d := g.Dim()
 	return row >= 0 && row < d && col >= 0 && col < d
