@@ -101,6 +101,62 @@ type moveList struct {
 	anchor    []uint8
 	laneBegin [maxLanes + 1]int32
 	valid     bool
+	// solo is the best play of each tile type alone among the list's plays,
+	// worked out when first asked for (see soloPlays).
+	solo      soloTable
+	soloValid bool
+}
+
+// soloTable has, for each tile type with a play alone in a list (a bit of
+// found), the best such play: the highest-scoring, and of those the first in
+// row order, as scanLoneTile has it.
+type soloTable struct {
+	found uint64
+	score [maxListTileTypes]int16
+	row   [maxListTileTypes]int8
+	col   [maxListTileTypes]int8
+}
+
+// soloPlays returns the list's table of best plays of one tile. b is the
+// board of the list's position.
+func (l *moveList) soloPlays(b *board.GameBoard) *soloTable {
+	t := &l.solo
+	if l.soloValid {
+		return t
+	}
+	l.soloValid = true
+	t.found = 0
+	for i := range l.moves {
+		m := &l.moves[i]
+		if m.TilesPlayed() != 1 {
+			continue
+		}
+		tm := uint64(m.TinyMove())
+		tile := uint((tm >> 20) & 63)
+		if tm&(1<<12) != 0 {
+			tile = 0
+		}
+		score := int16(m.Score())
+		known := t.found&(1<<tile) != 0
+		if known && score < t.score[tile] {
+			continue
+		}
+		// The square the tile goes on: the play's one empty square.
+		row, col, vertical := m.CoordsAndVertical()
+		for j, length := 0, m.PlayLength(); j < length && b.HasLetter(row, col); j++ {
+			if vertical {
+				row++
+			} else {
+				col++
+			}
+		}
+		if !known || score > t.score[tile] ||
+			row < int(t.row[tile]) || (row == int(t.row[tile]) && col < int(t.col[tile])) {
+			t.found |= 1 << tile
+			t.score[tile], t.row[tile], t.col[tile] = score, int8(row), int8(col)
+		}
+	}
+	return t
 }
 
 // pathLevel is what the lists keep for one position on the path: both
@@ -223,6 +279,21 @@ func (p *pathLists) onMove(m *tinymove.SmallMove) {
 			}
 		}
 	}
+	// A move that keeps one tile: this position's list has every play of
+	// that tile alone, so its best is noted here, for the positions that
+	// follow to derive theirs from instead of scanning the board.
+	if lv.tilePlay {
+		mover := int(lv.mover)
+		rack := p.g.RackFor(mover)
+		if tiles := int(rack.NumTiles()); tiles >= 2 && m.TilesPlayed() == tiles-1 {
+			if l := &lv.lists[mover]; l.valid {
+				tile := keptTile(rack, m)
+				if c := &lv.lone[mover]; !c.valid || c.tile != tile {
+					p.noteLoneFromList(c, l, tile)
+				}
+			}
+		}
+	}
 	lv.hits = p.moveHits(m, lv)
 	next := &p.levels[n+1]
 	next.lists[0].valid = false
@@ -258,47 +329,21 @@ func (p *pathLists) noteLonePlay(player int, tile tilemapping.MachineLetter) {
 	if c.valid && c.tile == tile {
 		return
 	}
-	l := p.get(player)
-	b := p.g.Board()
+	p.noteLoneFromList(c, p.get(player), tile)
+}
+
+// noteLoneFromList sets c to the best play of the tile alone among the plays
+// of l, the list of the game's position.
+func (p *pathLists) noteLoneFromList(c *lonePlay, l *moveList, tile tilemapping.MachineLetter) {
+	t := l.soloPlays(p.g.Board())
 	c.valid = true
 	c.tile = tile
-	c.found = false
-	for i := range l.moves {
-		m := &l.moves[i]
-		if m.TilesPlayed() != 1 {
-			continue
-		}
-		tm := uint64(m.TinyMove())
-		played := tilemapping.MachineLetter((tm >> 20) & 63)
-		if tm&(1<<12) != 0 {
-			played = 0
-		}
-		if played != tile {
-			continue
-		}
-		score := int32(m.Score())
-		if c.found && score < c.score {
-			continue
-		}
-		// The square the tile goes on: the play's one empty square.
-		row, col, vertical := m.CoordsAndVertical()
-		for j, length := 0, m.PlayLength(); j < length && b.HasLetter(row, col); j++ {
-			if vertical {
-				row++
-			} else {
-				col++
-			}
-		}
-		// Higher score, or the same score earlier in row order, as
-		// scanLoneTile has it.
-		if !c.found || score > c.score ||
-			row < int(c.row) || (row == int(c.row) && col < int(c.col)) {
-			c.found = true
-			c.row, c.col, c.score = int8(row), int8(col), score
-		}
+	c.found = t.found&(1<<uint(tile)) != 0
+	if c.found {
+		c.row, c.col, c.score = t.row[tile], t.col[tile], int32(t.score[tile])
 	}
 	if p.check {
-		score, row, col, found := scanLoneTile(b, tile, p.g.Bag().LetterDistribution())
+		score, row, col, found := scanLoneTile(p.g.Board(), tile, p.g.Bag().LetterDistribution())
 		if found != c.found || (found && (int32(score) != c.score ||
 			int8(row) != c.row || int8(col) != c.col)) {
 			panic(fmt.Sprintf("one-tile play from the list (%v %d,%d for %d) differs from the scan (%v %d,%d for %d)",
@@ -594,6 +639,7 @@ func (p *pathLists) get(player int) *moveList {
 		generated, generatedAnchors = p.mg.GenLanes(rack, genMask, &p.wanted, &p.ends)
 	}
 	rackCounts := rackTileCounts(rack)
+	l.soloValid = false
 	l.moves = l.moves[:0]
 	l.used = l.used[:0]
 	l.anchor = l.anchor[:0]

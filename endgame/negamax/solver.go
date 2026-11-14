@@ -2227,7 +2227,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	keepOneActive := s.keepOneOptim && depth >= 2 && s.currentIDDepths[thread] != depth &&
 		stmRack.NumTiles() >= 2
 	if keepOneActive {
-		keepOne.init(g, onTurn, ourSpread)
+		mg := s.stmMovegen
+		if thread > 0 {
+			mg = s.movegens[thread-1]
+		}
+		keepOne.init(g, s.listsFor(thread, g, mg), onTurn, ourSpread)
 	}
 
 	// See outReplyBound: a move the opponent can answer by going out, for a

@@ -1,6 +1,8 @@
 package negamax
 
 import (
+	"fmt"
+
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
@@ -44,9 +46,16 @@ type keepOneBound struct {
 	// known.
 	scanned  uint64
 	bestDrop [tilemapping.MaxAlphabetSize + 1]int32
+	// lists, when not nil, are the thread's move lists, whose list for the
+	// player on turn here has every play of one tile: the best of each
+	// type comes from it without a scan.
+	lists  *pathLists
+	onTurn int
 }
 
-func (k *keepOneBound) init(g *game.Game, onTurn int, ourSpread int) {
+func (k *keepOneBound) init(g *game.Game, lists *pathLists, onTurn int, ourSpread int) {
+	k.lists = lists
+	k.onTurn = onTurn
 	k.b = g.Board()
 	k.ld = g.Bag().LetterDistribution()
 	rack := g.RackFor(onTurn)
@@ -82,7 +91,22 @@ func (k *keepOneBound) bound(m *tinymove.SmallMove, alpha int) int {
 	kept := tilemapping.MachineLetter(keptSum)
 	if k.scanned&(1<<uint(kept)) == 0 {
 		k.bestDrop[kept] = -1
-		if score, _, _, found := scanLoneTile(b, kept, ld); found {
+		if k.lists != nil {
+			t := k.lists.get(k.onTurn).soloPlays(b)
+			if t.found&(1<<uint(kept)) != 0 {
+				k.bestDrop[kept] = int32(t.score[kept])
+			}
+			if checkMoveLists {
+				score, _, _, found := scanLoneTile(b, kept, ld)
+				if !found {
+					score = -1
+				}
+				if int32(score) != k.bestDrop[kept] {
+					panic(fmt.Sprintf("keep-one bound: best play of tile %d alone is %d from the list, %d from the board",
+						kept, k.bestDrop[kept], score))
+				}
+			}
+		} else if score, _, _, found := scanLoneTile(b, kept, ld); found {
 			k.bestDrop[kept] = int32(score)
 		}
 		k.scanned |= 1 << uint(kept)
