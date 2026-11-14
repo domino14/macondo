@@ -1,12 +1,12 @@
 package negamax
 
 import (
-	"unsafe"
 	"fmt"
 	"math"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"

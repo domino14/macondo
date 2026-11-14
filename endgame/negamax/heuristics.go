@@ -2,8 +2,10 @@ package negamax
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"math/bits"
+	"os"
 	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -552,6 +554,29 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 	return frac
 }
 
+// playoutTail is the rest of a playout from a position one passed through:
+// what it adds to the solving player's spread there, and how many moves it
+// is. A key of 0 is an empty entry.
+type playoutTail struct {
+	key    uint64
+	value  int32
+	length int32
+}
+
+const (
+	// playoutTailCacheSize is the number of entries of each thread's cache
+	// of playout tails: half a megabyte, to stay in the thread's own cache.
+	playoutTailCacheSize = 1 << 15
+	// playoutTailSalt keeps a tail's key apart from its position's in the
+	// transposition table, and playoutTailGenStep is what each solve adds.
+	playoutTailSalt    = 0xC2B2AE3D27D4EB4F
+	playoutTailGenStep = 0xD1B54A32D192ED03
+)
+
+// playoutTailsEverywhere caches the tails of playouts with no stuck tiles
+// too.
+var playoutTailsEverywhere = os.Getenv("ENDGAME_TAILS_EVERYWHERE") != ""
+
 // greedyPlayout evaluates a leaf node by playing the game out greedily instead
 // of returning the static spread. Translated from MAGPIE's
 // negamax_greedy_leaf_playout (endgame.c:1740).
@@ -563,8 +588,22 @@ func (s *Solver) oppStuckFraction(g *game.Game, mg movegen.MoveGenerator, nodeKe
 // The moves played out are recorded in pv, so that a principal variation that
 // runs off the end of the search still shows how the game is expected to
 // finish. They are marked as estimates when displayed.
+//
+// A playout with stuck tiles is long, the solving player laying its tiles
+// down a few at a time, and it often passes through a position an earlier
+// one reached by the same moves in another order. From there it plays the
+// same moves: the rest of a playout depends only on the position and on the
+// stuck fraction found at the leaf. So each position a playout passes
+// through is remembered with what the rest added to the spread and how long
+// it was, and a later playout that reaches it stops there. The idea is
+// MAGPIE's (its playout tail cache). The thread's own small cache holds
+// them, keyed by the position's hash with the fraction's bits. A playout cut
+// short by its budget stores nothing, and a stored rest is used only where
+// there is room for all of it, so the value is the one the playout would
+// have reached. A principal-variation node plays its playout to the end, for
+// its line.
 func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLine,
-	nodeKey uint64, thread int) int16 {
+	nodeKey uint64, thread int, pvNode bool) int16 {
 	// Capture this before playing anything: handleConsecutiveScorelessTurns
 	// advances the player on turn when the game ends on a double pass, and does
 	// not put it back.
@@ -589,11 +628,42 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	played, onBoard := 0, 0
 	wentOut := false
 	outGain := 0
+
+	// The keys of the positions the playout passes through, for the cache
+	// of tails, and the solving player's spread at each.
+	cacheTails := s.playoutTailOptim && nodeKey != 0 && thread < len(s.playoutTails) &&
+		(frac > 0 || playoutTailsEverywhere)
+	var tails []playoutTail
+	var tailKeys [MaxGreedyPlayoutPlies + 1]uint64
+	var tailSpreads [MaxGreedyPlayoutPlies + 1]int32
+	var tailSalt uint64
+	key := nodeKey
+	// A rest found in the cache: the playout stops there, except in check
+	// mode, which plays on to see that it gets the same.
+	tailHit, tailChecked := false, false
+	var hit playoutTail
+	hitAt := 0
+	if cacheTails {
+		tails = s.playoutTails[thread]
+		tailSalt = playoutTailSalt ^ uint64(math.Float32bits(frac))<<32 ^
+			uint64(s.stuckGen)*playoutTailGenStep
+		tailKeys[0] = key ^ tailSalt
+		tailSpreads[0] = int32(g.SpreadFor(s.solvingPlayer))
+		if e := &tails[tailKeys[0]&(playoutTailCacheSize-1)]; !pvNode &&
+			e.key == tailKeys[0] && int(e.length) <= budget {
+			hit, hitAt = *e, 0
+			if checkMoveLists {
+				tailChecked = true
+			} else {
+				tailHit = true
+			}
+		}
+	}
 	if lists := s.listsFor(thread, g, mg); lists != nil {
 		lists.inPlayout = true
 		defer func() { lists.inPlayout = false }()
 	}
-	for played < budget && g.Playing() == pb.PlayState_PLAYING {
+	for !tailHit && played < budget && g.Playing() == pb.PlayState_PLAYING {
 		onTurn := g.PlayerOnTurn()
 		rack := g.RackFor(onTurn)
 		var plays []tinymove.SmallMove
@@ -697,23 +767,72 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 				lists.noteLonePlay(onTurn, keptTile(rack, &plays[bestIdx]))
 			}
 		}
-		_, err := g.PlaySmallMove(&plays[bestIdx])
+		moveTiles, err := g.PlaySmallMove(&plays[bestIdx])
 		played++
 		onBoard++
 		if err != nil {
+			cacheTails = false
 			break
+		}
+		// A position where the game is over has no rest to keep.
+		if cacheTails && g.Playing() == pb.PlayState_PLAYING {
+			key = s.ttable.Zobrist().AddMove(key, &playoutMoves[played-1], rack, moveTiles,
+				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			tailKeys[played] = key ^ tailSalt
+			tailSpreads[played] = int32(g.SpreadFor(s.solvingPlayer))
+			if e := &tails[tailKeys[played]&(playoutTailCacheSize-1)]; !pvNode && !tailChecked &&
+				e.key == tailKeys[played] && int(e.length) <= budget-played {
+				hit, hitAt = *e, played
+				if checkMoveLists {
+					tailChecked = true
+				} else {
+					tailHit = true
+				}
+			}
 		}
 	}
 	pv.setPlayout(playoutMoves[:played])
 
 	spread := g.SpreadFor(leafPlayer) + outGain
-	if !wentOut && g.Playing() == pb.PlayState_PLAYING {
+	// Whether the playout ran to the end of the game, or to a stored rest
+	// that did.
+	ended := tailHit || wentOut || g.Playing() != pb.PlayState_PLAYING
+	if tailHit {
+		spread = int(tailSpreads[hitAt] + hit.value)
+		if leafPlayer != s.solvingPlayer {
+			spread = -spread
+		}
+	} else if !wentOut && g.Playing() == pb.PlayState_PLAYING {
 		// We ran out of budget before the game ended, which is rare. Estimate
 		// who was closer to going out with MAGPIE's rack adjustment
 		// (endgame.c:1932): twice the rack score off the holder, applied to
 		// both sides. This is not real end-of-game scoring, it is an estimate.
 		spread -= 2 * g.RackFor(leafPlayer).ScoreOn(ld)
 		spread += 2 * g.RackFor(1-leafPlayer).ScoreOn(ld)
+	}
+
+	if cacheTails && ended {
+		final := int32(spread)
+		if leafPlayer != s.solvingPlayer {
+			final = -final
+		}
+		total := played
+		if tailHit {
+			total += int(hit.length)
+		}
+		if tailChecked && (final != tailSpreads[hitAt]+hit.value ||
+			total-hitAt != int(hit.length)) {
+			panic(fmt.Sprintf("playout tail cache: the rest stored at step %d is %d in %d moves, played out it is %d in %d",
+				hitAt, hit.value, hit.length, final-tailSpreads[hitAt], total-hitAt))
+		}
+		// The position a rest was found at holds it already, and the one
+		// the game ended at was never keyed.
+		for i := 0; i < played; i++ {
+			e := &tails[tailKeys[i]&(playoutTailCacheSize-1)]
+			e.key = tailKeys[i]
+			e.value = final - tailSpreads[i]
+			e.length = int32(total - i)
+		}
 	}
 
 	for i := 0; i < onBoard; i++ {

@@ -148,7 +148,7 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	stackRemaining := g.StateStackRemaining()
 
 	var pv PVLine
-	v1 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v1 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 
 	is.Equal(bd.SquaresSlice(), squares)
 	is.Equal(bd.CrossSetsForDir(board.HorizontalDirection), hCross)
@@ -163,7 +163,7 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 
 	// Same position, same answer.
-	v2 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v2 := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.Equal(v1, v2)
 
 	// And playing a move, evaluating, and taking it back must not disturb the
@@ -174,11 +174,11 @@ func TestGreedyPlayoutRestoresState(t *testing.T) {
 		_, err := g.PlaySmallMove(&plays[i])
 		is.NoErr(err)
 		if g.Playing() == pb.PlayState_PLAYING {
-			s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+			s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 		}
 		g.UnplayLastMove()
 	}
-	is.Equal(s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0), v1)
+	is.Equal(s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false), v1)
 }
 
 // TestGreedyPlayoutStackBudget checks that the playout respects the backup
@@ -191,20 +191,20 @@ func TestGreedyPlayoutStackBudget(t *testing.T) {
 	g := s.game
 
 	var pv PVLine
-	full := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	full := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.True(pv.NumMoves() > 0)
 
 	// With no room at all, fall back to the static spread and touch nothing.
 	g.SetStateStackLength(0)
 	is.Equal(g.StateStackRemaining(), 0)
-	static := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	static := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.Equal(static, int16(g.SpreadFor(g.PlayerOnTurn())))
 	is.Equal(pv.NumMoves(), 0)
 	is.True(static != full)
 
 	// A short stack should still play what it can rather than panic.
 	g.SetStateStackLength(2)
-	short := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	short := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	is.True(pv.NumMoves() <= 2)
 	is.Equal(g.StateStackRemaining(), 2)
 	_ = short
@@ -245,7 +245,7 @@ func TestPassPenaltyPreventsDoublePass(t *testing.T) {
 	is.True(bestUnpenalized > -passPenalty)
 
 	var pv PVLine
-	v := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0)
+	v := s.greedyPlayout(g, s.stmMovegen, &pv, 0, 0, false)
 	t.Logf("greedy playout value %d over %d moves", v, pv.NumMoves())
 	// It plays the rack off instead of passing out immediately.
 	is.True(!pv.tinyMoves[0].IsPass())

@@ -407,6 +407,13 @@ type Solver struct {
 	// stuckGen invalidates the whole memo in O(1) when the game or lexicon
 	// underneath it changes, the way Reset clears the transposition table.
 	stuckGen uint32
+	// playoutTails is each thread's cache of the rest of a playout from a
+	// position one has passed through (see greedyPlayout). stuckGen is in
+	// its keys, so it is forgotten along with the stuck-fraction memo.
+	playoutTails [][]playoutTail
+	// playoutTailOptim lets a playout stop at a position whose rest is
+	// cached. It changes only the speed of a solve.
+	playoutTailOptim bool
 	// Build-chain scratch, only touched when the opponent is stuck.
 	bcValues [][]int
 	bcOrder  [][]int
@@ -453,6 +460,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
 	s.childShortcuts = true
 	s.keepOneOptim = true
 	s.outReplyOptim = true
+	s.playoutTailOptim = true
 	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
@@ -579,6 +587,10 @@ func (s *Solver) ensureArenas() {
 	s.stuckMemo = make([][]stuckEntry, s.threads)
 	for i := range s.stuckMemo {
 		s.stuckMemo[i] = make([]stuckEntry, stuckMemoSize)
+	}
+	s.playoutTails = make([][]playoutTail, s.threads)
+	for i := range s.playoutTails {
+		s.playoutTails[i] = make([]playoutTail, playoutTailCacheSize)
 	}
 	s.bcValues = make([][]int, s.threads)
 	s.bcOrder = make([][]int, s.threads)
@@ -826,6 +838,12 @@ func (s *Solver) SetIncrementalMoveLists(v bool) {
 // and changes only the speed of a solve.
 func (s *Solver) SetOutReplyBound(v bool) {
 	s.outReplyOptim = v
+}
+
+// SetPlayoutTailCache turns the cache of playout tails on or off. It is on
+// by default and changes only the speed of a solve.
+func (s *Solver) SetPlayoutTailCache(v bool) {
+	s.playoutTailOptim = v
 }
 
 // SetKeepOneBound turns the keep-one bound on or off. It is on by default
@@ -2136,7 +2154,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if thread > 0 {
 				mg = s.movegens[thread-1]
 			}
-			val := s.greedyPlayout(g, mg, pv, nodeKey, thread)
+			val := s.greedyPlayout(g, mg, pv, nodeKey, thread, pvNode)
 			if s.transpositionTableOptim && nodeKey != 0 {
 				// Cache the playout, so that revisiting this leaf -- on the next
 				// iterative-deepening pass, in a re-search, or through a

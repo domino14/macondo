@@ -33,7 +33,7 @@ func TestTTableEntry(t *testing.T) {
 
 	// another lookup, in the next bucket, but this isn't a collision.
 	// collision count should not go up.
-	te = tt.lookup(9409641586937047728 + bucketSize, 0)
+	te = tt.lookup(9409641586937047728+bucketSize, 0)
 	is.Equal(te, TableEntry{})
 	is.Equal(tt.totals().lookups, uint64(3))
 	is.Equal(tt.totals().t2collisions, uint64(1))
