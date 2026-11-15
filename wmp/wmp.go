@@ -660,6 +660,30 @@ func (wfl *ForLength) getWordEntry(br *BitRack) *Entry {
 	return scanBucket(wfl.WordBucketStarts, wfl.WordMapEntries, bucketIdx, br.Low, br.High)
 }
 
+// mayHaveWords reports whether the blankless filter lets a rack with this
+// hash (MixTo64) through: false means the rack has no words of this length.
+// With no filter every rack is let through.
+func (wfl *ForLength) mayHaveWords(hash uint64) bool {
+	if wfl.NumWordBuckets == 0 {
+		return false
+	}
+	if len(wfl.wordFilter) == 0 {
+		return true
+	}
+	bits := wordFilterBits(hash, wfl.wordFilterShift)
+	return wfl.wordFilter[hash>>wfl.wordFilterShift]&bits == bits
+}
+
+// getHashedWordEntry is getWordEntry for a rack whose hash is in hand and
+// has been let through by mayHaveWords.
+func (wfl *ForLength) getHashedWordEntry(br *BitRack, hash uint64) *Entry {
+	if wfl.NumWordBuckets == 0 {
+		return nil
+	}
+	bucketIdx := uint32(hash) & (wfl.NumWordBuckets - 1)
+	return scanBucket(wfl.WordBucketStarts, wfl.WordMapEntries, bucketIdx, br.Low, br.High)
+}
+
 // getBlankEntry looks up the entry for a single-blank rack.
 func (wfl *ForLength) getBlankEntry(br *BitRack) *Entry {
 	if wfl.NumBlankBuckets == 0 {
@@ -733,7 +757,9 @@ func writeBlankWords(entry *Entry, wfl *ForLength, br *BitRack, wordLength int, 
 			continue
 		}
 		br.AddLetter(ml)
-		blanklessEntry := wfl.getWordEntry(br)
+		// The blank entry says this letter makes a word, so the rack is
+		// there and the filter would only be one more read.
+		blanklessEntry := wfl.getHashedWordEntry(br, br.MixTo64())
 		if blanklessEntry != nil {
 			bytesWritten += writeBlanklessWords(blanklessEntry, wfl, wordLength, buffer[bytesWritten:])
 		}

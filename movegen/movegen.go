@@ -161,12 +161,15 @@ type GordonGenerator struct {
 	// whose leave cannot bring any of their plays up to the best play found.
 	wmpNoSubrackLeavePrune bool
 	// wmpNoScoreBases makes the leave prune use the anchor's score bound
-	// alone. wmpCheckScoreBounds panics when a recorded word map play scores
-	// more than the bound its subrack was given. wmpSubrackScoreBound is
+	// alone. wmpSelfCheck makes the word map generator check itself (see
+	// SetWMPSelfCheck). wmpSubrackScoreBound is
 	// that bound, for the subrack being recorded.
 	wmpNoScoreBases      bool
-	wmpCheckScoreBounds  bool
+	wmpSelfCheck         bool
 	wmpSubrackScoreBound int32
+	// wmpLetterCols is wordmapGen's, for the anchor it is on: see
+	// wordmapLoadLetterCols.
+	wmpLetterCols [64]uint32
 	// carry is the memory of best plays by rack (carry.go), or nil.
 	carry *bestMoveCarry
 	// exchangesLast makes the best-play generation record exchanges after
@@ -226,10 +229,15 @@ func (gen *GordonGenerator) SetWMPScoreBases(on bool) {
 	gen.wmpNoScoreBases = !on
 }
 
-// SetWMPCheckScoreBounds makes the word map generator panic when a play it
-// records scores more than the bound its subrack was given. For tests.
-func (gen *GordonGenerator) SetWMPCheckScoreBounds(on bool) {
-	gen.wmpCheckScoreBounds = on
+// SetWMPSelfCheck makes the word map generator check its shortcuts against
+// plain work and panic on a difference: a play it records must not score
+// more than the bound its subrack was given, a subrack it passes over
+// without a lookup must have no words, the words it reads for a subrack
+// must be those of a plain lookup, and the start columns its letter masks
+// say a word fits at must be those a square-by-square check finds. For
+// tests.
+func (gen *GordonGenerator) SetWMPSelfCheck(on bool) {
+	gen.wmpSelfCheck = on
 }
 
 // SetExchangesFirst switches whether a best-play generation records

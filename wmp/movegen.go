@@ -2,6 +2,7 @@ package wmp
 
 import (
 	"math"
+	"math/bits"
 
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -51,16 +52,18 @@ const totalSubracks = 1 << RackSize
 // by macondo's regular shadow play through its regular AddLetter /
 // TakeLetter methods.
 
-// SubrackInfo holds metadata about one enumerated subrack: the
-// multiset of tiles, the looked-up WMP entry (or nil), and the leave
-// value at the time of enumeration. Mirrors MAGPIE's SubrackInfo.
+// SubrackInfo holds one enumerated subrack: the multiset of tiles and the
+// looked-up WMP entry (or nil). Mirrors MAGPIE's SubrackInfo. The subrack's
+// leave value and tile score sum are kept apart, in arrays of their own
+// (MoveGen.leaveValues, tileScoreSums), so the leave check reads only those.
 type SubrackInfo struct {
-	Subrack    BitRack
-	WMPEntry   *Entry
-	LeaveValue float64
-	// TileScoreSum is the sum of the subrack's tile scores (a blank is 0).
-	TileScoreSum int32
+	Subrack  BitRack
+	WMPEntry *Entry
 }
+
+// blankWordCacheBytes is the size of a generator's cache of the word lists
+// of the rack's subracks with a blank (see GetSubrackWords).
+const blankWordCacheBytes = 4 * ResultBufferSize
 
 // ScoreBaseCount is the number of score bases kept per anchor. See
 // RecordPlacement.
@@ -130,6 +133,15 @@ type MoveGen struct {
 	// within a size run from 0..countBySize[size]-1.
 	nonplaythroughInfos [totalSubracks]SubrackInfo
 	playthroughInfos    [totalSubracks]SubrackInfo
+	// leaveValues and tileScoreSums are the leave value and the sum of the
+	// tile scores (a blank is 0) of each nonplaythrough subrack, by the
+	// same index.
+	leaveValues   [totalSubracks]float64
+	tileScoreSums [totalSubracks]int32
+	// playthroughHashes holds, for the subracks CandidateSubracks marked
+	// that have playthrough tiles and no blank, the word map hash of the
+	// subrack with those tiles, by index within the size.
+	playthroughHashes [64]uint64
 
 	// nonplaythroughBestLeaveValues[leaveSize] = best leave value
 	// across all subracks of size (fullRackSize-leaveSize) that have
@@ -152,8 +164,23 @@ type MoveGen struct {
 	dirtyAnchors []int
 
 	// Scratch buffer used by GetSubrackWords for write_words_to_buffer.
-	buffer      [ResultBufferSize]byte
-	tilesToPlay int
+	buffer [ResultBufferSize]byte
+	// words is the word list GetSubrackWords found, numWords words of
+	// wordLength letters end to end. It is the word map's own storage for
+	// a subrack with no blank, and the buffer or the blank word cache
+	// otherwise.
+	words []byte
+	// The blank word cache: the word lists of the rack's nonplaythrough
+	// subracks with a blank, which take a lookup per letter the blank can
+	// be to put together, kept for the next anchor that asks. blankOffsets
+	// is the list's start in blankWords plus one, 0 for none, by subrack;
+	// the lists are for the rack of the last CheckNonplaythroughExistence
+	// or LoadRackState.
+	blankWords   []byte
+	blankUsed    int
+	blankOffsets [totalSubracks]uint16
+	blankCounts  [totalSubracks]uint16
+	tilesToPlay  int
 	wordLength  int
 	numWords    int
 	leaveValue  float64
@@ -197,6 +224,8 @@ func (mg *MoveGen) Init(ld *tilemapping.LetterDistribution, rack *tilemapping.Ra
 // instead of working it out.
 type RackState struct {
 	infos           [totalSubracks]SubrackInfo
+	leaveValues     [totalSubracks]float64
+	tileScoreSums   [totalSubracks]int32
 	bestLeaveValues [RackSize + 1]float64
 	hasWordOfLength [RackSize + 1]bool
 	countBySize     [RackSize + 1]uint8
@@ -205,6 +234,8 @@ type RackState struct {
 // SaveRackState copies out the state CheckNonplaythroughExistence left.
 func (mg *MoveGen) SaveRackState(st *RackState) {
 	st.infos = mg.nonplaythroughInfos
+	st.leaveValues = mg.leaveValues
+	st.tileScoreSums = mg.tileScoreSums
 	st.bestLeaveValues = mg.nonplaythroughBestLeaveValues
 	st.hasWordOfLength = mg.nonplaythroughHasWordOfLength
 	st.countBySize = mg.countBySize
@@ -215,6 +246,9 @@ func (mg *MoveGen) SaveRackState(st *RackState) {
 // CheckNonplaythroughExistence.
 func (mg *MoveGen) LoadRackState(st *RackState) {
 	mg.nonplaythroughInfos = st.infos
+	mg.leaveValues = st.leaveValues
+	mg.tileScoreSums = st.tileScoreSums
+	mg.resetBlankWordCache()
 	mg.nonplaythroughBestLeaveValues = st.bestLeaveValues
 	mg.nonplaythroughHasWordOfLength = st.hasWordOfLength
 	mg.countBySize = st.countBySize
@@ -356,10 +390,9 @@ func (mg *MoveGen) enumerateNonplaythroughSubracks(current *BitRack, nextML int,
 	}
 	if nextML >= maxAlphabetSize {
 		insertIndex := combinationOffsets[count] + int(mg.countBySize[count])
-		info := &mg.nonplaythroughInfos[insertIndex]
-		info.Subrack = *current
-		info.LeaveValue = lm.CurrentValue()
-		info.TileScoreSum = scoreSum
+		mg.nonplaythroughInfos[insertIndex].Subrack = *current
+		mg.leaveValues[insertIndex] = lm.CurrentValue()
+		mg.tileScoreSums[insertIndex] = scoreSum
 		mg.countBySize[count]++
 		return
 	}
@@ -399,8 +432,8 @@ func (mg *MoveGen) checkNonplaythroughsOfSize(size int, checkLeaves bool) {
 		if !checkLeaves {
 			continue
 		}
-		if info.LeaveValue > mg.nonplaythroughBestLeaveValues[leaveSize] {
-			mg.nonplaythroughBestLeaveValues[leaveSize] = info.LeaveValue
+		if lv := mg.leaveValues[offset+idxForSize]; lv > mg.nonplaythroughBestLeaveValues[leaveSize] {
+			mg.nonplaythroughBestLeaveValues[leaveSize] = lv
 		}
 	}
 }
@@ -416,6 +449,7 @@ func (mg *MoveGen) checkNonplaythroughsOfSize(size int, checkLeaves bool) {
 // Mirrors wmp_move_gen_check_nonplaythrough_existence.
 func (mg *MoveGen) CheckNonplaythroughExistence(checkLeaves bool, lm *leavemap.LeaveMap) {
 	lm.SetCurrentIndex((1 << mg.fullRackSize) - 1)
+	mg.resetBlankWordCache()
 	for i := range mg.countBySize {
 		mg.countBySize[i] = 0
 	}
@@ -524,34 +558,106 @@ func (mg *MoveGen) RecordPlacement(tilesPlayed, wordLength, startCol, score int,
 // GetTileScoreSum returns the sum of the tile scores of the idxForSize'th
 // subrack of the current tilesToPlay size.
 func (mg *MoveGen) GetTileScoreSum(idxForSize int) int32 {
-	return mg.nonplaythroughInfos[combinationOffsets[mg.tilesToPlay]+idxForSize].TileScoreSum
+	return mg.tileScoreSums[combinationOffsets[mg.tilesToPlay]+idxForSize]
 }
 
 // =====================================================================
 // Word retrieval (after an anchor is selected)
 // =====================================================================
 
-// PlaythroughSubracksInit prepares the playthrough subrack array for
-// word retrieval against the given anchor. If the anchor has no
-// playthrough tiles the nonplaythrough subracks are reused. Mirrors
-// wmp_move_gen_playthrough_subracks_init.
+// PlaythroughSubracksInit sets the move gen up for word retrieval against
+// the given anchor: its word length and number of tiles to play.
+// CandidateSubracks then says which subracks to ask GetSubrackWords for.
+// Mirrors wmp_move_gen_playthrough_subracks_init.
 func (mg *MoveGen) PlaythroughSubracksInit(anchor *Anchor) {
 	subrackSize := anchor.TilesToPlay
 	mg.wordLength = anchor.WordLength
 	mg.numTilesPlayedThrough = anchor.WordLength - subrackSize
 	mg.tilesToPlay = subrackSize
-	if mg.numTilesPlayedThrough == 0 {
-		// Use the nonplaythrough subracks directly.
-		return
+}
+
+// SubrackScoreBound is the least of the anchor's score bound and what its
+// score bases allow a subrack whose tile scores sum to tileScoreSum (see
+// RecordPlacement).
+func SubrackScoreBound(scoreBound int32, bases *[ScoreBaseCount]int32, tileScoreSum int32) int32 {
+	bound := scoreBound
+	for b, base := range bases {
+		if v := base + int32(b+1)*tileScoreSum; v < bound {
+			bound = v
+		}
 	}
-	offset := combinationOffsets[subrackSize]
-	count := int(mg.countBySize[subrackSize])
-	for idxForSize := 0; idxForSize < count; idxForSize++ {
-		nonpt := &mg.nonplaythroughInfos[offset+idxForSize]
-		pt := &mg.playthroughInfos[offset+idxForSize]
-		pt.Subrack = nonpt.Subrack
-		pt.Subrack.AddBitRack(&mg.playthroughBitRack)
+	return bound
+}
+
+// CandidateSubracks returns the subracks of the current anchor's size that
+// may have plays, as a bit set by index within the size; GetSubrackWords
+// may be called for those only, and returns false for every other. A
+// subrack is left out when:
+//
+//   - prune is set and its score bound (SubrackScoreBound, of scoreBound
+//     and bases) plus its leave value is below cutoff: the caller is
+//     saying that it would turn every such play away;
+//   - the anchor has no playthrough tiles and the subrack's entry, looked
+//     up when the rack was set up, is nil;
+//   - the anchor has playthrough tiles, the subrack has no blank, and the
+//     word map's filter says that the subrack with those tiles makes no
+//     word.
+//
+// Mirrors wmp_move_gen_get_candidate_subracks. The leave check comes first
+// and reads two small arrays; only what it keeps is hashed and tested
+// against the filter, and nothing here reads the word map's buckets.
+func (mg *MoveGen) CandidateSubracks(prune bool, scoreBound int32, bases *[ScoreBaseCount]int32, cutoff float64) uint64 {
+	offset := combinationOffsets[mg.tilesToPlay]
+	count := int(mg.countBySize[mg.tilesToPlay])
+	leaveValues := mg.leaveValues[offset : offset+count]
+	tileScoreSums := mg.tileScoreSums[offset : offset+count]
+	kept := uint64(1)<<uint(count) - 1
+	if prune {
+		// The same test as SubrackScoreBound and a comparison, written
+		// out so that a subrack costs no call and no branch.
+		kept = 0
+		base1, base2 := bases[0], bases[1]
+		tileScoreSums = tileScoreSums[:len(leaveValues)]
+		for i, lv := range leaveValues {
+			ts := tileScoreSums[i]
+			bound := min(scoreBound, base1+ts, base2+2*ts)
+			var keep uint64
+			if !(float64(bound)+lv < cutoff) {
+				keep = 1
+			}
+			kept |= keep << (uint(i) & 63)
+		}
 	}
+	candidates := uint64(0)
+	if mg.wordLength <= mg.tilesToPlay {
+		infos := mg.nonplaythroughInfos[offset : offset+count]
+		for ; kept != 0; kept &= kept - 1 {
+			i := bits.TrailingZeros64(kept)
+			if infos[i].WMPEntry != nil {
+				candidates |= 1 << uint(i)
+			}
+		}
+		return candidates
+	}
+	wfl := &mg.wmp.WFLs[mg.wordLength]
+	nonpt := mg.nonplaythroughInfos[offset : offset+count]
+	pt := mg.playthroughInfos[offset : offset+count]
+	for ; kept != 0; kept &= kept - 1 {
+		i := bits.TrailingZeros64(kept)
+		br := nonpt[i].Subrack
+		br.AddBitRack(&mg.playthroughBitRack)
+		pt[i].Subrack = br
+		if br.GetLetter(blankMachineLetter) != 0 {
+			candidates |= 1 << uint(i)
+			continue
+		}
+		hash := br.MixTo64()
+		if wfl.mayHaveWords(hash) {
+			mg.playthroughHashes[i] = hash
+			candidates |= 1 << uint(i)
+		}
+	}
+	return candidates
 }
 
 // NumSubrackCombinations returns the number of distinct subracks of
@@ -569,37 +675,112 @@ func (mg *MoveGen) GetNonplaythroughSubrack(idxForSize int) *BitRack {
 	return &mg.nonplaythroughInfos[offset+idxForSize].Subrack
 }
 
-// GetSubrackWords looks up the idxForSize'th subrack in the WMP and
-// expands its words into the internal scratch buffer. Returns false
-// if no words exist for that subrack. After a true return, GetWord
-// retrieves individual words by index. Mirrors
+// resetBlankWordCache forgets the cached word lists: the rack has changed.
+func (mg *MoveGen) resetBlankWordCache() {
+	if mg.blankUsed != 0 {
+		mg.blankOffsets = [totalSubracks]uint16{}
+		mg.blankUsed = 0
+	}
+}
+
+// GetSubrackWords finds the words of the idxForSize'th subrack, one that
+// CandidateSubracks marked for the current anchor. Returns false if it has
+// none. After a true return, Words and GetWord give them. Mirrors
 // wmp_move_gen_get_subrack_words.
+//
+// The words of a subrack with no blank are read where the word map keeps
+// them. Those of one with a blank are put together from the words of each
+// letter the blank can be; for a subrack with no playthrough tiles the
+// result is kept for the rest of the rack's generation, since every anchor
+// with that many tiles to play and no playthrough asks for it again.
 func (mg *MoveGen) GetSubrackWords(idxForSize int) bool {
-	offset := combinationOffsets[mg.tilesToPlay]
-	subrackIdx := offset + idxForSize
+	subrackIdx := combinationOffsets[mg.tilesToPlay] + idxForSize
 	isPlaythrough := mg.wordLength > mg.tilesToPlay
+	wfl := &mg.wmp.WFLs[mg.wordLength]
 	var info *SubrackInfo
+	var blanks int
 	if isPlaythrough {
+		// CandidateSubracks left the subrack with its playthrough tiles
+		// here, and its hash if it has no blank.
 		info = &mg.playthroughInfos[subrackIdx]
+		blanks = info.Subrack.GetLetter(blankMachineLetter)
+		switch blanks {
+		case 0:
+			info.WMPEntry = wfl.getHashedWordEntry(&info.Subrack, mg.playthroughHashes[idxForSize&63])
+		case 1:
+			info.WMPEntry = wfl.getBlankEntry(&info.Subrack)
+		case 2:
+			info.WMPEntry = wfl.getDoubleBlankEntry(&info.Subrack)
+		default:
+			info.WMPEntry = nil
+		}
 	} else {
+		// Looked up by CheckNonplaythroughExistence.
 		info = &mg.nonplaythroughInfos[subrackIdx]
+		blanks = info.Subrack.GetLetter(blankMachineLetter)
 	}
-	// Nonplaythrough subracks were already looked up by
-	// CheckNonplaythroughExistence; playthrough subracks are looked
-	// up lazily here.
-	if isPlaythrough {
-		info.WMPEntry = mg.wmp.GetWordEntry(&info.Subrack, mg.wordLength)
-	}
-	if info.WMPEntry == nil {
+	entry := info.WMPEntry
+	if entry == nil {
 		return false
 	}
-	resultBytes := mg.wmp.WriteWordsForEntry(info.WMPEntry, &info.Subrack, mg.wordLength, mg.buffer[:])
+	if blanks == 0 {
+		if entry.IsInlined() {
+			mg.words = entry[:entry.numberOfInlinedBytes(mg.wordLength)]
+		} else {
+			start := int(entry.WordStart())
+			mg.words = wfl.WordLetters[start : start+int(entry.NumWords())*mg.wordLength]
+		}
+		mg.numWords = len(mg.words) / mg.wordLength
+		return mg.numWords > 0
+	}
+	if !isPlaythrough {
+		if off := int(mg.blankOffsets[subrackIdx]); off != 0 {
+			mg.numWords = int(mg.blankCounts[subrackIdx])
+			mg.words = mg.blankWords[off-1 : off-1+mg.numWords*mg.wordLength]
+			return true
+		}
+	}
+	// A list is cached only while the cache has room for the longest.
+	cache := !isPlaythrough && mg.blankUsed <= blankWordCacheBytes-ResultBufferSize
+	buffer := mg.buffer[:]
+	if cache {
+		if mg.blankWords == nil {
+			mg.blankWords = make([]byte, blankWordCacheBytes)
+		}
+		buffer = mg.blankWords[mg.blankUsed:]
+	}
+	resultBytes := mg.wmp.WriteWordsForEntry(entry, &info.Subrack, mg.wordLength, buffer)
 	if resultBytes <= 0 || resultBytes%mg.wordLength != 0 {
 		return false
 	}
 	mg.numWords = resultBytes / mg.wordLength
+	mg.words = buffer[:resultBytes]
+	if cache && mg.numWords <= math.MaxUint16 {
+		mg.blankOffsets[subrackIdx] = uint16(mg.blankUsed + 1)
+		mg.blankCounts[subrackIdx] = uint16(mg.numWords)
+		mg.blankUsed += resultBytes
+	}
 	return true
 }
+
+// ReferenceSubrackWords writes the words of the idxForSize'th subrack of the
+// current anchor into buffer by a plain lookup of its tiles and the
+// anchor's playthrough tiles, using nothing CandidateSubracks or
+// GetSubrackWords keep, and returns the number of bytes written. For tests:
+// it is what those two must agree with.
+func (mg *MoveGen) ReferenceSubrackWords(idxForSize int, buffer []byte) int {
+	br := mg.nonplaythroughInfos[combinationOffsets[mg.tilesToPlay]+idxForSize].Subrack
+	if mg.wordLength > mg.tilesToPlay {
+		br.AddBitRack(&mg.playthroughBitRack)
+	}
+	return mg.wmp.WriteWordsToBuffer(&br, mg.wordLength, buffer)
+}
+
+// Words returns the words GetSubrackWords found, WordLength letters each,
+// end to end. The slice is the word map's or the move gen's own storage:
+// the caller must not write to it, and the next GetSubrackWords call may
+// change it.
+func (mg *MoveGen) Words() []byte { return mg.words }
 
 // NumWords returns the number of words available after a successful
 // GetSubrackWords call.
@@ -613,12 +794,10 @@ func (mg *MoveGen) WordLength() int { return mg.wordLength }
 // the move gen is currently retrieving plays for.
 func (mg *MoveGen) TilesToPlay() int { return mg.tilesToPlay }
 
-// GetWord returns the wordIdx'th word in the current scratch buffer
-// as a slice of MachineLetters. The slice aliases the internal buffer
-// and is invalidated by the next GetSubrackWords call.
+// GetWord returns the wordIdx'th word of Words.
 func (mg *MoveGen) GetWord(wordIdx int) []byte {
 	start := wordIdx * mg.wordLength
-	return mg.buffer[start : start+mg.wordLength]
+	return mg.words[start : start+mg.wordLength]
 }
 
 // GetLeaveValue returns the leave value of the idxForSize'th subrack
@@ -626,7 +805,7 @@ func (mg *MoveGen) GetWord(wordIdx int) []byte {
 // later retrieval. Mirrors wmp_move_gen_get_leave_value.
 func (mg *MoveGen) GetLeaveValue(subrackIdx int) float64 {
 	offset := combinationOffsets[mg.tilesToPlay]
-	mg.leaveValue = mg.nonplaythroughInfos[offset+subrackIdx].LeaveValue
+	mg.leaveValue = mg.leaveValues[offset+subrackIdx]
 	return mg.leaveValue
 }
 
