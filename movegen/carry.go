@@ -11,9 +11,12 @@
 // overall was M, a later generation for the same rack and bag that finds the
 // lane unchanged knows that no play of the lane is better than M. If its
 // own best play so far is at least M, the lane is not looked at: no bound
-// is worked out for it and nothing is generated from it. And if M itself
-// lies in the unchanged lane, M is a play of the new board at the same
-// equity, and the generation starts from it.
+// is worked out for it and nothing is generated from it.
+//
+// The best plays themselves are remembered too, a few for each rack. One
+// that is still a play of the new board (see carryRevalidate) is scored
+// there, and the generation starts from the best of them: anchors that
+// cannot reach it are dropped as they are found, and more lanes are skipped.
 //
 // Lanes are matched on their whole contents, not on a hash of them, and "at
 // least M" is the recorder's own order (equity, then Move.TiebreaksBetter),
@@ -53,8 +56,6 @@ type carriedLane struct {
 	stamp   uint32 // the move slot's stamp when written
 	anchors uint32
 	moveIdx uint8
-	// inLane: the move is a play in this lane.
-	inLane bool
 }
 
 type carriedRack struct {
@@ -65,6 +66,11 @@ type carriedRack struct {
 	numTypes   int
 	counts     [carryMaxAlphabet]uint8
 	moves      [carryMovesPerRack]move.Move
+	// through[i] is the tiles of the lane of moves[i] under it, by position
+	// along the move, when it was last a generation's best play. The move's
+	// own tiles mark squares played through only as such, and on another
+	// board they may hold other tiles.
+	through [carryMovesPerRack][maxBoardDim]tilemapping.MachineLetter
 	// stamps[i] changes whenever moves[i] is replaced.
 	stamps    [carryMovesPerRack]uint32
 	numMoves  int
@@ -100,6 +106,7 @@ type bestMoveCarry struct {
 	// lane without anchors), its anchors, the remembered bound with the
 	// same contents (-1 for none) and whether it is skipped.
 	cur     *carriedRack
+	scratch move.Move
 	hashes  [2][maxBoardDim]uint64
 	anchors [2][maxBoardDim]uint32
 	found   [2][maxBoardDim]int8
@@ -325,34 +332,141 @@ func carryNoWorse(a, b *move.Move) bool {
 	return !b.TiebreaksBetter(a)
 }
 
+// scoreLanePlay is the score of tiles (0 for a square played through) laid
+// in a lane from startCol, tilesPlayed of them from the rack.
+func scoreLanePlay(ld *tilemapping.LetterDistribution, squares *[maxBoardDim]cachedSquare,
+	tiles []tilemapping.MachineLetter, startCol, tilesPlayed int) int {
+	var playedScoreTotal int
+	var playthroughScoreTotal int
+	var hookedCrossTotal int
+	var playedCrossTotal int
+	wordMultiplier := 1
+
+	for i, ml := range tiles {
+		sq := &squares[startCol+i]
+		if ml == 0 {
+			// Playthrough: score the existing board tile (no
+			// multipliers; blanked board tiles score 0 via ld.Score).
+			playthroughScoreTotal += ld.Score(sq.letter)
+			continue
+		}
+		// Newly placed tile. Blanked placements score 0 via ld.Score.
+		tileScore := ld.Score(ml)
+		twm := int(sq.wordMul)
+		cs := int(sq.crossScore)
+		hookedCrossTotal += cs * twm
+		isCrossWord := cs > 0 || sq.crossSet != board.TrivialCrossSet
+		lm := int(sq.letterMul)
+		if isCrossWord {
+			playedCrossTotal += tileScore * twm * lm
+		}
+		playedScoreTotal += tileScore * lm
+		wordMultiplier *= twm
+	}
+
+	bingoBonus := 0
+	if tilesPlayed == game.RackTileLimit {
+		bingoBonus = 50
+	}
+
+	return (playedScoreTotal+playthroughScoreTotal)*wordMultiplier +
+		hookedCrossTotal + playedCrossTotal + bingoBonus
+}
+
+// carryRevalidate reports whether the rack's remembered play i is a play of
+// this board, and if so its score and equity here. It is one when its lane
+// has the tiles it was played through and none just before or after it,
+// the squares it fills are empty and allow its tiles, and it covers an
+// anchor: it then spells the word it spelled, with valid cross words, and
+// the generator finds every such placement of a word. Its leave is what it
+// was, since the rack is the same, and the entry is for this bag.
+func (gen *GordonGenerator) carryRevalidate(rack *tilemapping.Rack, i int) (ok bool, score int, eq float64) {
+	c := gen.carry
+	entry := c.cur
+	m := &entry.moves[i]
+	if m.Action() != move.MoveTypePlay {
+		return false, 0, 0
+	}
+	row, col, vertical := m.CoordsAndVertical()
+	dir, lane, start := 0, row, col
+	if vertical {
+		dir, lane, start = 1, col, row
+	}
+	anchors := c.anchors[dir][lane]
+	tiles := m.Tiles()
+	dim := gen.boardDim
+	end := start + len(tiles)
+	if end > dim || anchors&((uint32(1)<<uint(end))-(uint32(1)<<uint(start))) == 0 {
+		// (A lane without anchors is not loaded.)
+		return false, 0, 0
+	}
+	squares := &gen.shadow.lanes[dir][lane]
+	if start > 0 && squares[start-1].letter != 0 {
+		return false, 0, 0
+	}
+	if end < dim && squares[end].letter != 0 {
+		return false, 0, 0
+	}
+	through := &entry.through[i]
+	// The leave's index in the leave map: of each tile type, the low bits
+	// of its slot, as many as are left.
+	var used [carryMaxAlphabet]uint8
+	for k, ml := range tiles {
+		sq := &squares[start+k]
+		if ml == 0 {
+			if sq.letter == 0 || sq.letter != through[k] {
+				return false, 0, 0
+			}
+			continue
+		}
+		if sq.letter != 0 || !sq.crossSet.Allowed(ml.Unblank()) {
+			return false, 0, 0
+		}
+		rackML := ml
+		if ml.IsBlanked() {
+			rackML = 0
+		}
+		used[rackML]++
+	}
+	idx := 0
+	for ml, n := range rack.LetArr {
+		if n == 0 {
+			continue
+		}
+		left := n - int(used[ml])
+		if left < 0 {
+			return false, 0, 0
+		}
+		idx |= ((1 << uint(left)) - 1) << uint(gen.leavemap.LetterBaseIndex[ml])
+	}
+	score = scoreLanePlay(gen.letterDistribution, squares, tiles, start, m.TilesPlayed())
+	return true, score, float64(score) + gen.leavemap.Values[idx]
+}
+
 // carrySeedAndSkip is called when every lane has been noted. It starts the
-// generation from the best remembered play that lies in an unchanged lane,
-// if that beats what the generation has (an exchange, or nothing), and then
-// marks every unchanged lane whose bound the generation's best play is no
-// worse than.
-func (gen *GordonGenerator) carrySeedAndSkip() {
+// generation from the best remembered play that is a play of this board
+// too, if that beats what the generation has (an exchange, or nothing), and
+// then marks every unchanged lane whose bound the generation's best play is
+// no worse than.
+func (gen *GordonGenerator) carrySeedAndSkip(rack *tilemapping.Rack) {
 	c := gen.carry
 	entry := c.cur
 	dim := gen.boardDim
-	var best *move.Move
-	for dir := 0; dir < 2; dir++ {
-		for row := 0; row < dim; row++ {
-			f := c.found[dir][row]
-			if f < 0 {
-				continue
-			}
-			b, _ := entry.bound(dim, dir, row, int(f))
-			if !b.inLane {
-				continue
-			}
-			m := &entry.moves[b.moveIdx]
-			if best == nil || !carryNoWorse(best, m) {
-				best = m
-			}
+	seeded := false
+	for i := 0; i < entry.numMoves; i++ {
+		ok, score, eq := gen.carryRevalidate(rack, i)
+		if !ok || (!gen.winner.IsEmpty() && eq < gen.winner.Equity()) {
+			continue
+		}
+		c.scratch.CopyFrom(&entry.moves[i])
+		c.scratch.SetScore(score)
+		c.scratch.SetEquity(eq)
+		if gen.winner.IsEmpty() || !carryNoWorse(gen.winner, &c.scratch) {
+			gen.winner.CopyFrom(&c.scratch)
+			seeded = true
 		}
 	}
-	if best != nil && (gen.winner.IsEmpty() || !carryNoWorse(gen.winner, best)) {
-		gen.winner.CopyFrom(best)
+	if seeded {
 		if len(gen.plays) == 0 {
 			gen.plays = append(gen.plays, gen.winner)
 		} else {
@@ -409,21 +523,25 @@ func (gen *GordonGenerator) carryRemember() {
 		entry.stamps[moveIdx]++
 		entry.moves[moveIdx].CopyFrom(gen.winner)
 	}
-	winnerDir, winnerRow := -1, -1
+	dim := gen.boardDim
 	if gen.winner.Action() == move.MoveTypePlay {
+		// Its lane has an anchor, so it is loaded.
 		row, col, vertical := gen.winner.CoordsAndVertical()
-		winnerDir, winnerRow = 0, row
+		dir, lane, start := 0, row, col
 		if vertical {
-			winnerDir, winnerRow = 1, col
+			dir, lane, start = 1, col, row
+		}
+		squares := &gen.shadow.lanes[dir][lane]
+		through := &entry.through[moveIdx]
+		for k := range gen.winner.Tiles() {
+			through[k] = squares[start+k].letter
 		}
 	}
-	dim := gen.boardDim
 	for dir := 0; dir < 2; dir++ {
 		for row := 0; row < dim; row++ {
 			if c.hashes[dir][row] == 0 || c.skip[dir][row] {
 				continue
 			}
-			inLane := dir == winnerDir && row == winnerRow
 			if f := c.found[dir][row]; f >= 0 {
 				// The same contents are remembered with another bound;
 				// keep the lower of the two.
@@ -433,7 +551,6 @@ func (gen *GordonGenerator) carryRemember() {
 					!carryNoWorse(gen.winner, &entry.moves[b.moveIdx]) {
 					b.moveIdx = uint8(moveIdx)
 					b.stamp = entry.stamps[moveIdx]
-					b.inLane = inLane
 				}
 				continue
 			}
@@ -445,7 +562,6 @@ func (gen *GordonGenerator) carryRemember() {
 			b.stamp = entry.stamps[moveIdx]
 			b.anchors = c.anchors[dir][row]
 			b.moveIdx = uint8(moveIdx)
-			b.inLane = inLane
 			copy(kept, gen.shadow.lanes[dir][row][:dim])
 		}
 	}
@@ -454,7 +570,7 @@ func (gen *GordonGenerator) carryRemember() {
 // genShadowCarried is genShadow for a generation that uses the memory: all
 // lanes are loaded and looked up first, and then only the lanes that are not
 // skipped are given bounds.
-func (gen *GordonGenerator) genShadowCarried() {
+func (gen *GordonGenerator) genShadowCarried(rack *tilemapping.Rack) {
 	dim := gen.boardDim
 
 	for row := 0; row < dim; row++ {
@@ -475,7 +591,7 @@ func (gen *GordonGenerator) genShadowCarried() {
 		gen.carryNoteLane(1, row, anchors)
 	}
 
-	gen.carrySeedAndSkip()
+	gen.carrySeedAndSkip(rack)
 
 	// The board is transposed: vertical lanes first.
 	gen.vertical = true

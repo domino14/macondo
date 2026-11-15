@@ -63,13 +63,27 @@ type SubrackInfo struct {
 }
 
 // ScoreBaseCount is the number of score bases kept per anchor. See
-// UpdateAnchorScoreBases.
+// RecordPlacement.
 const ScoreBaseCount = 2
 
-// Anchor is the per-(playthrough_blocks, tiles_to_play) anchor record
-// the WMP move generator builds during shadow play. Mirrors MAGPIE's
-// Anchor (the WMP-relevant subset of fields). Bit-packed in C; we use
-// plain ints in Go.
+// AnchorSlot is what the shadow has found for one (playthrough_blocks,
+// tiles_to_play) pair of the square it is on: the placements' range of start
+// columns, their highest score and equity bounds, and their score bases (see
+// RecordPlacement). TilesToPlay is 0 for a slot with no placement. Kept
+// small: the shadow writes one for every placement it bounds.
+type AnchorSlot struct {
+	HighestPossibleEquity float64
+	HighestPossibleScore  int32
+	ScoreBases            [ScoreBaseCount]int32
+	TilesToPlay           uint8
+	PlaythroughBlocks     uint8
+	WordLength            uint8
+	LeftmostStartCol      uint8
+	RightmostStartCol     uint8
+}
+
+// Anchor is an anchor as PlaythroughSubracksInit takes it. Mirrors MAGPIE's
+// Anchor (the WMP-relevant subset of fields).
 type Anchor struct {
 	HighestPossibleEquity float64
 	HighestPossibleScore  float64
@@ -93,7 +107,7 @@ type Anchor struct {
 //  3. PlaythroughSubracksInit + GetSubrackWords to retrieve actual
 //     words once an anchor has been picked.
 //
-// Anchor management (MaybeUpdateAnchor) is done as the move generator
+// Anchor management (RecordPlacement) is done as the move generator
 // shadow-plays across the board.
 type MoveGen struct {
 	wmp           *WMP
@@ -126,11 +140,7 @@ type MoveGen struct {
 	nonplaythroughHasWordOfLength [RackSize + 1]bool
 	countBySize                   [RackSize + 1]uint8
 
-	anchors [MaxWMPMoveGenAnchors]Anchor
-	// anchorScoreBases[slot] are the slot's score bases; see
-	// UpdateAnchorScoreBases. Not reset: a slot's first placement replaces
-	// them.
-	anchorScoreBases [MaxWMPMoveGenAnchors][ScoreBaseCount]int32
+	anchors [MaxWMPMoveGenAnchors]AnchorSlot
 	// tileScores[ml] is the score of tile ml, from the letter distribution
 	// given to Init.
 	tileScores   [maxAlphabetSize]int32
@@ -222,13 +232,13 @@ func (mg *MoveGen) IsActive() bool {
 //
 // Optimization: instead of re-zeroing the full 64-entry table on
 // every shadow square, only reset slots that were touched since the
-// last reset (tracked via dirtyAnchors). MaybeUpdateAnchor records
-// each newly-touched slot, and MaybeUpdateAnchor's "first touch"
+// last reset (tracked via dirtyAnchors). RecordPlacement records
+// each newly-touched slot, and RecordPlacement's "first touch"
 // branch is responsible for installing the per-slot sentinels (so
 // ResetAnchors itself can leave them implicit).
 func (mg *MoveGen) ResetAnchors() {
 	for _, idx := range mg.dirtyAnchors {
-		mg.anchors[idx] = Anchor{}
+		mg.anchors[idx] = AnchorSlot{}
 	}
 	mg.dirtyAnchors = mg.dirtyAnchors[:0]
 }
@@ -264,21 +274,9 @@ func (mg *MoveGen) PlaythroughBlocks() int {
 	return mg.playthroughBlocks
 }
 
-// Anchors returns the per-(playthrough_blocks, tiles_to_play) anchor
-// table. Slots with TilesToPlay == 0 are unused. The caller is
-// expected to walk the slice and push the live anchors into its own
-// anchor heap (mirroring wmp_move_gen_add_anchors).
-//
-// Most callers should prefer LiveAnchors, which iterates only the
-// slots that were actually touched since the last ResetAnchors call.
-func (mg *MoveGen) Anchors() []Anchor {
-	return mg.anchors[:]
-}
-
 // DirtyAnchorIndices returns the indices into the per-(blocks, tiles)
 // anchor table that were touched since the last ResetAnchors call.
-// The caller can index into Anchors() (or use AnchorAt) to read each
-// touched slot. Avoids copying anchor structs.
+// The caller uses AnchorAt to read each touched slot.
 func (mg *MoveGen) DirtyAnchorIndices() []int {
 	return mg.dirtyAnchors
 }
@@ -286,7 +284,7 @@ func (mg *MoveGen) DirtyAnchorIndices() []int {
 // AnchorAt returns a pointer to the anchor slot at the given index
 // into the per-(blocks, tiles) table. Pair with DirtyAnchorIndices
 // to walk only the live entries.
-func (mg *MoveGen) AnchorAt(idx int) *Anchor {
+func (mg *MoveGen) AnchorAt(idx int) *AnchorSlot {
 	return &mg.anchors[idx]
 }
 
@@ -456,15 +454,10 @@ func wmpMoveGenAnchorIndex(playthroughBlocks, tilesPlayed int) int {
 	return playthroughBlocks*(RackSize+1) + tilesPlayed
 }
 
-// GetAnchor returns a pointer to the anchor slot for the given
-// (playthrough_blocks, tiles_played) pair. Mirrors
-// wmp_move_gen_get_anchor.
-func (mg *MoveGen) GetAnchor(playthroughBlocks, tilesPlayed int) *Anchor {
-	return &mg.anchors[wmpMoveGenAnchorIndex(playthroughBlocks, tilesPlayed)]
-}
-
-// UpdateAnchorScoreBases folds one shadow placement into the score bases of
-// the current (playthrough_blocks, tiles_played) slot. Mirrors MAGPIE's
+// RecordPlacement folds one shadow placement into the slot of the current
+// (playthrough_blocks, tiles_played) pair: it widens the slot's range of
+// start columns, raises its highest score and equity bounds, and updates its
+// score bases. Mirrors MAGPIE's wmp_move_gen_maybe_update_anchor and
 // wmp_move_gen_update_anchor_score_bases.
 //
 // A score base bounds the scores of an anchor's plays by the tiles they
@@ -486,70 +479,52 @@ func (mg *MoveGen) GetAnchor(playthroughBlocks, tilesPlayed int) *Anchor {
 // each placement's smallest multiplier. Tiles the shadow restricted to one
 // square are in every play of the placement and are counted in both sums.
 //
-// Call this before MaybeUpdateAnchor for the same placement: a slot with no
-// placement yet has its bases replaced.
-func (mg *MoveGen) UpdateAnchorScoreBases(tilesPlayed int, score, shadowTileScoreSum, smallestMultiplier int) {
+// A slot's first placement appends its index to dirtyAnchors, so that the
+// next ResetAnchors clears it.
+func (mg *MoveGen) RecordPlacement(tilesPlayed, wordLength, startCol, score int, equity float64,
+	shadowTileScoreSum, smallestMultiplier int) {
 	idx := wmpMoveGenAnchorIndex(mg.playthroughBlocks, tilesPlayed)
-	first := mg.anchors[idx].TilesToPlay == 0
-	bases := &mg.anchorScoreBases[idx]
-	for b := 0; b < ScoreBaseCount; b++ {
-		m := b + 1
-		if smallestMultiplier < m {
-			m = smallestMultiplier
+	anchor := &mg.anchors[idx]
+	base0 := int32(score - min(1, smallestMultiplier)*shadowTileScoreSum)
+	base1 := int32(score - min(2, smallestMultiplier)*shadowTileScoreSum)
+	if anchor.TilesToPlay == 0 {
+		*anchor = AnchorSlot{
+			HighestPossibleEquity: equity,
+			HighestPossibleScore:  int32(score),
+			ScoreBases:            [ScoreBaseCount]int32{base0, base1},
+			TilesToPlay:           uint8(tilesPlayed),
+			PlaythroughBlocks:     uint8(mg.playthroughBlocks),
+			WordLength:            uint8(wordLength),
+			LeftmostStartCol:      uint8(startCol),
+			RightmostStartCol:     uint8(startCol),
 		}
-		base := int32(score - m*shadowTileScoreSum)
-		if first || base > bases[b] {
-			bases[b] = base
-		}
+		mg.dirtyAnchors = append(mg.dirtyAnchors, idx)
+		return
 	}
-}
-
-// AnchorScoreBasesAt returns the score bases of the anchor slot at idx.
-func (mg *MoveGen) AnchorScoreBasesAt(idx int) [ScoreBaseCount]int32 {
-	return mg.anchorScoreBases[idx]
+	anchor.WordLength = uint8(wordLength)
+	if c := uint8(startCol); c < anchor.LeftmostStartCol {
+		anchor.LeftmostStartCol = c
+	} else if c > anchor.RightmostStartCol {
+		anchor.RightmostStartCol = c
+	}
+	if equity > anchor.HighestPossibleEquity {
+		anchor.HighestPossibleEquity = equity
+	}
+	if int32(score) > anchor.HighestPossibleScore {
+		anchor.HighestPossibleScore = int32(score)
+	}
+	if base0 > anchor.ScoreBases[0] {
+		anchor.ScoreBases[0] = base0
+	}
+	if base1 > anchor.ScoreBases[1] {
+		anchor.ScoreBases[1] = base1
+	}
 }
 
 // GetTileScoreSum returns the sum of the tile scores of the idxForSize'th
 // subrack of the current tilesToPlay size.
 func (mg *MoveGen) GetTileScoreSum(idxForSize int) int32 {
 	return mg.nonplaythroughInfos[combinationOffsets[mg.tilesToPlay]+idxForSize].TileScoreSum
-}
-
-// MaybeUpdateAnchor updates the anchor slot for the current
-// (playthrough_blocks, tiles_played) pair, expanding the recorded
-// column range and pulling up the best score / equity if appropriate.
-// Mirrors wmp_move_gen_maybe_update_anchor.
-//
-// On first touch (TilesToPlay == 0), the slot is freshly initialized
-// from the incoming values and its index is appended to dirtyAnchors
-// so the next ResetAnchors knows to clear it.
-func (mg *MoveGen) MaybeUpdateAnchor(tilesPlayed, wordLength, startCol int, score, equity float64) {
-	idx := wmpMoveGenAnchorIndex(mg.playthroughBlocks, tilesPlayed)
-	anchor := &mg.anchors[idx]
-	if anchor.TilesToPlay == 0 {
-		anchor.TilesToPlay = tilesPlayed
-		anchor.PlaythroughBlocks = mg.playthroughBlocks
-		anchor.WordLength = wordLength
-		anchor.LeftmostStartCol = startCol
-		anchor.RightmostStartCol = startCol
-		anchor.HighestPossibleEquity = equity
-		anchor.HighestPossibleScore = score
-		mg.dirtyAnchors = append(mg.dirtyAnchors, idx)
-		return
-	}
-	anchor.WordLength = wordLength
-	if startCol < anchor.LeftmostStartCol {
-		anchor.LeftmostStartCol = startCol
-	}
-	if startCol > anchor.RightmostStartCol {
-		anchor.RightmostStartCol = startCol
-	}
-	if equity > anchor.HighestPossibleEquity {
-		anchor.HighestPossibleEquity = equity
-	}
-	if score > anchor.HighestPossibleScore {
-		anchor.HighestPossibleScore = score
-	}
 }
 
 // =====================================================================

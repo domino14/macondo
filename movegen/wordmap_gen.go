@@ -28,8 +28,6 @@ import (
 
 	"github.com/domino14/word-golib/tilemapping"
 
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/wmp"
 )
@@ -77,10 +75,10 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 		gen.leavemap.Initialized && !gen.board.IsEmpty()
 	scoreBound := int32(anchor.HighestPossibleScore)
 	// The anchor's score bases bound a subrack's plays by its own tiles (see
-	// wmp.MoveGen.UpdateAnchorScoreBases); the subrack's bound is the least.
-	bases := gen.shadow.anchorScoreBases[anchor.BasesIdx]
+	// wmp.MoveGen.RecordPlacement); the subrack's bound is the least.
+	bases := anchor.ScoreBases
 	if gen.wmpNoScoreBases {
-		bases = gen.shadow.anchorScoreBases[0]
+		bases = [wmp.ScoreBaseCount]int32{math.MaxInt32 / 2, math.MaxInt32 / 2}
 	}
 	gen.wmpSubrackScoreBound = math.MaxInt32
 
@@ -312,43 +310,6 @@ func (gen *GordonGenerator) recordWMPPlay(rack *tilemapping.Rack, startCol, word
 // per-square multipliers and cross-scores. Mirrors the scoring loop
 // in record_wmp_play.
 func (gen *GordonGenerator) computeWMPScore(startCol, wordLength int) int {
-	var playedScoreTotal int
-	var playthroughScoreTotal int
-	var hookedCrossTotal int
-	var playedCrossTotal int
-	wordMultiplier := 1
-	ld := gen.letterDistribution
-
-	for i := 0; i < wordLength; i++ {
-		col := startCol + i
-		sq := &gen.cache.squares[col]
-		ml := gen.strip[col]
-		if ml == 0 {
-			// Playthrough: score the existing board tile (no
-			// multipliers; blanked board tiles score 0 via ld.Score).
-			playthroughScoreTotal += ld.Score(sq.letter)
-			continue
-		}
-		// Newly placed tile. Blanked placements score 0 via ld.Score.
-		// Decode packed cachedSquare fields to int once.
-		tileScore := ld.Score(ml)
-		twm := int(sq.wordMul)
-		cs := int(sq.crossScore)
-		hookedCrossTotal += cs * twm
-		isCrossWord := cs > 0 || sq.crossSet != board.TrivialCrossSet
-		lm := int(sq.letterMul)
-		if isCrossWord {
-			playedCrossTotal += tileScore * twm * lm
-		}
-		playedScoreTotal += tileScore * lm
-		wordMultiplier *= twm
-	}
-
-	bingoBonus := 0
-	if gen.tilesPlayed == game.RackTileLimit {
-		bingoBonus = 50
-	}
-
-	return (playedScoreTotal+playthroughScoreTotal)*wordMultiplier +
-		hookedCrossTotal + playedCrossTotal + bingoBonus
+	return scoreLanePlay(gen.letterDistribution, &gen.cache.squares,
+		gen.strip[startCol:startCol+wordLength], startCol, gen.tilesPlayed)
 }

@@ -64,22 +64,52 @@ type Anchor struct {
 	WordLength        uint8
 	LeftmostStartCol  uint8
 	RightmostStartCol uint8
-	// BasesIdx is the anchor's entry in shadowState.anchorScoreBases. Entry
-	// 0 bounds nothing.
-	BasesIdx uint16
+	// ScoreBases are a word map anchor's score bases (see
+	// wmp.MoveGen.RecordPlacement).
+	ScoreBases [wmp.ScoreBaseCount]int32
 }
 
 // LastAnchorCol uses the existing in-package sentinel value 100
 // (greater than any valid 0..14 column on a 15-board), which fits
 // in uint8 unchanged.
 
-// AnchorHeap is a max-heap of anchors ordered by highestPossibleEquity.
+// AnchorHeap holds a generation's anchors and hands them out from the
+// highest equity bound down.
+//
+// The anchors stay where they were added. What is ordered is a max-heap of
+// one 64-bit key for each: its bound, as an integer that orders as the bound
+// does, with the low anchorIdxBits bits replaced by the anchor's index. A
+// key is a third of an anchor and compares as an integer. Dropping the low
+// bits of the bound means anchors whose bounds differ by less than about one
+// part in 10^9 may come out in either order. The order anchors are searched
+// in does not change what a generation finds, only when it can stop, and
+// keyBelow is the test for that.
 type AnchorHeap struct {
 	anchors []Anchor
+	keys    []uint64
+}
+
+const (
+	anchorIdxBits = 20
+	anchorIdxMask = 1<<anchorIdxBits - 1
+)
+
+// anchorKey is equity as an integer, without its low anchorIdxBits bits:
+// anchorKey(a) < anchorKey(b) only if a < b.
+func anchorKey(equity float64) uint64 {
+	equity += 0 // -0 becomes +0, which it equals
+	bits := math.Float64bits(equity)
+	if bits>>63 != 0 {
+		bits = ^bits
+	} else {
+		bits |= 1 << 63
+	}
+	return bits &^ anchorIdxMask
 }
 
 func (h *AnchorHeap) reset() {
 	h.anchors = h.anchors[:0]
+	h.keys = h.keys[:0]
 }
 
 func (h *AnchorHeap) addUnheaped(row, col, lastAnchorCol int, dir board.BoardDirection,
@@ -94,46 +124,67 @@ func (h *AnchorHeap) addUnheaped(row, col, lastAnchorCol int, dir board.BoardDir
 	})
 }
 
+// heapifyAll orders the anchors added since reset.
 func (h *AnchorHeap) heapifyAll() {
 	n := len(h.anchors)
+	if n > anchorIdxMask+1 {
+		panic("movegen: too many anchors")
+	}
+	if cap(h.keys) < n {
+		h.keys = make([]uint64, n, 2*n)
+	}
+	h.keys = h.keys[:n]
+	for i := range h.anchors {
+		h.keys[i] = anchorKey(h.anchors[i].HighestPossibleEquity) | uint64(i)
+	}
 	for i := n/2 - 1; i >= 0; i-- {
 		h.heapifyDown(i)
 	}
 }
 
 func (h *AnchorHeap) heapifyDown(parent int) {
-	n := len(h.anchors)
+	keys := h.keys
+	n := len(keys)
+	key := keys[parent]
 	for {
-		best := parent
-		left := parent*2 + 1
-		right := parent*2 + 2
-		if left < n && h.anchors[left].HighestPossibleEquity > h.anchors[best].HighestPossibleEquity {
-			best = left
-		}
-		if right < n && h.anchors[right].HighestPossibleEquity > h.anchors[best].HighestPossibleEquity {
-			best = right
-		}
-		if best == parent {
+		child := parent*2 + 1
+		if child >= n {
 			break
 		}
-		h.anchors[parent], h.anchors[best] = h.anchors[best], h.anchors[parent]
-		parent = best
+		if right := child + 1; right < n && keys[right] > keys[child] {
+			child = right
+		}
+		if keys[child] <= key {
+			break
+		}
+		keys[parent] = keys[child]
+		parent = child
 	}
+	keys[parent] = key
 }
 
-func (h *AnchorHeap) extractMax() Anchor {
-	max := h.anchors[0]
-	n := len(h.anchors) - 1
-	h.anchors[0] = h.anchors[n]
-	h.anchors = h.anchors[:n]
+// extractMax removes the anchor with the highest key and returns it, where
+// it stays until reset, with its key.
+func (h *AnchorHeap) extractMax() (*Anchor, uint64) {
+	max := h.keys[0]
+	n := len(h.keys) - 1
+	h.keys[0] = h.keys[n]
+	h.keys = h.keys[:n]
 	if n > 0 {
 		h.heapifyDown(0)
 	}
-	return max
+	return &h.anchors[max&anchorIdxMask], max
 }
 
+// keyBelow reports whether an anchor with this key, and so every anchor
+// still in the heap after it was extracted, has a bound below equity.
+func keyBelow(key uint64, equity float64) bool {
+	return key&^anchorIdxMask < anchorKey(equity)
+}
+
+// len is the number of anchors not yet extracted, once heapifyAll has run.
 func (h *AnchorHeap) len() int {
-	return len(h.anchors)
+	return len(h.keys)
 }
 
 // shadowState holds all the mutable state used during shadow computation.
@@ -144,9 +195,6 @@ type shadowState struct {
 	// pass (the best exchange, when exchanges are generated first), or -Inf.
 	// An anchor whose bound is below it is not kept.
 	anchorFloor float64
-	// anchorScoreBases holds the word map anchors' score bases (see
-	// wmp.MoveGen.UpdateAnchorScoreBases), indexed by Anchor.BasesIdx.
-	anchorScoreBases [][wmp.ScoreBaseCount]int32
 	// rackTileScoreSum is the sum of the whole rack's tile scores.
 	rackTileScoreSum int
 
@@ -341,8 +389,6 @@ func (gen *GordonGenerator) enumerateLeaves(
 // initShadow sets up shadow state for a generation pass.
 func (gen *GordonGenerator) initShadow(rack *tilemapping.Rack) {
 	gen.shadow.anchorHeap.reset()
-	gen.shadow.anchorScoreBases = append(gen.shadow.anchorScoreBases[:0],
-		[wmp.ScoreBaseCount]int32{math.MaxInt32 / 2, math.MaxInt32 / 2})
 
 	// Build rack cross set and descending tile scores
 	gen.shadow.rackCrossSet = 0
@@ -493,25 +539,19 @@ func (gen *GordonGenerator) addWMPAnchorsForSquare(row, col, lastAnchorCol int, 
 			// (an exchange): the recording loop would stop at it.
 			continue
 		}
-		basesIdx := 0
-		if n := len(gen.shadow.anchorScoreBases); n <= math.MaxUint16 {
-			gen.shadow.anchorScoreBases = append(gen.shadow.anchorScoreBases,
-				gen.wmpMoveGen.AnchorScoreBasesAt(idx))
-			basesIdx = n
-		}
 		gen.shadow.anchorHeap.anchors = append(gen.shadow.anchorHeap.anchors, Anchor{
 			HighestPossibleEquity: a.HighestPossibleEquity,
-			HighestPossibleScore:  int32(a.HighestPossibleScore),
+			HighestPossibleScore:  a.HighestPossibleScore,
 			Row:                   uint8(row),
 			Col:                   uint8(col),
 			LastAnchorCol:         uint8(lastAnchorCol),
 			Dir:                   dir,
-			TilesToPlay:           uint8(a.TilesToPlay),
-			PlaythroughBlocks:     uint8(a.PlaythroughBlocks),
-			WordLength:            uint8(a.WordLength),
-			LeftmostStartCol:      uint8(a.LeftmostStartCol),
-			RightmostStartCol:     uint8(a.RightmostStartCol),
-			BasesIdx:              uint16(basesIdx),
+			TilesToPlay:           a.TilesToPlay,
+			PlaythroughBlocks:     a.PlaythroughBlocks,
+			WordLength:            a.WordLength,
+			LeftmostStartCol:      a.LeftmostStartCol,
+			RightmostStartCol:     a.RightmostStartCol,
+			ScoreBases:            a.ScoreBases,
 		})
 	}
 }
@@ -931,10 +971,8 @@ func (gen *GordonGenerator) shadowRecord() {
 			if s.numUnrestrictedMuls > 0 {
 				smallestMul = s.descEffLetterMuls[s.numUnrestrictedMuls-1]
 			}
-			gen.wmpMoveGen.UpdateAnchorScoreBases(gen.tilesPlayed, score,
-				shadowTileScoreSum, smallestMul)
-			gen.wmpMoveGen.MaybeUpdateAnchor(gen.tilesPlayed, wordLength,
-				s.currentLeftCol, float64(score), equity)
+			gen.wmpMoveGen.RecordPlacement(gen.tilesPlayed, wordLength,
+				s.currentLeftCol, score, equity, shadowTileScoreSum, smallestMul)
 		}
 	}
 
@@ -1093,7 +1131,7 @@ func (gen *GordonGenerator) shadowMaybeRecalcEffMuls() {
 func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.initShadow(rack)
 	if gen.carry != nil && gen.carry.cur != nil {
-		gen.genShadowCarried()
+		gen.genShadowCarried(rack)
 		return
 	}
 	dim := gen.boardDim
@@ -1177,7 +1215,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			break
 		}
 
-		anchor := gen.shadow.anchorHeap.extractMax()
+		anchor, key := gen.shadow.anchorHeap.extractMax()
 
 		// Check if we can stop: no remaining anchor can beat our best.
 		// For TopPlayOnly, winner tracks the best move found.
@@ -1199,10 +1237,14 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			}
 		}
 		if bestEquity > math.Inf(-1) && anchor.HighestPossibleEquity < bestEquity {
-			if currentlyTransposed {
-				gen.board.Transpose()
+			if keyBelow(key, bestEquity) {
+				// So is every anchor left.
+				if currentlyTransposed {
+					gen.board.Transpose()
+				}
+				return
 			}
-			return
+			continue
 		}
 
 		needTransposed := anchor.Dir == board.VerticalDirection
@@ -1246,7 +1288,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		// traversal in recursiveGen. Non-WMP anchors fall back to
 		// the regular Gordon recursive generator.
 		if gen.wmpMoveGen.IsActive() && anchor.TilesToPlay > 0 {
-			gen.wordmapGen(rack, &anchor)
+			gen.wordmapGen(rack, anchor)
 		} else {
 			gen.genForAnchor(rack)
 		}
@@ -1308,7 +1350,8 @@ func (gen *GordonGenerator) RunShadowOnlyWMP(rack *tilemapping.Rack, tilesInBag,
 	n := gen.shadow.anchorHeap.len()
 	sorted := make([]Anchor, 0, n)
 	for gen.shadow.anchorHeap.len() > 0 {
-		sorted = append(sorted, gen.shadow.anchorHeap.extractMax())
+		anchor, _ := gen.shadow.anchorHeap.extractMax()
+		sorted = append(sorted, *anchor)
 	}
 	return sorted
 }
