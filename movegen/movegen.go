@@ -152,14 +152,26 @@ type GordonGenerator struct {
 	// sub-anchors into the heap (the MAGPIE behavior, useful only
 	// with a wordmap_gen-style word generator) or sticks with the
 	// single-anchor-per-square macondo path. Default false.
-	wmpData             *wmp.WMP
-	wmpMoveGen          wmp.MoveGen
+	wmpData    *wmp.WMP
+	wmpMoveGen wmp.MoveGen
 	// bestPlayOnly is set while the recorder is the one that keeps only the
 	// best play (TopPlayOnlyRecorder).
 	bestPlayOnly bool
 	// wmpNoSubrackLeavePrune switches off wordmapGen's skipping of subracks
 	// whose leave cannot bring any of their plays up to the best play found.
 	wmpNoSubrackLeavePrune bool
+	// wmpNoScoreBases makes the leave prune use the anchor's score bound
+	// alone. wmpCheckScoreBounds panics when a recorded word map play scores
+	// more than the bound its subrack was given. wmpSubrackScoreBound is
+	// that bound, for the subrack being recorded.
+	wmpNoScoreBases      bool
+	wmpCheckScoreBounds  bool
+	wmpSubrackScoreBound int32
+	// carry is the memory of best plays by rack (carry.go), or nil.
+	carry *bestMoveCarry
+	// exchangesLast makes the best-play generation record exchanges after
+	// plays instead of before them.
+	exchangesLast       bool
 	wmpRecordSubAnchors bool
 	pegValues           []float64 // pre-endgame adjustment values
 	tilesInBag          int       // cached bag state for equity calc
@@ -208,6 +220,25 @@ func (gen *GordonGenerator) SetWMPSubrackLeavePrune(on bool) {
 	gen.wmpNoSubrackLeavePrune = !on
 }
 
+// SetWMPScoreBases switches the per-subrack score bounds the leave prune
+// uses, which are on unless switched off; for tests and measurements.
+func (gen *GordonGenerator) SetWMPScoreBases(on bool) {
+	gen.wmpNoScoreBases = !on
+}
+
+// SetWMPCheckScoreBounds makes the word map generator panic when a play it
+// records scores more than the bound its subrack was given. For tests.
+func (gen *GordonGenerator) SetWMPCheckScoreBounds(on bool) {
+	gen.wmpCheckScoreBounds = on
+}
+
+// SetExchangesFirst switches whether a best-play generation records
+// exchanges before plays, which it does unless switched off. The play found
+// is the same either way; this is for tests and measurements.
+func (gen *GordonGenerator) SetExchangesFirst(on bool) {
+	gen.exchangesLast = !on
+}
+
 func (gen *GordonGenerator) SetMaxCanExchange(m int) {
 	gen.maxCanExchange = m
 }
@@ -231,6 +262,7 @@ func (gen *GordonGenerator) SetWMP(w *wmp.WMP) {
 
 func (gen *GordonGenerator) setWMP(w *wmp.WMP) {
 	gen.wmpData = w
+	gen.forgetCarry()
 	// Sub-anchor recording is meaningful only when there's a fast
 	// per-(blocks, tiles) word generator on the consumer side; we
 	// have wordmapGen now, so enable it by default whenever WMP is
@@ -298,10 +330,12 @@ func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 
 func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
 	gen.equityCalculators = calcs
+	gen.forgetCarry()
 }
 
 func (gen *GordonGenerator) SetGame(g *game.Game) {
 	gen.game = g
+	gen.forgetCarry()
 }
 
 func (gen *GordonGenerator) SetGenPass(p bool) {
@@ -821,4 +855,5 @@ func (gen *GordonGenerator) GADDAG() *kwg.KWG {
 // a solve and restore the original afterwards.
 func (gen *GordonGenerator) SetGADDAG(g *kwg.KWG) {
 	gen.gaddag = g
+	gen.forgetCarry()
 }

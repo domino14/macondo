@@ -58,7 +58,13 @@ type SubrackInfo struct {
 	Subrack    BitRack
 	WMPEntry   *Entry
 	LeaveValue float64
+	// TileScoreSum is the sum of the subrack's tile scores (a blank is 0).
+	TileScoreSum int32
 }
+
+// ScoreBaseCount is the number of score bases kept per anchor. See
+// UpdateAnchorScoreBases.
+const ScoreBaseCount = 2
 
 // Anchor is the per-(playthrough_blocks, tiles_to_play) anchor record
 // the WMP move generator builds during shadow play. Mirrors MAGPIE's
@@ -121,6 +127,14 @@ type MoveGen struct {
 	countBySize                   [RackSize + 1]uint8
 
 	anchors [MaxWMPMoveGenAnchors]Anchor
+	// anchorScoreBases[slot] are the slot's score bases; see
+	// UpdateAnchorScoreBases. Not reset: a slot's first placement replaces
+	// them.
+	anchorScoreBases [MaxWMPMoveGenAnchors][ScoreBaseCount]int32
+	// tileScores[ml] is the score of tile ml, from the letter distribution
+	// given to Init.
+	tileScores   [maxAlphabetSize]int32
+	tileScoresLD *tilemapping.LetterDistribution
 	// dirtyAnchors holds the indices into anchors that were touched
 	// since the last ResetAnchors call. This lets ResetAnchors avoid
 	// re-zeroing the full 64-entry table on every shadow square,
@@ -150,11 +164,50 @@ func (mg *MoveGen) Init(ld *tilemapping.LetterDistribution, rack *tilemapping.Ra
 	if wmp == nil || rack == nil || ld == nil {
 		return
 	}
+	if mg.tileScoresLD != ld {
+		mg.tileScoresLD = ld
+		for ml := range mg.tileScores {
+			mg.tileScores[ml] = 0
+			if ml < int(ld.TileMapping().NumLetters()) {
+				mg.tileScores[ml] = int32(ld.Score(tilemapping.MachineLetter(ml)))
+			}
+		}
+	}
 	mg.playerBitRack = BitRackFromRack(rack)
 	mg.fullRackSize = int(rack.NumTiles())
 	for i := range mg.nonplaythroughHasWordOfLength {
 		mg.nonplaythroughHasWordOfLength[i] = false
 	}
+}
+
+// RackState is what CheckNonplaythroughExistence works out for a rack: its
+// subracks with their leave values and word map entries, and what follows
+// from them. It depends on the rack, the leave values and the word map
+// only, so a generator that meets the same rack again can put it back
+// instead of working it out.
+type RackState struct {
+	infos           [totalSubracks]SubrackInfo
+	bestLeaveValues [RackSize + 1]float64
+	hasWordOfLength [RackSize + 1]bool
+	countBySize     [RackSize + 1]uint8
+}
+
+// SaveRackState copies out the state CheckNonplaythroughExistence left.
+func (mg *MoveGen) SaveRackState(st *RackState) {
+	st.infos = mg.nonplaythroughInfos
+	st.bestLeaveValues = mg.nonplaythroughBestLeaveValues
+	st.hasWordOfLength = mg.nonplaythroughHasWordOfLength
+	st.countBySize = mg.countBySize
+}
+
+// LoadRackState puts back a state saved for the rack Init was just given,
+// with the same word map and leave values, in place of a call of
+// CheckNonplaythroughExistence.
+func (mg *MoveGen) LoadRackState(st *RackState) {
+	mg.nonplaythroughInfos = st.infos
+	mg.nonplaythroughBestLeaveValues = st.bestLeaveValues
+	mg.nonplaythroughHasWordOfLength = st.hasWordOfLength
+	mg.countBySize = st.countBySize
 }
 
 // IsActive reports whether the MoveGen has a non-nil WMP and should be
@@ -295,7 +348,7 @@ func (mg *MoveGen) CheckPlaythroughFullRackExistence() bool {
 // multiset subrack of the player's rack and stores it (with its leave
 // value) in nonplaythroughInfos. Mirrors
 // wmp_move_gen_enumerate_nonplaythrough_subracks.
-func (mg *MoveGen) enumerateNonplaythroughSubracks(current *BitRack, nextML int, count int, lm *leavemap.LeaveMap) {
+func (mg *MoveGen) enumerateNonplaythroughSubracks(current *BitRack, nextML int, count int, scoreSum int32, lm *leavemap.LeaveMap) {
 	maxNumThis := 0
 	for ; nextML < maxAlphabetSize; nextML++ {
 		maxNumThis = mg.playerBitRack.GetLetter(byte(nextML))
@@ -308,15 +361,17 @@ func (mg *MoveGen) enumerateNonplaythroughSubracks(current *BitRack, nextML int,
 		info := &mg.nonplaythroughInfos[insertIndex]
 		info.Subrack = *current
 		info.LeaveValue = lm.CurrentValue()
+		info.TileScoreSum = scoreSum
 		mg.countBySize[count]++
 		return
 	}
+	tileScore := mg.tileScores[nextML]
 	for i := 0; i < maxNumThis; i++ {
-		mg.enumerateNonplaythroughSubracks(current, nextML+1, count+i, lm)
+		mg.enumerateNonplaythroughSubracks(current, nextML+1, count+i, scoreSum+int32(i)*tileScore, lm)
 		current.AddLetter(byte(nextML))
 		lm.ComplementAddLetter(tilemapping.MachineLetter(nextML), i)
 	}
-	mg.enumerateNonplaythroughSubracks(current, nextML+1, count+maxNumThis, lm)
+	mg.enumerateNonplaythroughSubracks(current, nextML+1, count+maxNumThis, scoreSum+int32(maxNumThis)*tileScore, lm)
 	for i := maxNumThis - 1; i >= 0; i-- {
 		current.TakeLetter(byte(nextML))
 		lm.ComplementTakeLetter(tilemapping.MachineLetter(nextML), i)
@@ -370,7 +425,7 @@ func (mg *MoveGen) CheckNonplaythroughExistence(checkLeaves bool, lm *leavemap.L
 		mg.nonplaythroughHasWordOfLength[i] = false
 	}
 	var empty BitRack
-	mg.enumerateNonplaythroughSubracks(&empty, blankMachineLetter, 0, lm)
+	mg.enumerateNonplaythroughSubracks(&empty, blankMachineLetter, 0, 0, lm)
 	for size := MinimumWordLength; size <= mg.fullRackSize; size++ {
 		mg.checkNonplaythroughsOfSize(size, checkLeaves)
 	}
@@ -406,6 +461,58 @@ func wmpMoveGenAnchorIndex(playthroughBlocks, tilesPlayed int) int {
 // wmp_move_gen_get_anchor.
 func (mg *MoveGen) GetAnchor(playthroughBlocks, tilesPlayed int) *Anchor {
 	return &mg.anchors[wmpMoveGenAnchorIndex(playthroughBlocks, tilesPlayed)]
+}
+
+// UpdateAnchorScoreBases folds one shadow placement into the score bases of
+// the current (playthrough_blocks, tiles_played) slot. Mirrors MAGPIE's
+// wmp_move_gen_update_anchor_score_bases.
+//
+// A score base bounds the scores of an anchor's plays by the tiles they
+// play: for every play of the anchor,
+//
+//	score <= base[b] + (b+1) * (sum of the play's tile scores)
+//
+// The shadow's bound for a placement puts the rack's best tiles on its
+// squares, each tile's score times its square's effective multiplier, both
+// in descending order. A play there with other tiles has, in descending
+// order, tiles each no better than the shadow's, so it scores less by at
+// least the difference of the two tile score sums times the smallest of the
+// multipliers. So for a multiplier m no greater than that smallest one,
+//
+//	score <= bound - m*(shadow's tile score sum) + m*(play's tile score sum)
+//
+// and a greater m only adds to the last term. base[b] is the largest value
+// of the first two terms over the slot's placements, with m = b+1 capped at
+// each placement's smallest multiplier. Tiles the shadow restricted to one
+// square are in every play of the placement and are counted in both sums.
+//
+// Call this before MaybeUpdateAnchor for the same placement: a slot with no
+// placement yet has its bases replaced.
+func (mg *MoveGen) UpdateAnchorScoreBases(tilesPlayed int, score, shadowTileScoreSum, smallestMultiplier int) {
+	idx := wmpMoveGenAnchorIndex(mg.playthroughBlocks, tilesPlayed)
+	first := mg.anchors[idx].TilesToPlay == 0
+	bases := &mg.anchorScoreBases[idx]
+	for b := 0; b < ScoreBaseCount; b++ {
+		m := b + 1
+		if smallestMultiplier < m {
+			m = smallestMultiplier
+		}
+		base := int32(score - m*shadowTileScoreSum)
+		if first || base > bases[b] {
+			bases[b] = base
+		}
+	}
+}
+
+// AnchorScoreBasesAt returns the score bases of the anchor slot at idx.
+func (mg *MoveGen) AnchorScoreBasesAt(idx int) [ScoreBaseCount]int32 {
+	return mg.anchorScoreBases[idx]
+}
+
+// GetTileScoreSum returns the sum of the tile scores of the idxForSize'th
+// subrack of the current tilesToPlay size.
+func (mg *MoveGen) GetTileScoreSum(idxForSize int) int32 {
+	return mg.nonplaythroughInfos[combinationOffsets[mg.tilesToPlay]+idxForSize].TileScoreSum
 }
 
 // MaybeUpdateAnchor updates the anchor slot for the current

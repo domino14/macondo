@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/movegen"
 )
 
 // A speed harness for whole sims, for comparing with another engine on the
@@ -31,6 +32,9 @@ import (
 //	SIM_SPEED_ITERS    iterations; each rolls every candidate out once (default 2000)
 //	SIM_SPEED_PLIES    plies (default 5)
 //	SIM_SPEED_WMP      "0" to sim without the word map
+//	SIM_SPEED_CARRY    "0" to sim without the generators' memory of best plays
+//	SIM_SPEED_CSCACHE  "0" to sim without the cross-set caches
+//	SIM_SPEED_STATS    non-empty to print what the first thread's memory did
 //
 // One line is printed per position and thread count, with the rollouts
 // (iterations x candidates) and rollouts per second.
@@ -65,13 +69,27 @@ func simSpeedEnvInt(name string, def int) int {
 	return def
 }
 
-// simSpeedGen plays seeded games with the top static move and stops each at
-// a different point: two early, two in the middle, two late.
+// simSpeedGen writes the positions of simSpeedPositions to the file.
 func simSpeedGen(t *testing.T, file string) {
 	lexicon := os.Getenv("SIM_SPEED_LEXICON")
 	if lexicon == "" {
 		lexicon = "CSW21"
 	}
+	out, err := os.Create(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	// Two early, two in the middle, two late.
+	for _, pos := range simSpeedPositions(t, lexicon, []int{84, 80, 55, 45, 20, 9}) {
+		fmt.Fprintln(out, pos)
+	}
+}
+
+// simSpeedPositions plays seeded games with the top static move, one for
+// each of stops, and stops each when the bag is down to that many tiles or
+// fewer. It returns the positions as CGP, without the opponent's rack.
+func simSpeedPositions(t *testing.T, lexicon string, stops []int) []string {
 	rules, err := game.NewBasicGameRules(DefaultConfig, lexicon,
 		board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
@@ -82,13 +100,7 @@ func simSpeedGen(t *testing.T, file string) {
 		{Nickname: "p1", RealName: "Player1"},
 		{Nickname: "p2", RealName: "Player2"},
 	}
-	// Tiles left in the bag when the game stops.
-	stops := []int{84, 80, 55, 45, 20, 9}
-	out, err := os.Create(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer out.Close()
+	var positions []string
 	for i, stop := range stops {
 		for seedIdx := i * 100; ; seedIdx++ {
 			g, err := game.NewGame(rules, players)
@@ -112,10 +124,11 @@ func simSpeedGen(t *testing.T, file string) {
 			if g.Playing() != pb.PlayState_PLAYING || g.Bag().TilesRemaining() < 7 {
 				continue
 			}
-			fmt.Fprintln(out, simSpeedCGP(g))
+			positions = append(positions, simSpeedCGP(g))
 			break
 		}
 	}
+	return positions
 }
 
 // simSpeedCGP is the position with the opponent's rack left out.
@@ -175,6 +188,8 @@ func simSpeedRun(t *testing.T, file string) {
 			s := &Simmer{}
 			s.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 			s.SetThreads(threads)
+			s.noBestMoveCarry = os.Getenv("SIM_SPEED_CARRY") == "0"
+			s.noCrossSetCache = os.Getenv("SIM_SPEED_CSCACHE") == "0"
 			if useWMP {
 				s.TryLoadWMP(DefaultConfig.WGLConfig(), lexicon)
 			}
@@ -188,6 +203,11 @@ func simSpeedRun(t *testing.T, file string) {
 			el := time.Since(start).Seconds()
 			rollouts := s.Iterations() * len(plays)
 			best := s.WinningPlay()
+			if os.Getenv("SIM_SPEED_STATS") != "" {
+				gens, hits, lanes, skipped, seeded := s.aiplayers[0].MoveGenerator().(*movegen.GordonGenerator).BestMoveCarryStats()
+				fmt.Printf("SIMSPEED thread 0: generations=%d rack_hits=%d lanes=%d lanes_skipped=%d seeded=%d\n",
+					gens, hits, lanes, skipped, seeded)
+			}
 			fmt.Printf("SIMSPEED pos=%d bag=%d threads=%d plays=%d rollouts=%d secs=%.3f rollouts_per_sec=%.0f wmp=%v best=%q win=%.3f\n",
 				pi, g.Bag().TilesRemaining(), threads, len(plays), rollouts, el,
 				float64(rollouts)/el, s.WMP() != nil,

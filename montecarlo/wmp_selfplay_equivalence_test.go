@@ -72,9 +72,13 @@ func TestWMPSelfPlayEquivalence(t *testing.T) {
 			switch name {
 			case "fast":
 				gen.SetWMP(w)
+				gen.SetWMPCheckScoreBounds(true)
 			case "plain":
 				gen.SetWMP(w)
 				gen.SetWMPSubrackLeavePrune(false)
+				gen.SetExchangesFirst(false)
+			case "kwg":
+				gen.SetExchangesFirst(false)
 			}
 			variants = append(variants, variant{name, p})
 		}

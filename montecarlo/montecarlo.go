@@ -33,6 +33,7 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -307,7 +308,20 @@ type Simmer struct {
 	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
-	leaveValues       equity.Leaves
+	// noBestMoveCarry switches off the move generators' memory of best
+	// plays by rack (movegen.SetBestMoveCarry). checkBestMoveCarry has every
+	// rollout move generated a second time by a generator without the
+	// memory, and panics if the two differ; for tests.
+	noBestMoveCarry    bool
+	checkBestMoveCarry bool
+	carryCheckPlayers  []aiturnplayer.AITurnPlayer
+	// crossSetCaches are the threads' cross-set generators, each with a
+	// memory of the cross-sets it has worked out (cross_set.CachedGenerator);
+	// rollouts play the same words onto the board over and over.
+	// noCrossSetCache leaves the game copies with the plain generator.
+	crossSetCaches  []*cross_set.CachedGenerator
+	noCrossSetCache bool
+	leaveValues     equity.Leaves
 
 	initialSpread int
 	maxPlies      int
@@ -589,10 +603,15 @@ func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
 	s.SetWMP(w)
 }
 
+// simCrossSetCacheBits sizes a thread's cross-set cache: 2^14 entries, a
+// little over a megabyte with their extension sets.
+const simCrossSetCacheBits = 14
+
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
+	s.carryCheckPlayers = nil
 	s.rngs = s.makeRNGs()
 	// Work out one shuffled order here and hand every copy the same one, so the
 	// threads all start from an identical bag. The live game's bag is left
@@ -619,6 +638,19 @@ func (s *Simmer) makeGameCopies() error {
 			s.gameCopies[i].Bag().SetRNG(s.rngs[i])
 		}
 
+		if plain, ok := s.gameCopies[i].CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok && !s.noCrossSetCache {
+			for len(s.crossSetCaches) <= i {
+				s.crossSetCaches = append(s.crossSetCaches, nil)
+			}
+			if s.crossSetCaches[i] == nil {
+				s.crossSetCaches[i] = cross_set.NewCachedGenerator(plain.Dist, plain.Gaddag, simCrossSetCacheBits)
+			} else {
+				s.crossSetCaches[i].Reset(plain.Dist, plain.Gaddag)
+			}
+			s.crossSetCaches[i].Verify = s.checkBestMoveCarry
+			s.gameCopies[i].SetCrossSetGen(s.crossSetCaches[i])
+		}
+
 		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
 		if err != nil {
 			return err
@@ -629,7 +661,21 @@ func (s *Simmer) makeGameCopies() error {
 		if s.wmp != nil {
 			gen.SetWMP(s.wmp)
 		}
+		// Last: the calls above empty the memory.
+		gen.SetBestMoveCarry(!s.noBestMoveCarry)
 		s.aiplayers = append(s.aiplayers, player)
+		if s.checkBestMoveCarry {
+			ref, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
+			if err != nil {
+				return err
+			}
+			refGen := ref.MoveGenerator().(*movegen.GordonGenerator)
+			refGen.SetGame(s.gameCopies[i])
+			if s.wmp != nil {
+				refGen.SetWMP(s.wmp)
+			}
+			s.carryCheckPlayers = append(s.carryCheckPlayers, ref)
+		}
 	}
 	return nil
 
@@ -1192,9 +1238,28 @@ func (s *Simmer) writeLog(out []byte, logChan chan []byte) {
 	s.logStream.Write(out)
 }
 
+// SetBestMoveCarry switches the rollout move generators' memory of best
+// plays by rack, which is on unless switched off. It changes how fast a sim
+// runs, not what it plays. Call it before PrepareSim.
+func (s *Simmer) SetBestMoveCarry(on bool) {
+	s.noBestMoveCarry = !on
+}
+
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
 	if !s.stochasticStaticEval {
-		return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
+		m := aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
+		if s.checkBestMoveCarry {
+			g := s.gameCopies[thread]
+			ref := aiturnplayer.GenBestStaticTurn(g, s.carryCheckPlayers[thread], playerID)
+			if m.ShortDescription() != ref.ShortDescription() || m.Score() != ref.Score() ||
+				m.Equity() != ref.Equity() || m.LeaveString() != ref.LeaveString() {
+				panic(fmt.Sprintf("best move carry: found %s (%d, %v, leave %s), a plain generation %s (%d, %v, leave %s); rack %s\n%s",
+					m.ShortDescription(), m.Score(), m.Equity(), m.LeaveString(),
+					ref.ShortDescription(), ref.Score(), ref.Equity(), ref.LeaveString(),
+					g.RackLettersFor(playerID), g.ToCGP(false)))
+			}
+		}
+		return m
 	}
 	return aiturnplayer.GenStochasticStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
 }

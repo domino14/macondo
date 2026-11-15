@@ -211,10 +211,33 @@ func TestCachedGeneratorReset(t *testing.T) {
 	}
 }
 
-// With extension sets on, a square's update writes more than the cache
-// holds, so the generator must not cache at all, and must leave the board
-// exactly as the plain generator does.
-func TestCachedGeneratorOffWithExtensionSets(t *testing.T) {
+// sameWithExtSets fails the test unless the boards are equal and have the
+// same extension sets on every square, in both directions.
+func sameWithExtSets(t *testing.T, got, want *board.GameBoard) {
+	t.Helper()
+	if !got.Equals(want) {
+		t.Fatal("boards differ")
+	}
+	for row := 0; row < want.Dim(); row++ {
+		for col := 0; col < want.Dim(); col++ {
+			for _, dir := range []board.BoardDirection{Horizontal, Vertical} {
+				if got.GetLeftExtSet(row, col, dir) != want.GetLeftExtSet(row, col, dir) ||
+					got.GetRightExtSet(row, col, dir) != want.GetRightExtSet(row, col, dir) {
+					t.Fatalf("extension sets at row %d col %d dir %v are %x / %x, want %x / %x",
+						row, col, dir,
+						got.GetLeftExtSet(row, col, dir), got.GetRightExtSet(row, col, dir),
+						want.GetLeftExtSet(row, col, dir), want.GetRightExtSet(row, col, dir))
+				}
+			}
+		}
+	}
+}
+
+// With extension sets on, a square's update also writes the extension sets
+// of the words beside it, and the cache holds those too: the board must end
+// up exactly as the plain generator leaves it, extension sets included, on a
+// first pass, on a second answered from the cache, and after moves.
+func TestCachedGeneratorWithExtensionSets(t *testing.T) {
 	is := is.New(t)
 	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
@@ -222,15 +245,74 @@ func TestCachedGeneratorOffWithExtensionSets(t *testing.T) {
 	is.NoErr(err)
 	alph := dist.TileMapping()
 	plain := &GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
-	cached := NewCachedGenerator(dist, gd, 10)
-	for _, g := range []board.VsWho{VsEd, VsJeremy, VsMatt, VsMatt2, VsOxy} {
-		want := board.MakeBoard(board.CrosswordGameBoard)
-		want.SetToGame(alph, g)
-		got := want.Copy()
-		plain.GenerateAll(want)
-		cached.GenerateAll(got)
-		cached.GenerateAll(got)
-		is.True(got.Equals(want))
+	moves := []updateCrossesForMoveTestCase{
+		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
+		{VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
+		{VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
+		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
+		{VsEd, move.NewScoringMoveSimple(5, "N1", "AB", "", alph), "AB"},
 	}
-	is.Equal(cached.Hits+cached.Misses, uint64(0))
+	for _, bits := range []int{2, 6, 14} {
+		for _, verify := range []bool{false, true} {
+			cached := NewCachedGenerator(dist, gd, bits)
+			cached.Verify = verify
+			for _, tc := range moves {
+				want := board.MakeBoard(board.CrosswordGameBoard)
+				want.SetToGame(alph, tc.testGame)
+				got := want.Copy()
+				plain.GenerateAll(want)
+				cached.GenerateAll(got)
+				sameWithExtSets(t, got, want)
+				cached.GenerateAll(got)
+				sameWithExtSets(t, got, want)
+
+				want.PlayMove(tc.m)
+				plain.UpdateForMove(want, tc.m)
+				got.PlayMove(tc.m)
+				cached.UpdateForMove(got, tc.m)
+				sameWithExtSets(t, got, want)
+				cached.GenerateAll(got)
+				sameWithExtSets(t, got, want)
+			}
+			is.True(cached.Hits > 0)
+			is.True(cached.Misses > 0)
+		}
+	}
+}
+
+// One cache used for boards with extension sets off and on in turn: an
+// entry written without extension sets must not answer for a board that
+// keeps them. Random boards, as above, each generated first without and
+// then with.
+func TestCachedGeneratorMixedExtensionSets(t *testing.T) {
+	is := is.New(t)
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
+	is.NoErr(err)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	plain := &GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
+	rng := rand.New(rand.NewSource(11))
+	letters := []tilemapping.MachineLetter{1, 5, 9, 14, 18, 19, 20, 1 | 0x80, 19 | 0x80}
+	cached := NewCachedGenerator(dist, gd, 8)
+	for iter := 0; iter < 300; iter++ {
+		base := board.MakeBoard(board.CrosswordGameBoard)
+		fill := rng.Intn(180) + 5
+		for i := 0; i < fill; i++ {
+			base.SetLetter(rng.Intn(15), rng.Intn(15), letters[rng.Intn(len(letters))])
+		}
+		for _, skip := range []bool{true, false, true, false} {
+			want := base.Copy()
+			want.SetSkipExtensionSets(skip)
+			got := base.Copy()
+			got.SetSkipExtensionSets(skip)
+			plain.GenerateAll(want)
+			cached.GenerateAll(got)
+			if skip {
+				sameCrosses(t, "without extension sets", got, want)
+			} else {
+				sameWithExtSets(t, got, want)
+			}
+		}
+	}
+	is.True(cached.Hits > cached.Misses)
 }

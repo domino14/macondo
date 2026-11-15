@@ -23,6 +23,9 @@
 package movegen
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
@@ -72,13 +75,30 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 	// the same (wordmap_gen_leave_prunes_subrack).
 	pruneByLeave := gen.bestPlayOnly && !gen.wmpNoSubrackLeavePrune &&
 		gen.leavemap.Initialized && !gen.board.IsEmpty()
-	scoreBound := float64(anchor.HighestPossibleScore)
+	scoreBound := int32(anchor.HighestPossibleScore)
+	// The anchor's score bases bound a subrack's plays by its own tiles (see
+	// wmp.MoveGen.UpdateAnchorScoreBases); the subrack's bound is the least.
+	bases := gen.shadow.anchorScoreBases[anchor.BasesIdx]
+	if gen.wmpNoScoreBases {
+		bases = gen.shadow.anchorScoreBases[0]
+	}
+	gen.wmpSubrackScoreBound = math.MaxInt32
 
 	numCombinations := wgen.NumSubrackCombinations()
 	for subrackIdx := 0; subrackIdx < numCombinations; subrackIdx++ {
-		if pruneByLeave && !gen.winner.IsEmpty() &&
-			scoreBound+wgen.GetLeaveValue(subrackIdx) < gen.winner.Equity() {
-			continue
+		if pruneByLeave {
+			bound := scoreBound
+			tileScoreSum := wgen.GetTileScoreSum(subrackIdx)
+			for b, base := range bases {
+				if v := base + int32(b+1)*tileScoreSum; v < bound {
+					bound = v
+				}
+			}
+			gen.wmpSubrackScoreBound = bound
+			if !gen.winner.IsEmpty() &&
+				float64(bound)+wgen.GetLeaveValue(subrackIdx) < gen.winner.Equity() {
+				continue
+			}
 		}
 		// Look up the WMP entry and expand its words into the wmp
 		// scratch buffer. If no words exist for this subrack, skip.
@@ -241,6 +261,10 @@ func (gen *GordonGenerator) wmpBlankPossibilities(nonplaythroughTiles *wmp.BitRa
 // update_best_move_or_insert_into_movelist_wmp.
 func (gen *GordonGenerator) recordWMPPlay(rack *tilemapping.Rack, startCol, wordLength int) {
 	score := gen.computeWMPScore(startCol, wordLength)
+	if gen.wmpCheckScoreBounds && int32(score) > gen.wmpSubrackScoreBound {
+		panic(fmt.Sprintf("word map play scores %d, above its subrack's bound %d (row %d, start %d, length %d, vertical %v)",
+			score, gen.wmpSubrackScoreBound, gen.curRowIdx, startCol, wordLength, gen.vertical))
+	}
 
 	// Take played tiles from the rack and update leavemap so the
 	// recorder fast path sees the correct leave bitmask. We have to
