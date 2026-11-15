@@ -239,7 +239,11 @@ type shadowState struct {
 
 	// Rack state for shadow
 	shadowRack     [tilemapping.MaxAlphabetSize + 1]int
-	shadowRackCopy [tilemapping.MaxAlphabetSize + 1]int
+	// restricted lists the tiles shadowTryRestrict has taken from shadowRack
+	// for the anchor being shadowed, in order (0 for a blank), so that they
+	// can be put back without keeping copies of the rack.
+	restricted    [game.RackTileLimit + 1]uint8
+	numRestricted int
 	rackCrossSet   uint64 // bitmask of tiles on rack
 	numLettersOnRack int
 
@@ -275,6 +279,21 @@ type shadowState struct {
 type crossWordMul struct {
 	multiplier int
 	col        int
+}
+
+// noteRestricted records that a tile ml was just taken from shadowRack.
+func (s *shadowState) noteRestricted(ml tilemapping.MachineLetter) {
+	s.restricted[s.numRestricted] = uint8(ml)
+	s.numRestricted++
+}
+
+// unrestrictTo puts back into shadowRack the tiles taken since n had been.
+// The caller restores rackCrossSet and the tile scores.
+func (s *shadowState) unrestrictTo(n int) {
+	for s.numRestricted > n {
+		s.numRestricted--
+		s.shadowRack[s.restricted[s.numRestricted]]++
+	}
 }
 
 // rackPossible returns the set of letters that the rack can place on a square
@@ -473,8 +492,9 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 		gen.wmpMoveGen.ResetAnchors()
 	}
 
-	// Copy rack for restoration
-	copy(s.shadowRackCopy[:], s.shadowRack[:])
+	// The rack is whole here; what the shadow takes from it is put back
+	// below.
+	s.numRestricted = 0
 	origRackCrossSet := s.rackCrossSet
 
 	if gen.isWordSmog {
@@ -496,7 +516,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	}
 
 	// Restore rack
-	copy(s.shadowRack[:], s.shadowRackCopy[:])
+	s.unrestrictTo(0)
 	s.rackCrossSet = origRackCrossSet
 
 	if s.maxTilesToPlay == 0 {
@@ -749,21 +769,19 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	origRightCol := s.currentRightCol
 	origNumUnrestricted := s.numUnrestrictedMuls
 
-	s.descTileScoresCopy = s.descTileScores
-	copy(s.descCrossWordMulsCopy[:], s.descCrossWordMuls[:])
-	copy(s.descEffLetterMulsCopy[:], s.descEffLetterMuls[:])
+	// What a restriction or an unrestricted square changes is saved just
+	// before the first one, not here: most calls stop at their first
+	// square. The multipliers are saved with the word multiplier they were
+	// worked out for (see shadowMaybeRecalcEffMuls), which may by then not
+	// be the one this call began with; the two go back together, and the
+	// recalculation at the end takes it from there.
 	origRackCrossSet := s.rackCrossSet
-	rackCopy := s.shadowRack // direct value copy; avoids zero-init + copy
-	restrictedAny := false
+	origNumRestricted := s.numRestricted
+	savedTileScores := false
 	changedMuls := false
-
-	// Snapshot WMP playthrough state so we can resume from the
-	// post-shadow_play_left position when we unwind. Mirrors
-	// wmp_move_gen_save_playthrough_state at the top of
-	// MAGPIE's shadow_play_right.
-	if gen.wmpMoveGen.IsActive() {
-		gen.wmpMoveGen.SavePlaythroughState()
-	}
+	lastWordMulAtSave := 0
+	wmpActive := gen.wmpMoveGen.IsActive()
+	savedPlaythrough := false
 	if gen.isWordSmog {
 		s.bingoAlphaTallyCopy = s.bingoAlphaTally
 	}
@@ -795,11 +813,19 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 		s.shadowPerpAdditionalScore += cs * wm
 		s.shadowWordMultiplier *= wm
 
-		if gen.shadowTryRestrict(possibleHere, lm, wm, s.currentRightCol, isCrossWord) {
-			restrictedAny = true
-		} else {
+		if !savedTileScores && possibleHere&(possibleHere-1) == 0 {
+			// One letter: shadowTryRestrict may take a tile.
+			s.descTileScoresCopy = s.descTileScores
+			savedTileScores = true
+		}
+		if !gen.shadowTryRestrict(possibleHere, lm, wm, s.currentRightCol, isCrossWord) {
+			if !changedMuls {
+				s.descCrossWordMulsCopy = s.descCrossWordMuls
+				s.descEffLetterMulsCopy = s.descEffLetterMuls
+				lastWordMulAtSave = s.lastWordMultiplier
+				changedMuls = true
+			}
 			gen.shadowInsertUnrestricted(s.currentRightCol, lm, wm, isCrossWord)
-			changedMuls = true
 		}
 
 		if crossSet == board.TrivialCrossSet {
@@ -814,7 +840,13 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 				break
 			}
 			foundPlaythrough = true
-			if gen.wmpMoveGen.IsActive() {
+			if wmpActive {
+				if !savedPlaythrough {
+					// To resume from the position shadowing left
+					// reached, once this call unwinds.
+					gen.wmpMoveGen.SavePlaythroughState()
+					savedPlaythrough = true
+				}
 				gen.wmpMoveGen.AddPlaythroughLetter(byte(nextLetter.Unblank()))
 			}
 			if gen.isWordSmog {
@@ -823,7 +855,7 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 			s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(nextLetter)
 			s.currentRightCol++
 		}
-		if gen.wmpMoveGen.IsActive() && foundPlaythrough {
+		if wmpActive && foundPlaythrough {
 			gen.wmpMoveGen.IncrementPlaythroughBlocks()
 		}
 
@@ -838,20 +870,21 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	s.shadowPerpAdditionalScore = origPerpScore
 	s.shadowWordMultiplier = origWordMul
 
-	if restrictedAny {
-		s.shadowRack = rackCopy
-		s.rackCrossSet = origRackCrossSet
+	s.unrestrictTo(origNumRestricted)
+	s.rackCrossSet = origRackCrossSet
+	if savedTileScores {
 		s.descTileScores = s.descTileScoresCopy
 	}
 	if changedMuls {
 		s.numUnrestrictedMuls = origNumUnrestricted
-		copy(s.descCrossWordMuls[:], s.descCrossWordMulsCopy[:])
-		copy(s.descEffLetterMuls[:], s.descEffLetterMulsCopy[:])
+		s.descCrossWordMuls = s.descCrossWordMulsCopy
+		s.descEffLetterMuls = s.descEffLetterMulsCopy
+		s.lastWordMultiplier = lastWordMulAtSave
 	}
 
 	s.currentRightCol = origRightCol
 	gen.tilesPlayed = origTilesPlayed
-	if gen.wmpMoveGen.IsActive() {
+	if savedPlaythrough {
 		gen.wmpMoveGen.RestorePlaythroughState()
 	}
 	if gen.isWordSmog {
@@ -1016,6 +1049,7 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 			return false
 		}
 		s.shadowRack[ml]--
+		s.noteRestricted(ml)
 		if s.shadowRack[ml] == 0 {
 			s.rackCrossSet &= ^possibleLetters
 		}
@@ -1023,6 +1057,7 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 	} else {
 		// Only blank can satisfy this restriction; blank scores 0
 		s.shadowRack[0]--
+		s.noteRestricted(0)
 		if s.shadowRack[0] == 0 {
 			s.rackCrossSet &= ^uint64(1)
 		}
