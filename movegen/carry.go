@@ -379,7 +379,8 @@ func scoreLanePlay(ld *tilemapping.LetterDistribution, squares *[maxBoardDim]cac
 // the squares it fills are empty and allow its tiles, and it covers an
 // anchor: it then spells the word it spelled, with valid cross words, and
 // the generator finds every such placement of a word. Its leave is what it
-// was, since the rack is the same, and the entry is for this bag.
+// was, since the rack is the same, and the entry is for this bag. A one-tile
+// play down a column is one only if its tile makes no word across.
 func (gen *GordonGenerator) carryRevalidate(rack *tilemapping.Rack, i int) (ok bool, score int, eq float64) {
 	c := gen.carry
 	entry := c.cur
@@ -408,6 +409,14 @@ func (gen *GordonGenerator) carryRevalidate(rack *tilemapping.Rack, i int) (ok b
 		return false, 0, 0
 	}
 	through := &entry.through[i]
+	// A one-tile play that also makes a word across its lane is the same
+	// placement as a play of the other direction, and the generator makes
+	// it in one form only: the horizontal one, unless a down lane's anchor
+	// happens to take it in (see shadowPlayRight's isUnique). The play may
+	// have been remembered from a board where the tile had no neighbour
+	// across; here it would be a form the generator does not make, which
+	// could win a tie against the form it does. So it is not taken.
+	oneTileDown := vertical && m.TilesPlayed() == 1
 	// The leave's index in the leave map: of each tile type, the low bits
 	// of its slot, as many as are left.
 	var used [carryMaxAlphabet]uint8
@@ -420,6 +429,9 @@ func (gen *GordonGenerator) carryRevalidate(rack *tilemapping.Rack, i int) (ok b
 			continue
 		}
 		if sq.letter != 0 || !sq.crossSet.Allowed(ml.Unblank()) {
+			return false, 0, 0
+		}
+		if oneTileDown && sq.crossSet != board.TrivialCrossSet {
 			return false, 0, 0
 		}
 		rackML := ml
