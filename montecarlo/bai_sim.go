@@ -38,6 +38,10 @@ const (
 	// DefaultBAIMinSamples is how many rollouts every play gets before any
 	// play is preferred or the sim may stop.
 	DefaultBAIMinSamples = 128
+	// DefaultBAICapPerPlay is the budget of a sim, in rollouts per play on
+	// average. With 100 plays, at 2 to 7 plies, the plays picked stop
+	// getting measurably better somewhere between 1,500 and 2,500.
+	DefaultBAICapPerPlay = 1500
 	// DefaultBAISpreadWeight is the weight of the spread term in the reward
 	// (the win probability's weight is 1).
 	DefaultBAISpreadWeight = 0.1
@@ -243,7 +247,7 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	case b.capPerPlay > 0:
 		opts.SampleLimit = b.capPerPlay * numArms
 	default:
-		opts.SampleLimit = (s.autostopper.iterationsCutoff + s.maxPlies*s.autostopper.perPlyStopScaling) * numArms
+		opts.SampleLimit = DefaultBAICapPerPlay * numArms
 	}
 	res, err := b.runner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
 		return s.baiSample(worker, b.arms[arm], ordinal)

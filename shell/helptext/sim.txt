@@ -131,7 +131,7 @@ Options:
 
     With -bai, the most rollouts the sim makes, as an average per play (so
     1000 with 50 plays is 50,000 rollouts, most of them of the leaders). The
-    default is the cap -stop uses, 2000 + 625 per ply.
+    default is 1500; past that the plays picked barely improve.
 
     -endgame-leaves false
 
