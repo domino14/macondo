@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -654,7 +655,29 @@ func TestSimStoppingReal(t *testing.T) {
 		{"real-bai-99", func(s *Simmer) { s.SetBAI(true) }},
 		{"real-bai-99-cap1500", func(s *Simmer) { s.SetBAI(true); s.SetBAICapPerPlay(1500) }},
 		{"real-bai-99-cap1000", func(s *Simmer) { s.SetBAI(true); s.SetBAICapPerPlay(1000) }},
+		{"real-bai-99-cap500", func(s *Simmer) { s.SetBAI(true); s.SetBAICapPerPlay(500) }},
+		{"real-paired-99", func(s *Simmer) { s.SetPairedStop(true) }},
+		{"real-paired-99-cap1000", func(s *Simmer) { s.SetPairedStop(true); s.SetPairedCapPerPlay(1000) }},
+		{"real-paired-99-cap750", func(s *Simmer) { s.SetPairedStop(true); s.SetPairedCapPerPlay(750) }},
+		{"real-paired-99-cap500", func(s *Simmer) { s.SetPairedStop(true); s.SetPairedCapPerPlay(500) }},
+		{"real-paired-99-min256", func(s *Simmer) { s.SetPairedStop(true); s.SetPairedMinIterations(256) }},
 	}
+	if v := os.Getenv("STOPREAL_ALGOS"); v != "" {
+		var keep []algo
+		for _, a := range algos {
+			for _, prefix := range strings.Split(v, ",") {
+				if strings.HasPrefix(a.name, prefix) {
+					keep = append(keep, a)
+					break
+				}
+			}
+		}
+		algos = keep
+	}
+	// By algorithm: seconds simming, nodes and sims.
+	secs := make([]float64, len(algos))
+	nodes := make([]uint64, len(algos))
+	sims := make([]int, len(algos))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	jobs := make(chan int)
@@ -682,7 +705,7 @@ func TestSimStoppingReal(t *testing.T) {
 				}
 				var sb strings.Builder
 				for rep := 0; rep < reps; rep++ {
-					for _, a := range algos {
+					for ai, a := range algos {
 						parsed, err := cgp.ParseCGP(DefaultConfig, lt.CGP)
 						if err != nil {
 							panic(err)
@@ -703,9 +726,16 @@ func TestSimStoppingReal(t *testing.T) {
 							panic(err)
 						}
 						plays := append([]*SimmedPlay(nil), s.simmedPlays.plays...)
+						start := time.Now()
 						if err := s.Simulate(context.Background()); err != nil {
 							panic(err)
 						}
+						el := time.Since(start).Seconds()
+						mu.Lock()
+						secs[ai] += el
+						nodes[ai] += s.NodeCount()
+						sims[ai]++
+						mu.Unlock()
 						best := s.WinningPlay()
 						pick, samples := -1, 0
 						for i, p := range plays {
@@ -717,6 +747,8 @@ func TestSimStoppingReal(t *testing.T) {
 						status := "stop"
 						if s.usesBAI() {
 							status = s.BAIStatus()
+						} else if s.usesPaired() {
+							status = s.PairedStatus()
 						} else if s.Iterations() > s.autostopper.iterationsCutoff+lt.Plies*s.autostopper.perPlyStopScaling {
 							status = "limit"
 						}
@@ -738,4 +770,8 @@ func TestSimStoppingReal(t *testing.T) {
 	}
 	close(jobs)
 	wg.Wait()
+	for ai, a := range algos {
+		t.Logf("STOPREAL-TIME %s sims=%d secs/sim=%.3f nodes/sim=%.0f nodes/s=%.0f", a.name, sims[ai],
+			secs[ai]/float64(max(sims[ai], 1)), float64(nodes[ai])/float64(max(sims[ai], 1)), float64(nodes[ai])/secs[ai])
+	}
 }

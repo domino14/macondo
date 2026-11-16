@@ -18,7 +18,8 @@ Example:
     sim tilestats
     sim -useinferences weightedrandomracks
     sim -endgame-leaves false
-    sim -stop 99 -bai false
+    sim -stop 99 -stoprule paired
+    sim -stop 99 -stoprule bai -stopcap 1000
 
 A list of plays must have been generated or added in another way already.
 
@@ -109,29 +110,43 @@ Options:
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.
 
-    -bai false
+    -stoprule bai
 
-    With -stop, the sim is run as a best-arm identification problem (the
-    method MAGPIE uses) unless this option turns that off. Every play is
-    rolled out 128 times; after that the sim rolls out mostly the leading
-    play and its closest challenger, and stops when the leader has been told
-    apart from every other play at the confidence -stop asks for. Rollout
-    for rollout it picks better plays than the older rule (-bai false),
-    which rolls out every play still in the running equally often. The
-    plays it loses interest in keep the statistics of their first rollouts,
-    so their numbers are rougher than the leaders'.
+    With -stop, how the sim chooses what to roll out and when to stop: one
+    of classic, paired and bai.
 
-    -maxtime 120
+        classic:
+            Every iteration deals the opponent a rack and rolls out every
+            play still in the sim against it. A play is dropped when its
+            confidence interval lies below the leader's.
 
-    Stop the sim after this many seconds, wherever it has got to, and show
-    the plays as they stand. Fractions are allowed. The default, 0, is no
-    time limit. (The simming bots give themselves 120 seconds.)
+        paired:
+            The same iterations, but a play is dropped by a test on its
+            differences with the leader, iteration by iteration. The
+            rollouts of an iteration share their luck, so a difference is
+            much less noisy than either play's own results, and plays are
+            told apart in far fewer rollouts. Nothing is dropped in the
+            first 128 iterations.
 
-    -bai-cap 1000
+        bai:
+            Best-arm identification, the method MAGPIE uses. Every play is
+            rolled out 128 times; after that the sim rolls out mostly the
+            leading play and its closest challenger. It needs the fewest
+            rollouts for a given accuracy, but its rollouts are slower,
+            most of all in shallow sims and on many threads, because the
+            move generator can no longer reuse its work across the plays
+            of an iteration.
 
-    With -bai, the most rollouts the sim makes, as an average per play (so
-    1000 with 50 plays is 50,000 rollouts, most of them of the leaders). The
-    default is 1500; past that the plays picked barely improve.
+    Under paired and bai the plays the sim loses interest in keep the
+    statistics of their first rollouts, so their numbers are rougher than
+    the leaders'.
+
+    -stopcap 1000
+
+    With -stoprule paired or bai, the most rollouts the sim makes, as an
+    average per play (so 1000 with 50 plays is 50,000 rollouts, most of
+    them of the leaders). The default is 1500; past that the plays picked
+    barely improve.
 
     -endgame-leaves false
 

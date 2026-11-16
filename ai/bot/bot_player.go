@@ -42,8 +42,11 @@ type BotConfig struct {
 	// SimPlays, when positive, is how many of the top plays by static
 	// equity a simming bot sims (default 100).
 	SimPlays int
-	// SimBAI runs the bot's sims as best-arm identification.
-	SimBAI bool
+	// SimStopRule is the bot's sims' stopping rule (montecarlo.ParseStopRule;
+	// empty is classic), and SimStopCap, when positive, a bai or paired
+	// sim's budget in rollouts per play.
+	SimStopRule string
+	SimStopCap  int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation
 	// queries (version 1) instead of the game's global one.
 	TritonModel          string

@@ -155,6 +155,10 @@ type SimmedPlay struct {
 	winPctStats stats.Statistic
 	ignore      atomic.Bool
 	unignorable bool
+	// arm is the play's index under the paired stopping rule, and trimmed
+	// whether it was trimmed out of the sim.
+	arm     int
+	trimmed atomic.Bool
 }
 
 func (sp *SimmedPlay) String() string {
@@ -302,6 +306,9 @@ func (s *SimmedPlays) PlaysNoLock() []*SimmedPlay {
 func (s *SimmedPlays) trimBottom(n int) {
 	s.Lock()
 	defer s.Unlock()
+	for _, p := range s.plays[len(s.plays)-n:] {
+		p.trimmed.Store(true)
+	}
 	s.plays = s.plays[:len(s.plays)-n]
 }
 
@@ -360,7 +367,8 @@ type Simmer struct {
 
 	autostopper *AutoStopper
 	// bai is the state of best-arm identification (see bai_sim.go).
-	bai baiState
+	bai    baiState
+	paired pairedState
 	// rolloutHook, when set, is given every rollout's result: the iteration
 	// it belongs to, the play's index in the sim's list, the win probability
 	// and the equity (spread gained plus leftover). It is called from the
@@ -796,6 +804,7 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	}
 	s.resetStats(plies, plays)
 	s.bai.runner, s.bai.winner, s.bai.status = nil, nil, bai.StatusNone
+	s.resetPaired()
 	// After resetStats, which sizes the copies' state stacks for a plain
 	// rollout; endgame searches need deeper ones.
 	if err := s.prepareEndgameLeaves(); err != nil {
@@ -878,6 +887,9 @@ func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	tstart := time.Now()
 	s.autostopper.reset()
 
+	if s.usesPaired() {
+		s.startPaired()
+	}
 	if s.usesBAI() {
 		s.simBAI(ctx, run)
 	} else if run.inline || s.threads <= 1 {
@@ -886,6 +898,10 @@ func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	} else {
 		logger.Debug().Msgf("Simulating with %v threads", s.threads)
 		s.simThreaded(ctx, cancel, run)
+	}
+
+	if s.usesPaired() {
+		s.pairedFinish()
 	}
 
 	elapsed := time.Since(tstart) // duration is in nanosecs
@@ -932,6 +948,16 @@ func (s *Simmer) runIteration(ctx context.Context, run simRun, thread int, logCh
 	if err := s.simSingleIteration(ctx, s.maxPlies, thread, numIters-1, logChan); err != nil {
 		logger.Err(err).Msg("error simming iteration; stopping")
 		return false
+	}
+	if s.usesPaired() {
+		if stop, status := s.pairedFold(thread); stop {
+			if status != "" {
+				s.event(logger, run.quiet).Uint64("numIters", numIters).
+					Str("status", status).Msg("reached stopping condition")
+			}
+			return false
+		}
+		return true
 	}
 	if s.autostopper.stoppingCondition != StopNone &&
 		numIters%s.autostopper.stopConditionCheckInterval == 0 {
@@ -1080,6 +1106,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
 	}
 
+	paired := s.usesPaired()
 	for playIdx, simmedPlay := range s.simmedPlays.plays {
 		if simmedPlay.ignore.Load() {
 			continue
@@ -1089,6 +1116,9 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			li = &logIter
 		}
 		win, eq := s.rollout(g, thread, plies, simmedPlay, li)
+		if paired {
+			s.pairedNote(thread, simmedPlay, win, eq)
+		}
 		if s.rolloutHook != nil {
 			s.rolloutHook(iterationCount, playIdx, win, eq)
 		}
@@ -1374,7 +1404,13 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	// A best-arm identification run's pick goes first: it is the play the
 	// sim found best by the reward it ran on, which can differ from the
 	// order above between plays the sim could not tell apart.
-	if w := s.bai.winner; w != nil && !w.ignore.Load() {
+	w := s.bai.winner
+	s.paired.mu.Lock()
+	if s.paired.winner != nil {
+		w = s.paired.winner
+	}
+	s.paired.mu.Unlock()
+	if w != nil && !w.ignore.Load() {
 		for i, p := range sp.plays {
 			if p == w {
 				copy(sp.plays[1:i+1], sp.plays[:i])

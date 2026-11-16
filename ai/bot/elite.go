@@ -315,7 +315,15 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetTimeLimit(simTimeLimit)
-	p.simmer.SetBAI(p.cfg.SimBAI)
+	rule := montecarlo.StopRuleClassic
+	if p.cfg.SimStopRule != "" {
+		var err error
+		if rule, err = montecarlo.ParseStopRule(p.cfg.SimStopRule); err != nil {
+			return nil, err
+		}
+	}
+	p.simmer.SetStopRule(rule)
+	p.simmer.SetStopCapPerPlay(p.cfg.SimStopCap)
 	if p.cfg.StochasticStaticEval {
 		p.simmer.SetStochasticStaticEval(true)
 	}

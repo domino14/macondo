@@ -48,8 +48,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	endgameLeaves := true
-	useBAI := true
-	baiCap := 0
+	stopRule := defaultSimStopRule
+	stopCap := 0
 	maxTime := 0.0 // seconds; 0 is no limit
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
@@ -160,8 +160,11 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		case "endgame-leaves":
 			endgameLeaves = options.Bool(opt)
 
-		case "bai":
-			useBAI = options.Bool(opt)
+		case "stoprule":
+			stopRule, err = montecarlo.ParseStopRule(options.String(opt))
+			if err != nil {
+				return nil, err
+			}
 
 		case "maxtime":
 			maxTime, err = options.Float(opt)
@@ -172,8 +175,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 				return nil, errors.New("maxtime cannot be negative")
 			}
 
-		case "bai-cap":
-			baiCap, err = options.Int(opt)
+		case "stopcap":
+			stopCap, err = options.Int(opt)
 			if err != nil {
 				return nil, err
 			}
@@ -223,8 +226,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		inferMode:             inferMode,
 		avoidTrimMoves:        avoidTrimMoves,
 		endgameLeaves:         endgameLeaves,
-		bai:                   useBAI,
-		baiCap:                baiCap,
+		stopRule:              stopRule,
+		stopCap:               stopCap,
 		maxTime:               time.Duration(maxTime * float64(time.Second)),
 		// For experiment mode
 		fixediters:    fixediters,
@@ -295,6 +298,10 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 	return nil, nil
 }
 
+// defaultSimStopRule is the rule `sim -stop` uses unless -stoprule names
+// another.
+const defaultSimStopRule = montecarlo.StopRuleBAI
+
 type simParams struct {
 	threads               int
 	plies                 int
@@ -306,8 +313,8 @@ type simParams struct {
 	inferMode             montecarlo.InferenceMode
 	avoidTrimMoves        []*move.Move
 	endgameLeaves         bool
-	bai                   bool
-	baiCap                int
+	stopRule              montecarlo.StopRule
+	stopCap               int
 	maxTime               time.Duration
 	// For experiment mode
 	fixediters    int
@@ -320,8 +327,8 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 		simmer.SetThreads(params.threads)
 	}
 	simmer.SetEndgameLeaves(params.endgameLeaves)
-	simmer.SetBAI(params.bai)
-	simmer.SetBAICapPerPlay(params.baiCap)
+	simmer.SetStopRule(params.stopRule)
+	simmer.SetStopCapPerPlay(params.stopCap)
 	simmer.SetTimeLimit(params.maxTime)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)
 	if err != nil {
