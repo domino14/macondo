@@ -131,6 +131,7 @@ func MakeFromWords(words []tilemapping.MachineWord, ld *tilemapping.LetterDistri
 	}
 
 	wmp.MaxWordLookupBytes = calculateMaxWordLookupBytes(wmp, boardDim)
+	wmp.buildFilters()
 	return wmp, nil
 }
 

@@ -23,10 +23,13 @@
 package movegen
 
 import (
+	"bytes"
+	"fmt"
+	"math"
+	"math/bits"
+
 	"github.com/domino14/word-golib/tilemapping"
 
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/wmp"
 )
@@ -48,11 +51,7 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 	// for this anchor. Mirrors set_playthrough_bit_rack.
 	gen.setWMPPlaythroughFromRow(anchor)
 
-	// Step 2: prepare the playthrough subrack array for this anchor.
-	// PlaythroughSubracksInit reads only TilesToPlay and WordLength
-	// from the anchor, so we construct a small wmp.Anchor with just
-	// those two fields rather than translating the whole macondo
-	// Anchor into a wmp.Anchor.
+	// Step 2: tell the move gen the anchor's word length and tiles to play.
 	wgen.PlaythroughSubracksInit(&wmp.Anchor{
 		TilesToPlay: tilesToPlay,
 		WordLength:  wordLength,
@@ -63,25 +62,196 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 	// recorder's per-play state are consistent.
 	gen.tilesPlayed = tilesToPlay
 
-	numCombinations := wgen.NumSubrackCombinations()
-	for subrackIdx := 0; subrackIdx < numCombinations; subrackIdx++ {
-		// Look up the WMP entry and expand its words into the wmp
-		// scratch buffer. If no words exist for this subrack, skip.
-		if !wgen.GetSubrackWords(subrackIdx) {
+	// A subrack's plays all leave the same tiles, so with the recorder that
+	// keeps only the best play (and prices a play as its score plus the leave
+	// map's value, which is the value the subrack carries) the anchor's score
+	// bound plus the subrack's leave bounds every one of them. A subrack whose
+	// bound is below the best play found is skipped before its words are
+	// looked up: the recorder would turn each of its plays away. MAGPIE does
+	// the same (wordmap_gen_leave_prunes_subrack).
+	pruneByLeave := gen.bestPlayOnly && !gen.wmpNoSubrackLeavePrune &&
+		gen.leavemap.Initialized && !gen.board.IsEmpty()
+	scoreBound := int32(anchor.HighestPossibleScore)
+	// The anchor's score bases bound a subrack's plays by its own tiles (see
+	// wmp.MoveGen.RecordPlacement); the subrack's bound is the least.
+	bases := anchor.ScoreBases
+	if gen.wmpNoScoreBases {
+		bases = [wmp.ScoreBaseCount]int32{math.MaxInt32 / 2, math.MaxInt32 / 2}
+	}
+	gen.wmpSubrackScoreBound = math.MaxInt32
+
+	// The subracks that may have plays, by the leave check against the best
+	// play so far and by what the word map can say without a lookup. The
+	// best play can only get better as the subracks are gone through, so
+	// one the check drops now would be dropped when reached; one it keeps
+	// is checked again then.
+	pruneNow := pruneByLeave && !gen.winner.IsEmpty()
+	cutoff := 0.0
+	if pruneNow {
+		cutoff = gen.winner.Equity()
+	}
+	candidates := wgen.CandidateSubracks(pruneNow, scoreBound, &bases, cutoff)
+	if gen.wmpSelfCheck {
+		gen.wordmapCheckCandidates(candidates, pruneNow, scoreBound, &bases, cutoff)
+	}
+
+	// The start columns as a bit set, and for each letter the columns it
+	// can go on (worked out when the first words turn up).
+	startCols := uint32(2)<<uint(rightmostStart) - uint32(1)<<uint(leftmostStart)
+	letterColsLoaded := false
+	letterCols := &gen.wmpLetterCols
+
+	for ; candidates != 0; candidates &= candidates - 1 {
+		subrackIdx := bits.TrailingZeros64(candidates)
+		if pruneByLeave {
+			bound := wmp.SubrackScoreBound(scoreBound, &bases, wgen.GetTileScoreSum(subrackIdx))
+			gen.wmpSubrackScoreBound = bound
+			if !gen.winner.IsEmpty() &&
+				float64(bound)+wgen.GetLeaveValue(subrackIdx) < gen.winner.Equity() {
+				continue
+			}
+		}
+		found := wgen.GetSubrackWords(subrackIdx)
+		if gen.wmpSelfCheck {
+			gen.wordmapCheckWords(subrackIdx, found)
+		}
+		if !found {
 			continue
 		}
-		numWords := wgen.NumWords()
-		for wordIdx := 0; wordIdx < numWords; wordIdx++ {
-			word := wgen.GetWord(wordIdx)
-			for startCol := leftmostStart; startCol <= rightmostStart; startCol++ {
-				if !gen.wordmapCheckPlaythroughAndCrosses(word, wordLength, startCol) {
-					continue
-				}
+		if !letterColsLoaded {
+			gen.wordmapLoadLetterCols(leftmostStart, rightmostStart+wordLength-1)
+			letterColsLoaded = true
+		}
+		words := wgen.Words()
+		for off := 0; off+wordLength <= len(words); off += wordLength {
+			word := words[off : off+wordLength]
+			// Every start column at once: the word fits at a column when
+			// each of its letters can go on its square from there.
+			fit := startCols
+			for i, letter := range word {
+				fit &= letterCols[letter&63] >> uint(i)
+			}
+			if gen.wmpSelfCheck {
+				gen.wordmapCheckFit(word, leftmostStart, rightmostStart, fit)
+			}
+			for ; fit != 0; fit &= fit - 1 {
+				startCol := bits.TrailingZeros32(fit)
+				gen.wordmapMarkWord(word, startCol)
 				gen.recordWMPPlaysForWord(rack, wgen, subrackIdx, startCol, wordLength, 0, 0)
 				if gen.quitEarly {
 					return
 				}
 			}
+		}
+	}
+}
+
+// wordmapCheckCandidates panics if a subrack left out of candidates for any
+// reason but its leave has words by a plain lookup. For tests.
+func (gen *GordonGenerator) wordmapCheckCandidates(candidates uint64, prune bool,
+	scoreBound int32, bases *[wmp.ScoreBaseCount]int32, cutoff float64) {
+	wgen := &gen.wmpMoveGen
+	var buffer [wmp.ResultBufferSize]byte
+	for idx := 0; idx < wgen.NumSubrackCombinations(); idx++ {
+		if candidates&(1<<uint(idx)) != 0 {
+			continue
+		}
+		if prune {
+			bound := wmp.SubrackScoreBound(scoreBound, bases, wgen.GetTileScoreSum(idx))
+			if float64(bound)+wgen.GetLeaveValue(idx) < cutoff {
+				continue
+			}
+		}
+		if n := wgen.ReferenceSubrackWords(idx, buffer[:]); n != 0 {
+			panic(fmt.Sprintf("word map subrack %d (%d tiles, length %d) left out but has %d bytes of words",
+				idx, wgen.TilesToPlay(), wgen.WordLength(), n))
+		}
+	}
+}
+
+// wordmapCheckWords panics if the words GetSubrackWords found for the
+// subrack are not those of a plain lookup. For tests.
+func (gen *GordonGenerator) wordmapCheckWords(subrackIdx int, found bool) {
+	wgen := &gen.wmpMoveGen
+	var buffer [wmp.ResultBufferSize]byte
+	n := wgen.ReferenceSubrackWords(subrackIdx, buffer[:])
+	if found != (n != 0) || (found && !bytes.Equal(wgen.Words(), buffer[:n])) {
+		panic(fmt.Sprintf("word map subrack %d (%d tiles, length %d): found %v with words %v, a plain lookup gives %v",
+			subrackIdx, wgen.TilesToPlay(), wgen.WordLength(), found, wgen.Words(), buffer[:n]))
+	}
+}
+
+// wordmapCheckFit panics if fit, the start columns the letter masks say the
+// word fits at, are not those a square-by-square check finds. For tests.
+func (gen *GordonGenerator) wordmapCheckFit(word []byte, leftmostStart, rightmostStart int, fit uint32) {
+	for startCol := leftmostStart; startCol <= rightmostStart; startCol++ {
+		want := gen.wordmapCheckPlaythroughAndCrosses(word, len(word), startCol)
+		if got := fit&(1<<uint(startCol)) != 0; got != want {
+			panic(fmt.Sprintf("word map word %v at column %d of row %d (vertical %v): masks say fits=%v, squares say %v",
+				word, startCol, gen.curRowIdx, gen.vertical, got, want))
+		}
+	}
+}
+
+// wordmapLoadLetterCols works out, for each letter, the columns from first
+// to last of the loaded lane where a word may have that letter: the column
+// of a tile that is the letter, or an empty square whose cross-set allows
+// it. Bit col of gen.wmpLetterCols[letter] is set when it may. Mirrors
+// wordmap_gen_load_letter_cols.
+//
+// Most squares away from the tiles allow every letter, so every letter is
+// first given every column, and each column is then taken from the letters
+// it does not allow; a column that allows fewer than half the letters (a
+// tile's, usually) is instead left out at first and given to those it does.
+func (gen *GordonGenerator) wordmapLoadLetterCols(first, last int) {
+	numLetters := int(gen.letterDistribution.TileMapping().NumLetters())
+	universe := uint64(1)<<uint(numLetters) - 2
+	var colLetters [maxBoardDim]uint64
+	most := uint32(0)
+	few := uint32(0)
+	for col := first; col <= last; col++ {
+		sq := &gen.cache.squares[col]
+		letters := uint64(sq.crossSet)
+		if sq.letter != 0 {
+			letters = 1 << (uint8(sq.letter.Unblank()) & 63)
+		}
+		letters &= universe
+		if 2*bits.OnesCount64(letters) >= numLetters {
+			most |= 1 << uint(col)
+			colLetters[col] = universe &^ letters
+		} else {
+			few |= 1 << uint(col)
+			colLetters[col] = letters
+		}
+	}
+	letterCols := gen.wmpLetterCols[:numLetters&63]
+	for ml := range letterCols {
+		letterCols[ml] = most
+	}
+	for cols := most; cols != 0; cols &= cols - 1 {
+		col := bits.TrailingZeros32(cols)
+		for letters := colLetters[col]; letters != 0; letters &= letters - 1 {
+			letterCols[bits.TrailingZeros64(letters)] &^= 1 << uint(col)
+		}
+	}
+	for cols := few; cols != 0; cols &= cols - 1 {
+		col := bits.TrailingZeros32(cols)
+		for letters := colLetters[col]; letters != 0; letters &= letters - 1 {
+			letterCols[bits.TrailingZeros64(letters)] |= 1 << uint(col)
+		}
+	}
+}
+
+// wordmapMarkWord writes a word that fits at startCol into gen.strip: the
+// word's letter on each empty square (no blank flag yet) and 0 on each
+// tile it plays through. Mirrors wordmap_gen_mark_word.
+func (gen *GordonGenerator) wordmapMarkWord(word []byte, startCol int) {
+	for i, letter := range word {
+		col := startCol + i
+		if gen.cache.squares[col].letter == 0 {
+			gen.strip[col] = tilemapping.MachineLetter(letter)
+		} else {
+			gen.strip[col] = 0
 		}
 	}
 }
@@ -126,6 +296,9 @@ func (gen *GordonGenerator) setWMPPlaythroughFromRow(anchor *Anchor) {
 // On success it fills gen.strip[startCol..startCol+wordLength-1] with
 // the new placements (raw word letters, no blank flag yet) and 0 for
 // playthrough positions. Mirrors wordmap_gen_check_playthrough_and_crosses.
+//
+// wordmapGen tests every start column at once with letter masks instead;
+// this is what its self-check compares them with.
 func (gen *GordonGenerator) wordmapCheckPlaythroughAndCrosses(word []byte, wordLength, startCol int) bool {
 	for i := 0; i < wordLength; i++ {
 		boardCol := startCol + i
@@ -226,6 +399,10 @@ func (gen *GordonGenerator) wmpBlankPossibilities(nonplaythroughTiles *wmp.BitRa
 // update_best_move_or_insert_into_movelist_wmp.
 func (gen *GordonGenerator) recordWMPPlay(rack *tilemapping.Rack, startCol, wordLength int) {
 	score := gen.computeWMPScore(startCol, wordLength)
+	if gen.wmpSelfCheck && int32(score) > gen.wmpSubrackScoreBound {
+		panic(fmt.Sprintf("word map play scores %d, above its subrack's bound %d (row %d, start %d, length %d, vertical %v)",
+			score, gen.wmpSubrackScoreBound, gen.curRowIdx, startCol, wordLength, gen.vertical))
+	}
 
 	// Take played tiles from the rack and update leavemap so the
 	// recorder fast path sees the correct leave bitmask. We have to
@@ -273,43 +450,6 @@ func (gen *GordonGenerator) recordWMPPlay(rack *tilemapping.Rack, startCol, word
 // per-square multipliers and cross-scores. Mirrors the scoring loop
 // in record_wmp_play.
 func (gen *GordonGenerator) computeWMPScore(startCol, wordLength int) int {
-	var playedScoreTotal int
-	var playthroughScoreTotal int
-	var hookedCrossTotal int
-	var playedCrossTotal int
-	wordMultiplier := 1
-	ld := gen.letterDistribution
-
-	for i := 0; i < wordLength; i++ {
-		col := startCol + i
-		sq := &gen.cache.squares[col]
-		ml := gen.strip[col]
-		if ml == 0 {
-			// Playthrough: score the existing board tile (no
-			// multipliers; blanked board tiles score 0 via ld.Score).
-			playthroughScoreTotal += ld.Score(sq.letter)
-			continue
-		}
-		// Newly placed tile. Blanked placements score 0 via ld.Score.
-		// Decode packed cachedSquare fields to int once.
-		tileScore := ld.Score(ml)
-		twm := int(sq.wordMul)
-		cs := int(sq.crossScore)
-		hookedCrossTotal += cs * twm
-		isCrossWord := cs > 0 || sq.crossSet != board.TrivialCrossSet
-		lm := int(sq.letterMul)
-		if isCrossWord {
-			playedCrossTotal += tileScore * twm * lm
-		}
-		playedScoreTotal += tileScore * lm
-		wordMultiplier *= twm
-	}
-
-	bingoBonus := 0
-	if gen.tilesPlayed == game.RackTileLimit {
-		bingoBonus = 50
-	}
-
-	return (playedScoreTotal+playthroughScoreTotal)*wordMultiplier +
-		hookedCrossTotal + playedCrossTotal + bingoBonus
+	return scoreLanePlay(gen.letterDistribution, &gen.cache.squares,
+		gen.strip[startCol:startCol+wordLength], startCol, gen.tilesPlayed)
 }

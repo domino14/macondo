@@ -152,8 +152,29 @@ type GordonGenerator struct {
 	// sub-anchors into the heap (the MAGPIE behavior, useful only
 	// with a wordmap_gen-style word generator) or sticks with the
 	// single-anchor-per-square macondo path. Default false.
-	wmpData             *wmp.WMP
-	wmpMoveGen          wmp.MoveGen
+	wmpData    *wmp.WMP
+	wmpMoveGen wmp.MoveGen
+	// bestPlayOnly is set while the recorder is the one that keeps only the
+	// best play (TopPlayOnlyRecorder).
+	bestPlayOnly bool
+	// wmpNoSubrackLeavePrune switches off wordmapGen's skipping of subracks
+	// whose leave cannot bring any of their plays up to the best play found.
+	wmpNoSubrackLeavePrune bool
+	// wmpNoScoreBases makes the leave prune use the anchor's score bound
+	// alone. wmpSelfCheck makes the word map generator check itself (see
+	// SetWMPSelfCheck). wmpSubrackScoreBound is
+	// that bound, for the subrack being recorded.
+	wmpNoScoreBases      bool
+	wmpSelfCheck         bool
+	wmpSubrackScoreBound int32
+	// wmpLetterCols is wordmapGen's, for the anchor it is on: see
+	// wordmapLoadLetterCols.
+	wmpLetterCols [64]uint32
+	// carry is the memory of best plays by rack (carry.go), or nil.
+	carry *bestMoveCarry
+	// exchangesLast makes the best-play generation record exchanges after
+	// plays instead of before them.
+	exchangesLast       bool
 	wmpRecordSubAnchors bool
 	pegValues           []float64 // pre-endgame adjustment values
 	tilesInBag          int       // cached bag state for equity calc
@@ -195,6 +216,37 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 	return gen
 }
 
+// SetWMPSubrackLeavePrune switches the word map generator's leave prune,
+// which is on unless switched off. The plays found are the same either way;
+// this is for tests and measurements.
+func (gen *GordonGenerator) SetWMPSubrackLeavePrune(on bool) {
+	gen.wmpNoSubrackLeavePrune = !on
+}
+
+// SetWMPScoreBases switches the per-subrack score bounds the leave prune
+// uses, which are on unless switched off; for tests and measurements.
+func (gen *GordonGenerator) SetWMPScoreBases(on bool) {
+	gen.wmpNoScoreBases = !on
+}
+
+// SetWMPSelfCheck makes the word map generator check its shortcuts against
+// plain work and panic on a difference: a play it records must not score
+// more than the bound its subrack was given, a subrack it passes over
+// without a lookup must have no words, the words it reads for a subrack
+// must be those of a plain lookup, and the start columns its letter masks
+// say a word fits at must be those a square-by-square check finds. For
+// tests.
+func (gen *GordonGenerator) SetWMPSelfCheck(on bool) {
+	gen.wmpSelfCheck = on
+}
+
+// SetExchangesFirst switches whether a best-play generation records
+// exchanges before plays, which it does unless switched off. The play found
+// is the same either way; this is for tests and measurements.
+func (gen *GordonGenerator) SetExchangesFirst(on bool) {
+	gen.exchangesLast = !on
+}
+
 func (gen *GordonGenerator) SetMaxCanExchange(m int) {
 	gen.maxCanExchange = m
 }
@@ -218,6 +270,7 @@ func (gen *GordonGenerator) SetWMP(w *wmp.WMP) {
 
 func (gen *GordonGenerator) setWMP(w *wmp.WMP) {
 	gen.wmpData = w
+	gen.forgetCarry()
 	// Sub-anchor recording is meaningful only when there's a fast
 	// per-(blocks, tiles) word generator on the consumer side; we
 	// have wordmapGen now, so enable it by default whenever WMP is
@@ -248,6 +301,7 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 
 func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
+	gen.bestPlayOnly = false
 	gen.maxTopMovesSize = 0
 	// AllPlays recorders don't benefit from shadow; disable it to avoid
 	// the overhead of computing upper bounds.
@@ -258,12 +312,14 @@ func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 // with shadow enabled for best-first move finding.
 func (gen *GordonGenerator) SetPlayRecorderTopPlay() {
 	gen.playRecorder = TopPlayOnlyRecorder
+	gen.bestPlayOnly = true
 	gen.maxTopMovesSize = 0
 	gen.shadow.useShadow = true
 }
 
 func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 	gen.playRecorder = TopNPlayRecorder
+	gen.bestPlayOnly = false
 	gen.shadow.useShadow = true
 	gen.maxTopMovesSize = n
 	// Reuse the existing move objects when the size is unchanged, so callers
@@ -282,10 +338,12 @@ func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 
 func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
 	gen.equityCalculators = calcs
+	gen.forgetCarry()
 }
 
 func (gen *GordonGenerator) SetGame(g *game.Game) {
 	gen.game = g
+	gen.forgetCarry()
 }
 
 func (gen *GordonGenerator) SetGenPass(p bool) {
@@ -805,4 +863,5 @@ func (gen *GordonGenerator) GADDAG() *kwg.KWG {
 // a solve and restore the original afterwards.
 func (gen *GordonGenerator) SetGADDAG(g *kwg.KWG) {
 	gen.gaddag = g
+	gen.forgetCarry()
 }

@@ -64,19 +64,52 @@ type Anchor struct {
 	WordLength        uint8
 	LeftmostStartCol  uint8
 	RightmostStartCol uint8
+	// ScoreBases are a word map anchor's score bases (see
+	// wmp.MoveGen.RecordPlacement).
+	ScoreBases [wmp.ScoreBaseCount]int32
 }
 
 // LastAnchorCol uses the existing in-package sentinel value 100
 // (greater than any valid 0..14 column on a 15-board), which fits
 // in uint8 unchanged.
 
-// AnchorHeap is a max-heap of anchors ordered by highestPossibleEquity.
+// AnchorHeap holds a generation's anchors and hands them out from the
+// highest equity bound down.
+//
+// The anchors stay where they were added. What is ordered is a max-heap of
+// one 64-bit key for each: its bound, as an integer that orders as the bound
+// does, with the low anchorIdxBits bits replaced by the anchor's index. A
+// key is a third of an anchor and compares as an integer. Dropping the low
+// bits of the bound means anchors whose bounds differ by less than about one
+// part in 10^9 may come out in either order. The order anchors are searched
+// in does not change what a generation finds, only when it can stop, and
+// keyBelow is the test for that.
 type AnchorHeap struct {
 	anchors []Anchor
+	keys    []uint64
+}
+
+const (
+	anchorIdxBits = 20
+	anchorIdxMask = 1<<anchorIdxBits - 1
+)
+
+// anchorKey is equity as an integer, without its low anchorIdxBits bits:
+// anchorKey(a) < anchorKey(b) only if a < b.
+func anchorKey(equity float64) uint64 {
+	equity += 0 // -0 becomes +0, which it equals
+	bits := math.Float64bits(equity)
+	if bits>>63 != 0 {
+		bits = ^bits
+	} else {
+		bits |= 1 << 63
+	}
+	return bits &^ anchorIdxMask
 }
 
 func (h *AnchorHeap) reset() {
 	h.anchors = h.anchors[:0]
+	h.keys = h.keys[:0]
 }
 
 func (h *AnchorHeap) addUnheaped(row, col, lastAnchorCol int, dir board.BoardDirection,
@@ -91,52 +124,79 @@ func (h *AnchorHeap) addUnheaped(row, col, lastAnchorCol int, dir board.BoardDir
 	})
 }
 
+// heapifyAll orders the anchors added since reset.
 func (h *AnchorHeap) heapifyAll() {
 	n := len(h.anchors)
+	if n > anchorIdxMask+1 {
+		panic("movegen: too many anchors")
+	}
+	if cap(h.keys) < n {
+		h.keys = make([]uint64, n, 2*n)
+	}
+	h.keys = h.keys[:n]
+	for i := range h.anchors {
+		h.keys[i] = anchorKey(h.anchors[i].HighestPossibleEquity) | uint64(i)
+	}
 	for i := n/2 - 1; i >= 0; i-- {
 		h.heapifyDown(i)
 	}
 }
 
 func (h *AnchorHeap) heapifyDown(parent int) {
-	n := len(h.anchors)
+	keys := h.keys
+	n := len(keys)
+	key := keys[parent]
 	for {
-		best := parent
-		left := parent*2 + 1
-		right := parent*2 + 2
-		if left < n && h.anchors[left].HighestPossibleEquity > h.anchors[best].HighestPossibleEquity {
-			best = left
-		}
-		if right < n && h.anchors[right].HighestPossibleEquity > h.anchors[best].HighestPossibleEquity {
-			best = right
-		}
-		if best == parent {
+		child := parent*2 + 1
+		if child >= n {
 			break
 		}
-		h.anchors[parent], h.anchors[best] = h.anchors[best], h.anchors[parent]
-		parent = best
+		if right := child + 1; right < n && keys[right] > keys[child] {
+			child = right
+		}
+		if keys[child] <= key {
+			break
+		}
+		keys[parent] = keys[child]
+		parent = child
 	}
+	keys[parent] = key
 }
 
-func (h *AnchorHeap) extractMax() Anchor {
-	max := h.anchors[0]
-	n := len(h.anchors) - 1
-	h.anchors[0] = h.anchors[n]
-	h.anchors = h.anchors[:n]
+// extractMax removes the anchor with the highest key and returns it, where
+// it stays until reset, with its key.
+func (h *AnchorHeap) extractMax() (*Anchor, uint64) {
+	max := h.keys[0]
+	n := len(h.keys) - 1
+	h.keys[0] = h.keys[n]
+	h.keys = h.keys[:n]
 	if n > 0 {
 		h.heapifyDown(0)
 	}
-	return max
+	return &h.anchors[max&anchorIdxMask], max
 }
 
+// keyBelow reports whether an anchor with this key, and so every anchor
+// still in the heap after it was extracted, has a bound below equity.
+func keyBelow(key uint64, equity float64) bool {
+	return key&^anchorIdxMask < anchorKey(equity)
+}
+
+// len is the number of anchors not yet extracted, once heapifyAll has run.
 func (h *AnchorHeap) len() int {
-	return len(h.anchors)
+	return len(h.keys)
 }
 
 // shadowState holds all the mutable state used during shadow computation.
 // It's embedded in GordonGenerator to avoid allocations.
 type shadowState struct {
 	anchorHeap AnchorHeap
+	// anchorFloor is the equity of the best play found before the shadow
+	// pass (the best exchange, when exchanges are generated first), or -Inf.
+	// An anchor whose bound is below it is not kept.
+	anchorFloor float64
+	// rackTileScoreSum is the sum of the whole rack's tile scores.
+	rackTileScoreSum int
 
 	// Current shadow play state
 	currentLeftCol  int
@@ -179,11 +239,20 @@ type shadowState struct {
 
 	// Rack state for shadow
 	shadowRack     [tilemapping.MaxAlphabetSize + 1]int
-	shadowRackCopy [tilemapping.MaxAlphabetSize + 1]int
+	// restricted lists the tiles shadowTryRestrict has taken from shadowRack
+	// for the anchor being shadowed, in order (0 for a blank), so that they
+	// can be put back without keeping copies of the rack.
+	restricted    [game.RackTileLimit + 1]uint8
+	numRestricted int
 	rackCrossSet   uint64 // bitmask of tiles on rack
 	numLettersOnRack int
 
 	// Best leave values indexed by number of tiles remaining on rack.
+	// lanes keeps the squares of every lane the shadow pass loaded (rows,
+	// then columns as rows of the transposed board), for the pass that
+	// records plays to pick up without reading the board again.
+	lanes [2][maxBoardDim][maxBoardDim]cachedSquare
+
 	// bestLeaves[k] = max leave value over all possible leaves of size k.
 	// Computed before shadow to enable equity-aware upper bounds.
 	bestLeaves [game.RackTileLimit + 1]float64
@@ -210,6 +279,21 @@ type shadowState struct {
 type crossWordMul struct {
 	multiplier int
 	col        int
+}
+
+// noteRestricted records that a tile ml was just taken from shadowRack.
+func (s *shadowState) noteRestricted(ml tilemapping.MachineLetter) {
+	s.restricted[s.numRestricted] = uint8(ml)
+	s.numRestricted++
+}
+
+// unrestrictTo puts back into shadowRack the tiles taken since n had been.
+// The caller restores rackCrossSet and the tile scores.
+func (s *shadowState) unrestrictTo(n int) {
+	for s.numRestricted > n {
+		s.numRestricted--
+		s.shadowRack[s.restricted[s.numRestricted]]++
+	}
 }
 
 // rackPossible returns the set of letters that the rack can place on a square
@@ -345,6 +429,10 @@ func (gen *GordonGenerator) initShadow(rack *tilemapping.Rack) {
 		gen.shadow.fullRackDescTileScores[i] = 0
 	}
 	slices.SortFunc(gen.shadow.fullRackDescTileScores[:n], func(a, b int) int { return b - a })
+	gen.shadow.rackTileScoreSum = 0
+	for _, ts := range gen.shadow.fullRackDescTileScores[:n] {
+		gen.shadow.rackTileScoreSum += ts
+	}
 }
 
 // shadowPlayForAnchor computes the shadow (upper bound score) for a given anchor.
@@ -404,8 +492,9 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 		gen.wmpMoveGen.ResetAnchors()
 	}
 
-	// Copy rack for restoration
-	copy(s.shadowRackCopy[:], s.shadowRack[:])
+	// The rack is whole here; what the shadow takes from it is put back
+	// below.
+	s.numRestricted = 0
 	origRackCrossSet := s.rackCrossSet
 
 	if gen.isWordSmog {
@@ -427,7 +516,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	}
 
 	// Restore rack
-	copy(s.shadowRack[:], s.shadowRackCopy[:])
+	s.unrestrictTo(0)
 	s.rackCrossSet = origRackCrossSet
 
 	if s.maxTilesToPlay == 0 {
@@ -447,7 +536,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 		// benefits from the WMP existence gating in shadow_record
 		// (tighter highestShadowEquity bound).
 		gen.addWMPAnchorsForSquare(row, col, lastAnchorCol, dir)
-	} else {
+	} else if s.highestShadowEquity >= s.anchorFloor {
 		s.anchorHeap.addUnheaped(row, col, lastAnchorCol, dir,
 			s.highestShadowEquity, s.highestShadowScore)
 	}
@@ -462,20 +551,27 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 // buffer first.
 func (gen *GordonGenerator) addWMPAnchorsForSquare(row, col, lastAnchorCol int, dir board.BoardDirection) {
 	dirty := gen.wmpMoveGen.DirtyAnchorIndices()
+	floor := gen.shadow.anchorFloor
 	for _, idx := range dirty {
 		a := gen.wmpMoveGen.AnchorAt(idx)
+		if a.HighestPossibleEquity < floor {
+			// No play of this anchor can reach the best play already found
+			// (an exchange): the recording loop would stop at it.
+			continue
+		}
 		gen.shadow.anchorHeap.anchors = append(gen.shadow.anchorHeap.anchors, Anchor{
 			HighestPossibleEquity: a.HighestPossibleEquity,
-			HighestPossibleScore:  int32(a.HighestPossibleScore),
+			HighestPossibleScore:  a.HighestPossibleScore,
 			Row:                   uint8(row),
 			Col:                   uint8(col),
 			LastAnchorCol:         uint8(lastAnchorCol),
 			Dir:                   dir,
-			TilesToPlay:           uint8(a.TilesToPlay),
-			PlaythroughBlocks:     uint8(a.PlaythroughBlocks),
-			WordLength:            uint8(a.WordLength),
-			LeftmostStartCol:      uint8(a.LeftmostStartCol),
-			RightmostStartCol:     uint8(a.RightmostStartCol),
+			TilesToPlay:           a.TilesToPlay,
+			PlaythroughBlocks:     a.PlaythroughBlocks,
+			WordLength:            a.WordLength,
+			LeftmostStartCol:      a.LeftmostStartCol,
+			RightmostStartCol:     a.RightmostStartCol,
+			ScoreBases:            a.ScoreBases,
 		})
 	}
 }
@@ -673,21 +769,19 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	origRightCol := s.currentRightCol
 	origNumUnrestricted := s.numUnrestrictedMuls
 
-	s.descTileScoresCopy = s.descTileScores
-	copy(s.descCrossWordMulsCopy[:], s.descCrossWordMuls[:])
-	copy(s.descEffLetterMulsCopy[:], s.descEffLetterMuls[:])
+	// What a restriction or an unrestricted square changes is saved just
+	// before the first one, not here: most calls stop at their first
+	// square. The multipliers are saved with the word multiplier they were
+	// worked out for (see shadowMaybeRecalcEffMuls), which may by then not
+	// be the one this call began with; the two go back together, and the
+	// recalculation at the end takes it from there.
 	origRackCrossSet := s.rackCrossSet
-	rackCopy := s.shadowRack // direct value copy; avoids zero-init + copy
-	restrictedAny := false
+	origNumRestricted := s.numRestricted
+	savedTileScores := false
 	changedMuls := false
-
-	// Snapshot WMP playthrough state so we can resume from the
-	// post-shadow_play_left position when we unwind. Mirrors
-	// wmp_move_gen_save_playthrough_state at the top of
-	// MAGPIE's shadow_play_right.
-	if gen.wmpMoveGen.IsActive() {
-		gen.wmpMoveGen.SavePlaythroughState()
-	}
+	lastWordMulAtSave := 0
+	wmpActive := gen.wmpMoveGen.IsActive()
+	savedPlaythrough := false
 	if gen.isWordSmog {
 		s.bingoAlphaTallyCopy = s.bingoAlphaTally
 	}
@@ -719,11 +813,19 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 		s.shadowPerpAdditionalScore += cs * wm
 		s.shadowWordMultiplier *= wm
 
-		if gen.shadowTryRestrict(possibleHere, lm, wm, s.currentRightCol, isCrossWord) {
-			restrictedAny = true
-		} else {
+		if !savedTileScores && possibleHere&(possibleHere-1) == 0 {
+			// One letter: shadowTryRestrict may take a tile.
+			s.descTileScoresCopy = s.descTileScores
+			savedTileScores = true
+		}
+		if !gen.shadowTryRestrict(possibleHere, lm, wm, s.currentRightCol, isCrossWord) {
+			if !changedMuls {
+				s.descCrossWordMulsCopy = s.descCrossWordMuls
+				s.descEffLetterMulsCopy = s.descEffLetterMuls
+				lastWordMulAtSave = s.lastWordMultiplier
+				changedMuls = true
+			}
 			gen.shadowInsertUnrestricted(s.currentRightCol, lm, wm, isCrossWord)
-			changedMuls = true
 		}
 
 		if crossSet == board.TrivialCrossSet {
@@ -738,7 +840,13 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 				break
 			}
 			foundPlaythrough = true
-			if gen.wmpMoveGen.IsActive() {
+			if wmpActive {
+				if !savedPlaythrough {
+					// To resume from the position shadowing left
+					// reached, once this call unwinds.
+					gen.wmpMoveGen.SavePlaythroughState()
+					savedPlaythrough = true
+				}
 				gen.wmpMoveGen.AddPlaythroughLetter(byte(nextLetter.Unblank()))
 			}
 			if gen.isWordSmog {
@@ -747,7 +855,7 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 			s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(nextLetter)
 			s.currentRightCol++
 		}
-		if gen.wmpMoveGen.IsActive() && foundPlaythrough {
+		if wmpActive && foundPlaythrough {
 			gen.wmpMoveGen.IncrementPlaythroughBlocks()
 		}
 
@@ -762,20 +870,21 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	s.shadowPerpAdditionalScore = origPerpScore
 	s.shadowWordMultiplier = origWordMul
 
-	if restrictedAny {
-		s.shadowRack = rackCopy
-		s.rackCrossSet = origRackCrossSet
+	s.unrestrictTo(origNumRestricted)
+	s.rackCrossSet = origRackCrossSet
+	if savedTileScores {
 		s.descTileScores = s.descTileScoresCopy
 	}
 	if changedMuls {
 		s.numUnrestrictedMuls = origNumUnrestricted
-		copy(s.descCrossWordMuls[:], s.descCrossWordMulsCopy[:])
-		copy(s.descEffLetterMuls[:], s.descEffLetterMulsCopy[:])
+		s.descCrossWordMuls = s.descCrossWordMulsCopy
+		s.descEffLetterMuls = s.descEffLetterMulsCopy
+		s.lastWordMultiplier = lastWordMulAtSave
 	}
 
 	s.currentRightCol = origRightCol
 	gen.tilesPlayed = origTilesPlayed
-	if gen.wmpMoveGen.IsActive() {
+	if savedPlaythrough {
 		gen.wmpMoveGen.RestorePlaythroughState()
 	}
 	if gen.isWordSmog {
@@ -884,8 +993,19 @@ func (gen *GordonGenerator) shadowRecord() {
 		// MAGPIE's shadow_record.
 		wordLength := gen.wmpMoveGen.NumTilesPlayedThrough() + gen.tilesPlayed
 		if wordLength >= wmp.MinimumWordLength {
-			gen.wmpMoveGen.MaybeUpdateAnchor(gen.tilesPlayed, wordLength,
-				s.currentLeftCol, float64(score), equity)
+			// The tiles this bound places: the rack's, less the ones it
+			// has no square for, which are those past its unrestricted
+			// squares' multipliers.
+			shadowTileScoreSum := s.rackTileScoreSum
+			for i := s.numUnrestrictedMuls; i < game.RackTileLimit; i++ {
+				shadowTileScoreSum -= s.descTileScores[i]
+			}
+			smallestMul := wmp.ScoreBaseCount
+			if s.numUnrestrictedMuls > 0 {
+				smallestMul = s.descEffLetterMuls[s.numUnrestrictedMuls-1]
+			}
+			gen.wmpMoveGen.RecordPlacement(gen.tilesPlayed, wordLength,
+				s.currentLeftCol, score, equity, shadowTileScoreSum, smallestMul)
 		}
 	}
 
@@ -929,6 +1049,7 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 			return false
 		}
 		s.shadowRack[ml]--
+		s.noteRestricted(ml)
 		if s.shadowRack[ml] == 0 {
 			s.rackCrossSet &= ^possibleLetters
 		}
@@ -936,6 +1057,7 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 	} else {
 		// Only blank can satisfy this restriction; blank scores 0
 		s.shadowRack[0]--
+		s.noteRestricted(0)
 		if s.shadowRack[0] == 0 {
 			s.rackCrossSet &= ^uint64(1)
 		}
@@ -1043,14 +1165,22 @@ func (gen *GordonGenerator) shadowMaybeRecalcEffMuls() {
 // Anchors are stored in the coordinates of their respective orientation.
 func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.initShadow(rack)
+	if gen.carry != nil && gen.carry.cur != nil {
+		gen.genShadowCarried(rack)
+		return
+	}
 	dim := gen.boardDim
 
 	// Horizontal
 	gen.vertical = false
 	for row := 0; row < dim; row++ {
+		if !gen.rowHasAnchor(row, board.HorizontalDirection) {
+			continue
+		}
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
 		gen.cache.loadRow(gen.board, row, board.VerticalDirection, dim)
+		gen.shadow.lanes[0][row] = gen.cache.squares
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.HorizontalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.HorizontalDirection)
@@ -1066,9 +1196,13 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.board.Transpose()
 	gen.vertical = true
 	for row := 0; row < dim; row++ {
+		if !gen.rowHasAnchor(row, board.VerticalDirection) {
+			continue
+		}
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
 		gen.cache.loadRow(gen.board, row, board.HorizontalDirection, dim)
+		gen.shadow.lanes[1][row] = gen.cache.squares
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.VerticalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.VerticalDirection)
@@ -1082,6 +1216,17 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.board.Transpose()
 
 	gen.shadow.anchorHeap.heapifyAll()
+}
+
+// rowHasAnchor reports whether any square of the row, as the board is
+// oriented now, is an anchor for plays in dir.
+func (gen *GordonGenerator) rowHasAnchor(row int, dir board.BoardDirection) bool {
+	for col := 0; col < gen.boardDim; col++ {
+		if gen.board.IsAnchor(row, col, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // genRecordScoringPlaysFromAnchors processes anchors in best-first order,
@@ -1105,7 +1250,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			break
 		}
 
-		anchor := gen.shadow.anchorHeap.extractMax()
+		anchor, key := gen.shadow.anchorHeap.extractMax()
 
 		// Check if we can stop: no remaining anchor can beat our best.
 		// For TopPlayOnly, winner tracks the best move found.
@@ -1127,10 +1272,14 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			}
 		}
 		if bestEquity > math.Inf(-1) && anchor.HighestPossibleEquity < bestEquity {
-			if currentlyTransposed {
-				gen.board.Transpose()
+			if keyBelow(key, bestEquity) {
+				// So is every anchor left.
+				if currentlyTransposed {
+					gen.board.Transpose()
+				}
+				return
 			}
-			return
+			continue
 		}
 
 		needTransposed := anchor.Dir == board.VerticalDirection
@@ -1158,7 +1307,14 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 			csDir = board.HorizontalDirection
 		}
 		if gen.cache.loadedRow != anchorRow || gen.cache.loadedDir != csDir {
-			gen.cache.loadRow(gen.board, anchorRow, csDir, gen.boardDim)
+			// The shadow pass loaded this lane and kept it.
+			lane := 0
+			if needTransposed {
+				lane = 1
+			}
+			gen.cache.squares = gen.shadow.lanes[lane][anchorRow]
+			gen.cache.loadedRow = anchorRow
+			gen.cache.loadedDir = csDir
 		}
 
 		// WMP-recorded anchors carry per-(blocks, tiles) extension
@@ -1167,7 +1323,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		// traversal in recursiveGen. Non-WMP anchors fall back to
 		// the regular Gordon recursive generator.
 		if gen.wmpMoveGen.IsActive() && anchor.TilesToPlay > 0 {
-			gen.wordmapGen(rack, &anchor)
+			gen.wordmapGen(rack, anchor)
 		} else {
 			gen.genForAnchor(rack)
 		}
@@ -1181,6 +1337,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 // RunShadowOnly runs the shadow pass and returns anchors sorted by
 // descending highest possible score. For testing.
 func (gen *GordonGenerator) RunShadowOnly(rack *tilemapping.Rack) []Anchor {
+	gen.shadow.anchorFloor = math.Inf(-1)
 	gen.genShadow(rack)
 	result := make([]Anchor, len(gen.shadow.anchorHeap.anchors))
 	copy(result, gen.shadow.anchorHeap.anchors)
@@ -1220,6 +1377,7 @@ func (gen *GordonGenerator) RunShadowOnlyWMP(rack *tilemapping.Rack, tilesInBag,
 		gen.wmpMoveGen.CheckNonplaythroughExistence(checkLeaves, &gen.leavemap)
 	}
 
+	gen.shadow.anchorFloor = math.Inf(-1)
 	gen.genShadow(rack)
 
 	// Extract anchors in descending equity order, matching MAGPIE's
@@ -1227,50 +1385,16 @@ func (gen *GordonGenerator) RunShadowOnlyWMP(rack *tilemapping.Rack, tilesInBag,
 	n := gen.shadow.anchorHeap.len()
 	sorted := make([]Anchor, 0, n)
 	for gen.shadow.anchorHeap.len() > 0 {
-		sorted = append(sorted, gen.shadow.anchorHeap.extractMax())
+		anchor, _ := gen.shadow.anchorHeap.extractMax()
+		sorted = append(sorted, *anchor)
 	}
 	return sorted
 }
 
-// GenAllWithShadow generates all moves using shadow for best-first ordering.
-// Only useful when we need the best move (not all moves).
-func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange bool) []*move.Move {
-	gen.winner.SetEmpty()
-	gen.quitEarly = false
-	gen.plays = gen.plays[:0]
-	for i := range gen.topNPlays {
-		gen.topNPlays[i].SetEquity(math.Inf(-1))
-		gen.topNPlays[i].SetEmpty()
-	}
-
-	gen.smallPlays = gen.smallPlays[:0]
-
-	// Cache equity state for the fast path in TopPlayOnlyRecorder.
-	// The leave map fast path only works with CombinedStaticCalculator
-	// (which bundles leave + peg + endgame into one). When separate
-	// calculators are used (e.g., HASTY_BOT with 4 calculators),
-	// the leave map can't replicate the full equity sum.
-	gen.klv = nil
-	gen.pegValues = nil
-	if len(gen.equityCalculators) == 1 {
-		if csc, ok := gen.equityCalculators[0].(*equity.CombinedStaticCalculator); ok {
-			gen.klv = csc.KLV()
-			gen.pegValues = csc.PEGValues()
-		}
-	}
-	if gen.game != nil {
-		gen.tilesInBag = gen.game.Bag().TilesRemaining()
-		oppRack := gen.game.RackFor(gen.game.NextPlayer())
-		gen.oppRackScore = 0
-		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
-			gen.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
-		}
-		// Also set shadow state (used by shadowRecord for endgame equity).
-		// When computeBestLeaves is skipped (leave map handles bestLeaves),
-		// these must still be current for the shadow pass.
-		gen.shadow.tilesInBag = gen.tilesInBag
-		gen.shadow.oppRackScore = gen.oppRackScore
-	}
+// setUpRack works out what a generation needs of its rack before it looks
+// at the board: the leave map, the best leaves by size, and the word map
+// generator's subracks.
+func (gen *GordonGenerator) setUpRack(rack *tilemapping.Rack) {
 	gen.leavemap.Init(rack)
 
 	// Initialize bestLeaves before population.
@@ -1315,6 +1439,74 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		checkLeaves := gen.shadow.tilesInBag > 0
 		gen.wmpMoveGen.CheckNonplaythroughExistence(checkLeaves, &gen.leavemap)
 	}
+}
+
+// GenAllWithShadow generates all moves using shadow for best-first ordering.
+// Only useful when we need the best move (not all moves).
+func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange bool) []*move.Move {
+	gen.winner.SetEmpty()
+	gen.quitEarly = false
+	gen.plays = gen.plays[:0]
+	for i := range gen.topNPlays {
+		gen.topNPlays[i].SetEquity(math.Inf(-1))
+		gen.topNPlays[i].SetEmpty()
+	}
+
+	gen.smallPlays = gen.smallPlays[:0]
+
+	// Cache equity state for the fast path in TopPlayOnlyRecorder.
+	// The leave map fast path only works with CombinedStaticCalculator
+	// (which bundles leave + peg + endgame into one). When separate
+	// calculators are used (e.g., HASTY_BOT with 4 calculators),
+	// the leave map can't replicate the full equity sum.
+	gen.klv = nil
+	gen.pegValues = nil
+	if len(gen.equityCalculators) == 1 {
+		if csc, ok := gen.equityCalculators[0].(*equity.CombinedStaticCalculator); ok {
+			gen.klv = csc.KLV()
+			gen.pegValues = csc.PEGValues()
+		}
+	}
+	if gen.game != nil {
+		gen.tilesInBag = gen.game.Bag().TilesRemaining()
+		oppRack := gen.game.RackFor(gen.game.NextPlayer())
+		gen.oppRackScore = 0
+		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
+			gen.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
+		}
+		// Also set shadow state (used by shadowRecord for endgame equity).
+		// When computeBestLeaves is skipped (leave map handles bestLeaves),
+		// these must still be current for the shadow pass.
+		gen.shadow.tilesInBag = gen.tilesInBag
+		gen.shadow.oppRackScore = gen.oppRackScore
+	}
+	gen.carryBegin(rack)
+	if gen.carry != nil && gen.carry.cur != nil && gen.carry.cur.hasSetup {
+		// The rack is remembered: its leave values and subracks are put back
+		// rather than worked out again.
+		gen.carryLoadSetup(rack)
+	} else {
+		gen.setUpRack(rack)
+		if gen.carry != nil && gen.carry.cur != nil {
+			gen.carrySaveSetup()
+		}
+	}
+
+	// With the recorder that keeps only the best play, exchanges go first
+	// (as in MAGPIE): the best of them is a floor that anchors and word map
+	// subracks are measured against from the start. The recorder's choice
+	// does not depend on the order plays reach it (ties are broken by a
+	// total order on moves), and every skip compares strictly below the
+	// best equity, so the result is the same as with exchanges last.
+	exchangesFirst := addExchange && gen.bestPlayOnly && !gen.exchangesLast &&
+		len(gen.equityCalculators) > 0
+	gen.shadow.anchorFloor = math.Inf(-1)
+	if exchangesFirst {
+		gen.generateExchangeMoves(rack, 0, 0)
+		if !gen.winner.IsEmpty() {
+			gen.shadow.anchorFloor = gen.winner.Equity()
+		}
+	}
 
 	// Run shadow to rank anchors
 	gen.genShadow(rack)
@@ -1323,7 +1515,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	gen.genRecordScoringPlaysFromAnchors(rack)
 
 	// Generate exchange moves after tile placements.
-	if addExchange {
+	if addExchange && !exchangesFirst {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
 
@@ -1339,6 +1531,9 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		case SortByNone:
 			break
 		}
+	}
+	if gen.carry != nil && gen.carry.cur != nil {
+		gen.carryRemember()
 	}
 	if gen.maxTopMovesSize != 0 {
 		delfrom := -1

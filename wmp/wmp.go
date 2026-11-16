@@ -175,6 +175,57 @@ type ForLength struct {
 	NumDoubleBlankEntries   uint32
 	DoubleBlankBucketStarts []uint32
 	DoubleBlankMapEntries   []Entry
+
+	// wordFilter is a blocked Bloom filter over the blankless entries,
+	// built when the word map is loaded or made and not part of the file:
+	// each entry sets two bits of one 64-bit word, chosen by the top bits
+	// of its hash. Most racks looked up have no words, and the filter says
+	// so from a table small enough to stay in cache, without the two
+	// far-apart reads a bucket scan takes. Empty means no filter.
+	wordFilter      []uint64
+	wordFilterShift uint
+}
+
+// wordFilterBitsPerEntry sizes the filter: with two bits set per entry and
+// this many bits per entry, a rack with no words passes about once in fifty.
+const wordFilterBitsPerEntry = 16
+
+// wordFilterBits is the two bits a rack with this hash sets in its filter
+// word: the six bits below the word index, and the six below those.
+func wordFilterBits(hash uint64, shift uint) uint64 {
+	return 1<<((hash>>(shift-6))&63) | 1<<((hash>>(shift-12))&63)
+}
+
+// buildWordFilter fills in the blankless filter from the entries.
+func (wfl *ForLength) buildWordFilter() {
+	wfl.wordFilter = nil
+	if wfl.NumWordBuckets == 0 || len(wfl.WordMapEntries) == 0 {
+		return
+	}
+	words := uint64(64)
+	for words*64 < uint64(len(wfl.WordMapEntries))*wordFilterBitsPerEntry {
+		words <<= 1
+	}
+	shift := uint(64)
+	for w := words; w > 1; w >>= 1 {
+		shift--
+	}
+	filter := make([]uint64, words)
+	for i := range wfl.WordMapEntries {
+		br := wfl.WordMapEntries[i].ReadBitRack()
+		hash := br.MixTo64()
+		filter[hash>>shift] |= wordFilterBits(hash, shift)
+	}
+	wfl.wordFilter = filter
+	wfl.wordFilterShift = shift
+}
+
+// buildFilters builds the lookup filters of every word length. Load and the
+// maker call it; a word map put together some other way works without.
+func (wmp *WMP) buildFilters() {
+	for i := range wmp.WFLs {
+		wmp.WFLs[i].buildWordFilter()
+	}
 }
 
 // WMP is a complete WordMap dictionary, containing one ForLength per
@@ -231,6 +282,7 @@ func Load(name string, r io.Reader) (*WMP, error) {
 			return nil, fmt.Errorf("wmp: reading length %d: %w", length, err)
 		}
 	}
+	wmp.buildFilters()
 	return wmp, nil
 }
 
@@ -597,7 +649,38 @@ func (wfl *ForLength) getWordEntry(br *BitRack) *Entry {
 	if wfl.NumWordBuckets == 0 {
 		return nil
 	}
-	bucketIdx := br.GetBucketIndex(wfl.NumWordBuckets)
+	hash := br.MixTo64()
+	if len(wfl.wordFilter) != 0 {
+		bits := wordFilterBits(hash, wfl.wordFilterShift)
+		if wfl.wordFilter[hash>>wfl.wordFilterShift]&bits != bits {
+			return nil
+		}
+	}
+	bucketIdx := uint32(hash) & (wfl.NumWordBuckets - 1)
+	return scanBucket(wfl.WordBucketStarts, wfl.WordMapEntries, bucketIdx, br.Low, br.High)
+}
+
+// mayHaveWords reports whether the blankless filter lets a rack with this
+// hash (MixTo64) through: false means the rack has no words of this length.
+// With no filter every rack is let through.
+func (wfl *ForLength) mayHaveWords(hash uint64) bool {
+	if wfl.NumWordBuckets == 0 {
+		return false
+	}
+	if len(wfl.wordFilter) == 0 {
+		return true
+	}
+	bits := wordFilterBits(hash, wfl.wordFilterShift)
+	return wfl.wordFilter[hash>>wfl.wordFilterShift]&bits == bits
+}
+
+// getHashedWordEntry is getWordEntry for a rack whose hash is in hand and
+// has been let through by mayHaveWords.
+func (wfl *ForLength) getHashedWordEntry(br *BitRack, hash uint64) *Entry {
+	if wfl.NumWordBuckets == 0 {
+		return nil
+	}
+	bucketIdx := uint32(hash) & (wfl.NumWordBuckets - 1)
 	return scanBucket(wfl.WordBucketStarts, wfl.WordMapEntries, bucketIdx, br.Low, br.High)
 }
 
@@ -674,7 +757,9 @@ func writeBlankWords(entry *Entry, wfl *ForLength, br *BitRack, wordLength int, 
 			continue
 		}
 		br.AddLetter(ml)
-		blanklessEntry := wfl.getWordEntry(br)
+		// The blank entry says this letter makes a word, so the rack is
+		// there and the filter would only be one more read.
+		blanklessEntry := wfl.getHashedWordEntry(br, br.MixTo64())
 		if blanklessEntry != nil {
 			bytesWritten += writeBlanklessWords(blanklessEntry, wfl, wordLength, buffer[bytesWritten:])
 		}
