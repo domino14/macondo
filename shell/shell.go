@@ -1757,6 +1757,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("simplays"+suffix, -1); err == nil && v > 0 {
 		p.SimPlays = int32(v)
 	}
+	if options.Bool("simbai" + suffix) {
+		p.SimBai = true
+	}
 	if v := options.String("tritonmodel" + suffix); v != "" {
 		p.TritonModel = v
 	}

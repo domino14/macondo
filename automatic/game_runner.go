@@ -125,6 +125,7 @@ type AutomaticRunnerPlayer struct {
 	MinSimPlies          int
 	FixedSimPlies        int
 	SimPlays             int
+	SimBAI               bool
 	TritonModel          string
 	SimThreads           int
 	StochasticStaticEval bool
@@ -241,6 +242,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			MinSimPlies:                  players[idx].MinSimPlies,
 			FixedSimPlies:                players[idx].FixedSimPlies,
 			SimPlays:                     players[idx].SimPlays,
+			SimBAI:                       players[idx].SimBAI,
 			TritonModel:                  players[idx].TritonModel,
 			SimThreads:                   simThreads,
 			StochasticStaticEval:         players[idx].StochasticStaticEval,

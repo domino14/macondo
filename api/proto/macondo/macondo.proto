@@ -526,6 +526,10 @@ message AutoplayPlayerConfig {
   // a simming bot starts its sim from (default 100). Lets a sim bot consider
   // as many plays as FastMlBot ranks.
   int32 sim_plays = 24;
+  // sim_bai makes a simming bot run its sims as best-arm identification
+  // (which plays to roll out, and when to stop) instead of the older rule
+  // of rolling out every surviving play equally.
+  bool sim_bai = 27;
   // inference_tau_cap caps the inference temperature, pinned or scheduled.
   // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
   // keeps its early values and sharpens only the late reads. 0 = the bot's
