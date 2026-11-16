@@ -182,15 +182,17 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) float64 {
 	sp.Lock()
 	defer sp.Unlock()
-	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
+	eq := float64(spread-initialSpread) + leftover
+	sp.equityStats.Push(eq)
 	sp.leftoverStats.Push(leftover)
+	return eq
 }
 
 func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
-	tilesUnseen int, pliesAreEven bool) {
+	tilesUnseen int, pliesAreEven bool) float64 {
 	winPct := float64(0.0)
 
 	if gameover || tilesUnseen == 0 {
@@ -240,14 +242,16 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 	sp.Lock()
 	defer sp.Unlock()
 	sp.winPctStats.Push(float64(winPct))
+	return winPct
 }
 
 // addWinProbStat records a rollout whose win probability is already known
 // (a searched endgame).
-func (sp *SimmedPlay) addWinProbStat(p float64) {
+func (sp *SimmedPlay) addWinProbStat(p float64) float64 {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.winPctStats.Push(p)
+	return p
 }
 
 func (s *SimmedPlay) Move() *move.Move {
@@ -352,7 +356,12 @@ type Simmer struct {
 	adjustedBagProbabilities []float64
 	unseenToSimmingPlayer    map[tilemapping.MachineLetter]int
 
-	autostopper          *AutoStopper
+	autostopper *AutoStopper
+	// rolloutHook, when set, is given every rollout's result: the iteration
+	// it belongs to, the play's index in the sim's list, the win probability
+	// and the equity (spread gained plus leftover). It is called from the
+	// sim's threads. For measurements.
+	rolloutHook          func(iteration uint64, playIdx int, win, equity float64)
 	stochasticStaticEval bool
 
 	// rngs holds one random source per thread. They are seeded from the game's
@@ -1090,7 +1099,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 
 	var logPlay LogPlay
 	var plyChild LogPlay
-	for _, simmedPlay := range s.simmedPlays.plays {
+	for playIdx, simmedPlay := range s.simmedPlays.plays {
 		if simmedPlay.ignore.Load() {
 			continue
 		}
@@ -1175,18 +1184,19 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
 		spread := g.SpreadFor(s.initialPlayer)
+		var rolloutWin, rolloutEquity float64
 		if egDone {
 			// Scored at the empty bag: the searched result, and the spread
 			// the endgame starts from with no leftover.
-			simmedPlay.addEquityStat(s.initialSpread, spread, 0)
-			simmedPlay.addWinProbStat(egWin)
+			rolloutEquity = simmedPlay.addEquityStat(s.initialSpread, spread, 0)
+			rolloutWin = simmedPlay.addWinProbStat(egWin)
 		} else {
-			simmedPlay.addEquityStat(
+			rolloutEquity = simmedPlay.addEquityStat(
 				s.initialSpread,
 				spread,
 				leftover,
 			)
-			simmedPlay.addWinPctStat(
+			rolloutWin = simmedPlay.addWinPctStat(
 				spread,
 				leftover,
 				g.Playing() == pb.PlayState_GAME_OVER,
@@ -1196,6 +1206,9 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 					int(g.RackFor(1-s.initialPlayer).NumTiles()),
 				plies%2 == 0,
 			)
+		}
+		if s.rolloutHook != nil {
+			s.rolloutHook(iterationCount, playIdx, rolloutWin, rolloutEquity)
 		}
 		g.ResetToFirstState()
 		if s.logStream != nil {
