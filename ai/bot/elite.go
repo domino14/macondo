@@ -94,6 +94,10 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 // bot sims unless BotConfig.SimPlays says otherwise.
 const defaultSimPlays = 100
 
+// simTimeLimit is the longest a simming bot spends on one sim. A sim that
+// has not told the plays apart by then plays the leader.
+const simTimeLimit = 120 * time.Second
+
 func (p *BotTurnPlayer) simPlaysOrDefault() int {
 	if p.simPlays > 0 {
 		return p.simPlays
@@ -310,6 +314,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.simmer.SetEndgameLeaves(!p.cfg.NoSimEndgameLeaves)
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetTimeLimit(simTimeLimit)
 	if p.cfg.StochasticStaticEval {
 		p.simmer.SetStochasticStaticEval(true)
 	}

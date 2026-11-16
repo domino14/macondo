@@ -231,6 +231,7 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		SampleMinimum: minimum,
 		Cutoff:        baiCutoff,
 		Threads:       threads,
+		TimeLimit:     s.timeLimit,
 		// A round is laid out before any of it is drawn, so it has to be
 		// big enough to keep every thread busy.
 		RoundSize: max(bai.DefaultRoundSize, 2*threads),

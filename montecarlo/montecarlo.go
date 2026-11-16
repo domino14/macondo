@@ -335,6 +335,7 @@ type Simmer struct {
 	iterationCount atomic.Uint64
 	nodeCount      atomic.Uint64
 	threads        int
+	timeLimit      time.Duration
 
 	simming      bool
 	readyToSim   bool
@@ -409,6 +410,12 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 			panic("win percentages not correct type")
 		}
 	}
+}
+
+// SetTimeLimit bounds every sim that follows by the clock: a sim still
+// running after d stops and reports the plays as they stand. 0 is no limit.
+func (s *Simmer) SetTimeLimit(d time.Duration) {
+	s.timeLimit = d
 }
 
 func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
@@ -860,6 +867,13 @@ func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	// workers learn to quit. The single-threaded loop just breaks.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// A best-arm sim watches the clock itself, between rounds, so that it
+	// ends with a whole round counted and a play chosen.
+	if s.timeLimit > 0 && !s.usesBAI() {
+		var cancelTimer context.CancelFunc
+		ctx, cancelTimer = context.WithTimeout(ctx, s.timeLimit)
+		defer cancelTimer()
+	}
 
 	tstart := time.Now()
 	s.autostopper.reset()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"lukechampine.com/frand"
@@ -11,6 +12,7 @@ import (
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/montecarlo/bai"
 )
 
 // baiTestSimmer is a seeded sim of a midgame position, set up for best-arm
@@ -211,5 +213,29 @@ func TestBAISimStops(t *testing.T) {
 	none.SetStoppingCondition(StopNone)
 	if none.usesBAI() {
 		t.Fatal("best-arm identification runs without a stopping condition")
+	}
+}
+
+// A time limit ends a sim, of either kind, that would otherwise run on; the
+// best-arm sim still names its play.
+func TestSimTimeLimit(t *testing.T) {
+	for _, useBAI := range []bool{true, false} {
+		s := baiTestSimmer(t, 1, 4, 20)
+		s.SetBAI(useBAI)
+		s.SetBAICapPerPlay(1000000)
+		s.SetAutostopIterationsCutoff(1000000000)
+		s.SetStoppingCondition(Stop999)
+		s.SetTimeLimit(300 * time.Millisecond)
+		start := time.Now()
+		if err := s.Simulate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		took := time.Since(start)
+		if took < 250*time.Millisecond || took > 5*time.Second {
+			t.Fatalf("bai=%v: a 300 ms sim took %v", useBAI, took)
+		}
+		if useBAI && (s.BAIStatus() != bai.StatusTimeout.String() || s.bai.winner == nil) {
+			t.Fatalf("status %v, winner %v", s.BAIStatus(), s.bai.winner)
+		}
 	}
 }

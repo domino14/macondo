@@ -121,6 +121,12 @@ Options:
     plays it loses interest in keep the statistics of their first rollouts,
     so their numbers are rougher than the leaders'.
 
+    -maxtime 120
+
+    Stop the sim after this many seconds, wherever it has got to, and show
+    the plays as they stand. Fractions are allowed. The default, 0, is no
+    time limit. (The simming bots give themselves 120 seconds.)
+
     -bai-cap 1000
 
     With -bai, the most rollouts the sim makes, as an average per play (so
