@@ -240,6 +240,110 @@ func (lt *labTable) runBAI(perm []int32, c labBAIConfig) labRun {
 	return labRun{samples: res.Samples, pick: res.Best, status: res.Status.String()}
 }
 
+type labPairedConfig struct {
+	delta    float64
+	minimum  int     // iterations before any play is dropped
+	every    int     // iterations between checks
+	bonf     bool    // the old rule's z threshold over K plays; else BAI's GLR threshold per pair
+	weight   float64 // the reward's weight on spread; 0 is win probability alone
+	limitPer int     // rollout limit, in rollouts per play
+}
+
+// runPaired replays a carry-friendly rule: like Macondo's, every play still
+// in the sim is rolled out once an iteration against the same draw, but a
+// play is dropped by a test on its paired differences with the leader (the
+// rollouts of an iteration share their luck, so a difference is far less
+// noisy than either play's mean).
+func (lt *labTable) runPaired(perm []int32, c labPairedConfig) labRun {
+	k := lt.k
+	alive := make([]int, k)
+	for i := range alive {
+		alive[i] = i
+	}
+	sum := make([]float64, k)
+	cross := make([]float64, k*k) // sum of x_i x_j, i <= j
+	x := make([]float64, k)
+	limit := c.limitPer * k
+	samples := 0
+	status := "table"
+	n := 0
+	best := func() int {
+		b := alive[0]
+		for _, i := range alive[1:] {
+			if sum[i] > sum[b] {
+				b = i
+			}
+		}
+		return b
+	}
+	for it := 0; it < len(perm); it++ {
+		col := perm[it]
+		for _, i := range alive {
+			if c.weight > 0 {
+				x[i] = labUtilityWeighted(lt.win[i][col], lt.eq[i][col], lt.InitialSpread, c.weight)
+			} else {
+				x[i] = float64(lt.win[i][col])
+			}
+			sum[i] += x[i]
+		}
+		for ai, i := range alive {
+			xi := x[i]
+			row := cross[i*k:]
+			for _, j := range alive[ai:] {
+				row[j] += xi * x[j]
+			}
+		}
+		n++
+		samples += len(alive)
+		if len(alive) == 1 {
+			status = "stop"
+			break
+		}
+		if samples >= limit {
+			status = "limit"
+			break
+		}
+		if n < c.minimum || n%c.every != 0 {
+			continue
+		}
+		fn := float64(n)
+		var thr float64
+		if c.bonf {
+			z := math.Sqrt(2 * math.Log(float64(k)/c.delta))
+			thr = z * z / 2
+		} else {
+			thr = math.Log((math.Log(fn) + 1) / c.delta)
+		}
+		lead := best()
+		kept := alive[:0]
+		for _, i := range alive {
+			if i == lead {
+				kept = append(kept, i)
+				continue
+			}
+			lo, hi := min(i, lead), max(i, lead)
+			d := (sum[lead] - sum[i]) / fn
+			sd2 := (cross[lead*k+lead] + cross[i*k+i] - 2*cross[lo*k+hi] - fn*d*d) / (fn - 1)
+			if lt.similar[lead*k+i] {
+				continue // the leader stands in for it
+			}
+			if sd2 <= 1e-12 {
+				continue // the same play as the leader, to the rollouts
+			}
+			if fn*d*d/(2*sd2) > thr {
+				continue
+			}
+			kept = append(kept, i)
+		}
+		alive = kept
+		if len(alive) == 1 {
+			status = "stop"
+			break
+		}
+	}
+	return labRun{samples: samples, pick: best(), status: status}
+}
+
 type labAlgo struct {
 	name string
 	run  func(lt *labTable, perm []int32) labRun
@@ -357,6 +461,36 @@ func labAlgos() []labAlgo {
 				}
 				return lt.runBAI(perm, c)
 			}})
+		}
+	}
+	// The paired rule: minimums, thresholds, rewards and caps.
+	for _, limit := range []int{0, 300, 500, 750, 1000, 1500} {
+		for _, minimum := range []int{32, 64, 128, 256} {
+			for _, bonf := range []bool{false, true} {
+				for _, w := range []float64{0, 0.1} {
+					if limit != 0 && limit != 1000 && ((minimum != 64 && minimum != 128) || w != 0.1) {
+						continue
+					}
+					c := labPairedConfig{delta: 0.01, minimum: minimum, every: 16, bonf: bonf, weight: w, limitPer: limit}
+					name := fmt.Sprintf("paired-99-min%d", minimum)
+					if bonf {
+						name += "-bonf"
+					}
+					if w > 0 {
+						name += fmt.Sprintf("-w%g", w)
+					}
+					if limit != 0 {
+						name += fmt.Sprintf("-cap%d", limit)
+					}
+					algos = append(algos, labAlgo{name, func(lt *labTable, perm []int32) labRun {
+						c := c
+						if c.limitPer == 0 {
+							c.limitPer = defaultIterationsCutoff + lt.Plies*defaultPerPlyStopScaling
+						}
+						return lt.runPaired(perm, c)
+					}})
+				}
+			}
 		}
 	}
 	add("95", 0.05, 128, false, true, 0)
