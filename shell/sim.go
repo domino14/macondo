@@ -48,7 +48,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	endgameLeaves := true
-	useBAI := false
+	useBAI := true
 	baiCap := 0
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int

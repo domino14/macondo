@@ -471,6 +471,10 @@ func (sc *ShellController) gameState(cmd *shellcmd) (*Response, error) {
 
 }
 
+// defaultGenPlays is how many plays `gen` makes when it is not told, and so
+// how many a sim after a bare `gen` compares.
+const defaultGenPlays = 100
+
 func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
@@ -483,7 +487,7 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	}
 
 	if cmd.args == nil {
-		numPlays = 15
+		numPlays = defaultGenPlays
 	} else {
 		numPlays, err = strconv.Atoi(cmd.args[0])
 		if err != nil {

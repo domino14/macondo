@@ -18,7 +18,7 @@ Example:
     sim tilestats
     sim -useinferences weightedrandomracks
     sim -endgame-leaves false
-    sim -stop 99 -bai true
+    sim -stop 99 -bai false
 
 A list of plays must have been generated or added in another way already.
 
@@ -109,18 +109,17 @@ Options:
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.
 
-    -bai true
+    -bai false
 
-    With -stop, run the sim as a best-arm identification problem (the
-    method MAGPIE uses). Every play is rolled out 128 times; after that the
-    sim rolls out mostly the leading play and its closest challenger, and
-    stops when the leader has been told apart from every other play at the
-    confidence -stop asks for. Rollout for rollout it picks better plays
-    than the default, but left to the default cap it keeps going on close
-    calls and can use more rollouts in total; give it -bai-cap 1000 to get
-    a sim that is both shorter and more accurate than the default. The plays
-    it loses interest in keep the statistics of their first rollouts, so
-    their numbers are rougher than the leaders'.
+    With -stop, the sim is run as a best-arm identification problem (the
+    method MAGPIE uses) unless this option turns that off. Every play is
+    rolled out 128 times; after that the sim rolls out mostly the leading
+    play and its closest challenger, and stops when the leader has been told
+    apart from every other play at the confidence -stop asks for. Rollout
+    for rollout it picks better plays than the older rule (-bai false),
+    which rolls out every play still in the running equally often. The
+    plays it loses interest in keep the statistics of their first rollouts,
+    so their numbers are rougher than the leaders'.
 
     -bai-cap 1000
 

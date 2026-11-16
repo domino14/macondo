@@ -177,7 +177,7 @@ func init() {
 			{Name: "collect-heatmap", Type: OptBool, Values: boolValues},
 			{Name: "endgame-leaves", Type: OptBool, Values: boolValues},
 			{Name: "bai", Type: OptBool, Values: boolValues,
-				Help: "with -stop, choose which plays to roll out and when to stop by best-arm identification"},
+				Help: "with -stop, choose which plays to roll out and when to stop by best-arm identification (the default; false for the older rule)"},
 			{Name: "bai-cap", Type: OptInt,
 				Help: "with -bai, the most rollouts to make, as an average per play"},
 			{Name: "fixedsimiters", Type: OptInt},

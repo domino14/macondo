@@ -5,7 +5,7 @@ Example usage:
     gen
     gen 25
 
-If no argument is provided, it defaults to generating 15 plays. This
+If no argument is provided, it defaults to generating 100 plays. This
 command will generate plays and sort them by equity, replacing the
 current list of moves. You can view this list at any time with the
 `list` command.

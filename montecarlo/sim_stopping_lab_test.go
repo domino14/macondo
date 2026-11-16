@@ -322,8 +322,12 @@ func labAlgos() []labAlgo {
 	// Other weights on the utility's spread term, and bigger rounds (a round
 	// is laid out from the statistics before it, so a round as big as a
 	// many-threaded machine needs adapts less often).
-	for _, limit := range []int{0, 1000, 1500} {
+	for _, limit := range []int{0, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000} {
+		sweepOnly := limit != 0 && limit != 1000 && limit != 1500
 		for _, w := range []float64{0.02, 0.1, 0.25} {
+			if sweepOnly && w != 0.1 {
+				continue
+			}
 			c := labBAIConfig{delta: 0.01, minimum: 128, utility: true, paired: true, similar: true, limitPer: limit, spreadWeight: w}
 			name := fmt.Sprintf("bai-99-min128-w%g", w)
 			if limit != 0 {
@@ -338,6 +342,9 @@ func labAlgos() []labAlgo {
 			}})
 		}
 		for _, rs := range []int{128, 512} {
+			if sweepOnly {
+				continue
+			}
 			c := labBAIConfig{delta: 0.01, minimum: 128, utility: true, paired: true, similar: true, limitPer: limit, roundSize: rs}
 			name := fmt.Sprintf("bai-99-min128-round%d", rs)
 			if limit != 0 {
