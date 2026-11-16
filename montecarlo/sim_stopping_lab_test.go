@@ -18,8 +18,8 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/cgp"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/montecarlo/bai"
-	"github.com/domino14/macondo/move"
 )
 
 // The stopping lab replays stopping rules over rollout tables
@@ -64,13 +64,6 @@ func labUtilityWeighted(win, eq float32, initialSpread int, spreadWeight float64
 		sig = e / (1 + e)
 	}
 	return (float64(win) + spreadWeight*sig) / (1 + spreadWeight)
-}
-
-func labSimilarKey(m *move.Move) string {
-	r, c, v := m.CoordsAndVertical()
-	tiles := append([]byte(nil), m.Tiles().ToByteArr()...)
-	sort.Slice(tiles, func(i, j int) bool { return tiles[i] < tiles[j] })
-	return fmt.Sprintf("%d,%d,%v,%d,%x", r, c, v, m.TilesPlayed(), tiles)
 }
 
 func loadLabTable(path string) (*labTable, error) {
@@ -118,7 +111,7 @@ func (lt *labTable) restrict(k int) {
 	}
 	keys := make([]string, k)
 	for i := range keys {
-		keys[i] = labSimilarKey(lt.moves[i])
+		keys[i] = similarPlayKey(lt.moves[i])
 	}
 	lt.similar = make([]bool, k*k)
 	for i := 0; i < k; i++ {
@@ -466,6 +459,131 @@ func TestSimStoppingLab(t *testing.T) {
 								lt.meanEq[bestEq]-lt.meanEq[r.pick],
 								lt.meanUtil[bestUtil]-lt.meanUtil[r.pick], gap)
 						}
+					}
+				}
+				mu.Lock()
+				w.WriteString(sb.String())
+				mu.Unlock()
+			}
+		}()
+	}
+	for fi := range files {
+		jobs <- fi
+	}
+	close(jobs)
+	wg.Wait()
+}
+
+// TestSimStoppingReal runs real sims of the tables' positions, with the
+// stopping rule the sim has now and with best-arm identification, and
+// judges their picks against the tables as the lab does. It checks that
+// the sim does what the lab's replays say it should.
+//
+//	STOPREAL_DIR=dir STOPREAL_OUT=file [STOPREAL_REPS=5 STOPREAL_K=50
+//	  STOPREAL_THREADS=16 STOPREAL_WORKERS=4]
+func TestSimStoppingReal(t *testing.T) {
+	dir := os.Getenv("STOPREAL_DIR")
+	if dir == "" {
+		t.Skip("STOPREAL_DIR not set")
+	}
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	reps := simSpeedEnvInt("STOPREAL_REPS", 5)
+	k := simSpeedEnvInt("STOPREAL_K", 50)
+	threads := simSpeedEnvInt("STOPREAL_THREADS", 16)
+	workers := simSpeedEnvInt("STOPREAL_WORKERS", 4)
+	files, err := filepath.Glob(filepath.Join(dir, "pos_*.tab"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no tables in %s (%v)", dir, err)
+	}
+	sort.Strings(files)
+	out, err := os.Create(os.Getenv("STOPREAL_OUT"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	w := bufio.NewWriter(out)
+	defer w.Flush()
+	fmt.Fprintln(w, "pos,bag,k,algo,rep,samples,status,pick,best_win,regret_win,regret_eq,regret_util,gap_win")
+	type algo struct {
+		name  string
+		setup func(s *Simmer)
+	}
+	algos := []algo{
+		{"real-macondo-99", func(s *Simmer) {}},
+		{"real-bai-99", func(s *Simmer) { s.SetBAI(true) }},
+		{"real-bai-99-cap1500", func(s *Simmer) { s.SetBAI(true); s.SetBAICapPerPlay(1500) }},
+		{"real-bai-99-cap1000", func(s *Simmer) { s.SetBAI(true); s.SetBAICapPerPlay(1000) }},
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	jobs := make(chan int)
+	for wk := 0; wk < workers; wk++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fi := range jobs {
+				lt, err := loadLabTable(files[fi])
+				if err != nil {
+					panic(err)
+				}
+				lt.restrict(k)
+				bestWin, bestEq, bestUtil := 0, 0, 0
+				for i := 1; i < lt.k; i++ {
+					if lt.meanWin[i] > lt.meanWin[bestWin] {
+						bestWin = i
+					}
+					if lt.meanEq[i] > lt.meanEq[bestEq] {
+						bestEq = i
+					}
+					if lt.meanUtil[i] > lt.meanUtil[bestUtil] {
+						bestUtil = i
+					}
+				}
+				var sb strings.Builder
+				for rep := 0; rep < reps; rep++ {
+					for _, a := range algos {
+						parsed, err := cgp.ParseCGP(DefaultConfig, lt.CGP)
+						if err != nil {
+							panic(err)
+						}
+						parsed.RecalculateBoard()
+						g := parsed.Game
+						var seed [32]byte
+						seed[0], seed[1], seed[2], seed[3] = byte(fi), byte(fi>>8), byte(rep), 91
+						g.SeedBag(seed)
+						calcs, leaves := defaultSimCalculators(lt.Lexicon)
+						s := &Simmer{}
+						s.Init(g, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
+						s.SetThreads(threads)
+						s.TryLoadWMP(DefaultConfig.WGLConfig(), lt.Lexicon)
+						s.SetStoppingCondition(Stop99)
+						a.setup(s)
+						if err := s.PrepareSim(lt.Plies, lt.moves[:lt.k]); err != nil {
+							panic(err)
+						}
+						plays := append([]*SimmedPlay(nil), s.simmedPlays.plays...)
+						if err := s.Simulate(context.Background()); err != nil {
+							panic(err)
+						}
+						best := s.WinningPlay()
+						pick, samples := -1, 0
+						for i, p := range plays {
+							samples += p.winPctStats.Iterations()
+							if p == best {
+								pick = i
+							}
+						}
+						status := "stop"
+						if s.usesBAI() {
+							status = s.BAIStatus()
+						} else if s.Iterations() > s.autostopper.iterationsCutoff+lt.Plies*s.autostopper.perPlyStopScaling {
+							status = "limit"
+						}
+						fmt.Fprintf(&sb, "%d,%d,%d,%s,%d,%d,%s,%d,%d,%.5f,%.3f,%.5f,0\n", fi, lt.Bag, lt.k, a.name, rep,
+							samples, status, pick, bestWin,
+							lt.meanWin[bestWin]-lt.meanWin[pick],
+							lt.meanEq[bestEq]-lt.meanEq[pick],
+							lt.meanUtil[bestUtil]-lt.meanUtil[pick])
 					}
 				}
 				mu.Lock()

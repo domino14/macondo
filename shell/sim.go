@@ -48,6 +48,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	endgameLeaves := true
+	useBAI := false
+	baiCap := 0
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
@@ -157,6 +159,15 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		case "endgame-leaves":
 			endgameLeaves = options.Bool(opt)
 
+		case "bai":
+			useBAI = options.Bool(opt)
+
+		case "bai-cap":
+			baiCap, err = options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -202,6 +213,8 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		inferMode:             inferMode,
 		avoidTrimMoves:        avoidTrimMoves,
 		endgameLeaves:         endgameLeaves,
+		bai:                   useBAI,
+		baiCap:                baiCap,
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -282,6 +295,8 @@ type simParams struct {
 	inferMode             montecarlo.InferenceMode
 	avoidTrimMoves        []*move.Move
 	endgameLeaves         bool
+	bai                   bool
+	baiCap                int
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -293,6 +308,8 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 		simmer.SetThreads(params.threads)
 	}
 	simmer.SetEndgameLeaves(params.endgameLeaves)
+	simmer.SetBAI(params.bai)
+	simmer.SetBAICapPerPlay(params.baiCap)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)
 	if err != nil {
 		return err

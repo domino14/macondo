@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -1359,6 +1360,42 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
 	return extraDrawn, nil
+}
+
+// SetRandomRackSeeded is SetRandomRack with the draw made from rng, and made
+// the same for the same rng whatever order the bag's tiles and the player's
+// old rack were in: the old rack goes back, the bag is put in a fixed order,
+// and only then are the tiles drawn. Two copies of a position given equal
+// sources therefore deal the same rack, which is what lets a sim roll its
+// plays out against common luck. The bag keeps rng for its later draws.
+func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG) error {
+	other := g.players[1-playerIdx].placeholderRack
+	n := g.RackFor(playerIdx).NoAllocTilesOn(other)
+	g.bag.PutBack(other[:n])
+	slices.Sort(g.bag.Tiles())
+	g.bag.SetRNG(rng)
+	// A bag in fixed-order mode (a sim's) hands out its tiles from the end
+	// as they lie, so the order has to come from rng here.
+	g.bag.Shuffle()
+	if len(knownRack) == 0 {
+		ndrawn := g.bag.DrawAtMost(RackTileLimit, g.players[playerIdx].placeholderRack)
+		g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
+		return nil
+	}
+	if err := g.bag.RemoveTiles(knownRack); err != nil {
+		// Undo the PutBack: the player keeps the rack it had.
+		if fixerr := g.bag.RemoveTiles(other[:n]); fixerr != nil {
+			panic(fixerr)
+		}
+		return err
+	}
+	// RemoveTiles rebuilds the bag's tiles and shuffles them with rng, which
+	// is as good an order as the sorted one: it depends only on rng.
+	nTilesToDraw := max(n, RackTileLimit) - len(knownRack)
+	copy(other, knownRack)
+	ndrawn := g.bag.DrawAtMost(nTilesToDraw, other[len(knownRack):])
+	g.players[playerIdx].setRackTiles(other[:len(knownRack)+ndrawn], g.alph)
+	return nil
 }
 
 // RackFor returns the rack for the player with the passed-in index
