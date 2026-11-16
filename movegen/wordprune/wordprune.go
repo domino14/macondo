@@ -409,39 +409,63 @@ func dedup(words []tilemapping.MachineWord) []tilemapping.MachineWord {
 // KWG builder: assembles a GADDAG from a sorted, deduplicated word list.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// trieNode is a node in the GADDAG trie being built.
+// trie is the GADDAG trie being built. Its nodes live in one slice and
+// refer to each other by index, so building it costs a handful of
+// allocations however many nodes there are. Node 0 is the root.
+type trie struct {
+	nodes []trieNode
+}
+
+// trieNode is a node of the trie. Its children are a list in ascending
+// order of tile: firstChild, then each one's nextSibling (0 for none; the
+// root is nobody's child).
 type trieNode struct {
-	children []*trieNode            // sorted ascending by tile
-	tile     tilemapping.MachineLetter
-	accepts  bool
+	firstChild  uint32
+	nextSibling uint32
+	numChildren uint32
+	tile        tilemapping.MachineLetter
+	accepts     bool
 }
 
-func (t *trieNode) insert(word []tilemapping.MachineLetter) {
-	node := t
+func (t *trie) insert(word []tilemapping.MachineLetter) {
+	node := uint32(0)
 	for _, ml := range word {
-		node = node.findOrAddChild(ml)
+		node = t.findOrAddChild(node, ml)
 	}
-	node.accepts = true
+	t.nodes[node].accepts = true
 }
 
-func (t *trieNode) findOrAddChild(ml tilemapping.MachineLetter) *trieNode {
-	pos := sort.Search(len(t.children), func(i int) bool {
-		return t.children[i].tile >= ml
-	})
-	if pos < len(t.children) && t.children[pos].tile == ml {
-		return t.children[pos]
+func (t *trie) findOrAddChild(parent uint32, ml tilemapping.MachineLetter) uint32 {
+	prev := uint32(0)
+	cur := t.nodes[parent].firstChild
+	for cur != 0 && t.nodes[cur].tile < ml {
+		prev, cur = cur, t.nodes[cur].nextSibling
 	}
-	newNode := &trieNode{tile: ml}
-	t.children = append(t.children, nil)
-	copy(t.children[pos+1:], t.children[pos:])
-	t.children[pos] = newNode
-	return newNode
+	if cur != 0 && t.nodes[cur].tile == ml {
+		return cur
+	}
+	idx := uint32(len(t.nodes))
+	t.nodes = append(t.nodes, trieNode{tile: ml, nextSibling: cur})
+	if prev == 0 {
+		t.nodes[parent].firstChild = idx
+	} else {
+		t.nodes[prev].nextSibling = idx
+	}
+	t.nodes[parent].numChildren++
+	return idx
 }
 
 // buildGADDAGFromWords builds a KWG containing the GADDAG for the given
 // word list.  words must be sorted and deduplicated.
 func buildGADDAGFromWords(words []tilemapping.MachineWord) (*kwg.KWG, error) {
-	root := &trieNode{}
+	total, longest := 0, 0
+	for _, word := range words {
+		total += len(word)
+		longest = max(longest, len(word))
+	}
+	// A guess at the node count; the slice grows if it is short.
+	t := &trie{nodes: make([]trieNode, 1, 1+2*total)}
+	buf := make(tilemapping.MachineWord, longest+1)
 
 	for _, word := range words {
 		n := len(word)
@@ -451,16 +475,16 @@ func buildGADDAGFromWords(words []tilemapping.MachineWord) (*kwg.KWG, error) {
 
 		// Reversed word (no separator): for starting a play at the last
 		// letter and extending left.
-		rev := make(tilemapping.MachineWord, n)
+		rev := buf[:n]
 		for i, ml := range word {
 			rev[n-1-i] = ml
 		}
-		root.insert(rev)
+		t.insert(rev)
 
 		// Pivot forms with separator: for each pivot position k (the
 		// rightmost tile played through), the GADDAG string is
 		//   word[k-1], word[k-2], ..., word[0], SEP, word[k], ..., word[n-1]
-		gstr := make(tilemapping.MachineWord, n+1)
+		gstr := buf[:n+1]
 		for sepPos := n - 1; sepPos >= 1; sepPos-- {
 			for i := 0; i < sepPos; i++ {
 				gstr[i] = word[sepPos-1-i]
@@ -469,36 +493,40 @@ func buildGADDAGFromWords(words []tilemapping.MachineWord) (*kwg.KWG, error) {
 			for i := sepPos; i < n; i++ {
 				gstr[sepPos+1+(i-sepPos)] = word[i]
 			}
-			root.insert(gstr[:n+1])
+			t.insert(gstr)
 		}
 	}
 
-	nodes := serializeTrie(root)
+	nodes := serializeTrie(t)
 	return buildKWGFromNodes(nodes)
 }
 
 // serializeTrie converts the in-memory trie to the flat KWG node array.
 //
 // KWG format (one uint32 per node):
-//   bits  0-21  arc index (first child in the output array)
-//   bit   22    IsEnd – set on the last sibling in a group
-//   bit   23    Accepts – set when this node ends a valid GADDAG string
-//   bits 24-31  Tile – machine letter (0 = separator)
+//
+//	bits  0-21  arc index (first child in the output array)
+//	bit   22    IsEnd – set on the last sibling in a group
+//	bit   23    Accepts – set when this node ends a valid GADDAG string
+//	bits 24-31  Tile – machine letter (0 = separator)
 //
 // Nodes 0 and 1 are root pointers:
-//   node 0: DAWG root (we set it to 0 since we only emit the GADDAG)
-//   node 1: GADDAG root – its ArcIndex points to the first child group
+//
+//	node 0: DAWG root (we set it to 0 since we only emit the GADDAG)
+//	node 1: GADDAG root – its ArcIndex points to the first child group
 type queueEntry struct {
-	node    *trieNode
+	node    uint32
 	baseIdx uint32
 }
 
-func serializeTrie(root *trieNode) []uint32 {
-	// Indices 0 and 1 are always reserved for the root pointers.
-	nodes := make([]uint32, 2)
+func serializeTrie(t *trie) []uint32 {
+	// Indices 0 and 1 are always reserved for the root pointers; every
+	// other trie node gets one slot.
+	nodes := make([]uint32, 2, len(t.nodes)+1)
 	nodes[0] = kwg.KWGNodeIsEndBit // no DAWG
 
-	if len(root.children) == 0 {
+	root := &t.nodes[0]
+	if root.numChildren == 0 {
 		nodes[1] = kwg.KWGNodeIsEndBit
 		return nodes
 	}
@@ -506,38 +534,34 @@ func serializeTrie(root *trieNode) []uint32 {
 	// Reserve contiguous slots for root's children.
 	rootBase := uint32(len(nodes))
 	nodes[1] = rootBase | kwg.KWGNodeIsEndBit
-	for range root.children {
-		nodes = append(nodes, 0)
-	}
+	nodes = nodes[:len(nodes)+int(root.numChildren)]
 
-	queue := []queueEntry{{root, rootBase}}
+	// Breadth first: the queue is every node with children, in the order
+	// their slots were reserved.
+	queue := make([]queueEntry, 1, len(t.nodes))
+	queue[0] = queueEntry{0, rootBase}
 
-	for len(queue) > 0 {
-		entry := queue[0]
-		queue = queue[1:]
+	for head := 0; head < len(queue); head++ {
+		entry := queue[head]
+		outIdx := entry.baseIdx
 
-		parent := entry.node
-		base := entry.baseIdx
-
-		for idx, child := range parent.children {
-			outIdx := base + uint32(idx)
-
+		for ci := t.nodes[entry.node].firstChild; ci != 0; ci = t.nodes[ci].nextSibling {
+			child := &t.nodes[ci]
 			node := uint32(child.tile) << kwg.KWGNodeTileShift
 			if child.accepts {
 				node |= kwg.KWGNodeAcceptsBit
 			}
-			if idx == len(parent.children)-1 {
+			if child.nextSibling == 0 {
 				node |= kwg.KWGNodeIsEndBit
 			}
-			if len(child.children) > 0 {
+			if child.numChildren > 0 {
 				childBase := uint32(len(nodes))
 				node |= childBase
-				for range child.children {
-					nodes = append(nodes, 0)
-				}
-				queue = append(queue, queueEntry{child, childBase})
+				nodes = nodes[:len(nodes)+int(child.numChildren)]
+				queue = append(queue, queueEntry{ci, childBase})
 			}
 			nodes[outIdx] = node
+			outIdx++
 		}
 	}
 
@@ -547,11 +571,9 @@ func serializeTrie(root *trieNode) []uint32 {
 // buildKWGFromNodes serialises the node array to little-endian bytes and
 // loads it back via kwg.ScanKWG, which is the only public constructor.
 func buildKWGFromNodes(nodes []uint32) (*kwg.KWG, error) {
-	buf := &bytes.Buffer{}
-	for _, n := range nodes {
-		if err := binary.Write(buf, binary.LittleEndian, n); err != nil {
-			return nil, err
-		}
+	buf := make([]byte, 4*len(nodes))
+	for i, n := range nodes {
+		binary.LittleEndian.PutUint32(buf[4*i:], n)
 	}
-	return kwg.ScanKWG(bytes.NewReader(buf.Bytes()), buf.Len())
+	return kwg.ScanKWG(bytes.NewReader(buf), len(buf))
 }

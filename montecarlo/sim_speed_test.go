@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,7 +38,8 @@ import (
 //	SIM_SPEED_STATS    non-empty to print what the first thread's memory did
 //
 // One line is printed per position and thread count, with the rollouts
-// (iterations x candidates) and rollouts per second.
+// (iterations x candidates), rollouts per second, and the allocations made
+// while simming.
 func TestSimSpeed(t *testing.T) {
 	mode := os.Getenv("SIM_SPEED")
 	if mode == "" {
@@ -196,11 +198,14 @@ func simSpeedRun(t *testing.T, file string) {
 			if err := s.PrepareSim(plies, plays); err != nil {
 				t.Fatal(err)
 			}
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
 			start := time.Now()
 			if err := s.simulate(context.Background(), simRun{maxIters: iters, quiet: true}); err != nil {
 				t.Fatal(err)
 			}
 			el := time.Since(start).Seconds()
+			runtime.ReadMemStats(&after)
 			rollouts := s.Iterations() * len(plays)
 			best := s.WinningPlay()
 			if os.Getenv("SIM_SPEED_STATS") != "" {
@@ -208,9 +213,10 @@ func simSpeedRun(t *testing.T, file string) {
 				fmt.Printf("SIMSPEED thread 0: generations=%d rack_hits=%d lanes=%d lanes_skipped=%d seeded=%d\n",
 					gens, hits, lanes, skipped, seeded)
 			}
-			fmt.Printf("SIMSPEED pos=%d bag=%d threads=%d plays=%d rollouts=%d secs=%.3f rollouts_per_sec=%.0f wmp=%v best=%q win=%.3f\n",
+			fmt.Printf("SIMSPEED pos=%d bag=%d threads=%d plays=%d rollouts=%d secs=%.3f rollouts_per_sec=%.0f allocs=%d alloc_kb=%d wmp=%v best=%q win=%.3f\n",
 				pi, g.Bag().TilesRemaining(), threads, len(plays), rollouts, el,
-				float64(rollouts)/el, s.WMP() != nil,
+				float64(rollouts)/el, after.Mallocs-before.Mallocs,
+				(after.TotalAlloc-before.TotalAlloc)/1024, s.WMP() != nil,
 				g.Board().MoveDescriptionWithPlaythrough(best.Move()), best.WinProb())
 		}
 	}

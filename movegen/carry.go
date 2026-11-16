@@ -186,6 +186,16 @@ func (gen *GordonGenerator) carryBegin(rack *tilemapping.Rack) {
 			c.racks[i].lanes = make([]carriedLane, 2*c.dim*carryBoundsPerLane)
 			c.racks[i].squares = make([]cachedSquare, 2*c.dim*carryBoundsPerLane*c.dim)
 		}
+		// Room for every remembered play's tiles and leave, so that
+		// remembering one never allocates.
+		buf := make([]tilemapping.MachineLetter, (carryRacks*carryMovesPerRack+1)*2*c.dim)
+		for i := range c.racks {
+			for j := range c.racks[i].moves {
+				c.racks[i].moves[j].Reserve(buf, c.dim)
+				buf = buf[2*c.dim:]
+			}
+		}
+		c.scratch.Reserve(buf, c.dim)
 	}
 	hash := uint64(bagKey) + 0x9E3779B97F4A7C15
 	for _, n := range rack.LetArr {

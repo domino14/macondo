@@ -175,6 +175,14 @@ func (m *Move) CopyFrom(other *Move) {
 	m.equity = other.equity
 }
 
+// Reserve gives the move room for n tiles and a leave of n tiles out of
+// buf, which must hold at least 2n, so that CopyFrom into it does not
+// allocate. The move's tiles and leave are emptied.
+func (m *Move) Reserve(buf []tilemapping.MachineLetter, n int) {
+	m.tiles = buf[0:0:n]
+	m.leave = buf[n : n : 2*n]
+}
+
 // String provides a string just for debugging purposes.
 func (m *Move) String() string {
 	switch m.action {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -230,16 +231,20 @@ func TestCompareParallelAlgorithms(t *testing.T) {
 							t.Fatal(err)
 						}
 					}
+					var before, after runtime.MemStats
+					runtime.ReadMemStats(&before)
 					start := time.Now()
 					v, _, err := s.Solve(context.Background(), pos.plies)
+					runtime.ReadMemStats(&after)
 					if err != nil {
 						t.Fatal(err)
 					}
 					if pos.want != 0 && v != pos.want {
 						t.Errorf("%s: %s with %d threads gave %d, want %d", pos.name, label, threads, v, pos.want)
 					}
-					fmt.Printf("RESULT %-9s plies=%-2d threads=%-2d %-14s value=%-5d %8.2fs nodes=%d searched=%d\n",
-						pos.name, pos.plies, threads, label, v, time.Since(start).Seconds(), s.nodes.Load(), s.SearchedNodes())
+					fmt.Printf("RESULT %-9s plies=%-2d threads=%-2d %-14s value=%-5d %8.2fs nodes=%d searched=%d allocs=%d alloc_mb=%d\n",
+						pos.name, pos.plies, threads, label, v, time.Since(start).Seconds(), s.nodes.Load(), s.SearchedNodes(),
+						after.Mallocs-before.Mallocs, (after.TotalAlloc-before.TotalAlloc)>>20)
 				}
 			}
 		}
