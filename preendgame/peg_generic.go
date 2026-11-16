@@ -333,8 +333,10 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	close(winnerChan)
 	winnerGroup.Wait()
 
-	// sort plays by win %
-	sort.Slice(s.plays, func(i, j int) bool {
+	// sort plays by win %. Stable, so that plays level on points stay in
+	// the order they were generated in and the result is the same from one
+	// run to the next.
+	sort.SliceStable(s.plays, func(i, j int) bool {
 		return s.plays[i].Points > s.plays[j].Points
 	})
 
@@ -590,17 +592,28 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 	close(winnerChan)
 	winnerGroup.Wait()
 
-	sort.Slice(s.plays, func(i, j int) bool {
-		// plays without spread set should be at the bottom.
-		if !s.plays[i].spreadSet {
-			return false
-		}
-		if !s.plays[j].spreadSet {
-			return true
-		}
-		return s.plays[i].Spread > s.plays[j].Spread
-	})
+	sortPlaysAfterTiebreak(s.plays)
 	return nil
+}
+
+// sortPlaysAfterTiebreak puts the plays in their final order: by points,
+// and among plays level on points those whose spread was worked out first,
+// by that spread. Everything else keeps the order it had. Only the winners
+// that went through the tiebreak have a spread, so this ranks them among
+// themselves and leaves them ahead of the winners that did not (a pass, or
+// winners past the tiebreak limit), with the rest of the plays below in
+// order of points.
+func sortPlaysAfterTiebreak(plays []*PreEndgamePlay) {
+	sort.SliceStable(plays, func(i, j int) bool {
+		pi, pj := plays[i], plays[j]
+		if pi.Points != pj.Points {
+			return pi.Points > pj.Points
+		}
+		if pi.spreadSet != pj.spreadSet {
+			return pi.spreadSet
+		}
+		return pi.spreadSet && pi.Spread > pj.Spread
+	})
 }
 
 type option struct {
