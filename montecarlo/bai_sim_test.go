@@ -183,9 +183,10 @@ func TestBAISimStops(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	s := baiTestSimmer(t, 5, 4, 15)
-	s.SetBAICapPerPlay(0)
+	// A close position: it takes more than the default budget to settle.
+	s.SetBAICapPerPlay(5000)
 	r := runBAITest(t, s)
-	budget := (s.autostopper.iterationsCutoff + 2*s.autostopper.perPlyStopScaling) * 15
+	budget := 5000 * 15
 	if r.status != "threshold" || r.rollouts >= budget {
 		t.Fatalf("stopped by %s after %d rollouts of a budget of %d", r.status, r.rollouts, budget)
 	}
