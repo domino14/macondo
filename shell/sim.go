@@ -50,7 +50,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	endgameLeaves := true
 	stopRule := defaultSimStopRule
 	stopCap := 0
-	bagCycle := true
+	bagCycle := false
 	maxTime := 0.0 // seconds; 0 is no limit
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int

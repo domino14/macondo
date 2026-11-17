@@ -183,7 +183,7 @@ func init() {
 			{Name: "stopcap", Type: OptInt,
 				Help: "with -stoprule bai or paired, the most rollouts to make, as an average per play (default 1500)"},
 			{Name: "bagcycle", Type: OptBool, Values: boolValues,
-				Help: "with -stoprule bai, deal the opponent every unseen tile in turn within a sample (default true)"},
+				Help: "with -stoprule bai, deal the opponent every unseen tile in turn within a sample (default false)"},
 			{Name: "fixedsimiters", Type: OptInt},
 			{Name: "fixedsimplies", Type: OptInt},
 			{Name: "fixedsimcount", Type: OptInt},
