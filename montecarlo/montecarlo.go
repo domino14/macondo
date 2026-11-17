@@ -175,6 +175,36 @@ func (sp *SimmedPlay) Ignore() {
 	sp.ignore.Store(true)
 }
 
+// rolloutTally holds what rollouts would add to a play's statistics, for
+// rollouts made before it is known whether the sim will use them.
+type rolloutTally struct {
+	play *SimmedPlay
+	// By turn rolled out: its ply, score and whether it was a bingo.
+	plies  []int
+	scores []float64
+	bingos []float64
+	// By rollout.
+	equities  []float64
+	leftovers []float64
+	wins      []float64
+}
+
+// commit adds the tally to its play's statistics.
+func (t *rolloutTally) commit() {
+	sp := t.play
+	sp.Lock()
+	defer sp.Unlock()
+	for i, ply := range t.plies {
+		sp.scoreStats[ply].Push(t.scores[i])
+		sp.bingoStats[ply].Push(t.bingos[i])
+	}
+	for i := range t.wins {
+		sp.equityStats.Push(t.equities[i])
+		sp.leftoverStats.Push(t.leftovers[i])
+		sp.winPctStats.Push(t.wins[i])
+	}
+}
+
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	// log.Debug().Msgf("Adding a stat for %v (pidx %v ply %v)", play, pidx, ply)
 	var bingos int
@@ -197,6 +227,17 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 }
 
 func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
+	tilesUnseen int, pliesAreEven bool) float64 {
+	winPct := rolloutWinPct(spread, leftover, gameover, winpcts, tilesUnseen, pliesAreEven)
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(float64(winPct))
+	return winPct
+}
+
+// rolloutWinPct is the win probability of a rollout that ended spread
+// points ahead with leftover equity on the racks.
+func rolloutWinPct(spread int, leftover float64, gameover bool, winpcts [][]float32,
 	tilesUnseen int, pliesAreEven bool) float64 {
 	winPct := float64(0.0)
 
@@ -244,9 +285,6 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 		}
 		winPct = float64(pct)
 	}
-	sp.Lock()
-	defer sp.Unlock()
-	sp.winPctStats.Push(float64(winPct))
 	return winPct
 }
 
@@ -1115,7 +1153,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		if s.logStream != nil {
 			li = &logIter
 		}
-		win, eq := s.rollout(g, thread, plies, simmedPlay, li)
+		win, eq := s.rollout(g, thread, plies, simmedPlay, li, nil)
 		if paired {
 			s.pairedNote(thread, simmedPlay, win, eq)
 		}
@@ -1199,7 +1237,7 @@ func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
 // records the result in simmedPlay's statistics and puts g back. It returns
 // the rollout's win probability and equity (spread gained plus leftover).
 // With a logIter the rollout is appended to it.
-func (s *Simmer) rollout(g *game.Game, thread, plies int, simmedPlay *SimmedPlay, logIter *LogIteration) (float64, float64) {
+func (s *Simmer) rollout(g *game.Game, thread, plies int, simmedPlay *SimmedPlay, logIter *LogIteration, tally *rolloutTally) (float64, float64) {
 	var logPlay LogPlay
 	var plyChild LogPlay
 	if logIter != nil {
@@ -1277,14 +1315,36 @@ func (s *Simmer) rollout(g *game.Game, thread, plies int, simmedPlay *SimmedPlay
 		}
 		// Maybe these add{X}Stat functions can instead write them to
 		// a channel to avoid mutices
-		simmedPlay.addScoreStat(bestPlay, ply)
+		if tally != nil {
+			bingo := 0.0
+			if bestPlay.BingoPlayed() {
+				bingo = 1
+			}
+			tally.plies = append(tally.plies, ply)
+			tally.scores = append(tally.scores, float64(bestPlay.Score()))
+			tally.bingos = append(tally.bingos, bingo)
+		} else {
+			simmedPlay.addScoreStat(bestPlay, ply)
+		}
 
 	}
 	// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 	// 	s.game.SpreadFor(s.initialPlayer), leftover)
 	spread := g.SpreadFor(s.initialPlayer)
 	var rolloutWin, rolloutEquity float64
-	if egDone {
+	if tally != nil {
+		// As below, held in the tally.
+		if egDone {
+			rolloutEquity, leftover, rolloutWin = float64(spread-s.initialSpread), 0, egWin
+		} else {
+			rolloutEquity = float64(spread-s.initialSpread) + leftover
+			rolloutWin = rolloutWinPct(spread, leftover, g.Playing() == pb.PlayState_GAME_OVER, s.winPcts,
+				g.Bag().TilesRemaining()+int(g.RackFor(1-s.initialPlayer).NumTiles()), plies%2 == 0)
+		}
+		tally.equities = append(tally.equities, rolloutEquity)
+		tally.leftovers = append(tally.leftovers, leftover)
+		tally.wins = append(tally.wins, rolloutWin)
+	} else if egDone {
 		// Scored at the empty bag: the searched result, and the spread
 		// the endgame starts from with no leftover.
 		rolloutEquity = simmedPlay.addEquityStat(s.initialSpread, spread, 0)
@@ -1308,7 +1368,7 @@ func (s *Simmer) rollout(g *game.Game, thread, plies int, simmedPlay *SimmedPlay
 	}
 	g.ResetToFirstState()
 	if logIter != nil {
-		logPlay.WinRatio = simmedPlay.winPctStats.Last()
+		logPlay.WinRatio = rolloutWin
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
 	return rolloutWin, rolloutEquity

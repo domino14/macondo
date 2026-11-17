@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/montecarlo/bai"
+	"github.com/domino14/macondo/stats"
 )
 
 // baiTestSimmer is a seeded sim of a midgame position, set up for best-arm
@@ -132,7 +133,7 @@ func TestBAISamplesShareTheirLuck(t *testing.T) {
 	sample := func(thread, arm int, ordinal uint64) draw {
 		// The rack the sample deals is the one on the copy as the rollout
 		// starts; the hook sees the rollout's end, so read it before.
-		reward, err := s.baiSample(thread, s.bai.arms[arm], ordinal)
+		reward, err := s.baiSample(thread, s.bai.arms[arm], ordinal, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +248,7 @@ func TestBAISimBagCycle(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	var first baiTestResult
-	for i, threads := range []int{1, 3, 8} {
+	for i, threads := range []int{1, 3, 8, 16} {
 		s := baiTestSimmer(t, 9, threads, 12)
 		s.SetBAIBagCycle(true)
 		r := runBAITest(t, s)
@@ -282,5 +283,61 @@ func TestBAISimBagCycle(t *testing.T) {
 	plain := runBAITest(t, baiTestSimmer(t, 9, 1, 12))
 	if plain.rollouts == first.rollouts && plain.wins[0] == first.wins[0] {
 		t.Fatal("bag cycling changed nothing")
+	}
+}
+
+// A sample drawn ahead of the schedule is the sample drawn on schedule: it
+// leaves its play's statistics alone until it is committed, and then they
+// are what drawing it on schedule would have made them.
+func TestBAIHeldSample(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	for _, cycle := range []bool{false, true} {
+		direct, ahead := baiTestSimmer(t, 5, 1, 6), baiTestSimmer(t, 5, 1, 6)
+		for _, s := range []*Simmer{direct, ahead} {
+			s.SetBAIBagCycle(cycle)
+			s.startBAI()
+			s.rngs = make([]*frand.RNG, 1)
+		}
+		const arm, samples = 2, 12
+		var held []*baiHeld
+		for ordinal := uint64(0); ordinal < samples; ordinal++ {
+			want, err := direct.baiSample(0, direct.bai.arms[arm], ordinal, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := &baiHeld{tally: rolloutTally{play: ahead.bai.arms[arm]}}
+			got, err := ahead.baiSample(0, ahead.bai.arms[arm], ordinal, h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("cycle=%v sample %d: %v ahead of the schedule, %v on it", cycle, ordinal, got, want)
+			}
+			held = append(held, h)
+		}
+		d, a := direct.bai.arms[arm], ahead.bai.arms[arm]
+		if a.winPctStats.Iterations() != 0 || a.equityStats.Iterations() != 0 || a.scoreStats[0].Iterations() != 0 {
+			t.Fatalf("cycle=%v: samples not yet used are in the play's statistics", cycle)
+		}
+		for _, h := range held {
+			ahead.baiCommit(h)
+		}
+		if n := d.winPctStats.Iterations(); n != samples*direct.bai.rotations {
+			t.Fatalf("cycle=%v: %d rollouts tallied for %d samples of %d", cycle, n, samples, direct.bai.rotations)
+		}
+		same := func(what string, x, y *stats.Statistic) {
+			if x.Iterations() != y.Iterations() || x.Mean() != y.Mean() || x.Variance() != y.Variance() {
+				t.Fatalf("cycle=%v %s: %d rollouts mean %v ahead, %d mean %v on schedule", cycle, what,
+					x.Iterations(), x.Mean(), y.Iterations(), y.Mean())
+			}
+		}
+		same("win", &a.winPctStats, &d.winPctStats)
+		same("equity", &a.equityStats, &d.equityStats)
+		same("leftover", &a.leftoverStats, &d.leftoverStats)
+		for ply := range d.scoreStats {
+			same("score", &a.scoreStats[ply], &d.scoreStats[ply])
+			same("bingo", &a.bingoStats[ply], &d.bingoStats[ply])
+		}
 	}
 }

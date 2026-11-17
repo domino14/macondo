@@ -279,9 +279,21 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	default:
 		opts.SampleLimit = samplesFor(DefaultBAICapPerPlay * numArms)
 	}
-	res, err := b.runner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
-		return s.baiSample(worker, b.arms[arm], ordinal)
-	})
+	// A sample's rollouts go into its play's statistics and the log when the
+	// sample is folded, not when it is drawn: samples of rounds the sim stops
+	// before folding, and samples a thread with nothing to draw drew ahead of
+	// the schedule in vain, leave no trace, and the statistics are the same on
+	// any number of threads.
+	opts.Held = func(worker, arm int, ordinal uint64) (float64, func(), error) {
+		held := baiHeldPool.Get().(*baiHeld)
+		held.reset(b.arms[arm])
+		v, err := s.baiSample(worker, b.arms[arm], ordinal, held)
+		return v, func() {
+			s.baiCommit(held)
+			baiHeldPool.Put(held)
+		}, err
+	}
+	res, err := b.runner.Run(ctx, opts, nil)
 	s.iterationCount.Store(uint64(b.runner.Samples() * rot / max(numArms, 1)))
 	if err != nil {
 		logger.Err(err).Msg("error simming; stopping")
@@ -293,10 +305,42 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		Str("best", b.winner.play.ShortDescription()).Msg("sim-stopped")
 }
 
+// baiHeld is what a sample holds back until the sim folds it: its rollouts'
+// statistics and its log entry.
+type baiHeld struct {
+	tally rolloutTally
+	log   []byte
+}
+
+var baiHeldPool = sync.Pool{New: func() any { return new(baiHeld) }}
+
+func (h *baiHeld) reset(play *SimmedPlay) {
+	t := &h.tally
+	t.play = play
+	t.plies, t.scores, t.bingos = t.plies[:0], t.scores[:0], t.bingos[:0]
+	t.equities, t.leftovers, t.wins = t.equities[:0], t.leftovers[:0], t.wins[:0]
+	h.log = h.log[:0]
+}
+
+// baiCommit adds a held sample to its play's statistics and to the log.
+func (s *Simmer) baiCommit(held *baiHeld) {
+	held.tally.commit()
+	if len(held.log) > 0 {
+		s.bai.logMu.Lock()
+		defer s.bai.logMu.Unlock()
+		s.logStream.Write(held.log)
+	}
+}
+
 // baiSample draws sample number ordinal of play on thread's game copy and
 // returns its reward: deal the opponent the sample's rack, roll the play
-// out, and put the game back.
-func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float64, error) {
+// out, and put the game back. With held, the play's statistics and the log
+// are left alone and what would go to them is put in held.
+func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64, held *baiHeld) (float64, error) {
+	var tally *rolloutTally
+	if held != nil {
+		tally = &held.tally
+	}
 	g := s.gameCopies[thread]
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	w := s.bai.spreadWeight
@@ -317,9 +361,9 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float6
 			if s.logStream != nil && rotation == 0 {
 				logIter = &LogIteration{Iteration: int(ordinal), Thread: thread}
 			}
-			win, eq := s.rollout(g, thread, s.maxPlies, play, logIter)
+			win, eq := s.rollout(g, thread, s.maxPlies, play, logIter, tally)
 			if logIter != nil {
-				if err := s.baiWriteLog(logIter); err != nil {
+				if err := s.baiWriteLog(logIter, held); err != nil {
 					return 0, err
 				}
 			}
@@ -345,9 +389,9 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float6
 			logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
 		}
 	}
-	win, eq := s.rollout(g, thread, s.maxPlies, play, logIter)
+	win, eq := s.rollout(g, thread, s.maxPlies, play, logIter, tally)
 	if logIter != nil {
-		if err := s.baiWriteLog(logIter); err != nil {
+		if err := s.baiWriteLog(logIter, held); err != nil {
 			return 0, err
 		}
 	}
@@ -355,8 +399,9 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float6
 }
 
 // baiWriteLog writes one sample's log entry: JSON lines for a heat map (up
-// to MaxHeatMapIterations of each play's samples), YAML otherwise.
-func (s *Simmer) baiWriteLog(logIter *LogIteration) error {
+// to MaxHeatMapIterations of each play's samples), YAML otherwise. With
+// held, the entry is kept there instead.
+func (s *Simmer) baiWriteLog(logIter *LogIteration, held *baiHeld) error {
 	var out []byte
 	var err error
 	if s.collectHeatMap {
@@ -370,6 +415,10 @@ func (s *Simmer) baiWriteLog(logIter *LogIteration) error {
 	}
 	if err != nil {
 		return err
+	}
+	if held != nil {
+		held.log = append(held.log, out...)
+		return nil
 	}
 	s.bai.logMu.Lock()
 	defer s.bai.logMu.Unlock()

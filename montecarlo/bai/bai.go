@@ -79,6 +79,12 @@ const (
 	// arms, so samples that share their luck run on one thread, whose caches
 	// that keeps warm. Adaptive rounds are claimed a slot at a time.
 	roundRobinClaimBatch = 8
+	// A worker with nothing to claim draws ahead the samples the next rounds
+	// are expected to hold (see speculation). speculationSlots is how many
+	// slots ahead it looks, speculationsPerThread how many such samples are
+	// held for each thread.
+	speculationSlots      = 8 * DefaultRoundSize
+	speculationsPerThread = 16
 )
 
 // Options configure a run.
@@ -109,12 +115,26 @@ type Options struct {
 	// Paired says arms' samples at the same ordinal share their luck (common
 	// random numbers), so the stopping test may use their covariance.
 	Paired bool
+	// Held, if set, draws the samples in place of Run's sampler, and lets a
+	// thread that has nothing to draw draw ahead the samples the schedule is
+	// expected to ask for next (see speculation).
+	Held HeldSampler
 }
 
 // Sampler draws arm's ordinal-th sample on worker (0 <= worker < Threads).
 // It may be called concurrently for different workers. A sample with a
 // shared seed per ordinal is what makes Options.Paired valid.
 type Sampler func(worker, arm int, ordinal uint64) (float64, error)
+
+// HeldSampler draws a sample as Sampler does, but the run may never use the
+// sample: the run can stop before the sample's round is folded, and a sample
+// drawn ahead of the schedule may never be asked for. Whatever else drawing
+// a sample does that should happen only for samples the run uses (tallies,
+// logs) the sampler holds back and does in commit, which is called when the
+// sample is folded: at most once, in the order samples are folded, which is
+// the same on any number of threads, and possibly from another goroutine. A
+// nil commit means there is nothing to hold back.
+type HeldSampler func(worker, arm int, ordinal uint64) (value float64, commit func(), err error)
 
 // Result is the outcome of a run.
 type Result struct {
@@ -339,6 +359,8 @@ type slot struct {
 	arm     int
 	ordinal uint64
 	value   float64
+	// commit is the held sampler's, called when the slot is folded.
+	commit func()
 }
 
 // scheduleTopTwo splits n samples between astar and the challenger by the
@@ -391,6 +413,67 @@ type Runner struct {
 	roundsFolded    uint64
 	// claimFrom is the first live round that may still have a free slot.
 	claimFrom int
+	// initialLastRound is the number of the round holding the last sample of
+	// the initial phase, once it is laid out.
+	initialLastRound uint64
+	initialLaidOut   bool
+
+	// specs is the speculation cache and specIndex finds an entry by its
+	// sample. Empty when the run has one thread.
+	specs     []speculation
+	specIndex map[specKey]int
+	// expected are the slots the next rounds are expected to hold, which
+	// change only when a round is laid out or folded: epoch counts those
+	// events, and the expectation is worked out again when it has moved.
+	// covered marks the expected slots that need no speculation: one is held
+	// already, or the slot is past the sample limit. Claims take the others
+	// in order from specCursor.
+	epoch      uint64
+	specEpoch  uint64
+	specFresh  bool
+	specValid  bool
+	specCursor int
+	expected   []slot
+	covered    []bool
+	// specDrawn counts the speculative samples started, specUsed those a
+	// round took.
+	specDrawn, specUsed int
+}
+
+const (
+	specEmpty = iota
+	specRunning
+	specDone
+)
+
+type specKey struct {
+	arm     int
+	ordinal uint64
+}
+
+// speculation is a sample drawn ahead of the schedule by a worker that had
+// nothing to claim. A sample is a function of its arm and ordinal, so it is
+// the same whenever and on whichever thread it is drawn. A worker that would
+// otherwise wait therefore draws the samples the next rounds will most
+// likely hold. When a round is laid out, a slot whose sample is here is
+// filled in and never claimed; one still being drawn is adopted, and the
+// worker drawing it completes the slot. Samples no round ever asks for are
+// dropped. Which samples are speculated on depends on thread timing; a
+// slot's value never does, and so neither does the result.
+type speculation struct {
+	state   uint8
+	arm     int
+	ordinal uint64
+	value   float64
+	// adopted is set when a round laid out this sample's slot while it was
+	// being drawn; round and slot say where.
+	adopted bool
+	round   *round
+	slot    int
+	// expected says it is one of the currently expected slots.
+	expected bool
+	// commit is the sampler's, handed to the slot that takes the sample.
+	commit func()
 }
 
 const (
@@ -496,10 +579,208 @@ func (r *Runner) scheduleRound() {
 	}
 	if r.requested < r.initialLimit && r.requested+uint64(n) >= r.initialLimit {
 		rd.lastInitial = true
+		r.initialLastRound, r.initialLaidOut = r.roundsScheduled, true
+	}
+	for i := range rd.slots {
+		r.matchSpeculation(rd, i)
 	}
 	r.requested += uint64(n)
 	r.roundsScheduled++
+	r.epoch++
 	r.live = append(r.live, rd)
+}
+
+// findSpeculation is the cache entry holding arm's sample at ordinal, or -1.
+func (r *Runner) findSpeculation(arm int, ordinal uint64) int {
+	if i, ok := r.specIndex[specKey{arm, ordinal}]; ok {
+		return i
+	}
+	return -1
+}
+
+// releaseSpeculation empties a cache entry.
+func (r *Runner) releaseSpeculation(i int) {
+	sp := &r.specs[i]
+	delete(r.specIndex, specKey{sp.arm, sp.ordinal})
+	*sp = speculation{}
+}
+
+// matchSpeculation hands the speculative sample for slot i of rd, a round
+// being laid out, to that slot if there is one: a finished sample fills the
+// slot in, one being drawn adopts it. Either way no worker will claim it.
+func (r *Runner) matchSpeculation(rd *round, i int) {
+	if len(r.specs) == 0 {
+		return
+	}
+	si := r.findSpeculation(rd.slots[i].arm, rd.slots[i].ordinal)
+	if si < 0 {
+		return
+	}
+	sp := &r.specs[si]
+	if sp.state == specDone {
+		rd.slots[i].value, rd.slots[i].commit = sp.value, sp.commit
+		rd.state[i] = slotDone
+		r.releaseSpeculation(si)
+		r.specUsed++
+		return
+	}
+	rd.state[i] = slotTaken
+	sp.adopted, sp.round, sp.slot = true, rd, i
+}
+
+// nextRoundIsRoundRobin says whether the next round to be laid out will be
+// one of the initial phase's: whether the round whose fold lays it out folds
+// before the initial phase's last round has.
+func (r *Runner) nextRoundIsRoundRobin() bool {
+	if !r.initialPhase {
+		return false
+	}
+	if !r.initialLaidOut || r.roundsScheduled < adaptiveLag+1 {
+		return true
+	}
+	return r.roundsScheduled-adaptiveLag-1 < r.initialLastRound
+}
+
+// expectSlots works out the slots the next rounds are expected to hold:
+// exactly, while they are round-robin, and otherwise as the top-two rule
+// would lay them out, round after round, from the statistics committed so
+// far. It reports whether there is anything sound to predict from.
+func (r *Runner) expectSlots() bool {
+	s := r.s
+	r.expected = r.expected[:0]
+	if r.nextRoundIsRoundRobin() {
+		counts := make(map[int]uint64)
+		for i := 0; i < speculationSlots; i++ {
+			arm := int((r.requested + uint64(i)) % uint64(r.numArms))
+			r.expected = append(r.expected, slot{arm: arm, ordinal: s.arms[arm].numScheduled + counts[arm]})
+			counts[arm]++
+		}
+		return true
+	}
+	// The top-two rule reads every arm's mean.
+	if s.astar < 0 || s.total < uint64(r.numArms) {
+		return false
+	}
+	// Each predicted round counts the ones predicted before it, as laying
+	// them out will; the counts are put back afterwards.
+	for len(r.expected) < speculationSlots {
+		n := min(r.roundSize, speculationSlots-len(r.expected))
+		r.expected = s.scheduleTopTwo(n, r.expected)
+	}
+	for i := range r.expected {
+		s.arms[r.expected[i].arm].numScheduled--
+	}
+	return true
+}
+
+// refreshSpeculation works the expected slots out again, and which of them
+// the cache already holds.
+func (r *Runner) refreshSpeculation(c *call) {
+	r.specEpoch, r.specFresh = r.epoch, true
+	r.specCursor = 0
+	r.specValid = r.expectSlots()
+	for i := range r.specs {
+		r.specs[i].expected = false
+	}
+	if !r.specValid {
+		return
+	}
+	// Slots past the sample limit will not be drawn by this call.
+	remaining := uint64(speculationSlots)
+	if c.limit > 0 {
+		remaining = 0
+		if c.limit > r.requested {
+			remaining = c.limit - r.requested
+		}
+	}
+	r.covered = r.covered[:0]
+	for i := range r.expected {
+		covered := uint64(i) >= remaining
+		if si := r.findSpeculation(r.expected[i].arm, r.expected[i].ordinal); si >= 0 {
+			r.specs[si].expected = true
+			covered = true
+		}
+		r.covered = append(r.covered, covered)
+	}
+}
+
+// claimSpeculation reserves a cache entry for the first expected slot nobody
+// has drawn or is drawing, and returns its index, or -1 if there is no such
+// slot or no entry to put it in. A finished entry that is no longer expected
+// is used again. The caller holds the lock.
+func (r *Runner) claimSpeculation(c *call) int {
+	if len(r.specs) == 0 || c.stopped || c.opts.Held == nil {
+		return -1
+	}
+	if !r.specFresh || r.specEpoch != r.epoch {
+		r.refreshSpeculation(c)
+	}
+	if !r.specValid {
+		return -1
+	}
+	for r.specCursor < len(r.expected) && r.covered[r.specCursor] {
+		r.specCursor++
+	}
+	if r.specCursor == len(r.expected) {
+		return -1
+	}
+	entry := -1
+	for i := range r.specs {
+		if r.specs[i].state == specEmpty {
+			entry = i
+			break
+		}
+		if r.specs[i].state == specDone && !r.specs[i].expected && entry < 0 {
+			entry = i
+		}
+	}
+	if entry < 0 {
+		return -1
+	}
+	if r.specs[entry].state != specEmpty {
+		r.releaseSpeculation(entry)
+	}
+	e := r.expected[r.specCursor]
+	r.specs[entry] = speculation{state: specRunning, arm: e.arm, ordinal: e.ordinal, expected: true}
+	r.specIndex[specKey{e.arm, e.ordinal}] = entry
+	r.covered[r.specCursor] = true
+	r.specCursor++
+	r.specDrawn++
+	return entry
+}
+
+// finishSpeculation stores a speculative sample that has been drawn or, if a
+// round adopted it meanwhile, completes that round's slot with it and folds.
+// The caller holds the lock.
+func (r *Runner) finishSpeculation(c *call, si int, value float64, commit func(), err error) {
+	sp := r.specs[si]
+	if err != nil {
+		if sp.adopted {
+			// The slot goes back, to be drawn by a later call.
+			sp.round.state[sp.slot] = slotFree
+			sp.round.claimed, r.claimFrom = 0, 0
+		}
+		r.releaseSpeculation(si)
+		if !c.stopped {
+			c.err, c.stopped = err, true
+		}
+		return
+	}
+	if !sp.adopted {
+		r.specs[si].value, r.specs[si].state, r.specs[si].commit = value, specDone, commit
+		return
+	}
+	// As with a claimed sample, one that finishes after the call has stopped
+	// is still good for the next call.
+	sp.round.slots[sp.slot].value, sp.round.slots[sp.slot].commit = value, commit
+	sp.round.state[sp.slot] = slotDone
+	r.releaseSpeculation(si)
+	r.specUsed++
+	if !c.stopped {
+		if err := r.fold(c); err != nil {
+			c.err, c.stopped = err, true
+		}
+	}
 }
 
 // claim hands out the next free slots of the oldest round that has some: up
@@ -556,6 +837,10 @@ func (r *Runner) fold(c *call) error {
 				return err
 			}
 			s.record(sl.arm, ordinal, sl.value)
+			if sl.commit != nil {
+				sl.commit()
+				sl.commit = nil
+			}
 		}
 		s.total += uint64(n)
 		rd.folded += n
@@ -568,6 +853,7 @@ func (r *Runner) fold(c *call) error {
 		}
 		r.live = r.live[1:]
 		r.roundsFolded++
+		r.epoch++
 		if r.claimFrom > 0 {
 			r.claimFrom--
 		}
@@ -599,11 +885,26 @@ func (r *Runner) fold(c *call) error {
 // work claims slots, draws them and folds, until the call stops.
 func (r *Runner) work(c *call, worker int, sample Sampler) {
 	var values [roundRobinClaimBatch]float64
+	var commits [roundRobinClaimBatch]func()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for !c.stopped {
 		rd, first, n := r.claim(c)
 		if n == 0 {
+			if si := r.claimSpeculation(c); si >= 0 {
+				arm, ordinal := r.specs[si].arm, r.specs[si].ordinal
+				c.inFlight++
+				r.mu.Unlock()
+				v, commit, err := c.opts.Held(worker, arm, ordinal)
+				r.mu.Lock()
+				c.inFlight--
+				r.finishSpeculation(c, si, v, commit, err)
+				r.checkClock(c)
+				if c.waiting > 0 {
+					r.cond.Broadcast()
+				}
+				continue
+			}
 			if c.inFlight == 0 {
 				// Nothing is left to draw within the sample limit.
 				c.status, c.stopped = StatusSampleLimit, true
@@ -618,7 +919,13 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 		r.mu.Unlock()
 		var err error
 		for i := 0; i < n && err == nil; i++ {
-			values[i], err = sample(worker, rd.slots[first+i].arm, rd.slots[first+i].ordinal)
+			sl := &rd.slots[first+i]
+			if c.opts.Held != nil {
+				values[i], commits[i], err = c.opts.Held(worker, sl.arm, sl.ordinal)
+			} else {
+				values[i], commits[i] = 0, nil
+				values[i], err = sample(worker, sl.arm, sl.ordinal)
+			}
 		}
 		r.mu.Lock()
 		c.inFlight--
@@ -636,7 +943,7 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 		// A sample is a function of its arm and ordinal, so one that finishes
 		// after the call has stopped is still good for the next call.
 		for i := 0; i < n; i++ {
-			rd.slots[first+i].value = values[i]
+			rd.slots[first+i].value, rd.slots[first+i].commit = values[i], commits[i]
 			rd.state[first+i] = slotDone
 		}
 		if !c.stopped {
@@ -644,21 +951,27 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 				c.err, c.stopped = err, true
 			}
 		}
-		if !c.stopped {
-			// Between folds too, so that a slow round cannot hold up the clock.
-			switch {
-			case c.ctx.Err() != nil:
-				c.status, c.stopped = StatusCanceled, true
-			case !c.deadline.IsZero() && time.Now().After(c.deadline):
-				c.status, c.stopped = StatusTimeout, true
-			}
-		}
+		r.checkClock(c)
 		if c.waiting > 0 {
 			r.cond.Broadcast()
 		}
 	}
 	if c.waiting > 0 {
 		r.cond.Broadcast()
+	}
+}
+
+// checkClock stops the call if its context is done or its time is up. It is
+// checked between folds too, so that a slow round cannot hold up the clock.
+func (r *Runner) checkClock(c *call) {
+	if c.stopped {
+		return
+	}
+	switch {
+	case c.ctx.Err() != nil:
+		c.status, c.stopped = StatusCanceled, true
+	case !c.deadline.IsZero() && time.Now().After(c.deadline):
+		c.status, c.stopped = StatusTimeout, true
 	}
 }
 
@@ -692,6 +1005,15 @@ func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result,
 		r.started = true
 		r.roundSize = opts.RoundSize
 		r.initialLimit = uint64(r.numArms) * uint64(opts.SampleMinimum)
+	}
+	// The sample limit, which bounds what is worth speculating on, is the
+	// call's.
+	r.specFresh = false
+	if want := min(speculationsPerThread*opts.Threads, speculationSlots); opts.Held != nil && opts.Threads > 1 && len(r.specs) < want {
+		r.specs = append(r.specs, make([]speculation, want-len(r.specs))...)
+		if r.specIndex == nil {
+			r.specIndex = make(map[specKey]int)
+		}
 	}
 	switch {
 	case ctx.Err() != nil:
