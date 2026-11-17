@@ -3,10 +3,11 @@
 // is big enough to tell. It is a port of MAGPIE's bai.h (the top-two IDS
 // sampling rule with the GK16 threshold, from Jourdan et al., "Top Two
 // Algorithms Revisited"), with MAGPIE's paired statistics for arms whose
-// samples share their luck. MAGPIE's scheduler is replaced by a simpler one
-// built on goroutines: samples run in rounds, every round's allocation is
-// computed from the statistics of the rounds before it, and rounds fold in
-// slot order, so the result does not depend on thread timing.
+// samples share their luck. Samples are scheduled as MAGPIE schedules them:
+// in rounds, each laid out from the statistics committed when an earlier
+// round folded, with several rounds live at once so that threads do not wait
+// for one another, and folded in slot order, so the result does not depend
+// on thread timing or on the number of threads.
 package bai
 
 import (
@@ -14,7 +15,6 @@ import (
 	"errors"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -66,6 +66,19 @@ const (
 	maxPairedOrdinals = 1024
 	// DefaultRoundSize is how many samples a round holds.
 	DefaultRoundSize = 32
+	// Round j is laid out when round j - lag - 1 folds. The rounds of the
+	// initial phase need no statistics, so they run far ahead: a slow sample
+	// in the oldest round does not keep the other threads from the rounds
+	// behind it.
+	roundRobinLag = 32
+	// Adaptive rounds read statistics, and every round of lag makes them
+	// staler. MAGPIE measured two rounds to choose as well as none.
+	adaptiveLag = 2
+	// roundRobinClaimBatch is how many consecutive slots of a round-robin
+	// round a worker takes at once. They are the same ordinal of consecutive
+	// arms, so samples that share their luck run on one thread, whose caches
+	// that keeps warm. Adaptive rounds are claimed a slot at a time.
+	roundRobinClaimBatch = 8
 )
 
 // Options configure a run.
@@ -76,7 +89,7 @@ type Options struct {
 	// or the context.
 	Delta float64
 	// SampleMinimum is how many samples every arm gets, round-robin, before
-	// any adaptive sampling or stopping.
+	// any adaptive sampling or stopping. It is fixed by a run's first call.
 	SampleMinimum int
 	// SampleLimit is the most samples, over all arms; 0 for no limit.
 	SampleLimit int
@@ -87,7 +100,8 @@ type Options struct {
 	Cutoff float64
 	// Threads is how many samples run at once.
 	Threads int
-	// RoundSize is how many samples a round holds; DefaultRoundSize if 0.
+	// RoundSize is how many samples a round holds; DefaultRoundSize if 0. It
+	// is fixed by a run's first call.
 	RoundSize int
 	// Similar reports whether two arms are interchangeable: an arm similar to
 	// the best never needs to be beaten. Nil means none are.
@@ -325,7 +339,6 @@ type slot struct {
 	arm     int
 	ordinal uint64
 	value   float64
-	err     error
 }
 
 // scheduleTopTwo splits n samples between astar and the challenger by the
@@ -356,24 +369,84 @@ func (s *state) scheduleTopTwo(n int, out []slot) []slot {
 // Runner is a best-arm identification run that can be continued: each Run
 // call picks up the statistics, schedule and ordinals where the last left off.
 type Runner struct {
-	s           *state
-	numArms     int
-	nextInitial int
-	status      Status
-	// pending is the rest of a round a call's sample limit cut short; the
-	// next call draws it first, so rounds are laid out the same however a
-	// run is split into calls.
-	pending []slot
+	s       *state
+	numArms int
+	status  Status
+
+	mu   sync.Mutex
+	cond *sync.Cond
+	// started is set by the first Run call, which fixes the round size and
+	// the length of the initial phase.
+	started      bool
+	roundSize    int
+	initialLimit uint64
+	// initialPhase is true until the round holding the last sample of the
+	// initial phase has folded. Rounds laid out before then are round-robin.
+	initialPhase bool
+	// requested is how many samples have been laid out in rounds.
+	requested uint64
+	// live are the rounds laid out and not yet folded, oldest first.
+	live            []*round
+	roundsScheduled uint64
+	roundsFolded    uint64
+	// claimFrom is the first live round that may still have a free slot.
+	claimFrom int
+}
+
+const (
+	slotFree = iota
+	// slotTaken: a worker is drawing it.
+	slotTaken
+	// slotDone: its value is in the round.
+	slotDone
+)
+
+// round is a run of samples laid out together and folded together.
+type round struct {
+	slots []slot
+	state []uint8
+	// start is how many samples were laid out before this round.
+	start uint64
+	// Claims scan forward from claimed; every slot before it is taken or done.
+	claimed int
+	// folded is how many of its slots are folded already: more than none only
+	// when a sample limit ended a call partway through the round.
+	folded     int
+	claimBatch int
+	// lastInitial marks the round holding the last sample of the initial phase.
+	lastInitial bool
+}
+
+// call is the state of one Run call.
+type call struct {
+	ctx      context.Context
+	opts     Options
+	limit    uint64
+	deadline time.Time
+	status   Status
+	stopped  bool
+	err      error
+	// inFlight is how many workers are drawing samples, waiting how many are
+	// waiting for work.
+	inFlight int
+	waiting  int
 }
 
 // NewRunner starts a run over numArms arms. Options.Similar and
-// Options.Paired are fixed for the run; the rest are read on each Run call.
+// Options.Paired are fixed for the run, Options.SampleMinimum and
+// Options.RoundSize by the first Run call; the rest are read on each call.
 func NewRunner(numArms int, opts Options) *Runner {
-	return &Runner{s: newState(numArms, opts), numArms: numArms}
+	r := &Runner{s: newState(numArms, opts), numArms: numArms, initialPhase: true}
+	r.cond = sync.NewCond(&r.mu)
+	return r
 }
 
 // Samples is how many samples have been folded so far.
-func (r *Runner) Samples() int { return int(r.s.total) }
+func (r *Runner) Samples() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return int(r.s.total)
+}
 
 // Run finds the best of numArms arms.
 func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result, error) {
@@ -383,11 +456,218 @@ func Run(ctx context.Context, numArms int, opts Options, sample Sampler) (Result
 	return NewRunner(numArms, opts).Run(ctx, opts, sample)
 }
 
+// scheduleRounds lays out every round the folds so far allow. The caller
+// holds the lock. Since rounds fold in order, each is laid out from the
+// statistics of one fixed fold, whatever the threads' timing.
+func (r *Runner) scheduleRounds() {
+	for {
+		lag := uint64(adaptiveLag)
+		if r.requested < r.initialLimit {
+			lag = roundRobinLag
+		}
+		if r.roundsScheduled > r.roundsFolded+lag {
+			return
+		}
+		r.scheduleRound()
+	}
+}
+
+// scheduleRound lays out the next round: round-robin over the arms until the
+// initial phase has folded, and by the top-two rule after that.
+func (r *Runner) scheduleRound() {
+	s := r.s
+	n := r.roundSize
+	// A round never straddles the end of the initial phase.
+	if r.requested < r.initialLimit && r.initialLimit-r.requested < uint64(n) {
+		n = int(r.initialLimit - r.requested)
+	}
+	rd := &round{start: r.requested, slots: make([]slot, 0, n), state: make([]uint8, n), claimBatch: 1}
+	if r.initialPhase {
+		// Iteration-major: consecutive slots are the same ordinal across
+		// consecutive arms.
+		for i := 0; i < n; i++ {
+			arm := int((r.requested + uint64(i)) % uint64(r.numArms))
+			rd.slots = append(rd.slots, slot{arm: arm, ordinal: s.arms[arm].numScheduled})
+			s.arms[arm].numScheduled++
+		}
+		rd.claimBatch = roundRobinClaimBatch
+	} else {
+		rd.slots = s.scheduleTopTwo(n, rd.slots)
+	}
+	if r.requested < r.initialLimit && r.requested+uint64(n) >= r.initialLimit {
+		rd.lastInitial = true
+	}
+	r.requested += uint64(n)
+	r.roundsScheduled++
+	r.live = append(r.live, rd)
+}
+
+// claim hands out the next free slots of the oldest round that has some: up
+// to the round's claim batch, and none past the call's sample limit. The
+// caller holds the lock.
+func (r *Runner) claim(c *call) (*round, int, int) {
+	for r.claimFrom < len(r.live) {
+		rd := r.live[r.claimFrom]
+		for rd.claimed < len(rd.slots) && rd.state[rd.claimed] != slotFree {
+			rd.claimed++
+		}
+		if rd.claimed == len(rd.slots) {
+			r.claimFrom++
+			continue
+		}
+		first, n := rd.claimed, 0
+		for n < rd.claimBatch && first+n < len(rd.slots) && rd.state[first+n] == slotFree {
+			if c.limit > 0 && rd.start+uint64(first+n) >= c.limit {
+				break
+			}
+			rd.state[first+n] = slotTaken
+			n++
+		}
+		rd.claimed += n
+		return rd, first, n
+	}
+	return nil, 0, 0
+}
+
+// fold commits every round that is complete, oldest first, checks the stop
+// conditions after each and lays out the rounds the fold allows. A round the
+// sample limit cuts short is folded up to the limit. The caller holds the
+// lock.
+func (r *Runner) fold(c *call) error {
+	s := r.s
+	for !c.stopped && len(r.live) > 0 {
+		rd := r.live[0]
+		n := len(rd.slots) - rd.folded
+		partial := false
+		if c.limit > 0 && c.limit-s.total < uint64(n) {
+			n, partial = int(c.limit-s.total), true
+		}
+		for i := rd.folded; i < rd.folded+n; i++ {
+			if rd.state[i] != slotDone {
+				return nil
+			}
+		}
+		// In slot order, so that the statistics are a function of the samples
+		// and not of the order they finished in.
+		for i := rd.folded; i < rd.folded+n; i++ {
+			sl := &rd.slots[i]
+			ordinal := s.arms[sl.arm].numSamples
+			if err := s.arms[sl.arm].add(sl.value); err != nil {
+				return err
+			}
+			s.record(sl.arm, ordinal, sl.value)
+		}
+		s.total += uint64(n)
+		rd.folded += n
+		best := s.updateAstar()
+		if partial {
+			// The rest of the round is drawn by the next call, which then
+			// checks the other conditions as a run in one call would.
+			c.status, c.stopped = StatusSampleLimit, true
+			return nil
+		}
+		r.live = r.live[1:]
+		r.roundsFolded++
+		if r.claimFrom > 0 {
+			r.claimFrom--
+		}
+		if rd.lastInitial {
+			r.initialPhase = false
+		}
+		switch {
+		case c.ctx.Err() != nil:
+			c.status = StatusCanceled
+		case !c.deadline.IsZero() && time.Now().After(c.deadline):
+			c.status = StatusTimeout
+		case r.initialPhase:
+		case c.opts.Cutoff > 0 && (best <= c.opts.Cutoff || best >= 1-c.opts.Cutoff):
+			c.status = StatusCutoff
+		case s.thresholdReached():
+			c.status = StatusThreshold
+		case c.limit > 0 && s.total >= c.limit:
+			c.status = StatusSampleLimit
+		}
+		if c.status != StatusNone {
+			c.stopped = true
+			return nil
+		}
+		r.scheduleRounds()
+	}
+	return nil
+}
+
+// work claims slots, draws them and folds, until the call stops.
+func (r *Runner) work(c *call, worker int, sample Sampler) {
+	var values [roundRobinClaimBatch]float64
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for !c.stopped {
+		rd, first, n := r.claim(c)
+		if n == 0 {
+			if c.inFlight == 0 {
+				// Nothing is left to draw within the sample limit.
+				c.status, c.stopped = StatusSampleLimit, true
+				break
+			}
+			c.waiting++
+			r.cond.Wait()
+			c.waiting--
+			continue
+		}
+		c.inFlight++
+		r.mu.Unlock()
+		var err error
+		for i := 0; i < n && err == nil; i++ {
+			values[i], err = sample(worker, rd.slots[first+i].arm, rd.slots[first+i].ordinal)
+		}
+		r.mu.Lock()
+		c.inFlight--
+		if err != nil {
+			// The slots go back, to be drawn by a later call.
+			for i := 0; i < n; i++ {
+				rd.state[first+i] = slotFree
+			}
+			rd.claimed, r.claimFrom = 0, 0
+			if !c.stopped {
+				c.err, c.stopped = err, true
+			}
+			break
+		}
+		// A sample is a function of its arm and ordinal, so one that finishes
+		// after the call has stopped is still good for the next call.
+		for i := 0; i < n; i++ {
+			rd.slots[first+i].value = values[i]
+			rd.state[first+i] = slotDone
+		}
+		if !c.stopped {
+			if err := r.fold(c); err != nil {
+				c.err, c.stopped = err, true
+			}
+		}
+		if !c.stopped {
+			// Between folds too, so that a slow round cannot hold up the clock.
+			switch {
+			case c.ctx.Err() != nil:
+				c.status, c.stopped = StatusCanceled, true
+			case !c.deadline.IsZero() && time.Now().After(c.deadline):
+				c.status, c.stopped = StatusTimeout, true
+			}
+		}
+		if c.waiting > 0 {
+			r.cond.Broadcast()
+		}
+	}
+	if c.waiting > 0 {
+		r.cond.Broadcast()
+	}
+}
+
 // Run samples until a stop condition, continuing from earlier calls.
 // opts.SampleLimit counts every sample of the run, earlier calls' included.
-// With one thread the samples are drawn on the calling goroutine.
+// With one thread the samples are drawn on the calling goroutine. The
+// samples drawn, and so the result, are the same for any number of threads
+// and however the run is split into calls by sample limits.
 func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result, error) {
-	numArms := r.numArms
 	s := r.s
 	opts.Similar, opts.Paired = s.opts.Similar, s.opts.Paired
 	if opts.Threads < 1 {
@@ -399,101 +679,60 @@ func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result,
 	if opts.SampleMinimum < 1 {
 		opts.SampleMinimum = 1
 	}
-	s.opts = opts
-	var deadline time.Time
+	c := &call{ctx: ctx, opts: opts}
+	if opts.SampleLimit > 0 {
+		c.limit = uint64(opts.SampleLimit)
+	}
 	if opts.TimeLimit > 0 {
-		deadline = time.Now().Add(opts.TimeLimit)
+		c.deadline = time.Now().Add(opts.TimeLimit)
 	}
-	initialLimit := numArms * opts.SampleMinimum
-	var workers *pool
-	if opts.Threads > 1 {
-		workers = newPool(ctx, opts.Threads, sample)
-		defer workers.close()
+	r.mu.Lock()
+	s.opts = opts
+	if !r.started {
+		r.started = true
+		r.roundSize = opts.RoundSize
+		r.initialLimit = uint64(r.numArms) * uint64(opts.SampleMinimum)
 	}
-	status := StatusNone
-	var round []slot
-	for status == StatusNone {
-		round = round[:0]
-		budget := opts.RoundSize
-		if opts.SampleLimit > 0 {
-			budget = opts.SampleLimit - int(s.total)
+	switch {
+	case ctx.Err() != nil:
+		c.status, c.stopped = StatusCanceled, true
+	case c.limit > 0 && s.total >= c.limit:
+		c.status, c.stopped = StatusSampleLimit, true
+	default:
+		r.scheduleRounds()
+		// A call that the last one's limit cut short mid-round may have
+		// complete rounds to fold before it draws anything.
+		if err := r.fold(c); err != nil {
+			c.err, c.stopped = err, true
 		}
-		if budget <= 0 {
-			status = StatusSampleLimit
-			break
-		}
-		if ctx.Err() != nil {
-			status = StatusCanceled
-			break
-		}
-		if len(r.pending) > 0 {
-			round = append(round, r.pending...)
-			r.pending = r.pending[:0]
+	}
+	r.mu.Unlock()
+	if !c.stopped {
+		if opts.Threads == 1 {
+			r.work(c, 0, sample)
 		} else {
-			// The initial phase lays out every arm's first SampleMinimum
-			// samples iteration-major: consecutive slots are the same ordinal
-			// across arms.
-			for r.nextInitial < initialLimit && len(round) < opts.RoundSize {
-				arm := r.nextInitial % numArms
-				round = append(round, slot{arm: arm, ordinal: s.arms[arm].numScheduled})
-				s.arms[arm].numScheduled++
-				r.nextInitial++
+			var wg sync.WaitGroup
+			for w := 0; w < opts.Threads; w++ {
+				wg.Add(1)
+				go func(worker int) {
+					defer wg.Done()
+					r.work(c, worker, sample)
+				}(w)
 			}
-			if len(round) == 0 {
-				if numArms == 1 {
-					status = StatusThreshold
-					break
-				}
-				round = s.scheduleTopTwo(opts.RoundSize, round)
-			}
-		}
-		if len(round) > budget {
-			r.pending = append(r.pending, round[budget:]...)
-			round = round[:budget]
-		}
-		var err error
-		if workers != nil {
-			err = workers.run(ctx, round)
-		} else {
-			err = runInline(ctx, round, sample)
-		}
-		if err != nil {
-			// The round is drawn again next call.
-			r.pending = append(append([]slot(nil), round...), r.pending...)
-			if ctx.Err() != nil {
-				status = StatusCanceled
-				break
-			}
-			return Result{}, err
-		}
-		// Fold in slot order.
-		for i := range round {
-			sl := &round[i]
-			ordinal := s.arms[sl.arm].numSamples
-			if err := s.arms[sl.arm].add(sl.value); err != nil {
-				return Result{}, err
-			}
-			s.record(sl.arm, ordinal, sl.value)
-		}
-		s.total += uint64(len(round))
-		best := s.updateAstar()
-		switch {
-		case ctx.Err() != nil:
-			status = StatusCanceled
-		case !deadline.IsZero() && time.Now().After(deadline):
-			status = StatusTimeout
-		case int(s.total) < initialLimit:
-		case opts.Cutoff > 0 && (best <= opts.Cutoff || best >= 1-opts.Cutoff):
-			status = StatusCutoff
-		case s.thresholdReached():
-			status = StatusThreshold
-		case opts.SampleLimit > 0 && int(s.total) >= opts.SampleLimit:
-			status = StatusSampleLimit
+			wg.Wait()
 		}
 	}
-	r.status = status
-	res := Result{Status: status, Best: s.astar, Samples: int(s.total),
-		Means: make([]float64, numArms), Counts: make([]int, numArms)}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if c.err != nil {
+		if ctx.Err() == nil {
+			return Result{}, c.err
+		}
+		c.status = StatusCanceled
+	}
+	r.status = c.status
+	res := Result{Status: c.status, Best: s.astar, Samples: int(s.total),
+		Means: make([]float64, r.numArms), Counts: make([]int, r.numArms)}
 	for i := range s.arms {
 		res.Means[i] = s.arms[i].mean
 		res.Counts[i] = int(s.arms[i].numSamples)
@@ -503,76 +742,3 @@ func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result,
 	}
 	return res, nil
 }
-
-// runInline draws a round's samples on the calling goroutine.
-func runInline(ctx context.Context, round []slot, sample Sampler) error {
-	for i := range round {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		v, err := sample(0, round[i].arm, round[i].ordinal)
-		if err != nil {
-			return err
-		}
-		round[i].value = v
-	}
-	return nil
-}
-
-// pool runs rounds' samples on persistent workers.
-type pool struct {
-	work chan []slot
-	done sync.WaitGroup
-	quit chan struct{}
-	next atomic.Int64
-	errs []error
-}
-
-func newPool(ctx context.Context, threads int, sample Sampler) *pool {
-	p := &pool{work: make(chan []slot), quit: make(chan struct{}), errs: make([]error, threads)}
-	for w := 0; w < threads; w++ {
-		go func(worker int) {
-			for {
-				select {
-				case <-p.quit:
-					return
-				case round := <-p.work:
-					for ctx.Err() == nil {
-						i := int(p.next.Add(1) - 1)
-						if i >= len(round) {
-							break
-						}
-						v, err := sample(worker, round[i].arm, round[i].ordinal)
-						if err != nil {
-							p.errs[worker] = err
-							break
-						}
-						round[i].value = v
-					}
-					p.done.Done()
-				}
-			}
-		}(w)
-	}
-	return p
-}
-
-// run draws every slot of round on all the workers.
-func (p *pool) run(ctx context.Context, round []slot) error {
-	p.next.Store(0)
-	workers := len(p.errs)
-	p.done.Add(workers)
-	for w := 0; w < workers; w++ {
-		p.work <- round
-	}
-	p.done.Wait()
-	for i, err := range p.errs {
-		if err != nil {
-			p.errs[i] = nil
-			return err
-		}
-	}
-	return ctx.Err()
-}
-
-func (p *pool) close() { close(p.quit) }
