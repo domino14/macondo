@@ -148,6 +148,16 @@ Options:
     them of the leaders). The default is 1500; past that the plays picked
     barely improve.
 
+    -bagcycle false
+
+    With -stoprule bai, a sample of a play is by default not one rollout
+    but a cycle of them: the unseen tiles are shuffled once and dealt to
+    the opponent seven at a time, so every unseen tile lands on the
+    opponent's rack once in the cycle. This takes the luck of the
+    opponent's draw out of each sample, and the sim reaches the same picks
+    in somewhat fewer rollouts. It is not used when the opponent's rack is
+    known or inferred. This option turns it off.
+
     -endgame-leaves false
 
     With one or two tiles in the bag, every rollout of the sim empties the

@@ -50,6 +50,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	endgameLeaves := true
 	stopRule := defaultSimStopRule
 	stopCap := 0
+	bagCycle := true
 	maxTime := 0.0 // seconds; 0 is no limit
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
@@ -181,6 +182,9 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 				return nil, err
 			}
 
+		case "bagcycle":
+			bagCycle = options.Bool(opt)
+
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -228,6 +232,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		endgameLeaves:         endgameLeaves,
 		stopRule:              stopRule,
 		stopCap:               stopCap,
+		bagCycle:              bagCycle,
 		maxTime:               time.Duration(maxTime * float64(time.Second)),
 		// For experiment mode
 		fixediters:    fixediters,
@@ -315,6 +320,7 @@ type simParams struct {
 	endgameLeaves         bool
 	stopRule              montecarlo.StopRule
 	stopCap               int
+	bagCycle              bool
 	maxTime               time.Duration
 	// For experiment mode
 	fixediters    int
@@ -329,6 +335,7 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	simmer.SetEndgameLeaves(params.endgameLeaves)
 	simmer.SetStopRule(params.stopRule)
 	simmer.SetStopCapPerPlay(params.stopCap)
+	simmer.SetBAIBagCycle(params.bagCycle)
 	simmer.SetTimeLimit(params.maxTime)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)
 	if err != nil {
