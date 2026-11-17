@@ -240,3 +240,47 @@ func TestSimTimeLimit(t *testing.T) {
 		}
 	}
 }
+
+// A bag-cycled sim rolls every play out in whole cycles, keeps to its
+// budget, and is the same sim on any number of threads.
+func TestBAISimBagCycle(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	var first baiTestResult
+	for i, threads := range []int{1, 3, 8} {
+		s := baiTestSimmer(t, 9, threads, 12)
+		s.SetBAIBagCycle(true)
+		r := runBAITest(t, s)
+		rot := s.bai.rotations
+		if rot < 2 {
+			t.Fatalf("%d rotations in a position with a full bag", rot)
+		}
+		budget := 700 * 12
+		if r.rollouts == 0 || r.rollouts > budget+rot {
+			t.Fatalf("%d rollouts of a budget of %d", r.rollouts, budget)
+		}
+		for a, c := range r.counts {
+			if c%rot != 0 || c < DefaultBAIMinSamples {
+				t.Fatalf("play %d was rolled out %d times: cycles are %d rollouts, the minimum %d",
+					a, c, rot, DefaultBAIMinSamples)
+			}
+		}
+		if i == 0 {
+			first = r
+			continue
+		}
+		if r.best != first.best || r.rollouts != first.rollouts || r.status != first.status {
+			t.Fatalf("%d threads: %s after %d rollouts (%s), one thread: %s after %d (%s)",
+				threads, r.best, r.rollouts, r.status, first.best, first.rollouts, first.status)
+		}
+		for a := range r.counts {
+			if r.counts[a] != first.counts[a] || math.Abs(r.wins[a]-first.wins[a]) > 1e-9 {
+				t.Fatalf("%d threads: play %d differs from one thread's", threads, a)
+			}
+		}
+	}
+	plain := runBAITest(t, baiTestSimmer(t, 9, 1, 12))
+	if plain.rollouts == first.rollouts && plain.wins[0] == first.wins[0] {
+		t.Fatal("bag cycling changed nothing")
+	}
+}

@@ -50,6 +50,9 @@ const (
 	// baiCutoff stops the sim once the best play's reward is within it of 0
 	// or 1: a decided game (MAGPIE's default).
 	baiCutoff = 0.005 / 100
+	// baiMinCycles is the fewest samples a play gets in a bag-cycled sim, so
+	// that its variance is never estimated from one.
+	baiMinCycles = 2
 )
 
 // baiState is what a sim keeps for best-arm identification.
@@ -60,6 +63,11 @@ type baiState struct {
 	// capPerPlay is the most rollouts the sim makes, as an average per
 	// play; 0 for the stopping rule's own cap on iterations.
 	capPerPlay int
+
+	// bagCycle makes a sample a whole cycle of rollouts (see SetBAIBagCycle),
+	// rotations how many rollouts that is in this sim.
+	bagCycle  bool
+	rotations int
 
 	runner *bai.Runner
 	arms   []*SimmedPlay
@@ -93,6 +101,19 @@ func (s *Simmer) SetBAISpreadWeight(w float64) {
 // candidate play; 0 for the stopping rule's cap on iterations.
 func (s *Simmer) SetBAICapPerPlay(n int) {
 	s.bai.capPerPlay = n
+}
+
+// SetBAIBagCycle makes each sample of a best-arm sim a cycle of rollouts
+// rather than one: the unseen tiles are shuffled once, and the play is
+// rolled out once for each way of moving that order round by a rack, so
+// that every unseen tile starts on the opponent's rack once. A sample is the
+// mean of its rollouts. The opponent's racks of a cycle are spread evenly
+// over the unseen tiles, which takes much of the luck of the draw out of a
+// sample (MAGPIE's bag cycling). Budgets and minimums still count rollouts.
+// It does nothing when the opponent's rack is known or inferred. Call it
+// before PrepareSim.
+func (s *Simmer) SetBAIBagCycle(on bool) {
+	s.bai.bagCycle = on
 }
 
 // BAIStatus is why the last best-arm identification run stopped.
@@ -190,6 +211,10 @@ func (s *Simmer) startBAI() {
 		Similar: func(x, y int) bool { return similar[x*n+y] },
 		Paired:  true,
 	})
+	b.rotations = 1
+	if b.bagCycle && len(s.knownOppRack) == 0 && s.inferenceMode == InferenceOff {
+		b.rotations = s.origGame.BagCycleRotations(1 - s.origGame.PlayerOnTurn())
+	}
 	seed := s.origGame.Seed()
 	if seed == ([32]byte{}) {
 		frand.Read(b.seed[:])
@@ -230,33 +255,41 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	if minimum <= 0 {
 		minimum = DefaultBAIMinSamples
 	}
+	// A sample is rot rollouts; the minimum, the budget and the round size
+	// count rollouts, and are turned into samples here.
+	rot := b.rotations
+	samplesFor := func(rollouts int) int { return (rollouts + rot - 1) / rot }
 	opts := bai.Options{
 		Delta:         baiDelta(s.autostopper.stoppingCondition),
-		SampleMinimum: minimum,
+		SampleMinimum: samplesFor(minimum),
 		Cutoff:        baiCutoff,
 		Threads:       threads,
 		TimeLimit:     s.timeLimit,
+		RoundSize:     max((bai.DefaultRoundSize+rot/2)/rot, 1),
+	}
+	if rot > 1 && opts.SampleMinimum < baiMinCycles {
+		opts.SampleMinimum = baiMinCycles
 	}
 	// An iteration is one rollout of every play.
 	switch {
 	case run.maxIters > 0:
-		opts.SampleLimit = b.runner.Samples() + run.maxIters*numArms
+		opts.SampleLimit = b.runner.Samples() + samplesFor(run.maxIters*numArms)
 	case b.capPerPlay > 0:
-		opts.SampleLimit = b.capPerPlay * numArms
+		opts.SampleLimit = samplesFor(b.capPerPlay * numArms)
 	default:
-		opts.SampleLimit = DefaultBAICapPerPlay * numArms
+		opts.SampleLimit = samplesFor(DefaultBAICapPerPlay * numArms)
 	}
 	res, err := b.runner.Run(ctx, opts, func(worker, arm int, ordinal uint64) (float64, error) {
 		return s.baiSample(worker, b.arms[arm], ordinal)
 	})
-	s.iterationCount.Store(uint64(b.runner.Samples() / max(numArms, 1)))
+	s.iterationCount.Store(uint64(b.runner.Samples() * rot / max(numArms, 1)))
 	if err != nil {
 		logger.Err(err).Msg("error simming; stopping")
 		return
 	}
 	b.status = res.Status
 	b.winner = b.arms[res.Best]
-	s.event(logger, run.quiet).Str("status", res.Status.String()).Int("rollouts", res.Samples).
+	s.event(logger, run.quiet).Str("status", res.Status.String()).Int("rollouts", res.Samples*rot).
 		Str("best", b.winner.play.ShortDescription()).Msg("sim-stopped")
 }
 
@@ -266,6 +299,34 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float64, error) {
 	g := s.gameCopies[thread]
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
+	w := s.bai.spreadWeight
+	if w == 0 {
+		w = DefaultBAISpreadWeight
+	}
+	if s.bai.rotations > 1 {
+		// A cycle: the same shuffle of the unseen tiles, moved round by a
+		// rack for each rollout. The sample is the rollouts' mean.
+		sum := 0.0
+		for rotation := 0; rotation < s.bai.rotations; rotation++ {
+			rng := s.baiRNG(ordinal)
+			s.rngs[thread] = rng
+			if err := g.SetRandomRackCycled(opp, rng, rotation); err != nil {
+				return 0, err
+			}
+			var logIter *LogIteration
+			if s.logStream != nil && rotation == 0 {
+				logIter = &LogIteration{Iteration: int(ordinal), Thread: thread}
+			}
+			win, eq := s.rollout(g, thread, s.maxPlies, play, logIter)
+			if logIter != nil {
+				if err := s.baiWriteLog(logIter); err != nil {
+					return 0, err
+				}
+			}
+			sum += baiReward(win, eq+float64(s.initialSpread), w)
+		}
+		return sum / float64(s.bai.rotations), nil
+	}
 	rng := s.baiRNG(ordinal)
 	// The opponent's rack, when it is inferred, is drawn from the sample's
 	// source too.
@@ -289,10 +350,6 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64) (float6
 		if err := s.baiWriteLog(logIter); err != nil {
 			return 0, err
 		}
-	}
-	w := s.bai.spreadWeight
-	if w == 0 {
-		w = DefaultBAISpreadWeight
 	}
 	return baiReward(win, eq+float64(s.initialSpread), w), nil
 }

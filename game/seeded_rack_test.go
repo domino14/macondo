@@ -128,3 +128,57 @@ func testSetRandomRackSeeded(t *testing.T, fixedOrder bool) {
 		t.Fatalf("the rack changed on an error: %s to %s", before, a.RackLettersFor(1))
 	}
 }
+
+// Over a cycle's rotations of one source, every unseen tile starts on the
+// player's rack at least once and at most twice, and rotation 0 is the
+// plain seeded deal.
+func TestSetRandomRackCycled(t *testing.T) {
+	g := seededRackGame(t)
+	g.Bag().SetFixedOrder(true)
+	plain := g.Copy()
+	if err := plain.SetRandomRackSeeded(1, nil, rngOf(3)); err != nil {
+		t.Fatal(err)
+	}
+	rotations := g.BagCycleRotations(1)
+	unseen := g.Bag().TilesRemaining() + int(g.RackFor(1).NumTiles())
+	if rotations != (unseen+6)/7 {
+		t.Fatalf("%d rotations for %d unseen tiles", rotations, unseen)
+	}
+	var want, got [64]int
+	g.SetRandomRackCycled(1, rngOf(3), 0)
+	if g.RackFor(1).String() != plain.RackFor(1).String() {
+		t.Fatalf("rotation 0 dealt %s, the seeded deal %s", g.RackFor(1).String(), plain.RackFor(1).String())
+	}
+	buf := make([]tilemapping.MachineLetter, 7)
+	n := g.RackFor(1).NoAllocTilesOn(buf)
+	for _, ml := range buf[:n] {
+		want[ml]++
+	}
+	for _, ml := range g.Bag().Tiles() {
+		want[ml]++
+	}
+	for r := 0; r < rotations; r++ {
+		if err := g.SetRandomRackCycled(1, rngOf(3), r); err != nil {
+			t.Fatal(err)
+		}
+		n := g.RackFor(1).NoAllocTilesOn(buf)
+		if n != 7 {
+			t.Fatalf("rotation %d dealt %d tiles", r, n)
+		}
+		for _, ml := range buf[:n] {
+			got[ml]++
+		}
+	}
+	for ml := range want {
+		if got[ml] < want[ml] || got[ml] > 2*want[ml] {
+			t.Fatalf("letter %d: %d unseen, on the rack %d times over the cycle", ml, want[ml], got[ml])
+		}
+	}
+	total := 0
+	for _, c := range got {
+		total += c
+	}
+	if total != 7*rotations {
+		t.Fatalf("%d tiles dealt over %d rotations", total, rotations)
+	}
+}

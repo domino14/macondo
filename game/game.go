@@ -1369,6 +1369,31 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 // sources therefore deal the same rack, which is what lets a sim roll its
 // plays out against common luck. The bag keeps rng for its later draws.
 func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG) error {
+	return g.setRandomRackSeeded(playerIdx, knownRack, rng, 0)
+}
+
+// SetRandomRackCycled is SetRandomRackSeeded with no known tiles and the
+// unseen tiles' order, once shuffled, moved round by rotation racks. Rotation
+// 0 is SetRandomRackSeeded. Over the rotations 0 to
+// BagCycleRotations-1 of one rng, every unseen tile starts on the player's
+// rack once (some twice, when the tiles do not divide into racks), so the
+// mean of their results has less of the luck of the draw in it than as many
+// independent deals. The bag has to be in fixed-order mode, as a sim's is.
+func (g *Game) SetRandomRackCycled(playerIdx int, rng *frand.RNG, rotation int) error {
+	return g.setRandomRackSeeded(playerIdx, nil, rng, rotation)
+}
+
+// BagCycleRotations is how many rotations of the unseen tiles (the bag and
+// the player's rack) it takes for each to start on the player's rack.
+func (g *Game) BagCycleRotations(playerIdx int) int {
+	unseen := g.bag.TilesRemaining() + int(g.RackFor(playerIdx).NumTiles())
+	if unseen <= RackTileLimit {
+		return 1
+	}
+	return (unseen + RackTileLimit - 1) / RackTileLimit
+}
+
+func (g *Game) setRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG, rotation int) error {
 	other := g.players[1-playerIdx].placeholderRack
 	n := g.RackFor(playerIdx).NoAllocTilesOn(other)
 	g.bag.PutBack(other[:n])
@@ -1377,6 +1402,16 @@ func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.Machin
 	// A bag in fixed-order mode (a sim's) hands out its tiles from the end
 	// as they lie, so the order has to come from rng here.
 	g.bag.Shuffle()
+	if rotation > 0 {
+		// Move the order round to the right, so that the tiles drawn first
+		// are the ones rotation racks before the end.
+		tiles := g.bag.Tiles()
+		if k := rotation * RackTileLimit % max(len(tiles), 1); k > 0 {
+			slices.Reverse(tiles)
+			slices.Reverse(tiles[:k])
+			slices.Reverse(tiles[k:])
+		}
+	}
 	if len(knownRack) == 0 {
 		ndrawn := g.bag.DrawAtMost(RackTileLimit, g.players[playerIdx].placeholderRack)
 		g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
