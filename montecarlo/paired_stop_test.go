@@ -17,16 +17,22 @@ func pairedTestSimmer(t *testing.T, seed byte, threads, plays int) *Simmer {
 	return s
 }
 
+// pairedSpacedSimmer is for the tests that need the sim to reach its
+// threshold: its plays are ten ranks apart, so that never takes long.
+func pairedSpacedSimmer(t *testing.T, seed byte, threads, plays int) *Simmer {
+	s := spacedTestSimmer(t, seed, threads, plays, 10)
+	s.SetBAI(false)
+	s.SetPairedStop(true)
+	return s
+}
+
 // A paired sim stops on its own with one play left, its pick first, having
 // dropped the others.
 func TestPairedSimStops(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	for run := 0; run < 1; run++ {
-		s := pairedTestSimmer(t, 5, 1, 15)
-		// Room to spare, as in TestPairedSimKeepsPlays: this sim's rollouts
-		// are not the same from run to run, and at 5,000 a play it now and
-		// then ran out of budget before one play was left.
+		s := pairedSpacedSimmer(t, 5, 1, 15)
 		const capPerPlay = 20000
 		s.SetPairedCapPerPlay(capPerPlay)
 		if err := s.Simulate(context.Background()); err != nil {
@@ -96,10 +102,7 @@ func TestPairedSimLimits(t *testing.T) {
 func TestPairedSimKeepsPlays(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	s := pairedTestSimmer(t, 5, 1, 15)
-	// Room to spare: this sim's rollouts are not the same from run to run
-	// (the classic sampling is not, on a position with no opponent rack),
-	// and at 5,000 a play about one run in six ran out of budget first.
+	s := pairedSpacedSimmer(t, 5, 1, 15)
 	s.SetPairedCapPerPlay(20000)
 	worst := s.simmedPlays.plays[len(s.simmedPlays.plays)-1]
 	s.AvoidPruningMoves([]*move.Move{worst.play})
