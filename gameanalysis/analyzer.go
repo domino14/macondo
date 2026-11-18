@@ -2,6 +2,7 @@ package gameanalysis
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -754,6 +755,17 @@ func (a *Analyzer) determinePhase(tilesInBag int) GamePhase {
 // analyzeWithSim analyzes a turn using Monte Carlo simulation
 func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *TurnAnalysis,
 	numPlays, plies, stopCondition int, knownOppRack []tilemapping.MachineLetter) error {
+
+	// The sim draws its racks and tiles from a seed made of the position, so
+	// that analyzing a game again gives the same report. The seed does not
+	// depend on anything the sim finds, so it is as good a sample as a
+	// random one.
+	// Only what is known goes into it: the opponent's rack in g may be a
+	// random deal.
+	onTurn := g.PlayerOnTurn()
+	g.SeedBag(sha256.Sum256([]byte(fmt.Sprintf("macondo-analysis %s %s %s %d %d %d %d",
+		g.LexiconName(), g.Board().ToFEN(g.Alphabet()), g.RackFor(onTurn).String(),
+		g.PointsFor(onTurn), g.PointsFor(1-onTurn), g.Turn(), plies))))
 
 	// Create bot turn player for move generation
 	botConfig := &bot.BotConfig{Config: *a.cfg}
