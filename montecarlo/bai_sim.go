@@ -82,6 +82,9 @@ type baiState struct {
 	// statistics already because the sim topped it up (baiTopUp); the
 	// schedule's own samples at those ordinals are not counted again.
 	toppedUp []uint64
+	// folded counts the samples folded so far, for the sim's running
+	// iteration count.
+	folded atomic.Uint64
 	// rngs are the threads' random sources (baiRNG).
 	rngs []baiRNGPair
 	// topUpStart and topUpRewards are the rewards of each arm's top-up
@@ -219,6 +222,7 @@ func (s *Simmer) startBAI() {
 	}
 	s.simmedPlays.RUnlock()
 	n := len(b.arms)
+	b.folded.Store(0)
 	b.toppedUp = make([]uint64, n)
 	b.topUpStart = make([]uint64, n)
 	b.topUpRewards = make([][]float64, n)
@@ -511,9 +515,14 @@ type baiHeld struct {
 // Commit is the runner's call when the sample is folded. A sample the top-up
 // drew already is in the statistics.
 func (h *baiHeld) Commit() {
-	if h.ordinal >= h.sim.bai.toppedUp[h.arm] {
+	b := &h.sim.bai
+	if h.ordinal >= b.toppedUp[h.arm] {
 		h.sim.baiCommit(h)
 	}
+	// Kept up as the sim runs, for whoever asks how far along it is: an
+	// iteration is one rollout of every play.
+	n := b.folded.Add(1)
+	h.sim.iterationCount.Store(n * uint64(max(b.rotations, 1)) / uint64(max(len(b.arms), 1)))
 	h.Discard()
 }
 
