@@ -776,6 +776,13 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 		simmer.SetThreads(a.analysisCfg.Threads)
 	}
 
+	// Best-arm identification: the sim spends its rollouts on the plays in
+	// contention, and when it stops rolls the played move out as often as
+	// the most rolled out play (it is kept by AvoidPruningMoves below), so
+	// that the two numbers the analysis compares are equally good.
+	simmer.SetStopRule(montecarlo.StopRuleBAI)
+	simmer.SetBAIBagCycle(true)
+
 	// Prepare simulation
 	err = simmer.PrepareSim(plies, plays)
 	if err != nil {
@@ -811,7 +818,6 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 		stop = montecarlo.Stop99
 	}
 	simmer.SetStoppingCondition(stop)
-
 	// Run simulation
 	err = simmer.Simulate(ctx)
 	if err != nil {
