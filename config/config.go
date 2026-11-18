@@ -31,7 +31,7 @@ const (
 	ConfigTritonURL                        = "triton-url"
 	ConfigTritonModelName                  = "triton-model-name"
 	ConfigTritonModelVersion               = "triton-model-version"
-	// ConfigTritonGRPCCompression: "gzip" (default) or "none".
+	// ConfigTritonGRPCCompression: "none" (default) or "gzip" (for a Triton across a network).
 	ConfigTritonGRPCCompression = "triton-grpc-compression"
 	ConfigOnnxRuntimeLib        = "onnxruntime-lib"
 	ConfigOnnxThreads           = "onnx-threads"
@@ -90,7 +90,7 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
-	c.SetDefault(ConfigTritonGRPCCompression, "gzip")
+	c.SetDefault(ConfigTritonGRPCCompression, "none")
 	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
@@ -193,7 +193,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
-	c.SetDefault(ConfigTritonGRPCCompression, "gzip")
+	c.SetDefault(ConfigTritonGRPCCompression, "none")
 	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
 	c.SetDefault(ConfigGenaiProvider, "gemini")

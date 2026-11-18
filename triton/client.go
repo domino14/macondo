@@ -107,7 +107,7 @@ func InRepository(serverURL, name string) (bool, error) {
 // feature planes per position, mostly zeros, so over a network link
 // (e.g. an ssh tunnel to a remote Triton) compression cuts the traffic by
 // an order of magnitude for a little CPU. Set it before the first client.
-var compression = "gzip"
+var compression = "none"
 
 func init() {
 	// The planes compress well even at the fastest level.
