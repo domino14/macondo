@@ -135,7 +135,8 @@ Options:
             generator cannot reuse its work across the plays of an
             iteration.
 
-            Reading the results: the leaders have many rollouts and tight
+            Reading the results: the Iters column is each play's rollouts.
+            The leaders have many rollouts and tight
             numbers; a play the sim lost interest in may have only its
             first 128, so its win % and equity are rough. That is by
             design. To get good numbers for a particular play, name it

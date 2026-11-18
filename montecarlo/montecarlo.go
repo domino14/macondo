@@ -1491,7 +1491,7 @@ func (s *Simmer) EquityStats() string {
 	}
 	var ss strings.Builder
 	s.sortPlaysByWinRate(true)
-	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
+	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s%-8s\n", "Play", "Leave", "Score", "Win%", "Equity", "Iters")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 	for _, play := range s.simmedPlays.plays {
@@ -1502,12 +1502,18 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%s\n",
+		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%-8d%s\n",
 			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
 			play.play.LeaveString(),
-			play.play.Score(), wpStats, eqStats, ignore)
+			play.play.Score(), wpStats, eqStats, play.equityStats.Iterations(), ignore)
 	}
-	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
+	// Under bai plays get different numbers of rollouts (the Iters column),
+	// and the sim's own count is their average.
+	perPlay := ""
+	if s.bai.on {
+		perPlay = " per play on average"
+	}
+	fmt.Fprintf(&ss, "Iterations: %d%s (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load(), perPlay)
 	return ss.String()
 }
 
