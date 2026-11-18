@@ -24,7 +24,11 @@ func TestPairedSimStops(t *testing.T) {
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	for run := 0; run < 1; run++ {
 		s := pairedTestSimmer(t, 5, 1, 15)
-		s.SetPairedCapPerPlay(5000)
+		// Room to spare, as in TestPairedSimKeepsPlays: this sim's rollouts
+		// are not the same from run to run, and at 5,000 a play it now and
+		// then ran out of budget before one play was left.
+		const capPerPlay = 20000
+		s.SetPairedCapPerPlay(capPerPlay)
 		if err := s.Simulate(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +51,7 @@ func TestPairedSimStops(t *testing.T) {
 		if alive != 1 {
 			t.Fatalf("%d plays left", alive)
 		}
-		if s.PairedRollouts() >= 15*5000 {
+		if s.PairedRollouts() >= 15*capPerPlay {
 			t.Fatalf("%d rollouts: the whole budget", s.PairedRollouts())
 		}
 	}
