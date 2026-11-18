@@ -297,9 +297,20 @@ func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 	return msg(output), nil
 }
 
+// list shows the whole move list, or with a number its first that many.
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
-	res := sc.genDisplayMoveList()
-	return msg(res), nil
+	limit := 0
+	if len(cmd.args) > 0 {
+		var err error
+		limit, err = strconv.Atoi(cmd.args[0])
+		if err != nil || limit <= 0 {
+			return nil, fmt.Errorf("list takes a number of plays to show, not %q", cmd.args[0])
+		}
+	}
+	if len(sc.curPlayList) == 0 {
+		return msg("The move list is empty; `gen` makes one."), nil
+	}
+	return msg(sc.displayMoveList(limit)), nil
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
@@ -486,15 +497,20 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 		return nil, errMacondoSolving
 	}
 
+	// A bare `gen` makes enough plays for a sim and shows the top of the
+	// list; a `gen` told how many shows what it was asked for.
+	preview := 0
 	if cmd.args == nil {
 		numPlays = defaultGenPlays
+		preview = moveListPreview
 	} else {
 		numPlays, err = strconv.Atoi(cmd.args[0])
 		if err != nil {
 			return nil, err
 		}
 	}
-	return msg(sc.genMovesAndDescription(numPlays)), nil
+	sc.genMoves(numPlays)
+	return msg(sc.displayMoveList(preview)), nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {

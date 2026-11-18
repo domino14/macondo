@@ -1,5 +1,11 @@
 list - Show the current list of generated or added moves
 
+Example usage:
+
+    list
+    list 50
+
 This command shows the current list of moves for the position currently
-loaded. It requires that moves be added to the list, using the `gen` command,
-or with the `add` command.
+loaded: all of them, or with a number only the first that many. It requires
+that moves be added to the list, using the `gen` command, or with the `add`
+command.
