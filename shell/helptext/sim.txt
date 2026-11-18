@@ -166,6 +166,18 @@ Options:
     them of the leaders). The default is 1500; past that the plays picked
     barely improve.
 
+    -playcap 10000
+
+    With -stoprule bai, stop the sim once the play in the lead has been
+    rolled out this many times, even if the sim has not told it apart from
+    the others at the -stop confidence. Use it to keep the sim from
+    spending most of its time on plays that are nearly as good as each
+    other: the rollouts it takes to tell two plays apart grow as one over
+    the square of the gap between them, so halving the gap the sim can
+    resolve costs four times the rollouts. At 5 plies, plays still tied
+    when the leader has 10,000 rollouts are usually within about half a
+    point of win %. By default there is no such stop, only -stopcap.
+
     -maxtime 30
 
     Stop the sim after this many seconds if it has not stopped by itself;

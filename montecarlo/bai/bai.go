@@ -30,6 +30,8 @@ const (
 	StatusCutoff
 	// StatusSampleLimit: the sample budget is spent.
 	StatusSampleLimit
+	// StatusBestArmLimit: the best arm has all the samples it may have.
+	StatusBestArmLimit
 	// StatusTimeout: the time limit passed.
 	StatusTimeout
 	// StatusCanceled: the context was canceled.
@@ -44,6 +46,8 @@ func (s Status) String() string {
 		return "cutoff"
 	case StatusSampleLimit:
 		return "sample-limit"
+	case StatusBestArmLimit:
+		return "best-arm-limit"
 	case StatusTimeout:
 		return "timeout"
 	case StatusCanceled:
@@ -99,6 +103,11 @@ type Options struct {
 	SampleMinimum int
 	// SampleLimit is the most samples, over all arms; 0 for no limit.
 	SampleLimit int
+	// BestArmLimit stops the run once the best arm has this many samples;
+	// 0 for no limit. Arms the run has not told apart by then are close: the
+	// samples it takes to tell two arms apart go as one over the square of
+	// the gap between them.
+	BestArmLimit int
 	// TimeLimit stops the run; 0 for none.
 	TimeLimit time.Duration
 	// Cutoff stops the run once the best arm's mean is at most Cutoff or at
@@ -870,6 +879,8 @@ func (r *Runner) fold(c *call) error {
 			c.status = StatusCutoff
 		case s.thresholdReached():
 			c.status = StatusThreshold
+		case s.bestArmLimitReached(c.opts.BestArmLimit):
+			c.status = StatusBestArmLimit
 		case c.limit > 0 && s.total >= c.limit:
 			c.status = StatusSampleLimit
 		}
@@ -961,6 +972,11 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 	}
 }
 
+// bestArmLimitReached reports whether the best arm has limit samples.
+func (s *state) bestArmLimitReached(limit int) bool {
+	return limit > 0 && s.astar >= 0 && s.arms[s.astar].numSamples >= uint64(limit)
+}
+
 // checkClock stops the call if its context is done or its time is up. It is
 // checked between folds too, so that a slow round cannot hold up the clock.
 func (r *Runner) checkClock(c *call) {
@@ -1020,6 +1036,8 @@ func (r *Runner) Run(ctx context.Context, opts Options, sample Sampler) (Result,
 		c.status, c.stopped = StatusCanceled, true
 	case c.limit > 0 && s.total >= c.limit:
 		c.status, c.stopped = StatusSampleLimit, true
+	case !r.initialPhase && s.bestArmLimitReached(opts.BestArmLimit):
+		c.status, c.stopped = StatusBestArmLimit, true
 	default:
 		r.scheduleRounds()
 		// A call that the last one's limit cut short mid-round may have

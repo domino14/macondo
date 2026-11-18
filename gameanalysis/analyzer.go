@@ -69,6 +69,12 @@ type AnalysisConfig struct {
 	SimPliesEarlyPreEndgame int
 	SimStopEarlyPreEndgame  int
 
+	// SimBestPlayCap stops a sim once its leading play has been rolled out
+	// this many times, even if the sim has not told it apart from the rest;
+	// 0 for no such stop. It keeps the analysis from spending most of its
+	// time on plays that are nearly as good as each other.
+	SimBestPlayCap int
+
 	// Pre-endgame (1 tile in bag) - uses PEG solver
 	PEGEarlyCutoff bool
 
@@ -92,6 +98,7 @@ func DefaultAnalysisConfig() *AnalysisConfig {
 		SimPlaysEarlyPreEndgame: 100,
 		SimPliesEarlyPreEndgame: 10,
 		SimStopEarlyPreEndgame:  99,
+		SimBestPlayCap:          10000,
 		PEGEarlyCutoff:          true,
 		Threads:                 0, // 0 means use default
 		OnlyPlayer:              -1,
@@ -782,6 +789,7 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	// that the two numbers the analysis compares are equally good.
 	simmer.SetStopRule(montecarlo.StopRuleBAI)
 	simmer.SetBAIBagCycle(true)
+	simmer.SetBAIBestPlayCap(a.analysisCfg.SimBestPlayCap)
 
 	// Prepare simulation
 	err = simmer.PrepareSim(plies, plays)

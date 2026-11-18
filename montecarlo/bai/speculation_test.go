@@ -151,3 +151,48 @@ func TestSpeculationSamplerError(t *testing.T) {
 		t.Fatal("the sampler never failed")
 	}
 }
+
+// A run with a best-arm limit stops when its best arm has that many
+// samples, at the same point on any number of threads, and stops sooner
+// than one that has to tell two close arms apart.
+func TestBestArmLimit(t *testing.T) {
+	means := []float64{0.44, 0.470, 0.471, 0.40, 0.44, 0.46}
+	opts := Options{Delta: 0.01, SampleMinimum: 4, SampleLimit: 200000, Threads: 1}
+	full, err := Run(context.Background(), len(means), opts, gaussian(means, 0.3, false, 7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const limit = 500
+	opts.BestArmLimit = limit
+	want, err := Run(context.Background(), len(means), opts, gaussian(means, 0.3, false, 7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want.Status != StatusBestArmLimit {
+		t.Fatalf("stopped by %v after %d samples", want.Status, want.Samples)
+	}
+	if n := want.Counts[want.Best]; n < limit || n >= limit+DefaultRoundSize {
+		t.Fatalf("the best arm has %d samples at a limit of %d", n, limit)
+	}
+	if want.Samples >= full.Samples {
+		t.Fatalf("%d samples with the limit, %d without", want.Samples, full.Samples)
+	}
+	for _, threads := range []int{3, 16} {
+		opts.Threads = threads
+		var commits atomic.Int64
+		r := NewRunner(len(means), opts)
+		got, err := r.Run(context.Background(), speculating(opts, gaussian(means, 0.3, false, 7), &commits), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sameResult(t, "threads", got, want)
+		// Called again, it has nothing to do.
+		again, err := r.Run(context.Background(), speculating(opts, gaussian(means, 0.3, false, 7), &commits), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.Samples != want.Samples || again.Status != StatusBestArmLimit {
+			t.Fatalf("called again: %d samples, %v", again.Samples, again.Status)
+		}
+	}
+}

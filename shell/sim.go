@@ -50,6 +50,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	endgameLeaves := true
 	stopRule := defaultSimStopRule
 	stopCap := 0
+	playCap := 0
 	bagCycle := true
 	maxTime := 0.0 // seconds; 0 is no limit
 	knownOppRack := ""
@@ -176,6 +177,14 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 				return nil, errors.New("maxtime cannot be negative")
 			}
 
+		case "playcap":
+			playCap, err = options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+			if playCap < 0 {
+				return nil, errors.New("playcap cannot be negative")
+			}
 		case "stopcap":
 			stopCap, err = options.Int(opt)
 			if err != nil {
@@ -232,6 +241,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		endgameLeaves:         endgameLeaves,
 		stopRule:              stopRule,
 		stopCap:               stopCap,
+		playCap:               playCap,
 		bagCycle:              bagCycle,
 		maxTime:               time.Duration(maxTime * float64(time.Second)),
 		// For experiment mode
@@ -320,6 +330,7 @@ type simParams struct {
 	endgameLeaves         bool
 	stopRule              montecarlo.StopRule
 	stopCap               int
+	playCap               int
 	bagCycle              bool
 	maxTime               time.Duration
 	// For experiment mode
@@ -335,6 +346,7 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	simmer.SetEndgameLeaves(params.endgameLeaves)
 	simmer.SetStopRule(params.stopRule)
 	simmer.SetStopCapPerPlay(params.stopCap)
+	simmer.SetBAIBestPlayCap(params.playCap)
 	simmer.SetBAIBagCycle(params.bagCycle)
 	simmer.SetTimeLimit(params.maxTime)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)

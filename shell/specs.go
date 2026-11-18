@@ -182,6 +182,8 @@ func init() {
 				Help: "stop the sim after this many seconds (0, the default, is no limit)"},
 			{Name: "stopcap", Type: OptInt,
 				Help: "with -stoprule bai or paired, the most rollouts to make, as an average per play (default 1500)"},
+			{Name: "playcap", Type: OptInt,
+				Help: "with -stoprule bai, stop once the leading play has this many rollouts (default 0, no such stop)"},
 			{Name: "bagcycle", Type: OptBool, Values: boolValues,
 				Help: "with -stoprule bai, deal the opponent every unseen tile in turn within a sample (default true)"},
 			{Name: "fixedsimiters", Type: OptInt},

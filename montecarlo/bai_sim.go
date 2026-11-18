@@ -65,6 +65,9 @@ type baiState struct {
 	// capPerPlay is the most rollouts the sim makes, as an average per
 	// play; 0 for the stopping rule's own cap on iterations.
 	capPerPlay int
+	// bestPlayCap stops the sim once the leading play has been rolled out
+	// this many times; 0 for no such stop.
+	bestPlayCap int
 
 	// bagCycle makes a sample a whole cycle of rollouts (see SetBAIBagCycle),
 	// rotations how many rollouts that is in this sim.
@@ -77,7 +80,11 @@ type baiState struct {
 	// statistics already because the sim topped it up (baiTopUp); the
 	// schedule's own samples at those ordinals are not counted again.
 	toppedUp []uint64
-	seed     [32]byte
+	// topUpStart and topUpRewards are the rewards of each arm's top-up
+	// samples: those of its ordinals from topUpStart on.
+	topUpStart   []uint64
+	topUpRewards [][]float64
+	seed         [32]byte
 	// winner is the best arm when the last run stopped.
 	winner *SimmedPlay
 	status bai.Status
@@ -107,6 +114,17 @@ func (s *Simmer) SetBAISpreadWeight(w float64) {
 // candidate play; 0 for the stopping rule's cap on iterations.
 func (s *Simmer) SetBAICapPerPlay(n int) {
 	s.bai.capPerPlay = n
+}
+
+// SetBAIBestPlayCap stops a best-arm sim once the play in the lead has been
+// rolled out n times, whether or not it has been told apart from the rest;
+// 0 for no such stop. Plays that many rollouts have not told apart are
+// close: the rollouts it takes to tell two plays apart go as one over the
+// square of the gap between them, so the last fraction of a point of win
+// probability costs most of a long sim. The sim's budget (SetBAICapPerPlay)
+// still applies.
+func (s *Simmer) SetBAIBestPlayCap(n int) {
+	s.bai.bestPlayCap = n
 }
 
 // SetBAIBagCycle makes each sample of a best-arm sim a cycle of rollouts
@@ -198,6 +216,8 @@ func (s *Simmer) startBAI() {
 	s.simmedPlays.RUnlock()
 	n := len(b.arms)
 	b.toppedUp = make([]uint64, n)
+	b.topUpStart = make([]uint64, n)
+	b.topUpRewards = make([][]float64, n)
 	keys := make([]string, n)
 	for i, a := range b.arms {
 		keys[i] = similarPlayKey(a.play)
@@ -274,6 +294,9 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		TimeLimit:     s.timeLimit,
 		RoundSize:     max((bai.DefaultRoundSize+rot/2)/rot, 1),
 	}
+	if b.bestPlayCap > 0 {
+		opts.BestArmLimit = samplesFor(b.bestPlayCap)
+	}
 	if rot > 1 && opts.SampleMinimum < baiMinCycles {
 		opts.SampleMinimum = baiMinCycles
 	}
@@ -333,6 +356,7 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 // rule's own count of the play is left alone, and when the sim is continued
 // and the rule draws those samples again they are not counted twice. It
 // returns how many samples it drew; the context or the deadline cut it short.
+// A kept play that ends up ahead of the winner becomes the winner.
 func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, deadline time.Time) int {
 	b := &s.bai
 	// The most any play has: nearly always the winner's count, but a
@@ -369,9 +393,36 @@ func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, dead
 			}
 		}
 	}
+	for i := range b.arms {
+		if c := uint64(res.Counts[i]); c >= b.toppedUp[i] {
+			// The schedule has caught up with the last top-up.
+			b.topUpStart[i], b.topUpRewards[i] = c, b.topUpRewards[i][:0]
+		}
+	}
+	// A kept play that its top-up samples put ahead of the winner, by the
+	// reward the sim ran on, is the winner.
+	defer func() {
+		best, bestMean := res.Best, res.Means[res.Best]
+		for i, a := range b.arms {
+			if !a.unignorable || len(b.topUpRewards[i]) == 0 {
+				continue
+			}
+			sum, n := res.Means[i]*float64(res.Counts[i]), float64(res.Counts[i])
+			for k, v := range b.topUpRewards[i] {
+				if b.topUpStart[i]+uint64(k) >= uint64(res.Counts[i]) {
+					sum, n = sum+v, n+1
+				}
+			}
+			if mean := sum / n; mean > bestMean {
+				best, bestMean = i, mean
+			}
+		}
+		b.winner = b.arms[best]
+	}()
 	if len(jobs) == 0 {
 		return 0
 	}
+	rewards := make([]float64, len(jobs))
 	helds := make([]*baiHeld, len(jobs))
 	errs := make([]error, len(jobs))
 	var claimed atomic.Int64
@@ -390,7 +441,7 @@ func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, dead
 				}
 				held := baiHeldPool.Get().(*baiHeld)
 				held.reset(b.arms[jobs[j].arm])
-				_, errs[j] = s.baiSample(worker, b.arms[jobs[j].arm], jobs[j].ordinal, held)
+				rewards[j], errs[j] = s.baiSample(worker, b.arms[jobs[j].arm], jobs[j].ordinal, held)
 				helds[j] = held
 			}
 		}(w)
@@ -409,6 +460,7 @@ func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, dead
 		s.baiCommit(held)
 		baiHeldPool.Put(held)
 		b.toppedUp[jobs[j].arm] = jobs[j].ordinal + 1
+		b.topUpRewards[jobs[j].arm] = append(b.topUpRewards[jobs[j].arm], rewards[j])
 		done++
 	}
 	return done

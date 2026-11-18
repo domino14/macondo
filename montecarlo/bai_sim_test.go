@@ -409,3 +409,32 @@ func TestBAIKeptPlayIsToppedUp(t *testing.T) {
 		}
 	}
 }
+
+// A sim with a cap on the leading play's rollouts stops when the leader has
+// that many, short of its budget, with plays kept too; the play it names
+// its winner is listed first.
+func TestBAIBestPlayCap(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	for _, cycle := range []bool{false, true} {
+		const playCap = 400
+		s := baiTestSimmer(t, 9, 4, 12)
+		s.SetBAIBagCycle(cycle)
+		s.SetBAIBestPlayCap(playCap)
+		for _, p := range s.simmedPlays.plays[:4] {
+			s.AvoidPruningMoves([]*move.Move{p.play})
+		}
+		r := runBAITest(t, s)
+		if r.status != "best-arm-limit" {
+			t.Fatalf("cycle=%v: stopped by %s after %d rollouts", cycle, r.status, r.rollouts)
+		}
+		w := s.bai.winner
+		slack := bai.DefaultRoundSize * max(s.bai.rotations, 1)
+		if n := w.winPctStats.Iterations(); n < playCap || n > playCap+2*slack {
+			t.Fatalf("cycle=%v: the winner has %d rollouts at a cap of %d", cycle, n, playCap)
+		}
+		if s.WinningPlay() != w {
+			t.Fatalf("cycle=%v: the winner is not the first play", cycle)
+		}
+	}
+}
