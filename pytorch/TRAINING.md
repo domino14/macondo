@@ -37,12 +37,18 @@ depends on a random move. The ideas that did not help, and how to get their code
 
 ## Before you start
 
-- **Lexicon.** Any lexicon with the English letter distribution: the
-  features have one plane per letter A-Z (`game/mlhelper.go` refuses other
-  distributions). The lexicon needs its word graph and leave values in
-  `data/lexica/gaddag/` (`<LEX>.kwg`, `<LEX>.klv2`), which NWL23 and
-  CSW24 have. Another alphabet means new feature planes and a new model
-  shape.
+- **Lexicon.** Any lexicon with a word graph and leave values in
+  `data/lexica/gaddag/` (`<LEX>.kwg`, `<LEX>.klv2`; a lexicon without
+  leaves borrows its family's, e.g. OSPS52 uses OSPS50's). The features
+  are sized by the alphabet (`game/mllayout.go`): with L letters, 3L+7
+  board planes and 2L+20 scalars, so English and French (26) take 85 and
+  72, Spanish (28: CH, LL, Ñ and RR are tiles) 91 and 76, German (29)
+  94 and 78. Every Python script reads L from `MACONDO_LETTERS`;
+  `run-stream.sh` sets it from `$LEXICON` (`RD*` 29, `FILE*`/`FISE*` 28,
+  `OSPS*` 32, otherwise 26), and `LETTERS=<L>` overrides it for another alphabet.
+  Anything that reads or writes frames outside `run-stream.sh` (a
+  separate validation scan, `copy_model.sh`) needs `MACONDO_LETTERS` set
+  by hand, or it fails on the row size.
 - **Machine.** Linux, an NVIDIA GPU with 8 GB or more, Docker with the
   NVIDIA Container Toolkit, Go, and the Python venv from `README.md`.
 - **Disk.** About 15 GB per 27M-game gzipped turn log (54M games: ~31 GB),
@@ -57,24 +63,32 @@ Set the lexicon once for the commands below:
 
     export LEXICON=CSW24 L=csw24     # L: a lower-case tag for file names
 
-## 1. Generate 54M games (~10 h, CPU only)
+## 1. Generate games (CPU only)
 
 HastyBot vs HastyBot. Each game's first K plies, K ~ round(Exp(2)), are
 sampled from a softmax over static equity (temperature 3 points, top 50
-plays); after that both play their best move. Close endgames are played
-with a quick 2-ply search. Two batches of 27M (the shipped model used
-`open` and `open2`):
+plays); after that both play their best move. Close endgames (bag empty,
+spread within 60) are played with a quick 2-ply search capped at 250 ms
+a move, so the labels match a bot that searches its endgames (see
+"Endgames" in `RUNS.md`). Builds before the HastyBot fix skipped that
+search whatever the flags, and every data set before `nwl23qe` has static
+endgames. Two batches of 27M (the shipped model used `open` and `open2`):
 
     cd ~/code/macondo/pytorch
     TAG=${L}open  GAMES=27000000 THREADS=16 ./gen-openings.sh
     TAG=${L}open2 GAMES=27000000 THREADS=16 ./gen-openings.sh
 
 Output: `~/data/${L}open.txt.gz`, `~/data/${L}open2.txt.gz` (the per-turn
-logs the producer reads) and `games-*.txt` (one line per game). About
-120 games/s per thread: `open` took 5.2 h on 12 threads (~1,450 games/s),
-so ~5 h per batch. The logs carry an
-`openingplies` column; the producer only draws training positions after
-the last sampled ply.
+logs the producer reads) and `games-*.txt` (one line per game). On 12
+threads, about 440 games/s in NWL23, so ~17 h per 27M batch; the endgame
+searches take most of it (with static endgames, ~7,200 games/s). Other
+alphabets: German ~650 games/s, French ~560, Polish ~400. The logs
+carry an `openingplies` column; the producer only draws training
+positions after the last sampled ply.
+
+Don't generate beside a streamed training run: autoplay and the producer
+compete for the CPU, and the producer falls behind the GPU (5.5k rows/s
+down to 3-4.5k).
 
 ## 2. Train (~13 h on a 5070 Ti)
 
@@ -110,11 +124,17 @@ What it does (the defaults are the shipped recipe):
    whose drawn turn has an empty bag). For a different number of games,
    set `ROWS_PER_PASS` to about 0.64 × games; the first pass's count is
    the `vectorsEmitted` line at the end of `producer-${L}stream.log`.
+   With fewer games, draw several distinct turns per game on each pass
+   (`PRODUCER_EXTRA="-picks 3"`, about 3× the rows): 27M games with three
+   turns each played level with 81M games with one (nwl23p3 in
+   `RUNS.md`), so one 27M batch is enough for a new lexicon. That is how
+   the Spanish net was trained (`ROWS_PER_PASS=48210000`).
 5. **Deploy and match.** The best-validation checkpoint
    (`best-tf-${L}stream.pt`) is exported to ONNX and TensorRT
    (`copy_model.sh`, with a parity check) as Triton model
    `macondo-nn-tf-${L}stream`, then plays 100,000 game pairs against
-   HastyBot in `$LEXICON` (`watch-tf-heads.sh`, about 3.5 h). Statistics:
+   HastyBot in `$LEXICON` (`watch-tf-heads.sh`, about 3.5 h), both bots
+   searching close endgames as the games did. Statistics:
    `python pairs-stats.py ../games-tf-${L}stream-v-hasty-pairs.txt`.
 
 For NWL23 this gave 57.65% ± 0.18. HastyBot is relatively stronger in CSW,
