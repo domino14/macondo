@@ -60,7 +60,7 @@ const (
 // have: <url>/<name>/<version>/model.onnx. It names a fixed revision of the
 // Hugging Face repository, so a release keeps playing with the nets it was
 // tested with; shipping new nets means uploading them and changing this.
-const DefaultMLModelsURL = "https://huggingface.co/domino14/macondo-value-nets/resolve/b8ccb8a8d36de043963657059f4095f0b720ad67"
+const DefaultMLModelsURL = "https://huggingface.co/domino14/macondo-value-nets/resolve/f3748d3c1289b7fa9ab6090c7bddb4063a90c3df"
 
 type Config struct {
 	sync.Mutex
