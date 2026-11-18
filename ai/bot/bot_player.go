@@ -43,8 +43,8 @@ type BotConfig struct {
 	// equity a simming bot sims (default 100).
 	SimPlays int
 	// SimStopRule is the bot's sims' stopping rule (montecarlo.ParseStopRule;
-	// empty is classic), and SimStopCap, when positive, a bai or paired
-	// sim's budget in rollouts per play.
+	// empty is bai), and SimStopCap, when positive, a bai or paired sim's
+	// budget in rollouts per play (default 1,000).
 	SimStopRule string
 	SimStopCap  int
 	// TritonModel, when set, is the Triton model this bot's ML evaluation

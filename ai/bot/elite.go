@@ -98,6 +98,12 @@ const defaultSimPlays = 100
 // has not told the plays apart by then plays the leader.
 const simTimeLimit = 120 * time.Second
 
+// defaultSimStopCap is a simming bot's budget for a best-arm sim, in
+// rollouts per play, unless BotConfig.SimStopCap says otherwise. In a
+// 5-ply match of 5,000 pairs a bot with this budget won 50.39% ± 0.68 of
+// its games against one simming under the classic rule, in 28% less time.
+const defaultSimStopCap = 1000
+
 func (p *BotTurnPlayer) simPlaysOrDefault() int {
 	if p.simPlays > 0 {
 		return p.simPlays
@@ -315,15 +321,20 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
 	p.simmer.SetTimeLimit(simTimeLimit)
-	rule := montecarlo.StopRuleClassic
+	rule := montecarlo.StopRuleBAI
 	if p.cfg.SimStopRule != "" {
 		var err error
 		if rule, err = montecarlo.ParseStopRule(p.cfg.SimStopRule); err != nil {
 			return nil, err
 		}
 	}
+	stopCap := p.cfg.SimStopCap
+	if stopCap <= 0 {
+		stopCap = defaultSimStopCap
+	}
 	p.simmer.SetStopRule(rule)
-	p.simmer.SetStopCapPerPlay(p.cfg.SimStopCap)
+	p.simmer.SetStopCapPerPlay(stopCap)
+	p.simmer.SetBAIBagCycle(true)
 	if p.cfg.StochasticStaticEval {
 		p.simmer.SetStochasticStaticEval(true)
 	}
