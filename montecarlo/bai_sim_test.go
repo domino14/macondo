@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/montecarlo/bai"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
 )
 
@@ -338,6 +339,73 @@ func TestBAIHeldSample(t *testing.T) {
 		for ply := range d.scoreStats {
 			same("score", &a.scoreStats[ply], &d.scoreStats[ply])
 			same("bingo", &a.bingoStats[ply], &d.bingoStats[ply])
+		}
+	}
+}
+
+// A play the caller asked to keep ends a best-arm sim with as many rollouts
+// as the winner, whatever the sim thought of it, on any number of threads;
+// continuing the sim does not count its rollouts twice.
+func TestBAIKeptPlayIsToppedUp(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	for _, cycle := range []bool{false, true} {
+		var first baiTestResult
+		for i, threads := range []int{1, 8} {
+			plain := baiTestSimmer(t, 9, threads, 12)
+			plain.SetBAIBagCycle(cycle)
+			base := runBAITest(t, plain)
+
+			s := baiTestSimmer(t, 9, threads, 12)
+			s.SetBAIBagCycle(cycle)
+			// The play the sim rolls out least.
+			kept := 0
+			for a, c := range base.counts {
+				if c < base.counts[kept] {
+					kept = a
+				}
+			}
+			s.AvoidPruningMoves([]*move.Move{s.simmedPlays.plays[kept].play})
+			r := runBAITest(t, s)
+			winner := 0
+			for a, c := range r.counts {
+				if a != kept && c > r.counts[winner] {
+					winner = a
+				}
+			}
+			if r.counts[kept] != r.counts[winner] {
+				t.Fatalf("cycle=%v threads=%d: the kept play has %d rollouts, the most rolled out %d",
+					cycle, threads, r.counts[kept], r.counts[winner])
+			}
+			if r.counts[kept] <= base.counts[kept] {
+				t.Fatalf("cycle=%v: the kept play was not topped up (%d rollouts)", cycle, r.counts[kept])
+			}
+			for a := range r.counts {
+				if a != kept && r.counts[a] != base.counts[a] {
+					t.Fatalf("cycle=%v: keeping a play changed play %d's rollouts", cycle, a)
+				}
+			}
+			if i == 0 {
+				first = r
+			} else {
+				for a := range r.counts {
+					if r.counts[a] != first.counts[a] || r.wins[a] != first.wins[a] {
+						t.Fatalf("cycle=%v: play %d differs between 1 and %d threads", cycle, a, threads)
+					}
+				}
+			}
+			// Continued, the sim draws the kept play's samples again where
+			// its schedule calls for them; they are in the statistics once.
+			s.SetBAICapPerPlay(1400)
+			again := runBAITest(t, s)
+			top := 0
+			for _, c := range again.counts {
+				top = max(top, c)
+			}
+			if again.counts[kept] > top || again.counts[kept] < r.counts[kept] {
+				t.Fatalf("cycle=%v: after continuing, the kept play has %d rollouts, the most rolled out %d, before %d",
+					cycle, again.counts[kept], top, r.counts[kept])
+			}
 		}
 	}
 }

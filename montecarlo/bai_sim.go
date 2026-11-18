@@ -8,6 +8,8 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
@@ -71,7 +73,11 @@ type baiState struct {
 
 	runner *bai.Runner
 	arms   []*SimmedPlay
-	seed   [32]byte
+	// toppedUp is, for each arm, how many of its first samples are in its
+	// statistics already because the sim topped it up (baiTopUp); the
+	// schedule's own samples at those ordinals are not counted again.
+	toppedUp []uint64
+	seed     [32]byte
 	// winner is the best arm when the last run stopped.
 	winner *SimmedPlay
 	status bai.Status
@@ -191,6 +197,7 @@ func (s *Simmer) startBAI() {
 	}
 	s.simmedPlays.RUnlock()
 	n := len(b.arms)
+	b.toppedUp = make([]uint64, n)
 	keys := make([]string, n)
 	for i, a := range b.arms {
 		keys[i] = similarPlayKey(a.play)
@@ -289,10 +296,13 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		held.reset(b.arms[arm])
 		v, err := s.baiSample(worker, b.arms[arm], ordinal, held)
 		return v, func() {
-			s.baiCommit(held)
+			if ordinal >= b.toppedUp[arm] {
+				s.baiCommit(held)
+			}
 			baiHeldPool.Put(held)
 		}, err
 	}
+	tstart := time.Now()
 	res, err := b.runner.Run(ctx, opts, nil)
 	s.iterationCount.Store(uint64(b.runner.Samples() * rot / max(numArms, 1)))
 	if err != nil {
@@ -301,8 +311,107 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	}
 	b.status = res.Status
 	b.winner = b.arms[res.Best]
+	if res.Status != bai.StatusCanceled {
+		var deadline time.Time
+		if s.timeLimit > 0 {
+			deadline = tstart.Add(s.timeLimit)
+		}
+		if n := s.baiTopUp(ctx, res, threads, deadline); n > 0 {
+			s.event(logger, run.quiet).Int("rollouts", n*rot).Msg("sim-topped-up-kept-plays")
+		}
+	}
 	s.event(logger, run.quiet).Str("status", res.Status.String()).Int("rollouts", res.Samples*rot).
 		Str("best", b.winner.play.ShortDescription()).Msg("sim-stopped")
+}
+
+// baiTopUp gives every play the caller asked to keep (AvoidPruningMoves) as
+// many samples as the most sampled play has, once the sim has stopped, so
+// that its numbers are as good as the leaders' (as MAGPIE's
+// sim_unpruned_to_winner does, which tops them up to the winner's count).
+// The samples are the play's next ones, on the same luck as the winner's at
+// the same ordinals. They go into the play's statistics only: the stopping
+// rule's own count of the play is left alone, and when the sim is continued
+// and the rule draws those samples again they are not counted twice. It
+// returns how many samples it drew; the context or the deadline cut it short.
+func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, deadline time.Time) int {
+	b := &s.bai
+	// The most any play has: nearly always the winner's count, but a
+	// challenger that led for most of the sim can have more.
+	target := uint64(0)
+	for _, c := range res.Counts {
+		target = max(target, uint64(c))
+	}
+	type job struct {
+		arm     int
+		ordinal uint64
+	}
+	// Ordinal by ordinal across the kept plays, so that a top-up cut short
+	// leaves each of them a whole prefix of its samples.
+	var jobs []job
+	next := make([]uint64, len(b.arms))
+	open := 0
+	for i, a := range b.arms {
+		next[i] = max(uint64(res.Counts[i]), b.toppedUp[i])
+		if a.unignorable && next[i] < target {
+			open++
+		} else {
+			next[i] = target
+		}
+	}
+	for open > 0 {
+		for i := range b.arms {
+			if next[i] >= target {
+				continue
+			}
+			jobs = append(jobs, job{i, next[i]})
+			if next[i]++; next[i] == target {
+				open--
+			}
+		}
+	}
+	if len(jobs) == 0 {
+		return 0
+	}
+	helds := make([]*baiHeld, len(jobs))
+	errs := make([]error, len(jobs))
+	var claimed atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < threads; w++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for {
+				if ctx.Err() != nil || (!deadline.IsZero() && time.Now().After(deadline)) {
+					return
+				}
+				j := int(claimed.Add(1)) - 1
+				if j >= len(jobs) {
+					return
+				}
+				held := baiHeldPool.Get().(*baiHeld)
+				held.reset(b.arms[jobs[j].arm])
+				_, errs[j] = s.baiSample(worker, b.arms[jobs[j].arm], jobs[j].ordinal, held)
+				helds[j] = held
+			}
+		}(w)
+	}
+	wg.Wait()
+	// In the jobs' order, whatever thread drew them, so that the statistics
+	// do not depend on the number of threads.
+	done := 0
+	for j, held := range helds {
+		if held == nil || errs[j] != nil {
+			if errs[j] != nil {
+				zerolog.Ctx(ctx).Err(errs[j]).Msg("error topping up a kept play")
+			}
+			break
+		}
+		s.baiCommit(held)
+		baiHeldPool.Put(held)
+		b.toppedUp[jobs[j].arm] = jobs[j].ordinal + 1
+		done++
+	}
+	return done
 }
 
 // baiHeld is what a sample holds back until the sim folds it: its rollouts'

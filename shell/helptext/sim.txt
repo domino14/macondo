@@ -138,8 +138,9 @@ Options:
             Reading the results: the leaders have many rollouts and tight
             numbers; a play the sim lost interest in may have only its
             first 128, so its win % and equity are rough. That is by
-            design. To compare two particular plays closely, sim just
-            those plays, or use -stoprule classic.
+            design. To get good numbers for a particular play, name it
+            with -avoid-prune: when the sim stops, that play is rolled out
+            until it has as many rollouts as the most rolled out play.
 
         classic:
             Every iteration deals the opponent a rack and rolls out every
@@ -215,6 +216,10 @@ Options:
 
     -avoid-prune "F5 FOO"
 
-    If you are cutting off plays, any plays you specify with potentially repeated
-    `-avoid-prune` options never get cut off. This is good for comparing plays you
-    made to the top plays.
+    Any plays you specify with potentially repeated `-avoid-prune` options
+    are added to the sim if they are not in it, and are never cut off. This
+    is good for comparing plays you made to the top plays. Under the classic
+    and paired rules such a play is rolled out on every iteration. Under bai
+    it is rolled out, once the sim has stopped, until it has as many
+    rollouts as the most rolled out play, so the sim takes that much longer
+    (a sim that hit -maxtime, or that you stopped, skips this).
