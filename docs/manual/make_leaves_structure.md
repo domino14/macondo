@@ -47,5 +47,5 @@ cargo run --release --bin buildlex -- english-kwg CSW21.txt CSW21.kwg
 
 You can then move this kwg to the appropriate `data` sub-directory.
 
-You can download some gaddags from the liwords repo; see https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm.
+Macondo downloads the kwg of a published lexicon by itself the first time it is used (`set lexicon NWL23`).
 

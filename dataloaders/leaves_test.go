@@ -67,13 +67,18 @@ func TestLeavesFileForLexicon(t *testing.T) {
 		{"CSW21", "leavesv80i.klv2", filepath.Join(strategyDir, "CSW21", "leavesv80i.klv2"),
 			"named explicitly, so it comes from the strategy folder"},
 	} {
-		want, err := os.ReadFile(tc.want)
-		if err != nil {
+		if _, err := os.Stat(tc.want); err != nil {
 			t.Skipf("%s: %v", tc.want, err)
 		}
 		f, err := LeavesFileForLexicon(cfg, tc.leavefile, tc.lexicon)
 		if err != nil {
 			t.Fatalf("%s (%q): %v", tc.lexicon, tc.leavefile, err)
+		}
+		// Read after the call: opening a lexicon's leaves replaces a file
+		// that is no longer the published one.
+		want, err := os.ReadFile(tc.want)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.want, err)
 		}
 		got, err := io.ReadAll(f)
 		f.Close()

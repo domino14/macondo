@@ -64,11 +64,11 @@ func leavesNameFor(leavefile, lexiconName string) (string, bool) {
 // order:
 //
 //  1. <data>/lexica/gaddag/<prefix>/<LEXICON>.klv2, the current layout, which
-//     keeps a lexicon's leaves beside its word graphs
-//  2. a download of that same file, since these are published alongside the
-//     word graphs
-//  3. the same for the lexicon this one borrows from (CSW19 uses CSW24's)
-//  4. the legacy per-lexicon strategy folders
+//     keeps a lexicon's leaves beside its word graphs. These are published
+//     alongside the word graphs, so the file is downloaded if it is missing
+//     and replaced if a different one is published
+//  2. the same for the lexicon this one borrows from (CSW19 uses CSW24's)
+//  3. the legacy per-lexicon strategy folders
 //
 // A lexicon's own published leaves always win over a relative's. Borrowing
 // first would mean a machine that already has CSW24's leaves never fetches
@@ -89,7 +89,7 @@ func LeavesFileForLexicon(cfg *wglconfig.Config, leavefile, lexiconName string) 
 		// the strategy folders do.
 		if def := defaultForLexicon(lexiconName); def != "" && def != lexiconName {
 			defName, _ := leavesNameFor(leavefile, def)
-			if file, _, err := cache.Open(filepath.Join(dir, defName)); err == nil {
+			if file, err := openOrFetchLeaves(cfg, dir, defName); err == nil {
 				log.Warn().Str("lexicon", lexiconName).Str("leaves", defName).
 					Msg("no leaves of its own; borrowing another lexicon's")
 				return file, nil
@@ -110,33 +110,30 @@ func LeavesFileForLexicon(cfg *wglconfig.Config, leavefile, lexiconName string) 
 	return file, nil
 }
 
-// openOrFetchLeaves opens a leave file from the lexicon data directory,
-// downloading it first if it isn't there. The download is tried once per
-// process: the object cache doesn't remember failures, so without this a
-// lexicon that has no published leaves (an experimental one, say) would retry
-// the download every time an equity calculator is built.
+// openOrFetchLeaves opens a leave file from the lexicon data directory, after
+// making sure it is there and is the published one: a missing file is
+// downloaded, and one that differs from what is published is replaced. That
+// is done once per file per process: the object cache doesn't remember
+// failures, so without this a lexicon that has no published leaves (an
+// experimental one, say) would ask for them every time an equity calculator
+// is built.
 func openOrFetchLeaves(cfg *wglconfig.Config, dir, name string) (io.ReadCloser, error) {
 	path := filepath.Join(dir, name)
-	file, _, err := cache.Open(path)
-	if err == nil {
-		return file, nil
-	}
-	if _, tried := klvDownloadTried.LoadOrStore(name, struct{}{}); tried {
-		return nil, err
-	}
-	if derr := fetchLeaves(name, cfg); derr != nil {
-		if errors.Is(derr, ErrNotPublished) {
-			log.Info().Str("leaves", name).Msg("no such leave values are published")
-		} else {
-			log.Info().Err(derr).Str("leaves", name).Msg("could not download leave values")
+	if _, tried := klvDownloadTried.LoadOrStore(path, struct{}{}); !tried {
+		if derr := fetchLeaves(name, cfg); derr != nil {
+			if errors.Is(derr, ErrNotPublished) {
+				log.Info().Str("leaves", name).Msg("no such leave values are published")
+			} else {
+				log.Info().Err(derr).Str("leaves", name).Msg("could not download leave values")
+			}
 		}
-		return nil, err
 	}
-	file, _, err = cache.Open(path)
+	file, _, err := cache.Open(path)
 	return file, err
 }
 
-// EnsureKLV makes sure a leave-values file is on disk, downloading it if not.
+// EnsureKLV makes sure a leave-values file is on disk and is the published
+// one, downloading it if not.
 // name is the bare file name without its extension, e.g. "NWL23" or
 // "super-NWL23".
 func EnsureKLV(name string, cfg *wglconfig.Config) error {
@@ -147,21 +144,25 @@ func EnsureKLV(name string, cfg *wglconfig.Config) error {
 }
 
 // EnsureOwnLeaves makes sure a lexicon's own leave file is on disk, fetching
-// it if it is published and missing. It returns an error wrapping
+// it if it is published and missing, or published and not the one on disk. It returns an error wrapping
 // ErrNotPublished when the lexicon has no leaves of its own to get, which
 // callers may accept, and any other error when the leaves exist but could not
 // be had -- in which case a caller that cares which numbers it evaluates with
 // should stop rather than let LeavesFileForLexicon borrow a relative's.
 //
-// Unlike LeavesFileForLexicon it retries the download on every call, so one
-// network blip doesn't leave a long-running worker unable to fetch for good.
+// Unlike LeavesFileForLexicon it retries a failed download on every call, so
+// one network blip doesn't leave a long-running worker unable to fetch for
+// good.
 func EnsureOwnLeaves(cfg *wglconfig.Config, leavefile, lexiconName string) error {
 	name, standard := leavesNameFor(leavefile, lexiconName)
 	if !standard {
 		return nil // an explicit experiment file; nothing to borrow in its place
 	}
-	if _, err := os.Stat(filepath.Join(LexiconDataPath(cfg), name)); err == nil {
-		return nil
+	err := fetchLeaves(name, cfg)
+	if err != nil {
+		if _, serr := os.Stat(filepath.Join(LexiconDataPath(cfg), name)); serr == nil {
+			return nil // a copy on disk is good enough
+		}
 	}
-	return fetchLeaves(name, cfg)
+	return err
 }

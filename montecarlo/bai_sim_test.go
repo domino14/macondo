@@ -22,6 +22,16 @@ import (
 // identification.
 func baiTestSimmer(t *testing.T, seedByte byte, threads, plays int) *Simmer {
 	t.Helper()
+	return spacedTestSimmer(t, seedByte, threads, plays, 1)
+}
+
+// spacedTestSimmer is baiTestSimmer with every step-th of the position's
+// best static plays as the candidates. Neighbouring plays are often within a
+// fraction of a point of each other, and a test that needs the sim to tell
+// its plays apart would then depend on how long that takes; plays a few
+// ranks apart are not close.
+func spacedTestSimmer(t *testing.T, seedByte byte, threads, plays, step int) *Simmer {
+	t.Helper()
 	const pos = "15/15/15/15/15/4FENCERS4/6EALE5/5CWM7/5A9/2NONRATED5/5B9/5I4FAX2/3PUNITORY4/5E9/3PISHEOG5 AANORST/ 187/210 0 lex NWL18;"
 	parsed, err := cgp.ParseCGP(DefaultConfig, pos)
 	if err != nil {
@@ -44,7 +54,18 @@ func baiTestSimmer(t *testing.T, seedByte byte, threads, plays int) *Simmer {
 	s.SetStoppingCondition(Stop99)
 	// Short sims, for the tests' sake.
 	s.SetBAICapPerPlay(700)
-	if err := s.PrepareSim(2, p.GenerateMoves(plays)); err != nil {
+	moves := p.GenerateMoves(plays * step)
+	if step > 1 {
+		spaced := make([]*move.Move, 0, plays)
+		for i := 0; i < len(moves); i += step {
+			spaced = append(spaced, moves[i])
+		}
+		moves = spaced
+	}
+	if len(moves) != plays {
+		t.Fatalf("%d candidate plays, wanted %d", len(moves), plays)
+	}
+	if err := s.PrepareSim(2, moves); err != nil {
 		t.Fatal(err)
 	}
 	return s

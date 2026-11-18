@@ -105,6 +105,18 @@ func (g GameRules) ExchangeLimit() int {
 	return g.exchangeLimit
 }
 
+// loadKWG loads a lexicon's word graph, after making sure, once per process,
+// that the file is on disk and is the published one. Every game gets its
+// rules here, so this covers the programs that never go through the shell's
+// `set lexicon`: the bot, autoplay, the analysis tools.
+func loadKWG(cfg *config.Config, lexiconName, letterDistributionName string) (*kwg.KWG, error) {
+	if err := lexicon.EnsureLexiconFileOnce(lexiconName, ".kwg", cfg.WGLConfig()); err != nil {
+		log.Info().Err(err).Str("lexicon", lexiconName).
+			Msg("could not download word graph; will try to load from disk")
+	}
+	return kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
+}
+
 func NewBasicGameRules(cfg *config.Config,
 	lexiconName, boardLayoutName, letterDistributionName, csetGenName string,
 	variant Variant) (*GameRules, error) {
@@ -149,7 +161,7 @@ func NewBasicGameRules(cfg *config.Config,
 		} else if wordSmog {
 			lex = &alphadawg.Lexicon{KWG: kad}
 		} else {
-			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
+			k, err := loadKWG(cfg, lexiconName, letterDistributionName)
 			if err != nil {
 				return nil, err
 			}
@@ -163,7 +175,7 @@ func NewBasicGameRules(cfg *config.Config,
 			lex = &alphadawg.Lexicon{KWG: kad}
 			csgen = &cross_set.WordSmogCrossSetGenerator{Dist: dist, AlphaDawg: kad}
 		} else {
-			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName, kwg.WithDistribution(letterDistributionName))
+			k, err := loadKWG(cfg, lexiconName, letterDistributionName)
 			if err != nil {
 				return nil, err
 			}

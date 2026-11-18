@@ -1,7 +1,8 @@
 // fetch_lexica downloads the lexicon data files the test suite needs into a
 // data directory, using the same code path (and the same source) as the
-// shell's `set lexicon`. Files already present are left alone, so a restored
-// CI cache makes this a no-op.
+// shell's `set lexicon`. A file already present is left alone unless a
+// different one is published, so a restored CI cache costs one small request
+// per file.
 //
 // Usage: go run ./cmd/fetch_lexica [-data-path DIR] [-list FILE]
 package main
