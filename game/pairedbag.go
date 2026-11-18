@@ -1,8 +1,9 @@
 package game
 
 import (
+	"math/rand/v2"
+
 	"github.com/domino14/word-golib/tilemapping"
-	"lukechampine.com/frand"
 )
 
 // Paired-bag mode makes a game's tile draws a pure function of its seed, so
@@ -57,9 +58,9 @@ func (g *Game) drawSideFor(playerIdx int) int {
 // the global source if this game was never seeded.
 func (g *Game) bagIntn(n int) int {
 	if g.customRNG != nil {
-		return g.customRNG.Intn(n)
+		return g.customRNG.IntN(n)
 	}
-	return frand.Intn(n)
+	return rand.IntN(n)
 }
 
 // drawFor draws n tiles into ml for the given seat. Outside of paired-bag mode

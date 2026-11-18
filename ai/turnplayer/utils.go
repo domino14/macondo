@@ -1,10 +1,11 @@
 package turnplayer
 
 import (
+	"math/rand/v2"
+
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"lukechampine.com/frand"
 )
 
 // GenBestStaticTurn is a useful utility function for sims and autoplaying.
@@ -44,7 +45,7 @@ func GenStochasticStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.
 	if len(plays) == 1 {
 		return plays[0]
 	}
-	r := frand.Float64()
+	r := rand.Float64()
 	// note: fix for negative equities
 	eq1 := plays[0].Equity()
 	eq2 := plays[1].Equity()

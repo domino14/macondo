@@ -3,9 +3,9 @@ package zobrist
 import (
 	"encoding/json"
 	"io"
+	"math/rand/v2"
 
 	"github.com/domino14/word-golib/tilemapping"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
@@ -36,7 +36,7 @@ func (z *Zobrist) Initialize(boardDim int) {
 
 		z.PosTable[i] = make([]uint64, MaxLetters*2)
 		for j := 0; j < 70; j++ {
-			z.PosTable[i][j] = frand.Uint64n(bignum) + 1
+			z.PosTable[i][j] = rand.Uint64N(bignum) + 1
 		}
 	}
 	// A rack holds up to RackTileLimit tiles, so a letter's count runs from
@@ -45,22 +45,22 @@ func (z *Zobrist) Initialize(boardDim int) {
 	for i := 0; i < MaxLetters; i++ {
 		z.OurRackTable[i] = make([]uint64, game.RackTileLimit+1)
 		for j := 0; j <= game.RackTileLimit; j++ {
-			z.OurRackTable[i][j] = frand.Uint64n(bignum) + 1
+			z.OurRackTable[i][j] = rand.Uint64N(bignum) + 1
 		}
 	}
 	z.TheirRackTable = make([][]uint64, MaxLetters)
 	for i := 0; i < MaxLetters; i++ {
 		z.TheirRackTable[i] = make([]uint64, game.RackTileLimit+1)
 		for j := 0; j <= game.RackTileLimit; j++ {
-			z.TheirRackTable[i][j] = frand.Uint64n(bignum) + 1
+			z.TheirRackTable[i][j] = rand.Uint64N(bignum) + 1
 		}
 	}
 
 	for i := 0; i < 3; i++ {
-		z.ScorelessTurns[i] = frand.Uint64n(bignum) + 1
+		z.ScorelessTurns[i] = rand.Uint64N(bignum) + 1
 	}
 
-	z.TheirTurn = frand.Uint64n(bignum) + 1
+	z.TheirTurn = rand.Uint64N(bignum) + 1
 }
 
 func (z *Zobrist) Dump(w io.Writer) {

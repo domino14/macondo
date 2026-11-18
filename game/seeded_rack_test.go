@@ -1,10 +1,10 @@
 package game
 
 import (
+	"math/rand/v2"
 	"testing"
 
 	"github.com/domino14/word-golib/tilemapping"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -30,10 +30,10 @@ func seededRackGame(t *testing.T) *Game {
 	return g
 }
 
-func rngOf(seed byte) *frand.RNG {
+func rngOf(seed byte) *rand.Rand {
 	var s [32]byte
 	s[0] = seed
-	return frand.NewCustom(s[:], 0, 0)
+	return rand.New(rand.NewChaCha8(s))
 }
 
 // Two copies of a position whose bags are in different orders, and whose

@@ -13,7 +13,7 @@ require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9
-	github.com/domino14/word-golib v0.3.0
+	github.com/domino14/word-golib v0.3.1-0.20261118154300-5d606943fb01
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
 	github.com/nats-io/nats.go v1.52.0
@@ -33,7 +33,6 @@ require (
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	layeh.com/gopher-json v0.0.0-20201124131017-552bb3c4c3bf
-	lukechampine.com/frand v1.5.1
 	modernc.org/sqlite v1.56.0
 )
 

@@ -2,9 +2,9 @@ package stats
 
 import (
 	"math"
+	"math/rand/v2"
 
 	"gonum.org/v1/gonum/stat/distuv"
-	"lukechampine.com/frand"
 )
 
 // Tests for a matched-pairs experiment, where each observation is the
@@ -84,7 +84,7 @@ func SignFlipPValue(diffs []float64, samples int) (float64, bool) {
 		samples = defaultSignFlipSamples
 	}
 	// A fixed seed, so the same log always yields the same p-value.
-	rng := frand.NewCustom(make([]byte, 32), 1024, 12)
+	rng := rand.NewChaCha8([32]byte{})
 	bits := make([]byte, (n+7)/8)
 	atLeast := 0
 	for b := 0; b < samples; b++ {

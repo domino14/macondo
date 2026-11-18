@@ -2,6 +2,7 @@ package montecarlo
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -11,12 +12,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v3"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
@@ -248,7 +247,7 @@ func (s *Simmer) startBAI() {
 	}
 	seed := s.origGame.Seed()
 	if seed == ([32]byte{}) {
-		frand.Read(b.seed[:])
+		crand.Read(b.seed[:])
 	} else {
 		var buf [40]byte
 		copy(buf[:32], seed[:])
@@ -262,36 +261,29 @@ func (s *Simmer) startBAI() {
 // sample's seed: the bag still holds the last sample's source and draws from
 // it while the old rack is put back, before it is given this one, and those
 // draws must not come out of this sample's stream.
-func (s *Simmer) baiRNG(thread int, ordinal uint64) *frand.RNG {
+func (s *Simmer) baiRNG(thread int, ordinal uint64) *rand.Rand {
 	var buf [40]byte
 	copy(buf[:32], s.bai.seed[:])
 	binary.BigEndian.PutUint64(buf[32:], ordinal)
 	h := sha256.Sum256(buf[:])
 	pair := &s.bai.rngs[thread]
 	pair.next ^= 1
-	r := pair.rngs[pair.next]
-	if r == nil {
-		r = frand.NewCustom(h[:], 0, 0)
-		pair.rngs[pair.next] = r
+	if pair.rngs[pair.next] == nil {
+		pair.srcs[pair.next] = rand.NewChaCha8(h)
+		pair.rngs[pair.next] = rand.New(pair.srcs[pair.next])
 	} else {
-		reseedRNG(r, h)
+		pair.srcs[pair.next].Seed(h)
 	}
-	s.rngs[thread] = r
-	return r
+	s.rngs[thread] = pair.rngs[pair.next]
+	return pair.rngs[pair.next]
 }
 
-// baiRNGPair is a thread's two sources and which was handed out last.
+// baiRNGPair is a thread's two sources, the generators they draw from, and
+// which was handed out last.
 type baiRNGPair struct {
-	rngs [2]*frand.RNG
+	srcs [2]*rand.ChaCha8
+	rngs [2]*rand.Rand
 	next int
-}
-
-// reseedRNG starts r again from seed, as frand.NewCustom(seed) would a new
-// one, without making one: a sim draws a source for every rollout. frand has
-// no call for this, so it reaches the ChaCha8 generator that is an RNG's only
-// field; TestReseedRNG checks the two still agree.
-func reseedRNG(r *frand.RNG, seed [32]byte) {
-	(*struct{ r *rand.ChaCha8 })(unsafe.Pointer(r)).r.Seed(seed)
 }
 
 // simBAI runs the sim until its stopping rule, its budget or the context
@@ -308,7 +300,7 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 		threads = 1
 	}
 	if len(s.rngs) < threads {
-		s.rngs = make([]*frand.RNG, threads)
+		s.rngs = make([]*rand.Rand, threads)
 	}
 	if len(b.rngs) < threads {
 		b.rngs = make([]baiRNGPair, threads)

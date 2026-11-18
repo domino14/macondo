@@ -2,17 +2,17 @@ package game
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/matryer/is"
-	"lukechampine.com/frand"
 )
 
 func TestRandomFirst(t *testing.T) {
 	is := is.New(t)
 	counts := [2]int{0, 0}
 	for i := 0; i < 100000; i++ {
-		selection := frand.Intn(2)
+		selection := rand.IntN(2)
 		counts[selection]++
 	}
 	fmt.Println(counts)

@@ -3,12 +3,12 @@ package montecarlo
 import (
 	"context"
 	"math"
+	"math/rand/v2"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/rs/zerolog"
-	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/cgp"
@@ -126,7 +126,7 @@ func TestBAISamplesShareTheirLuck(t *testing.T) {
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	s := baiTestSimmer(t, 3, 4, 6)
 	s.startBAI()
-	s.rngs = make([]*frand.RNG, 4)
+	s.rngs = make([]*rand.Rand, 4)
 	opp := 1 - s.initialPlayer
 	type draw struct {
 		reward float64
@@ -299,7 +299,7 @@ func TestBAIHeldSample(t *testing.T) {
 		for _, s := range []*Simmer{direct, ahead} {
 			s.SetBAIBagCycle(cycle)
 			s.startBAI()
-			s.rngs = make([]*frand.RNG, 1)
+			s.rngs = make([]*rand.Rand, 1)
 		}
 		const arm, samples = 2, 12
 		var held []*baiHeld
