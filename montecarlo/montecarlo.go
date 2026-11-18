@@ -38,6 +38,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
@@ -154,6 +155,10 @@ type SimmedPlay struct {
 	winPctStats stats.Statistic
 	ignore      atomic.Bool
 	unignorable bool
+	// arm is the play's index under the paired stopping rule, and trimmed
+	// whether it was trimmed out of the sim.
+	arm     int
+	trimmed atomic.Bool
 }
 
 func (sp *SimmedPlay) String() string {
@@ -170,6 +175,36 @@ func (sp *SimmedPlay) Ignore() {
 	sp.ignore.Store(true)
 }
 
+// rolloutTally holds what rollouts would add to a play's statistics, for
+// rollouts made before it is known whether the sim will use them.
+type rolloutTally struct {
+	play *SimmedPlay
+	// By turn rolled out: its ply, score and whether it was a bingo.
+	plies  []int
+	scores []float64
+	bingos []float64
+	// By rollout.
+	equities  []float64
+	leftovers []float64
+	wins      []float64
+}
+
+// commit adds the tally to its play's statistics.
+func (t *rolloutTally) commit() {
+	sp := t.play
+	sp.Lock()
+	defer sp.Unlock()
+	for i, ply := range t.plies {
+		sp.scoreStats[ply].Push(t.scores[i])
+		sp.bingoStats[ply].Push(t.bingos[i])
+	}
+	for i := range t.wins {
+		sp.equityStats.Push(t.equities[i])
+		sp.leftoverStats.Push(t.leftovers[i])
+		sp.winPctStats.Push(t.wins[i])
+	}
+}
+
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	// log.Debug().Msgf("Adding a stat for %v (pidx %v ply %v)", play, pidx, ply)
 	var bingos int
@@ -182,15 +217,28 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) float64 {
 	sp.Lock()
 	defer sp.Unlock()
-	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
+	eq := float64(spread-initialSpread) + leftover
+	sp.equityStats.Push(eq)
 	sp.leftoverStats.Push(leftover)
+	return eq
 }
 
 func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
-	tilesUnseen int, pliesAreEven bool) {
+	tilesUnseen int, pliesAreEven bool) float64 {
+	winPct := rolloutWinPct(spread, leftover, gameover, winpcts, tilesUnseen, pliesAreEven)
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(float64(winPct))
+	return winPct
+}
+
+// rolloutWinPct is the win probability of a rollout that ended spread
+// points ahead with leftover equity on the racks.
+func rolloutWinPct(spread int, leftover float64, gameover bool, winpcts [][]float32,
+	tilesUnseen int, pliesAreEven bool) float64 {
 	winPct := float64(0.0)
 
 	if gameover || tilesUnseen == 0 {
@@ -237,17 +285,16 @@ func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool,
 		}
 		winPct = float64(pct)
 	}
-	sp.Lock()
-	defer sp.Unlock()
-	sp.winPctStats.Push(float64(winPct))
+	return winPct
 }
 
 // addWinProbStat records a rollout whose win probability is already known
 // (a searched endgame).
-func (sp *SimmedPlay) addWinProbStat(p float64) {
+func (sp *SimmedPlay) addWinProbStat(p float64) float64 {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.winPctStats.Push(p)
+	return p
 }
 
 func (s *SimmedPlay) Move() *move.Move {
@@ -297,6 +344,9 @@ func (s *SimmedPlays) PlaysNoLock() []*SimmedPlay {
 func (s *SimmedPlays) trimBottom(n int) {
 	s.Lock()
 	defer s.Unlock()
+	for _, p := range s.plays[len(s.plays)-n:] {
+		p.trimmed.Store(true)
+	}
 	s.plays = s.plays[:len(s.plays)-n]
 }
 
@@ -330,6 +380,7 @@ type Simmer struct {
 	iterationCount atomic.Uint64
 	nodeCount      atomic.Uint64
 	threads        int
+	timeLimit      time.Duration
 
 	simming      bool
 	readyToSim   bool
@@ -352,7 +403,15 @@ type Simmer struct {
 	adjustedBagProbabilities []float64
 	unseenToSimmingPlayer    map[tilemapping.MachineLetter]int
 
-	autostopper          *AutoStopper
+	autostopper *AutoStopper
+	// bai is the state of best-arm identification (see bai_sim.go).
+	bai    baiState
+	paired pairedState
+	// rolloutHook, when set, is given every rollout's result: the iteration
+	// it belongs to, the play's index in the sim's list, the win probability
+	// and the equity (spread gained plus leftover). It is called from the
+	// sim's threads. For measurements.
+	rolloutHook          func(iteration uint64, playIdx int, win, equity float64)
 	stochasticStaticEval bool
 
 	// rngs holds one random source per thread. They are seeded from the game's
@@ -397,6 +456,12 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 			panic("win percentages not correct type")
 		}
 	}
+}
+
+// SetTimeLimit bounds every sim that follows by the clock: a sim still
+// running after d stops and reports the plays as they stand. 0 is no limit.
+func (s *Simmer) SetTimeLimit(d time.Duration) {
+	s.timeLimit = d
 }
 
 func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
@@ -613,6 +678,7 @@ func (s *Simmer) makeGameCopies() error {
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	s.carryCheckPlayers = nil
 	s.rngs = s.makeRNGs()
+	s.bai.rngs = make([]baiRNGPair, s.threads)
 	// Work out one shuffled order here and hand every copy the same one, so the
 	// threads all start from an identical bag. The live game's bag is left
 	// alone entirely -- not just its order but its random stream, which belongs
@@ -776,6 +842,8 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 		return err
 	}
 	s.resetStats(plies, plays)
+	s.bai.runner, s.bai.winner, s.bai.status = nil, nil, bai.StatusNone
+	s.resetPaired()
 	// After resetStats, which sizes the copies' state stacks for a plain
 	// rollout; endgame searches need deeper ones.
 	if err := s.prepareEndgameLeaves(); err != nil {
@@ -847,16 +915,32 @@ func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	// workers learn to quit. The single-threaded loop just breaks.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// A best-arm sim watches the clock itself, between rounds, so that it
+	// ends with a whole round counted and a play chosen.
+	if s.timeLimit > 0 && !s.usesBAI() {
+		var cancelTimer context.CancelFunc
+		ctx, cancelTimer = context.WithTimeout(ctx, s.timeLimit)
+		defer cancelTimer()
+	}
 
 	tstart := time.Now()
 	s.autostopper.reset()
 
-	if run.inline || s.threads <= 1 {
+	if s.usesPaired() {
+		s.startPaired()
+	}
+	if s.usesBAI() {
+		s.simBAI(ctx, run)
+	} else if run.inline || s.threads <= 1 {
 		logger.Debug().Msg("Simulating on the calling goroutine")
 		s.simInline(ctx, run)
 	} else {
 		logger.Debug().Msgf("Simulating with %v threads", s.threads)
 		s.simThreaded(ctx, cancel, run)
+	}
+
+	if s.usesPaired() {
+		s.pairedFinish()
 	}
 
 	elapsed := time.Since(tstart) // duration is in nanosecs
@@ -903,6 +987,16 @@ func (s *Simmer) runIteration(ctx context.Context, run simRun, thread int, logCh
 	if err := s.simSingleIteration(ctx, s.maxPlies, thread, numIters-1, logChan); err != nil {
 		logger.Err(err).Msg("error simming iteration; stopping")
 		return false
+	}
+	if s.usesPaired() {
+		if stop, status := s.pairedFold(thread); stop {
+			if status != "" {
+				s.event(logger, run.quiet).Uint64("numIters", numIters).
+					Str("status", status).Msg("reached stopping condition")
+			}
+			return false
+		}
+		return true
 	}
 	if s.autostopper.stoppingCondition != StopNone &&
 		numIters%s.autostopper.stopConditionCheckInterval == 0 {
@@ -1037,6 +1131,65 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
+	rackToSet, err := s.oppRackFor(thread)
+	if err != nil {
+		return err
+	}
+
+	_, err = g.SetRandomRack(opp, rackToSet)
+	if err != nil {
+		return err
+	}
+	logIter := LogIteration{Iteration: int(iterationCount), Plays: nil, Thread: thread}
+	if s.logStream != nil && len(rackToSet) > 0 {
+		logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
+	}
+
+	paired := s.usesPaired()
+	for playIdx, simmedPlay := range s.simmedPlays.plays {
+		if simmedPlay.ignore.Load() {
+			continue
+		}
+		var li *LogIteration
+		if s.logStream != nil {
+			li = &logIter
+		}
+		win, eq := s.rollout(g, thread, plies, simmedPlay, li, nil)
+		if paired {
+			s.pairedNote(thread, simmedPlay, win, eq)
+		}
+		if s.rolloutHook != nil {
+			s.rolloutHook(iterationCount, playIdx, win, eq)
+		}
+	}
+	if s.logStream != nil {
+		var out []byte
+		if s.collectHeatMap && iterationCount < MaxHeatMapIterations {
+			// If heat map collection is on, only collect a fixed number of iterations.
+			out, err = json.Marshal(logIter)
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			out = append(out, '\n')
+			s.writeLog(out, logChan)
+		} else if !s.collectHeatMap {
+			out, err = yaml.Marshal([]LogIteration{logIter})
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			s.writeLog(out, logChan)
+		}
+
+	}
+	return nil
+}
+
+// oppRackFor picks the tiles the opponent is known or inferred to hold for
+// a rollout (nil for a fully random rack), drawing from thread's random
+// source where the choice is random.
+func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
 	rackToSet := s.knownOppRack
 	var err error
 	if s.inferenceMode == InferenceCompletePosterior {
@@ -1047,7 +1200,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		if len(s.inferenceCDF) > 0 {
 			rackToSet, err = s.weightedInferredDrawRacks(thread)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	} else if s.inferenceMode != InferenceOff {
@@ -1073,158 +1226,153 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 				rackToSet, err = s.weightedInferredDrawRacks(thread)
 			}
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
 	}
+	return rackToSet, nil
+}
 
-	_, err = g.SetRandomRack(opp, rackToSet)
-	if err != nil {
-		return err
-	}
-	logIter := LogIteration{Iteration: int(iterationCount), Plays: nil, Thread: thread}
-	if s.logStream != nil && len(rackToSet) > 0 {
-		logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
-	}
-
+// rollout plays simmedPlay and then plies plies of best static plays on g,
+// records the result in simmedPlay's statistics and puts g back. It returns
+// the rollout's win probability and equity (spread gained plus leftover).
+// With a logIter the rollout is appended to it.
+func (s *Simmer) rollout(g *game.Game, thread, plies int, simmedPlay *SimmedPlay, logIter *LogIteration, tally *rolloutTally) (float64, float64) {
 	var logPlay LogPlay
 	var plyChild LogPlay
-	for _, simmedPlay := range s.simmedPlays.plays {
-		if simmedPlay.ignore.Load() {
-			continue
+	if logIter != nil {
+		logPlay = LogPlay{
+			Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
+			Leave: simmedPlay.play.LeaveString(),
+			Rack:  simmedPlay.play.FullRack(),
+			Bingo: simmedPlay.play.BingoPlayed(),
+			Pts:   simmedPlay.play.Score()}
+	}
+	// equity of the leftover tiles at the end of the sim
+	leftover := float64(0.0)
+	// logIter.Plays = append(logIter.Plays)
+	// Play the move, and back up the game state.
+	// log.Debug().Msgf("Playing move %v", play)'
+	// Set the backup mode to simulation mode only to back up the first move:
+	g.SetBackupMode(game.SimulationMode)
+	g.PlayMove(simmedPlay.play, false, 0)
+	s.nodeCount.Add(1)
+	g.SetBackupMode(game.NoBackup)
+	egWin, egDone := 0.0, false
+	// Further plies will NOT be backed up.
+	for ply := 0; ply < plies; ply++ {
+		// Each ply is a player taking a turn
+		onTurn := g.PlayerOnTurn()
+		if g.Playing() != pb.PlayState_PLAYING {
+			break
 		}
-		if s.logStream != nil {
-			logPlay = LogPlay{
-				Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
-				Leave: simmedPlay.play.LeaveString(),
-				Rack:  simmedPlay.play.FullRack(),
-				Bingo: simmedPlay.play.BingoPlayed(),
-				Pts:   simmedPlay.play.Score()}
-		}
-		// equity of the leftover tiles at the end of the sim
-		leftover := float64(0.0)
-		// logIter.Plays = append(logIter.Plays)
-		// Play the move, and back up the game state.
-		// log.Debug().Msgf("Playing move %v", play)'
-		// Set the backup mode to simulation mode only to back up the first move:
-		g.SetBackupMode(game.SimulationMode)
-		g.PlayMove(simmedPlay.play, false, 0)
-		s.nodeCount.Add(1)
-		g.SetBackupMode(game.NoBackup)
-		egWin, egDone := 0.0, false
-		// Further plies will NOT be backed up.
-		for ply := 0; ply < plies; ply++ {
-			// Each ply is a player taking a turn
-			onTurn := g.PlayerOnTurn()
-			if g.Playing() != pb.PlayState_PLAYING {
+		if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && endgameLeafClose(g) {
+			// The bag is empty: search the endgame rather than play it
+			// out with static moves.
+			if egWin, egDone = s.endgameLeaf(g, thread); egDone {
 				break
 			}
-			if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && endgameLeafClose(g) {
-				// The bag is empty: search the endgame rather than play it
-				// out with static moves.
-				if egWin, egDone = s.endgameLeaf(g, thread); egDone {
-					break
-				}
-			}
-			// Assume there are exactly two players.
-
-			bestPlay := s.bestStaticTurn(onTurn, thread)
-			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-			// On the last ply no further move generation happens, so cross-set
-			// recalculation would be discarded by UnplayLastMove unused.
-			if ply == plies-1 {
-				g.PlayMoveNoCrossSet(bestPlay, false, 0)
-			} else {
-				g.PlayMove(bestPlay, false, 0)
-			}
-			s.nodeCount.Add(1)
-			// log.Debug().Msgf("Score is now %v", s.game.Score())
-
-			if s.logStream != nil {
-				plyChild = LogPlay{
-					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
-					Leave: bestPlay.LeaveString(),
-					Rack:  bestPlay.FullRack(),
-					Pts:   bestPlay.Score(),
-					Bingo: bestPlay.BingoPlayed()}
-			}
-			if ply == plies-2 || ply == plies-1 {
-				// It's either OUR last turn or OPP's last turn.
-				// Calculate equity of leftover tiles.
-				thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
-				if s.logStream != nil {
-					plyChild.Leftover = thisLeftover
-				}
-
-				// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
-				if onTurn == s.initialPlayer {
-					leftover += thisLeftover
-				} else {
-					leftover -= thisLeftover
-				}
-			}
-			if s.logStream != nil {
-				logPlay.Plies = append(logPlay.Plies, plyChild)
-			}
-			// Maybe these add{X}Stat functions can instead write them to
-			// a channel to avoid mutices
-			simmedPlay.addScoreStat(bestPlay, ply)
-
 		}
-		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
-		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		spread := g.SpreadFor(s.initialPlayer)
-		if egDone {
-			// Scored at the empty bag: the searched result, and the spread
-			// the endgame starts from with no leftover.
-			simmedPlay.addEquityStat(s.initialSpread, spread, 0)
-			simmedPlay.addWinProbStat(egWin)
+		// Assume there are exactly two players.
+
+		bestPlay := s.bestStaticTurn(onTurn, thread)
+		// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
+		// On the last ply no further move generation happens, so cross-set
+		// recalculation would be discarded by UnplayLastMove unused.
+		if ply == plies-1 {
+			g.PlayMoveNoCrossSet(bestPlay, false, 0)
 		} else {
-			simmedPlay.addEquityStat(
-				s.initialSpread,
-				spread,
-				leftover,
-			)
-			simmedPlay.addWinPctStat(
-				spread,
-				leftover,
-				g.Playing() == pb.PlayState_GAME_OVER,
-				s.winPcts,
-				// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-				g.Bag().TilesRemaining()+
-					int(g.RackFor(1-s.initialPlayer).NumTiles()),
-				plies%2 == 0,
-			)
+			g.PlayMove(bestPlay, false, 0)
 		}
-		g.ResetToFirstState()
-		if s.logStream != nil {
-			logPlay.WinRatio = simmedPlay.winPctStats.Last()
-			logIter.Plays = append(logIter.Plays, logPlay)
+		s.nodeCount.Add(1)
+		// log.Debug().Msgf("Score is now %v", s.game.Score())
+
+		if logIter != nil {
+			plyChild = LogPlay{
+				Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
+				Leave: bestPlay.LeaveString(),
+				Rack:  bestPlay.FullRack(),
+				Pts:   bestPlay.Score(),
+				Bingo: bestPlay.BingoPlayed()}
 		}
-	}
-	if s.logStream != nil {
-		var out []byte
-		if s.collectHeatMap && iterationCount < MaxHeatMapIterations {
-			// If heat map collection is on, only collect a fixed number of iterations.
-			out, err = json.Marshal(logIter)
-			if err != nil {
-				logger.Error().Err(err).Msg("marshalling log")
-				return err
+		if ply == plies-2 || ply == plies-1 {
+			// It's either OUR last turn or OPP's last turn.
+			// Calculate equity of leftover tiles.
+			thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
+			if logIter != nil {
+				plyChild.Leftover = thisLeftover
 			}
-			out = append(out, '\n')
-			s.writeLog(out, logChan)
-		} else if !s.collectHeatMap {
-			out, err = yaml.Marshal([]LogIteration{logIter})
-			if err != nil {
-				logger.Error().Err(err).Msg("marshalling log")
-				return err
+
+			// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
+			if onTurn == s.initialPlayer {
+				leftover += thisLeftover
+			} else {
+				leftover -= thisLeftover
 			}
-			s.writeLog(out, logChan)
+		}
+		if logIter != nil {
+			logPlay.Plies = append(logPlay.Plies, plyChild)
+		}
+		// Maybe these add{X}Stat functions can instead write them to
+		// a channel to avoid mutices
+		if tally != nil {
+			bingo := 0.0
+			if bestPlay.BingoPlayed() {
+				bingo = 1
+			}
+			tally.plies = append(tally.plies, ply)
+			tally.scores = append(tally.scores, float64(bestPlay.Score()))
+			tally.bingos = append(tally.bingos, bingo)
+		} else {
+			simmedPlay.addScoreStat(bestPlay, ply)
 		}
 
 	}
-	return nil
+	// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
+	// 	s.game.SpreadFor(s.initialPlayer), leftover)
+	spread := g.SpreadFor(s.initialPlayer)
+	var rolloutWin, rolloutEquity float64
+	if tally != nil {
+		// As below, held in the tally.
+		if egDone {
+			rolloutEquity, leftover, rolloutWin = float64(spread-s.initialSpread), 0, egWin
+		} else {
+			rolloutEquity = float64(spread-s.initialSpread) + leftover
+			rolloutWin = rolloutWinPct(spread, leftover, g.Playing() == pb.PlayState_GAME_OVER, s.winPcts,
+				g.Bag().TilesRemaining()+int(g.RackFor(1-s.initialPlayer).NumTiles()), plies%2 == 0)
+		}
+		tally.equities = append(tally.equities, rolloutEquity)
+		tally.leftovers = append(tally.leftovers, leftover)
+		tally.wins = append(tally.wins, rolloutWin)
+	} else if egDone {
+		// Scored at the empty bag: the searched result, and the spread
+		// the endgame starts from with no leftover.
+		rolloutEquity = simmedPlay.addEquityStat(s.initialSpread, spread, 0)
+		rolloutWin = simmedPlay.addWinProbStat(egWin)
+	} else {
+		rolloutEquity = simmedPlay.addEquityStat(
+			s.initialSpread,
+			spread,
+			leftover,
+		)
+		rolloutWin = simmedPlay.addWinPctStat(
+			spread,
+			leftover,
+			g.Playing() == pb.PlayState_GAME_OVER,
+			s.winPcts,
+			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
+			g.Bag().TilesRemaining()+
+				int(g.RackFor(1-s.initialPlayer).NumTiles()),
+			plies%2 == 0,
+		)
+	}
+	g.ResetToFirstState()
+	if logIter != nil {
+		logPlay.WinRatio = rolloutWin
+		logIter.Plays = append(logIter.Plays, logPlay)
+	}
+	return rolloutWin, rolloutEquity
 }
 
 // writeLog hands a log line to the writer goroutine, or writes it directly if
@@ -1314,6 +1462,24 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	} else {
 		sortByMetrics(plays)
 	}
+	// A best-arm identification run's pick goes first: it is the play the
+	// sim found best by the reward it ran on, which can differ from the
+	// order above between plays the sim could not tell apart.
+	w := s.bai.winner
+	s.paired.mu.Lock()
+	if s.paired.winner != nil {
+		w = s.paired.winner
+	}
+	s.paired.mu.Unlock()
+	if w != nil && !w.ignore.Load() {
+		for i, p := range sp.plays {
+			if p == w {
+				copy(sp.plays[1:i+1], sp.plays[:i])
+				sp.plays[0] = w
+				break
+			}
+		}
+	}
 }
 
 func (s *Simmer) printStats() string {
@@ -1326,7 +1492,7 @@ func (s *Simmer) EquityStats() string {
 	}
 	var ss strings.Builder
 	s.sortPlaysByWinRate(true)
-	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
+	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s%-8s\n", "Play", "Leave", "Score", "Win%", "Equity", "Iters")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 	for _, play := range s.simmedPlays.plays {
@@ -1337,12 +1503,18 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%s\n",
+		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%-8d%s\n",
 			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
 			play.play.LeaveString(),
-			play.play.Score(), wpStats, eqStats, ignore)
+			play.play.Score(), wpStats, eqStats, play.equityStats.Iterations(), ignore)
 	}
-	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
+	// Under bai plays get different numbers of rollouts (the Iters column),
+	// and the sim's own count is their average.
+	perPlay := ""
+	if s.bai.on {
+		perPlay = " per play on average"
+	}
+	fmt.Fprintf(&ss, "Iterations: %d%s (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load(), perPlay)
 	return ss.String()
 }
 

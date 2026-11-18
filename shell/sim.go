@@ -48,6 +48,11 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 
 	inferMode := montecarlo.InferenceOff
 	endgameLeaves := true
+	stopRule := defaultSimStopRule
+	stopCap := 0
+	playCap := 0
+	bagCycle := true
+	maxTime := 0.0 // seconds; 0 is no limit
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
 	avoidTrimMoveStrs := options.StringArray("avoid-prune")
@@ -157,6 +162,38 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		case "endgame-leaves":
 			endgameLeaves = options.Bool(opt)
 
+		case "stoprule":
+			stopRule, err = montecarlo.ParseStopRule(options.String(opt))
+			if err != nil {
+				return nil, err
+			}
+
+		case "maxtime":
+			maxTime, err = options.Float(opt)
+			if err != nil {
+				return nil, err
+			}
+			if maxTime < 0 {
+				return nil, errors.New("maxtime cannot be negative")
+			}
+
+		case "playcap":
+			playCap, err = options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+			if playCap < 0 {
+				return nil, errors.New("playcap cannot be negative")
+			}
+		case "stopcap":
+			stopCap, err = options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+
+		case "bagcycle":
+			bagCycle = options.Bool(opt)
+
 		case "collect-heatmap":
 			if options.Bool(opt) {
 				err = sc.simmer.SetCollectHeatmap(true)
@@ -202,6 +239,11 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		inferMode:             inferMode,
 		avoidTrimMoves:        avoidTrimMoves,
 		endgameLeaves:         endgameLeaves,
+		stopRule:              stopRule,
+		stopCap:               stopCap,
+		playCap:               playCap,
+		bagCycle:              bagCycle,
+		maxTime:               time.Duration(maxTime * float64(time.Second)),
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -271,6 +313,10 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 	return nil, nil
 }
 
+// defaultSimStopRule is the rule `sim -stop` uses unless -stoprule names
+// another.
+const defaultSimStopRule = montecarlo.StopRuleBAI
+
 type simParams struct {
 	threads               int
 	plies                 int
@@ -282,6 +328,11 @@ type simParams struct {
 	inferMode             montecarlo.InferenceMode
 	avoidTrimMoves        []*move.Move
 	endgameLeaves         bool
+	stopRule              montecarlo.StopRule
+	stopCap               int
+	playCap               int
+	bagCycle              bool
+	maxTime               time.Duration
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -293,6 +344,11 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 		simmer.SetThreads(params.threads)
 	}
 	simmer.SetEndgameLeaves(params.endgameLeaves)
+	simmer.SetStopRule(params.stopRule)
+	simmer.SetStopCapPerPlay(params.stopCap)
+	simmer.SetBAIBestPlayCap(params.playCap)
+	simmer.SetBAIBagCycle(params.bagCycle)
+	simmer.SetTimeLimit(params.maxTime)
 	err := simmer.PrepareSim(params.plies, sc.curPlayList)
 	if err != nil {
 		return err

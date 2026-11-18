@@ -1321,20 +1321,39 @@ func (sc *ShellController) endgameSequenceString(moves []*move.Move, numSearched
 
 func (sc *ShellController) genMovesAndDescription(numPlays int) string {
 	sc.genMoves(numPlays)
-	return sc.genDisplayMoveList()
+	return sc.displayMoveList(0)
+}
+
+// moveListPreview is how many plays the shell shows of a list it was not
+// asked to show in full; `list` shows the rest.
+const moveListPreview = 20
+
+// displayMoveList is the first limit plays of the list (all of them when
+// limit is 0 or less), then any plays in also that fall outside them, and a
+// line saying how many were left out and how to see them.
+func (sc *ShellController) displayMoveList(limit int, also ...*move.Move) string {
+	n := len(sc.curPlayList)
+	if limit <= 0 || limit > n {
+		limit = n
+	}
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
+	shown := 0
+	for i, p := range sc.curPlayList {
+		if i >= limit && !slices.Contains(also, p) {
+			continue
+		}
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet(), sc.game.Board()) + "\n")
+		shown++
+	}
+	if shown < n {
+		fmt.Fprintf(&s, "(+%d more: `list` shows all %d, `list 50` the first 50)\n", n-shown, n)
+	}
+	return s.String()
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
 	sc.curPlayList = sc.game.GenerateMoves(numPlays)
-}
-
-func (sc *ShellController) genDisplayMoveList() string {
-	var s strings.Builder
-	s.WriteString(moveTableHeader() + "\n")
-	for i, p := range sc.curPlayList {
-		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet(), sc.game.Board()) + "\n")
-	}
-	return s.String()
 }
 
 func modeFromStr(mode string) (Mode, error) {
@@ -1375,7 +1394,8 @@ func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
 	})
-	sc.showMessage(sc.genDisplayMoveList())
+	// The added play is shown wherever it landed in the list.
+	sc.showMessage(sc.displayMoveList(moveListPreview, m))
 	return nil
 }
 
@@ -1756,6 +1776,15 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	}
 	if v, err := options.IntDefault("simplays"+suffix, -1); err == nil && v > 0 {
 		p.SimPlays = int32(v)
+	}
+	if v := options.String("simrule" + suffix); v != "" {
+		p.SimStopRule = v
+	}
+	if v, err := options.IntDefault("simcap"+suffix, -1); err == nil && v > 0 {
+		p.SimStopCap = int32(v)
+	}
+	if v, err := options.IntDefault("simplaycap"+suffix, 0); err == nil && v != 0 {
+		p.SimPlayCap = int32(v)
 	}
 	if v := options.String("tritonmodel" + suffix); v != "" {
 		p.TritonModel = v

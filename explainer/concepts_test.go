@@ -212,3 +212,21 @@ func TestUnneededConceptsAreNotSent(t *testing.T) {
 	is.True(len(small.Concepts) < len(full.Concepts))
 	is.True(len(small.User) < len(full.User))
 }
+
+// A sim that stops by best-arm identification gives plays unequal rollouts;
+// the candidate table has to show them rather than one count for the sim.
+func TestRenderCandidatesUnevenRollouts(t *testing.T) {
+	is := is.New(t)
+	f := fakeFacts()
+	even := f.renderCandidates()
+	is.True(strings.Contains(even, "(1200 iterations)"))
+	is.True(!strings.Contains(even, "Rollouts"))
+
+	f.Candidates[0].Rollouts = 10016
+	f.Candidates[1].Rollouts = 128
+	uneven := f.renderCandidates()
+	is.True(!strings.Contains(uneven, "(1200 iterations)"))
+	is.True(strings.Contains(uneven, "Rollouts"))
+	is.True(strings.Contains(uneven, "10016"))
+	is.True(strings.Contains(uneven, "128"))
+}

@@ -526,6 +526,17 @@ message AutoplayPlayerConfig {
   // a simming bot starts its sim from (default 100). Lets a sim bot consider
   // as many plays as FastMlBot ranks.
   int32 sim_plays = 24;
+  // sim_stop_rule is how a simming bot's sims choose what to roll out and
+  // when to stop: bai (the default), classic or paired (see
+  // montecarlo.StopRule). sim_stop_cap, when positive, is the most rollouts
+  // a bai or paired sim makes, as an average per candidate play (default
+  // 1,000).
+  string sim_stop_rule = 27;
+  int32 sim_stop_cap = 28;
+  // sim_play_cap stops a bai sim once its leading play has been rolled out
+  // this many times, told apart from the rest or not. 0 = the bot's default
+  // (10,000), negative = no such stop.
+  int32 sim_play_cap = 29;
   // inference_tau_cap caps the inference temperature, pinned or scheduled.
   // The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
   // keeps its early values and sharpens only the late reads. 0 = the bot's

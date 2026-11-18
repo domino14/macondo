@@ -2,6 +2,7 @@ package gameanalysis
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -69,6 +70,12 @@ type AnalysisConfig struct {
 	SimPliesEarlyPreEndgame int
 	SimStopEarlyPreEndgame  int
 
+	// SimBestPlayCap stops a sim once its leading play has been rolled out
+	// this many times, even if the sim has not told it apart from the rest;
+	// 0 for no such stop. It keeps the analysis from spending most of its
+	// time on plays that are nearly as good as each other.
+	SimBestPlayCap int
+
 	// Pre-endgame (1 tile in bag) - uses PEG solver
 	PEGEarlyCutoff bool
 
@@ -92,6 +99,7 @@ func DefaultAnalysisConfig() *AnalysisConfig {
 		SimPlaysEarlyPreEndgame: 100,
 		SimPliesEarlyPreEndgame: 10,
 		SimStopEarlyPreEndgame:  99,
+		SimBestPlayCap:          10000,
 		PEGEarlyCutoff:          true,
 		Threads:                 0, // 0 means use default
 		OnlyPlayer:              -1,
@@ -748,6 +756,17 @@ func (a *Analyzer) determinePhase(tilesInBag int) GamePhase {
 func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *TurnAnalysis,
 	numPlays, plies, stopCondition int, knownOppRack []tilemapping.MachineLetter) error {
 
+	// The sim draws its racks and tiles from a seed made of the position, so
+	// that analyzing a game again gives the same report. The seed does not
+	// depend on anything the sim finds, so it is as good a sample as a
+	// random one.
+	// Only what is known goes into it: the opponent's rack in g may be a
+	// random deal.
+	onTurn := g.PlayerOnTurn()
+	g.SeedBag(sha256.Sum256([]byte(fmt.Sprintf("macondo-analysis %s %s %s %d %d %d %d",
+		g.LexiconName(), g.Board().ToFEN(g.Alphabet()), g.RackFor(onTurn).String(),
+		g.PointsFor(onTurn), g.PointsFor(1-onTurn), g.Turn(), plies))))
+
 	// Create bot turn player for move generation
 	botConfig := &bot.BotConfig{Config: *a.cfg}
 	botPlayer, err := bot.NewBotTurnPlayerFromGame(g, botConfig, pb.BotRequest_HASTY_BOT)
@@ -775,6 +794,14 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	if a.analysisCfg.Threads > 0 {
 		simmer.SetThreads(a.analysisCfg.Threads)
 	}
+
+	// Best-arm identification: the sim spends its rollouts on the plays in
+	// contention, and when it stops rolls the played move out as often as
+	// the most rolled out play (it is kept by AvoidPruningMoves below), so
+	// that the two numbers the analysis compares are equally good.
+	simmer.SetStopRule(montecarlo.StopRuleBAI)
+	simmer.SetBAIBagCycle(true)
+	simmer.SetBAIBestPlayCap(a.analysisCfg.SimBestPlayCap)
 
 	// Prepare simulation
 	err = simmer.PrepareSim(plies, plays)
@@ -811,7 +838,6 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 		stop = montecarlo.Stop99
 	}
 	simmer.SetStoppingCondition(stop)
-
 	// Run simulation
 	err = simmer.Simulate(ctx)
 	if err != nil {

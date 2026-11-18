@@ -407,9 +407,31 @@ func (f *PositionFacts) renderPosition() string {
 
 func (f *PositionFacts) renderCandidates() string {
 	var ss strings.Builder
-	fmt.Fprintf(&ss, "### Candidate plays, best win%% first (%d iterations)\n", f.Iterations)
-	ss.WriteString("Intervals are 99% confidence. ❌ marks plays the sim cut off early.\n")
-	fmt.Fprintf(&ss, "%-20s %-12s %-6s %-15s %s\n", "Play", "Leave", "Score", "Win%", "Equity")
+	// A sim with a stopping condition rolls the plays in contention out far
+	// more than the ones it gave up on, so one count for the whole sim would
+	// hide how little some of these numbers rest on.
+	uneven := false
+	for i := range f.Candidates {
+		if f.Candidates[i].Rollouts != f.Candidates[0].Rollouts {
+			uneven = true
+			break
+		}
+	}
+	if uneven {
+		ss.WriteString("### Candidate plays, best first\n")
+		ss.WriteString("Intervals are 99% confidence. ❌ marks plays the sim cut off early.\n")
+		ss.WriteString("The sim spent its rollouts on the plays in contention: " +
+			"a play with few rollouts was clearly worse, and its numbers are rough.\n")
+		ss.WriteString("The first play is the sim's pick; a play it could not tell apart from it may show a slightly higher win%.\n")
+	} else {
+		fmt.Fprintf(&ss, "### Candidate plays, best win%% first (%d iterations)\n", f.Iterations)
+		ss.WriteString("Intervals are 99% confidence. ❌ marks plays the sim cut off early.\n")
+	}
+	fmt.Fprintf(&ss, "%-20s %-12s %-6s %-15s %s", "Play", "Leave", "Score", "Win%", "Equity")
+	if uneven {
+		ss.WriteString("          Rollouts")
+	}
+	ss.WriteString("\n")
 	for i := range f.Candidates {
 		c := &f.Candidates[i]
 		mark := ""
@@ -432,11 +454,14 @@ func (f *PositionFacts) renderCandidates() string {
 		if len(notes) > 0 {
 			note = "  (" + strings.Join(notes, ", ") + ")"
 		}
+		equity := fmt.Sprintf("%.2f±%.2f", c.Equity, c.EquityCI)
+		if uneven {
+			equity = fmt.Sprintf("%-16s %-8d", equity, c.Rollouts)
+		}
 		fmt.Fprintf(&ss, "%-20s %-12s %-6d %-15s %s%s%s\n",
 			c.Play, dashIfEmpty(c.Leave), c.Score,
 			fmt.Sprintf("%.2f±%.2f", c.WinPct, c.WinPctCI),
-			fmt.Sprintf("%.2f±%.2f", c.Equity, c.EquityCI),
-			note, mark)
+			equity, note, mark)
 	}
 	if f.Flags["equity_sacrifice"] {
 		fmt.Fprintf(&ss, "Note: %s has the highest equity but %s has the highest win%%.\n",

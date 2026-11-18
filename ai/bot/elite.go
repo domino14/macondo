@@ -94,6 +94,22 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 // bot sims unless BotConfig.SimPlays says otherwise.
 const defaultSimPlays = 100
 
+// simTimeLimit is the longest a simming bot spends on one sim. A sim that
+// has not told the plays apart by then plays the leader.
+const simTimeLimit = 120 * time.Second
+
+// defaultSimStopCap is a simming bot's budget for a best-arm sim, in
+// rollouts per play, unless BotConfig.SimStopCap says otherwise. In a
+// 5-ply match of 5,000 pairs a bot with this budget won 50.39% ± 0.68 of
+// its games against one simming under the classic rule, in 28% less time.
+const defaultSimStopCap = 1000
+
+// defaultSimPlayCap stops a simming bot's best-arm sim once its leading
+// play has been rolled out this many times, unless BotConfig.SimPlayCap
+// says otherwise. Plays that many rollouts have not told apart are within a
+// fraction of a point of win probability of each other.
+const defaultSimPlayCap = 10000
+
 func (p *BotTurnPlayer) simPlaysOrDefault() int {
 	if p.simPlays > 0 {
 		return p.simPlays
@@ -310,6 +326,29 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.simmer.SetEndgameLeaves(!p.cfg.NoSimEndgameLeaves)
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetTimeLimit(simTimeLimit)
+	rule := montecarlo.StopRuleBAI
+	if p.cfg.SimStopRule != "" {
+		var err error
+		if rule, err = montecarlo.ParseStopRule(p.cfg.SimStopRule); err != nil {
+			return nil, err
+		}
+	}
+	stopCap := p.cfg.SimStopCap
+	if stopCap <= 0 {
+		stopCap = defaultSimStopCap
+	}
+	p.simmer.SetStopRule(rule)
+	p.simmer.SetStopCapPerPlay(stopCap)
+	playCap := p.cfg.SimPlayCap
+	switch {
+	case playCap == 0:
+		playCap = defaultSimPlayCap
+	case playCap < 0:
+		playCap = 0
+	}
+	p.simmer.SetBAIBestPlayCap(playCap)
+	p.simmer.SetBAIBagCycle(true)
 	if p.cfg.StochasticStaticEval {
 		p.simmer.SetStochasticStaticEval(true)
 	}

@@ -45,8 +45,12 @@ type CandidateStats struct {
 	EquityCI float64 `json:"equity_ci"`
 	// Ignored plays were cut off early by the stopping condition; they are
 	// the ones EquityStats marks with an ❌.
-	Ignored bool                `json:"ignored"`
-	Plies   []CandidatePlyStats `json:"plies"`
+	Ignored bool `json:"ignored"`
+	// Rollouts is how many times the play was rolled out. It is the per-play
+	// count behind Plies[i].Iterations, which counts only the rollouts that
+	// got as far as that ply, so the two differ when games end mid-rollout.
+	Rollouts int                 `json:"rollouts"`
+	Plies    []CandidatePlyStats `json:"plies"`
 }
 
 // CandidateStats returns the simulated plays, best win% first - the same order
@@ -84,6 +88,7 @@ func (s *Simmer) CandidateStats() []CandidateStats {
 			Equity:      play.equityStats.Mean(),
 			EquityCI:    stats.Z99 * play.equityStats.StandardError(),
 			Ignored:     play.ignore.Load(),
+			Rollouts:    play.equityStats.Iterations(),
 		}
 		for ply := 0; ply < s.maxPlies && ply < len(play.scoreStats); ply++ {
 			cs.Plies = append(cs.Plies, CandidatePlyStats{

@@ -297,9 +297,20 @@ func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 	return msg(output), nil
 }
 
+// list shows the whole move list, or with a number its first that many.
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
-	res := sc.genDisplayMoveList()
-	return msg(res), nil
+	limit := 0
+	if len(cmd.args) > 0 {
+		var err error
+		limit, err = strconv.Atoi(cmd.args[0])
+		if err != nil || limit <= 0 {
+			return nil, fmt.Errorf("list takes a number of plays to show, not %q", cmd.args[0])
+		}
+	}
+	if len(sc.curPlayList) == 0 {
+		return msg("The move list is empty; `gen` makes one."), nil
+	}
+	return msg(sc.displayMoveList(limit)), nil
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
@@ -471,6 +482,10 @@ func (sc *ShellController) gameState(cmd *shellcmd) (*Response, error) {
 
 }
 
+// defaultGenPlays is how many plays `gen` makes when it is not told, and so
+// how many a sim after a bare `gen` compares.
+const defaultGenPlays = 100
+
 func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
@@ -482,15 +497,20 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 		return nil, errMacondoSolving
 	}
 
+	// A bare `gen` makes enough plays for a sim and shows the top of the
+	// list; a `gen` told how many shows what it was asked for.
+	preview := 0
 	if cmd.args == nil {
-		numPlays = 15
+		numPlays = defaultGenPlays
+		preview = moveListPreview
 	} else {
 		numPlays, err = strconv.Atoi(cmd.args[0])
 		if err != nil {
 			return nil, err
 		}
 	}
-	return msg(sc.genMovesAndDescription(numPlays)), nil
+	sc.genMoves(numPlays)
+	return msg(sc.displayMoveList(preview)), nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
@@ -2304,6 +2324,11 @@ func (sc *ShellController) playedThisTurn() *move.Move {
 	return m
 }
 
+// explainSimPlayCap stops explain's sim once the leading play has this many
+// rollouts, as the analyzer does: past that point the plays still in
+// contention are too close for more rollouts to matter.
+const explainSimPlayCap = 10000
+
 // explainSimParams reads the sim options `explain` accepts. Both the main run
 // and the no-inference baseline are configured from one of these, so the only
 // thing that differs between them is the read.
@@ -2353,6 +2378,12 @@ func (sc *ShellController) explainSimParams(options CmdOptions,
 		plies:             plies,
 		stoppingCondition: stoppingCondition,
 		knownOppRack:      kr,
+		// The same rule `sim` and the analyzer use. The play being compared
+		// is protected from pruning, so it ends with as many rollouts as the
+		// most-sampled play.
+		stopRule: defaultSimStopRule,
+		bagCycle: true,
+		playCap:  explainSimPlayCap,
 	}
 	if compare != nil && compare.Move != nil {
 		params.avoidTrimMoves = []*move.Move{compare.Move}
