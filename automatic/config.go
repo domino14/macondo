@@ -60,6 +60,7 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		SimPlays:                     int(p.SimPlays),
 		SimStopRule:                  p.SimStopRule,
 		SimStopCap:                   int(p.SimStopCap),
+		SimPlayCap:                   int(p.SimPlayCap),
 		TritonModel:                  p.TritonModel,
 		SimThreads:                   int(p.SimThreads),
 		StochasticStaticEval:         p.StochasticStaticEval,

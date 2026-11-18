@@ -315,6 +315,8 @@ func init() {
 			{Name: "simrule2", Type: OptString, Values: []string{"classic", "bai", "paired"}, Help: "player 2: the sims' stopping rule (default bai)"},
 			{Name: "simcap1", Type: OptInt, Help: "player 1: a bai or paired sim's budget, in rollouts per play (default 1000)"},
 			{Name: "simcap2", Type: OptInt, Help: "player 2: a bai or paired sim's budget, in rollouts per play (default 1000)"},
+			{Name: "simplaycap1", Type: OptInt, Help: "player 1: stop a bai sim once its leading play has this many rollouts (default 10000; negative for no such stop)"},
+			{Name: "simplaycap2", Type: OptInt, Help: "player 2: stop a bai sim once its leading play has this many rollouts (default 10000; negative for no such stop)"},
 			{Name: "tritonmodel1", Type: OptString, Help: "player 1's ML bot queries this Triton model (version 1)"},
 			{Name: "tritonmodel2", Type: OptString, Help: "player 2's ML bot queries this Triton model (version 1)"},
 			{Name: "numgames", Type: OptInt},

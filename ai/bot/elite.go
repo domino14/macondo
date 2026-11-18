@@ -104,6 +104,12 @@ const simTimeLimit = 120 * time.Second
 // its games against one simming under the classic rule, in 28% less time.
 const defaultSimStopCap = 1000
 
+// defaultSimPlayCap stops a simming bot's best-arm sim once its leading
+// play has been rolled out this many times, unless BotConfig.SimPlayCap
+// says otherwise. Plays that many rollouts have not told apart are within a
+// fraction of a point of win probability of each other.
+const defaultSimPlayCap = 10000
+
 func (p *BotTurnPlayer) simPlaysOrDefault() int {
 	if p.simPlays > 0 {
 		return p.simPlays
@@ -334,6 +340,14 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	p.simmer.SetStopRule(rule)
 	p.simmer.SetStopCapPerPlay(stopCap)
+	playCap := p.cfg.SimPlayCap
+	switch {
+	case playCap == 0:
+		playCap = defaultSimPlayCap
+	case playCap < 0:
+		playCap = 0
+	}
+	p.simmer.SetBAIBestPlayCap(playCap)
 	p.simmer.SetBAIBagCycle(true)
 	if p.cfg.StochasticStaticEval {
 		p.simmer.SetStochasticStaticEval(true)

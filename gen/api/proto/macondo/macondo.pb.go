@@ -2895,11 +2895,16 @@ type AutoplayPlayerConfig struct {
 	// as many plays as FastMlBot ranks.
 	SimPlays int32 `protobuf:"varint,24,opt,name=sim_plays,json=simPlays,proto3" json:"sim_plays,omitempty"`
 	// sim_stop_rule is how a simming bot's sims choose what to roll out and
-	// when to stop: classic (the default), bai or paired (see
+	// when to stop: bai (the default), classic or paired (see
 	// montecarlo.StopRule). sim_stop_cap, when positive, is the most rollouts
-	// a bai or paired sim makes, as an average per candidate play.
+	// a bai or paired sim makes, as an average per candidate play (default
+	// 1,000).
 	SimStopRule string `protobuf:"bytes,27,opt,name=sim_stop_rule,json=simStopRule,proto3" json:"sim_stop_rule,omitempty"`
 	SimStopCap  int32  `protobuf:"varint,28,opt,name=sim_stop_cap,json=simStopCap,proto3" json:"sim_stop_cap,omitempty"`
+	// sim_play_cap stops a bai sim once its leading play has been rolled out
+	// this many times, told apart from the rest or not. 0 = the bot's default
+	// (10,000), negative = no such stop.
+	SimPlayCap int32 `protobuf:"varint,29,opt,name=sim_play_cap,json=simPlayCap,proto3" json:"sim_play_cap,omitempty"`
 	// inference_tau_cap caps the inference temperature, pinned or scheduled.
 	// The fitted schedule is very flat late in the game (2.5 at bag 2); a cap
 	// keeps its early values and sharpens only the late reads. 0 = the bot's
@@ -3115,6 +3120,13 @@ func (x *AutoplayPlayerConfig) GetSimStopRule() string {
 func (x *AutoplayPlayerConfig) GetSimStopCap() int32 {
 	if x != nil {
 		return x.SimStopCap
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetSimPlayCap() int32 {
+	if x != nil {
+		return x.SimPlayCap
 	}
 	return 0
 }
@@ -3622,7 +3634,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xce\t\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xf0\t\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3652,7 +3664,9 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\tsim_plays\x18\x18 \x01(\x05R\bsimPlays\x12\"\n" +
 	"\rsim_stop_rule\x18\x1b \x01(\tR\vsimStopRule\x12 \n" +
 	"\fsim_stop_cap\x18\x1c \x01(\x05R\n" +
-	"simStopCap\x12*\n" +
+	"simStopCap\x12 \n" +
+	"\fsim_play_cap\x18\x1d \x01(\x05R\n" +
+	"simPlayCap\x12*\n" +
 	"\x11inference_tau_cap\x18\x19 \x01(\x01R\x0finferenceTauCap\x121\n" +
 	"\x15no_sim_endgame_leaves\x18\x1a \x01(\bR\x12noSimEndgameLeavesJ\x04\b\x12\x10\x13R\fsim_leaf_win\"\xd2\x05\n" +
 	"\x0eAutoplayConfig\x12 \n" +

@@ -1763,6 +1763,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("simcap"+suffix, -1); err == nil && v > 0 {
 		p.SimStopCap = int32(v)
 	}
+	if v, err := options.IntDefault("simplaycap"+suffix, 0); err == nil && v != 0 {
+		p.SimPlayCap = int32(v)
+	}
 	if v := options.String("tritonmodel" + suffix); v != "" {
 		p.TritonModel = v
 	}
