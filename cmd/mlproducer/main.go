@@ -105,6 +105,8 @@ func main() {
 	var pickMax, picks int
 	var holdoutMod int
 	var split string
+	var preBagMax int
+	var preShare float64
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&lexiconName, "lexicon", lexiconName,
 		"the lexicon the games were played in (leave values, cross-sets, and its letter distribution, which sets the vector size)")
@@ -117,6 +119,9 @@ func main() {
 	flag.IntVar(&picks, "picks", 1, "with -per-game: distinct turns drawn per game (each emitted as its own position)")
 	flag.IntVar(&holdoutMod, "holdout-mod", 0,
 		"hold out the games whose ID hashes to 0 mod this (e.g. 20 = 5%); with -split, emit only one side (0 = no split)")
+	flag.IntVar(&preBagMax, "pre-bag-max", 0,
+		"with -per-game: oversample the pre-endgame; a game drawn into it (see -pre-share) emits every turn decided with 1..this many tiles in the bag instead of its drawn turn(s) (0 = off)")
+	flag.Float64Var(&preShare, "pre-share", 0, "with -pre-bag-max: the share of games drawn into the pre-endgame")
 	flag.StringVar(&split, "split", "train", "with -holdout-mod: 'train' emits the non-held-out games, 'val' the held-out ones")
 	flag.Parse()
 
@@ -188,6 +193,9 @@ func main() {
 	}
 	if perGame {
 		log.Info().Msgf("Emitting %d position(s) per game, turns drawn from 1..%d", picks, pickMax)
+		if preBagMax > 0 {
+			log.Info().Msgf("Pre-endgame: %.2f of games emit every turn with 1..%d tiles in the bag instead", preShare, preBagMax)
+		}
 	}
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
@@ -205,6 +213,8 @@ func main() {
 			if perGame {
 				assembler.pickMax = pickMax
 				assembler.picks = picks
+				assembler.preBagMax = preBagMax
+				assembler.preShare = preShare
 			}
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)

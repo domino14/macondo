@@ -50,6 +50,11 @@ type GameAssembler struct {
 	// (0 or 1 = one). Each is emitted like the single pick; the game's
 	// outcome labels are shared, the positions are not.
 	picks int
+	// preBagMax > 0 oversamples the pre-endgame: a game drawn into it (with
+	// probability preShare) emits every turn decided with 1..preBagMax
+	// tiles in the bag instead of its usual drawn turn(s).
+	preBagMax int
+	preShare  float64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -76,6 +81,7 @@ type gameWindow struct {
 	game    turnplayer.BaseTurnPlayer
 	pick    int   // the first drawn turn to emit, or 0 for all
 	picks   []int // every drawn turn (per-game mode), ascending
+	pre     bool  // emits its pre-endgame turns instead of the drawn ones
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
@@ -275,7 +281,10 @@ func (ga *GameAssembler) newGameWindow(t Turn) *gameWindow {
 		panic(err)
 	}
 	gw.game = *tp
-	if ga.fixedPick > 0 {
+	if ga.preBagMax > 0 && rand.Float64() < ga.preShare {
+		gw.pre = true
+		gw.pick = -1 // not 0: 0 means every turn
+	} else if ga.fixedPick > 0 {
 		gw.pick = ga.fixedPick
 	} else if ga.pickMax > 0 {
 		// A game that opened with K sampled plies is eligible from turn K
@@ -474,6 +483,9 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 	// (bag already empty) emits nothing: the bot hands the endgame to the
 	// solver and never consults the net there.
 	wanted := gw.pick == 0 || (gw.wants(t.TurnNumber) && t.TilesRemaining > 0)
+	if gw.pre {
+		wanted = t.TilesRemaining >= 1 && t.TilesRemaining <= ga.preBagMax
+	}
 	if wanted {
 		leaveVal := ga.eqCalc.LeaveValue(rack.TilesOn())
 		p.state, err = gw.game.BuildMLVector(m, leaveVal, gw.moveHistory())

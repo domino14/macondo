@@ -132,3 +132,31 @@ func TestPerGameSkipsEndgamePositions(t *testing.T) {
 		}
 	}
 }
+
+// -pre-bag-max with -pre-share 1: every game emits exactly its turns decided
+// with 1..N tiles in the bag, and nothing else.
+func TestPreEndgameOversampling(t *testing.T) {
+	hdr := "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n"
+	sc := NewTurnScanner(strings.NewReader(hdr + strings.Join(sampleGameTurns, "\n") + "\n"))
+	want := 0
+	for sc.Scan() {
+		if r := sc.Turn().TilesRemaining; r >= 1 && r <= 6 {
+			want++
+		}
+	}
+	if want == 0 {
+		t.Fatal("the sample game has no pre-endgame turns")
+	}
+	ga := NewGameAssembler(NPlies)
+	ga.valueFromResult = true
+	ga.pickMax = 30
+	ga.preBagMax = 6
+	ga.preShare = 1
+	if got := len(feedGame(t, ga)); got != want {
+		t.Fatalf("emitted %d positions, want the %d pre-endgame turns", got, want)
+	}
+	ga.preShare = 0 // off: the usual single drawn turn (or none past the game's end)
+	if got := len(feedGame(t, ga)); got > 1 {
+		t.Fatalf("pre-share 0 emitted %d positions, want at most 1", got)
+	}
+}
