@@ -2308,6 +2308,11 @@ func (sc *ShellController) playedThisTurn() *move.Move {
 	return m
 }
 
+// explainSimPlayCap stops explain's sim once the leading play has this many
+// rollouts, as the analyzer does: past that point the plays still in
+// contention are too close for more rollouts to matter.
+const explainSimPlayCap = 10000
+
 // explainSimParams reads the sim options `explain` accepts. Both the main run
 // and the no-inference baseline are configured from one of these, so the only
 // thing that differs between them is the read.
@@ -2357,6 +2362,12 @@ func (sc *ShellController) explainSimParams(options CmdOptions,
 		plies:             plies,
 		stoppingCondition: stoppingCondition,
 		knownOppRack:      kr,
+		// The same rule `sim` and the analyzer use. The play being compared
+		// is protected from pruning, so it ends with as many rollouts as the
+		// most-sampled play.
+		stopRule: defaultSimStopRule,
+		bagCycle: true,
+		playCap:  explainSimPlayCap,
 	}
 	if compare != nil && compare.Move != nil {
 		params.avoidTrimMoves = []*move.Move{compare.Move}

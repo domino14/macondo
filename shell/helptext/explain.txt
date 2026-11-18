@@ -12,7 +12,9 @@ explain [options] - Generate AI explanation for the current position
   Options:
     -plies <n>      Number of simulation plies (default: 5)
     -opprack <rack> Set opponent's rack for simulation
-    -stop <n>       Stop simulation at n% confidence level (default: 99)
+    -stop <n>       Stop simulation at n% confidence level (default: 99).
+                    The sim uses the bai stop rule (see `help sim`) and also
+                    stops once the leading play has 10,000 rollouts.
     -vs <play>      Explain why the best play beats this one, instead of just
                     why it is good. Use "off" to turn the comparison off.
     -model <id>     Use this model for this explanation only, leaving the
@@ -79,7 +81,7 @@ explain [options] - Generate AI explanation for the current position
 
   The command will:
   1. Generate top moves if not already done
-  2. Run Monte Carlo simulation to evaluate positions (stops at 99% confidence)
+  2. Run Monte Carlo simulation to evaluate positions (bai stop rule, 99% confidence)
   3. Send results to AI for detailed analysis
   4. Return comprehensive explanation with strategic insights
 
