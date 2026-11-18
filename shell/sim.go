@@ -308,9 +308,80 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 		return nil, sc.startMultiSimExperiment(params.fixediters, params.fixedplies, params.fixedsimcount, *params)
 	}
 
+	sc.showMessage(sc.simDescription(params))
 	sc.startSim()
 
 	return nil, nil
+}
+
+// simDescription says what a sim about to start will do: how much it sims
+// and, above all, when it stops.
+func (sc *ShellController) simDescription(params *simParams) string {
+	plays := len(sc.curPlayList)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Simming %d plays, %d plies, %d threads.\n", plays, params.plies, sc.simmer.Threads())
+
+	confidence := map[montecarlo.StoppingCondition]string{
+		montecarlo.Stop90: "90%", montecarlo.Stop95: "95%", montecarlo.Stop98: "98%",
+		montecarlo.Stop99: "99%", montecarlo.Stop999: "99.9%",
+	}[params.stoppingCondition]
+	timeLimit := ""
+	if params.maxTime > 0 {
+		timeLimit = fmt.Sprintf(", or after %v", params.maxTime)
+	}
+	if confidence == "" {
+		if timeLimit == "" {
+			b.WriteString("No stopping condition: it runs until `sim stop`.")
+		} else {
+			fmt.Fprintf(&b, "No stopping condition: it runs until `sim stop`%s.", timeLimit)
+		}
+		return b.String()
+	}
+
+	budget := params.stopCap
+	switch params.stopRule {
+	case montecarlo.StopRuleBAI:
+		if budget <= 0 {
+			budget = montecarlo.DefaultBAICapPerPlay
+		}
+		fmt.Fprintf(&b, "Stop rule: bai. Stops when the best play is told apart at %s confidence,\n", confidence)
+		fmt.Fprintf(&b, "  or after %s rollouts (%s per play on average)", commas(budget*plays), commas(budget))
+		if params.playCap > 0 {
+			fmt.Fprintf(&b, ",\n  or when the leading play has %s rollouts", commas(params.playCap))
+		}
+		b.WriteString(timeLimit + ".\n")
+		switch {
+		case !params.bagCycle:
+			b.WriteString("Bag cycling: off.")
+		case len(params.knownOppRack) > 0:
+			b.WriteString("Bag cycling: off (the opponent's rack is known).")
+		case params.inferMode != montecarlo.InferenceOff:
+			b.WriteString("Bag cycling: off (the opponent's rack is inferred).")
+		default:
+			b.WriteString("Bag cycling: on.")
+		}
+	case montecarlo.StopRulePaired:
+		if budget <= 0 {
+			budget = montecarlo.DefaultPairedCapPerPlay
+		}
+		fmt.Fprintf(&b, "Stop rule: paired. Drops plays told apart from the leader at %s confidence,\n  and stops when one is left,\n", confidence)
+		fmt.Fprintf(&b, "  or after %s rollouts (%s per play on average)%s.", commas(budget*plays), commas(budget), timeLimit)
+	default:
+		fmt.Fprintf(&b, "Stop rule: classic. Drops plays whose %s confidence interval lies below the leader's,\n  and stops when one is left or at its iteration limit%s.", confidence, timeLimit)
+	}
+	if len(params.avoidTrimMoves) > 0 {
+		fmt.Fprintf(&b, "\nProtected from pruning: %d.", len(params.avoidTrimMoves))
+	}
+	return b.String()
+}
+
+// commas writes n with thousands separators.
+func commas(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 // defaultSimStopRule is the rule `sim -stop` uses unless -stoprule names

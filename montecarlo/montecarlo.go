@@ -1509,12 +1509,12 @@ func (s *Simmer) EquityStats() string {
 			play.play.Score(), wpStats, eqStats, play.equityStats.Iterations(), ignore)
 	}
 	// Under bai plays get different numbers of rollouts (the Iters column),
-	// and the sim's own count is their average.
-	perPlay := ""
-	if s.bai.on {
-		perPlay = " per play on average"
+	// and the sim's own count is their average. It cuts no play off.
+	if s.usesBAI() {
+		fmt.Fprintf(&ss, "Iterations: %d per play on average (intervals are 99%% confidence)\n", s.iterationCount.Load())
+	} else {
+		fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
 	}
-	fmt.Fprintf(&ss, "Iterations: %d%s (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load(), perPlay)
 	return ss.String()
 }
 
