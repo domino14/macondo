@@ -220,6 +220,9 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 			log.Debug().Err(err).Msg("no ml model for this game")
 			return game, nil
 		}
+		if err := triton.SetCompression(game.config.GetString(config.ConfigTritonGRPCCompression)); err != nil {
+			return nil, err
+		}
 		game.tritonClient, err = triton.NewTritonClient(tritonURL, modelName, modelVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create triton client: %w", err)

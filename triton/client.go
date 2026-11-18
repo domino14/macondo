@@ -1,6 +1,7 @@
 package triton
 
 import (
+	stdgzip "compress/gzip"
 	"context"
 	"fmt"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
 )
 
@@ -100,11 +102,45 @@ func InRepository(serverURL, name string) (bool, error) {
 	return repo[name], nil
 }
 
+// compression is the gRPC compressor inference requests are sent with:
+// "gzip" (the default) or "none". A request carries ~77 KB of fp32
+// feature planes per position, mostly zeros, so over a network link
+// (e.g. an ssh tunnel to a remote Triton) compression cuts the traffic by
+// an order of magnitude for a little CPU. Set it before the first client.
+var compression = "gzip"
+
+func init() {
+	// The planes compress well even at the fastest level.
+	if err := gzip.SetLevel(stdgzip.BestSpeed); err != nil {
+		panic(err)
+	}
+}
+
+// SetCompression chooses the gRPC compressor for connections opened from
+// now on: "gzip", or "none" (or "") for uncompressed requests.
+func SetCompression(name string) error {
+	switch name {
+	case "", "none":
+		name = "none"
+	case "gzip":
+	default:
+		return fmt.Errorf("unknown triton gRPC compression %q (gzip or none)", name)
+	}
+	connMu.Lock()
+	compression = name
+	connMu.Unlock()
+	return nil
+}
+
 func sharedConn(serverURL string) (*grpc.ClientConn, error) {
 	connMu.Lock()
 	defer connMu.Unlock()
 	if len(conns[serverURL]) < connsPerServer {
-		conn, err := grpc.NewClient(serverURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+		if compression == "gzip" {
+			opts = append(opts, grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
+		}
+		conn, err := grpc.NewClient(serverURL, opts...)
 		if err != nil {
 			return nil, err
 		}
