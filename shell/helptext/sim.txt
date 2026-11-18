@@ -82,9 +82,11 @@ Options:
     You can use 95, 98, or 99 for this option. This makes the sim stop when it is
     X percent sure that the top move is the winning move.
 
-    Note: using this option will stop the simulation after a fixed number of
-    plies (usually 5000). It's possible to get to 5000 plies without having
-    a clear winner, but this usually means the winning plays are pretty similar.
+    With -stop the sim uses best-arm identification (bai) unless -stoprule
+    says otherwise; see -stoprule below for what that means. A sim that has
+    not told the plays apart also stops when its budget of rollouts runs
+    out (-stopcap), which usually means the top plays are about as good as
+    each other.
 
     -opprack AENST
 
@@ -113,33 +115,48 @@ Options:
     -stoprule bai
 
     With -stop, how the sim chooses what to roll out and when to stop: one
-    of classic, paired and bai.
+    of bai (the default), classic and paired.
+
+        bai:
+            Best-arm identification, the method MAGPIE uses, and the
+            default. The question it asks is only "which play is best?",
+            so it spends its rollouts where that is in doubt. Every play is
+            first rolled out 128 times. After that the sim rolls out mostly
+            the leading play and its closest challenger, and it stops when
+            the leader has been told apart from every other play at the
+            -stop confidence, or when the budget (-stopcap) or the time
+            (-maxtime) runs out. A play's n-th rollout gets the same
+            opponent rack and draws as every other play's n-th rollout, so
+            plays are compared on the same luck.
+
+            At 5 plies it picks plays as good as the classic rule's in
+            about 30% less time. At 2 plies it is no faster than classic,
+            and can be slower: its rollouts cost more, because the move
+            generator cannot reuse its work across the plays of an
+            iteration.
+
+            Reading the results: the leaders have many rollouts and tight
+            numbers; a play the sim lost interest in may have only its
+            first 128, so its win % and equity are rough. That is by
+            design. To compare two particular plays closely, sim just
+            those plays, or use -stoprule classic.
 
         classic:
             Every iteration deals the opponent a rack and rolls out every
             play still in the sim against it. A play is dropped when its
-            confidence interval lies below the leader's.
+            confidence interval lies below the leader's. All surviving
+            plays get the same number of rollouts.
 
         paired:
-            The same iterations, but a play is dropped by a test on its
-            differences with the leader, iteration by iteration. The
-            rollouts of an iteration share their luck, so a difference is
-            much less noisy than either play's own results, and plays are
-            told apart in far fewer rollouts. Nothing is dropped in the
-            first 128 iterations.
+            The same iterations as classic, but a play is dropped by a
+            test on its differences with the leader, iteration by
+            iteration. The rollouts of an iteration share their luck, so a
+            difference is much less noisy than either play's own results,
+            and plays are told apart in fewer rollouts. Nothing is dropped
+            in the first 128 iterations.
 
-        bai:
-            Best-arm identification, the method MAGPIE uses. Every play is
-            rolled out 128 times; after that the sim rolls out mostly the
-            leading play and its closest challenger. It needs the fewest
-            rollouts for a given accuracy, but its rollouts are slower,
-            most of all in shallow sims and on many threads, because the
-            move generator can no longer reuse its work across the plays
-            of an iteration.
-
-    Under paired and bai the plays the sim loses interest in keep the
-    statistics of their first rollouts, so their numbers are rougher than
-    the leaders'.
+    A sim without -stop runs until you stop it, rolling every play out
+    equally; -stoprule has no effect on it.
 
     -stopcap 1000
 
@@ -147,6 +164,11 @@ Options:
     average per play (so 1000 with 50 plays is 50,000 rollouts, most of
     them of the leaders). The default is 1500; past that the plays picked
     barely improve.
+
+    -maxtime 30
+
+    Stop the sim after this many seconds if it has not stopped by itself;
+    the leader at that point is the pick. By default there is no limit.
 
     -bagcycle false
 
