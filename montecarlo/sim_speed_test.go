@@ -28,6 +28,8 @@ import (
 //	SIM_SPEED=gen      write positions (CGP, one a line) to SIM_SPEED_FILE
 //	SIM_SPEED=run      sim the positions in SIM_SPEED_FILE
 //	SIM_SPEED_LEXICON  lexicon for gen (default CSW21)
+//	SIM_SPEED_STOPS    for gen, comma-separated: the tiles left in the bag at
+//	                   which each position's game stops (default six of them)
 //	SIM_SPEED_THREADS  comma-separated thread counts (default 1,8,16)
 //	SIM_SPEED_PLAYS    candidate plays, the top N by equity (default 15)
 //	SIM_SPEED_ITERS    iterations; each rolls every candidate out once (default 2000)
@@ -83,7 +85,18 @@ func simSpeedGen(t *testing.T, file string) {
 	}
 	defer out.Close()
 	// Two early, two in the middle, two late.
-	for _, pos := range simSpeedPositions(t, lexicon, []int{84, 80, 55, 45, 20, 9}) {
+	stops := []int{84, 80, 55, 45, 20, 9}
+	if v := os.Getenv("SIM_SPEED_STOPS"); v != "" {
+		stops = nil
+		for _, f := range strings.Split(v, ",") {
+			n, err := strconv.Atoi(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stops = append(stops, n)
+		}
+	}
+	for _, pos := range simSpeedPositions(t, lexicon, stops) {
 		fmt.Fprintln(out, pos)
 	}
 }
