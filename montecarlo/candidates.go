@@ -46,8 +46,9 @@ type CandidateStats struct {
 	// Ignored plays were cut off early by the stopping condition; they are
 	// the ones EquityStats marks with an ❌.
 	Ignored bool `json:"ignored"`
-	// Rollouts is how many times the play was rolled out. Plays get
-	// different amounts under the bai stop rule.
+	// Rollouts is how many times the play was rolled out. It is the per-play
+	// count behind Plies[i].Iterations, which counts only the rollouts that
+	// got as far as that ply, so the two differ when games end mid-rollout.
 	Rollouts int                 `json:"rollouts"`
 	Plies    []CandidatePlyStats `json:"plies"`
 }
