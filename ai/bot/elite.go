@@ -16,9 +16,29 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 )
 
 const InferencesSimLimit = 2
+
+// ExternalRead, when set, supplies the opponent read for a position in place
+// of the bot's own inference: a lab hook for reads computed elsewhere (by the
+// net, on a machine with a GPU). ok false falls back to the bot's own read.
+var ExternalRead func(g *game.Game) (racks []montecarlo.InferredRack, rackLength int, ok bool)
+
+// ReadAdjust, when set, reweights the bot's own complete posterior before the
+// sim uses it: a lab hook for combining it with a read computed elsewhere.
+var ReadAdjust func(g *game.Game, racks []montecarlo.InferredRack) []montecarlo.InferredRack
+
+// OracleLeave, when set, replaces the opponent's true leave that an oracle bot
+// (OracleInference) is told: a lab hook for asking how much of the oracle's
+// gain a substitute leave keeps.
+var OracleLeave func(g *game.Game, leave []tilemapping.MachineLetter, value func(tilemapping.MachineWord) float64) []tilemapping.MachineLetter
+
+// OracleRead, when set, turns an oracle bot's true leave into a posterior the
+// sim samples in place of the known rack, for lab screens of how sharp a read
+// must be.
+var OracleRead func(g *game.Game, leave []tilemapping.MachineLetter, value func(tilemapping.MachineWord) float64) []montecarlo.InferredRack
 
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
@@ -179,26 +199,15 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	var cancel context.CancelFunc
 	inferenceRan := false
 	p.lastInfoBits = math.NaN()
-	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
+	var extRacks []montecarlo.InferredRack
+	var extLen int
+	extOK := false
+	if HasInfer(p.botType) && ExternalRead != nil && p.Game.Bag().TilesRemaining() > 0 {
+		extRacks, extLen, extOK = ExternalRead(p.Game)
+	}
+	if HasInfer(p.botType) && !extOK && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
-		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
-		if p.simThreads != 0 {
-			p.inferencer.SetThreads(p.simThreads)
-		}
-		if p.cfg.InferenceTau > 0 {
-			p.inferencer.SetTau(p.cfg.InferenceTau)
-		}
-		if p.cfg.InferenceTauScale > 0 {
-			p.inferencer.SetTauScale(p.cfg.InferenceTauScale)
-		}
-		p.inferencer.SetTauCap(p.cfg.InferenceTauCap)
-		if p.cfg.InferenceSimIters > 0 {
-			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
-		}
-		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
-			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
-		}
-		p.inferencer.SetBudget(p.cfg.InferenceBudget)
+		p.setupInferencer(p.inferencer, p.Game)
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)
@@ -248,6 +257,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
+	if extOK {
+		logger.Info().Int("inferences", len(extRacks)).Msg("using external read in sim")
+		p.simmer.SetInferences(extRacks, extLen, montecarlo.InferenceCompletePosterior)
+	}
 	if HasInfer(p.botType) && inferenceRan {
 		p.lastInfoBits = p.inferencer.InfoBits()
 	}
@@ -261,12 +274,29 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			// Complete posterior over every feasible leave: sample it
 			// directly, no count threshold or random fallback needed.
 			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
-			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
+			racks := inferences.InferredRacks
+			if carried, ok := p.carryRead(); ok {
+				racks = carried
+			}
+			racks = leaveQualityReweight(p.Game, racks, leaveValuer(p.simmerCalcs))
+			if ReadAdjust != nil {
+				racks = ReadAdjust(p.Game, racks)
+			}
+			p.simmer.SetInferences(racks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
 		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
 			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceWeightedRandomRacks)
 		} else {
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
+		}
+	}
+	if HasInfer(p.botType) && inferenceRan {
+		// After the carry above, which reads the one kept last turn.
+		p.cacheRead()
+	}
+	if !HasInfer(p.botType) {
+		if racks, k, ok := leaveQualityPure(p.Game, leaveValuer(p.simmerCalcs)); ok {
+			p.simmer.SetInferences(racks, k, montecarlo.InferenceCompletePosterior)
 		}
 	}
 	if p.cfg.UseOppRacksInAnalysis {
@@ -276,7 +306,12 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	if p.cfg.OracleInference && p.Game.Bag().TilesRemaining() > 0 {
 		leave, err := game.ExtractLastOppLeave(p.Game)
-		if err == nil {
+		if err == nil && OracleLeave != nil {
+			leave = OracleLeave(p.Game, leave, leaveValuer(p.simmerCalcs))
+		}
+		if err == nil && OracleRead != nil {
+			p.simmer.SetInferences(OracleRead(p.Game, leave, leaveValuer(p.simmerCalcs)), len(leave), montecarlo.InferenceCompletePosterior)
+		} else if err == nil {
 			logger.Info().Str("leave", tilemapping.MachineWord(leave).UserVisible(p.Game.Alphabet())).Msg("oracle-inference")
 			p.simmer.SetKnownOppRack(leave)
 		} else {
@@ -293,4 +328,27 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	logger.Info().Interface("winning-move", play.Move().String()).Msg("sim-done")
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
+}
+
+// setupInferencer readies rf to read the opponent in g with the bot's
+// inference settings.
+func (p *BotTurnPlayer) setupInferencer(rf *rangefinder.RangeFinder, g *game.Game) {
+	rf.Init(g, p.simmerCalcs, p.Config())
+	if p.simThreads != 0 {
+		rf.SetThreads(p.simThreads)
+	}
+	if p.cfg.InferenceTau > 0 {
+		rf.SetTau(p.cfg.InferenceTau)
+	}
+	if p.cfg.InferenceTauScale > 0 {
+		rf.SetTauScale(p.cfg.InferenceTauScale)
+	}
+	rf.SetTauCap(p.cfg.InferenceTauCap)
+	if p.cfg.InferenceSimIters > 0 {
+		rf.SetSimIters(p.cfg.InferenceSimIters)
+	}
+	if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
+		rf.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
+	}
+	rf.SetBudget(p.cfg.InferenceBudget)
 }

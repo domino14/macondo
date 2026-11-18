@@ -207,13 +207,15 @@ func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordin
 	}
 	var logIter *LogIteration
 	var sum rolloutResult
+	leaveIdx := -1
 	for r := 0; r < rotations; r++ {
 		// Every rotation starts from the same seed, so it picks the same
 		// known or inferred rack and the same shuffle; only the rotation
 		// differs.
 		rng := s.rngFor(ordinal)
 		s.rngs[thread] = rng
-		rackToSet, err := s.oppRackFor(thread)
+		rackToSet, idx, err := s.oppRackFor(thread)
+		leaveIdx = idx
 		if err != nil {
 			return 0, err
 		}
@@ -244,24 +246,32 @@ func (s *Simmer) sample(ctx context.Context, thread int, play *SimmedPlay, ordin
 	inv := 1 / float64(rotations)
 	utility := sum.utility * inv
 	play.addSampleStats(sum.equity*inv, sum.leftover*inv, sum.winProb*inv, utility)
+	if RobustLambda > 0 {
+		play.addLeaveSample(leaveIdx, utility)
+	}
 	return utility, nil
 }
 
 // oppRackFor picks the tiles the opponent is known or inferred to hold for
-// this sample (nil for a fully random rack), from the thread's sample source.
-func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
+// this sample (nil for a fully random rack), from the thread's sample source,
+// and the index of the complete posterior's leave it drew (-1 otherwise).
+func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, int, error) {
 	rackToSet := s.knownOppRack
 	if s.inferenceMode == InferenceCompletePosterior {
 		// The inferences cover every feasible leave with Bayesian posterior
 		// weights, so sample from them every time. There is no uncovered
 		// leave space to fall back to random draws for.
 		if len(s.inferenceCDF) == 0 {
-			return nil, nil
+			return nil, -1, nil
 		}
-		return s.weightedInferredDrawRacks(thread)
+		i, err := s.weightedInferredDrawIndex(thread)
+		if err != nil {
+			return nil, -1, err
+		}
+		return s.inferences[i].Leave, i, nil
 	}
 	if s.inferenceMode == InferenceOff {
-		return rackToSet, nil
+		return rackToSet, -1, nil
 	}
 	// Legacy partial-sample modes (currently only exchange inference
 	// produces these): the inferred racks cover an unknown fraction of the
@@ -272,12 +282,14 @@ func (s *Simmer) oppRackFor(thread int) ([]tilemapping.MachineLetter, error) {
 	const sigmoidScale = 5.0
 	alpha := maxAlpha / (1 + math.Exp(-(float64(len(s.inferences))-midpoint)/sigmoidScale))
 	if s.float64For(thread) >= alpha {
-		return nil, nil
+		return nil, -1, nil
 	}
 	if s.inferenceMode == InferenceWeightedRandomTiles {
-		return s.weightedInferredDrawTiles(thread)
+		r, err := s.weightedInferredDrawTiles(thread)
+		return r, -1, err
 	}
-	return s.weightedInferredDrawRacks(thread)
+	r, err := s.weightedInferredDrawRacks(thread)
+	return r, -1, err
 }
 
 // rolloutResult is one rollout's outcome.
@@ -310,9 +322,15 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 	g.PlayMove(simmedPlay.play, false, 0)
 	s.nodeCount.Add(1)
 	g.SetBackupMode(game.NoBackup)
+	egWin, egSpread, egDone := 0.0, 0, false
 	for ply := 0; ply < plies; ply++ {
 		onTurn := g.PlayerOnTurn()
 		if g.Playing() != pb.PlayState_PLAYING {
+			break
+		}
+		if s.egSolvers != nil && g.Bag().TilesRemaining() == 0 && s.endgameLeafClose(g) {
+			egWin, egSpread = s.endgameLeaf(g, thread)
+			egDone = true
 			break
 		}
 		bestPlay := s.bestStaticTurn(onTurn, thread)
@@ -353,16 +371,24 @@ func (s *Simmer) rollout(g *game.Game, thread int, simmedPlay *SimmedPlay, logIt
 	}
 	spread := g.SpreadFor(s.initialPlayer)
 	onTurn := g.PlayerOnTurn()
-	winProb := winProbability(
-		spread,
-		leftover,
-		g.Playing() == pb.PlayState_GAME_OVER,
-		s.winPcts,
-		g.Bag().TilesRemaining(),
-		int(g.RackFor(onTurn).NumTiles()),
-		int(g.RackFor(1-onTurn).NumTiles()),
-		plies%2 == 0,
-	)
+	if egDone {
+		// The endgame was scored at the empty bag: no leftover, and the
+		// spread is the one the endgame starts from.
+		leftover, spread = 0, egSpread
+	}
+	winProb := egWin
+	if !egDone {
+		winProb = winProbability(
+			spread,
+			leftover,
+			g.Playing() == pb.PlayState_GAME_OVER,
+			s.winPcts,
+			g.Bag().TilesRemaining(),
+			int(g.RackFor(onTurn).NumTiles()),
+			int(g.RackFor(1-onTurn).NumTiles()),
+			plies%2 == 0,
+		)
+	}
 	g.ResetToFirstState()
 	res := rolloutResult{
 		equity:   float64(spread-s.initialSpread) + leftover,

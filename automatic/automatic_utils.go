@@ -437,7 +437,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	g, ctx := errgroup.WithContext(ctx)
 	addToHistory := lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
 		return bot.HasInfer(p.BotCode) || p.OracleInference
-	})
+	}) || bot.LeaveQualityPureOn() // rule-only reads need the opponent's last play
 
 	for i := 1; i <= threads; i++ {
 		wg.Add(1)

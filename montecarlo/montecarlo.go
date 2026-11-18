@@ -29,8 +29,10 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo/bai"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
@@ -148,8 +150,11 @@ type SimmedPlay struct {
 	// utilityStats is the sim's reward: MAGPIE's blend of the rollout's win
 	// probability and final spread (see simUtility).
 	utilityStats stats.Statistic
-	ignore       atomic.Bool
-	unignorable  bool
+	// byLeave holds the utility samples by the posterior leave they drew,
+	// for RobustLambda.
+	byLeave     map[int]*leaveStat
+	ignore      atomic.Bool
+	unignorable bool
 }
 
 func (sp *SimmedPlay) String() string {
@@ -279,6 +284,10 @@ type Simmer struct {
 	origGame *game.Game
 
 	gameCopies []*game.Game
+	// egSolvers solve the endgames rollouts reach (see endgame_leaf.go).
+	egSolvers     []*negamax.Solver
+	endgameLeaves bool
+	egKWG         *magpie.KWG
 	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
@@ -601,6 +610,10 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
 		g.SetStateStackLength(1)
+	}
+	if err := s.prepareEndgameLeaves(); err != nil {
+		log.Error().Err(err).Msg("endgame-leaves")
+		s.egSolvers = nil
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
@@ -950,6 +963,9 @@ func (s *Simmer) WinningPlay() *SimmedPlay {
 	s.sortPlaysByWinRate(true)
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
+	if RobustLambda > 0 {
+		return robustWinner(s.simmedPlays.plays)
+	}
 	return s.simmedPlays.plays[0]
 }
 
@@ -1064,9 +1080,19 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64, roll f
 }
 
 func (s *Simmer) weightedInferredDrawRacks(thread int) ([]tilemapping.MachineLetter, error) {
+	i, err := s.weightedInferredDrawIndex(thread)
+	if err != nil {
+		return nil, err
+	}
+	return s.inferences[i].Leave, nil
+}
+
+// weightedInferredDrawIndex samples an inferred rack by weight and returns
+// its index.
+func (s *Simmer) weightedInferredDrawIndex(thread int) (int, error) {
 	cdf := s.inferenceCDF
 	if len(cdf) == 0 {
-		return nil, errors.New("no inferences available")
+		return 0, errors.New("no inferences available")
 	}
 	r := s.float64For(thread) * cdf[len(cdf)-1]
 	// First index whose cumulative weight strictly exceeds r; strict
@@ -1075,7 +1101,7 @@ func (s *Simmer) weightedInferredDrawRacks(thread int) ([]tilemapping.MachineLet
 	if i >= len(cdf) {
 		i = len(cdf) - 1
 	}
-	return s.inferences[i].Leave, nil
+	return i, nil
 }
 
 func (s *Simmer) calculateWeightedProbabilitiesForBag() {
