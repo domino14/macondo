@@ -47,8 +47,8 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 	}
 }
 
-// EnsureKWG checks whether the KWG file for lexname is present and, if not,
-// downloads it from the woogles-io/liwords repository. It is safe to call
+// EnsureKWG checks whether the KWG file for lexname is present and current
+// and, if not, downloads it (see lexicon.EnsureLexiconFile). It is safe to call
 // before any code that calls kwg.GetKWG so that load paths other than
 // "set lexicon" also get the file-not-found download behaviour.
 func EnsureKWG(lexname string, cfg *wglconfig.Config) error {

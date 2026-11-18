@@ -58,7 +58,7 @@ Tutorial video: [https://youtu.be/MOyzyKskr_4](https://youtu.be/MOyzyKskr_4)
 1. Open the executable. If you wish your default lexicon to be CSW24, you
    must set the environment variable `DEFAULT_LEXICON` to `CSW24`. Otherwise, it defaults to NWL23. In this case you can set your lexicon by typing in `set lexicon CSW24` into the macondo prompt.
 
-2. Move some `*.kwg` files for your desired lexicon to the `./data/lexica/gaddag` folder. You can find kwg files at [https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm](https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm)
+2. The word graph (`*.kwg`) and leave values (`*.klv2`) of a lexicon are downloaded into the `./data/lexica/gaddag` folder the first time you use it, and again when newer ones are published. To use a lexicon that is not published, put its `*.kwg` file in that folder yourself.
 
 3. Type in `help` for commands
 

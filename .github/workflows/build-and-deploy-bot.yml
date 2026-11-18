@@ -37,8 +37,9 @@ jobs:
           go-version: ">=1.22"
 
       # Fetched into their own directory so the cache holds exactly the
-      # published files and nothing else. The fetch is a no-op on a cache hit,
-      # and the key covers the file list, so editing that list refetches.
+      # published files and nothing else. On a cache hit the fetch only
+      # replaces files that have since been republished, and the key covers
+      # the file list, so editing that list refetches.
       - name: Cache lexicon data
         uses: actions/cache@v4
         with:

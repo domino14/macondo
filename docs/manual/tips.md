@@ -15,4 +15,4 @@ Some other values for letter distribution: `spanish`, `polish`, `german`, `norwe
 
 The letter distribution is optional. If not provided, Macondo will make a best guess of what to use based on the lexicon name.
 
-You can find lexicon kwg files at [https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm](https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm)
+Macondo downloads the kwg and leave files of a published lexicon by itself. Set the environment variable `MACONDO_LEXICON_AUTO_UPDATE=false` to keep the files you already have instead of replacing them when newer ones are published.

@@ -1,15 +1,15 @@
 # Lexicon data files the test suite needs, one per line, as <name><extension>.
 #
 # These are fetched from the same place and by the same code path as the
-# shell's `set lexicon`: the liwords repo's wasm directory. Anything listed
-# here must be published there.
+# shell's `set lexicon`: the bucket Woogles publishes them in (see
+# lexicon/download.go). Anything listed here must be published there.
 #
 # To find what belongs in this list, look for lexicon names in _test.go files
 # (both Go string literals and `lex NAME` inside CGP strings) -- and also in
 # non-test code that tests reach, which is how ECWL below gets in: the
 # common-word puzzle tag and the leveled bot filters both load it by name.
 #
-# NOT in this list, because liwords does not publish it: America, which the
+# NOT in this list, because it is not published: America, which the
 # endgame and movegen tests play real positions with. That one comes from the
 # private word-game-lexica repo.
 #
