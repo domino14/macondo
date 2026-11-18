@@ -214,6 +214,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		if err != nil {
 			return nil, err
 		}
+		if err := triton.SetCompression(conf.Config.GetString(config.ConfigTritonGRPCCompression)); err != nil {
+			return nil, err
+		}
 		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, "1")
 		if err != nil {
 			return nil, fmt.Errorf("triton client for %s: %w", name, err)
@@ -234,6 +237,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			return nil, err
 		}
 		ver := conf.Config.GetString(config.ConfigTritonModelVersion)
+		if err := triton.SetCompression(conf.Config.GetString(config.ConfigTritonGRPCCompression)); err != nil {
+			return nil, err
+		}
 		tc, err := triton.NewTritonClient(conf.Config.GetString(config.ConfigTritonURL), name, ver)
 		if err != nil {
 			return nil, fmt.Errorf("triton client for %s: %w", name, err)

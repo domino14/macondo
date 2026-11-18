@@ -31,27 +31,29 @@ const (
 	ConfigTritonURL                        = "triton-url"
 	ConfigTritonModelName                  = "triton-model-name"
 	ConfigTritonModelVersion               = "triton-model-version"
-	ConfigOnnxRuntimeLib                   = "onnxruntime-lib"
-	ConfigOnnxThreads                      = "onnx-threads"
-	ConfigMLModelsURL                      = "ml-models-url"
-	ConfigMagpieDataPath                   = "magpie-data-path"
-	ConfigGenaiProvider                    = "genai-provider"
-	ConfigGeminiModel                      = "gemini-model"
-	ConfigOpenaiModel                      = "openai-model"
-	ConfigDeepseekModel                    = "deepseek-model"
-	ConfigGeminiApiKey                     = "gemini-api-key"
-	ConfigOpenaiApiKey                     = "openai-api-key"
-	ConfigOpenaiBaseURL                    = "openai-base-url"
-	ConfigOpenrouterApiKey                 = "openrouter-api-key"
-	ConfigOpenrouterModel                  = "openrouter-model"
-	ConfigOpenrouterBaseURL                = "openrouter-base-url"
-	ConfigDeepseekApiKey                   = "deepseek-api-key"
-	ConfigLlamaCppApiKey                   = "llamacpp-api-key"
-	ConfigLlamaCppModel                    = "llamacpp-model"
-	ConfigLlamaCppBaseURL                  = "llamacpp-base-url"
-	ConfigWooglesApiKey                    = "woogles-api-key"
-	ConfigWooglesURL                       = "woogles-url"
-	ConfigAliases                          = "aliases"
+	// ConfigTritonGRPCCompression: "gzip" (default) or "none".
+	ConfigTritonGRPCCompression = "triton-grpc-compression"
+	ConfigOnnxRuntimeLib        = "onnxruntime-lib"
+	ConfigOnnxThreads           = "onnx-threads"
+	ConfigMLModelsURL           = "ml-models-url"
+	ConfigMagpieDataPath        = "magpie-data-path"
+	ConfigGenaiProvider         = "genai-provider"
+	ConfigGeminiModel           = "gemini-model"
+	ConfigOpenaiModel           = "openai-model"
+	ConfigDeepseekModel         = "deepseek-model"
+	ConfigGeminiApiKey          = "gemini-api-key"
+	ConfigOpenaiApiKey          = "openai-api-key"
+	ConfigOpenaiBaseURL         = "openai-base-url"
+	ConfigOpenrouterApiKey      = "openrouter-api-key"
+	ConfigOpenrouterModel       = "openrouter-model"
+	ConfigOpenrouterBaseURL     = "openrouter-base-url"
+	ConfigDeepseekApiKey        = "deepseek-api-key"
+	ConfigLlamaCppApiKey        = "llamacpp-api-key"
+	ConfigLlamaCppModel         = "llamacpp-model"
+	ConfigLlamaCppBaseURL       = "llamacpp-base-url"
+	ConfigWooglesApiKey         = "woogles-api-key"
+	ConfigWooglesURL            = "woogles-url"
+	ConfigAliases               = "aliases"
 )
 
 // DefaultMLModelsURL is where the CPU path downloads a value net it does not
@@ -88,6 +90,7 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
+	c.SetDefault(ConfigTritonGRPCCompression, "gzip")
 	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
@@ -123,6 +126,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigTritonURL)
 	c.BindEnv(ConfigTritonModelName)
 	c.BindEnv(ConfigTritonModelVersion)
+	c.BindEnv(ConfigTritonGRPCCompression)
 	c.BindEnv(ConfigOnnxRuntimeLib)
 	c.BindEnv(ConfigOnnxThreads)
 	c.BindEnv(ConfigMLModelsURL)
@@ -189,6 +193,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-tf")
 	c.SetDefault(ConfigTritonModelVersion, "")
+	c.SetDefault(ConfigTritonGRPCCompression, "gzip")
 	c.SetDefault(ConfigMLModelsURL, DefaultMLModelsURL)
 	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
 	c.SetDefault(ConfigGenaiProvider, "gemini")
