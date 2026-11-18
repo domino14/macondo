@@ -18,7 +18,7 @@ MODELS=${MODELS:-$REPO/data/strategy/default/models}
 URL=${MACONDO_ML_MODELS_URL:-$(sed -n 's/^const DefaultMLModelsURL = "\(.*\)"$/\1/p' "$REPO/config/config.go")}
 [ -n "$URL" ] || { echo "no DefaultMLModelsURL in config/config.go" >&2; exit 1; }
 NAMES=("$@")
-[ ${#NAMES[@]} -gt 0 ] || NAMES=(macondo-tf macondo-tf-csw macondo-tf-selfplay)
+[ ${#NAMES[@]} -gt 0 ] || NAMES=(macondo-tf macondo-tf-csw macondo-tf-selfplay macondo-tf-spanish)
 
 for name in "${NAMES[@]}"; do
     dir=$MODELS/$name
