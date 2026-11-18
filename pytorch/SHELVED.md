@@ -155,3 +155,26 @@ two match tools (`match-ml-v-ml.sh`, `sim-ladder.sh`, with `pairs-stats.py`).
 The CNN-era `train.sh`, the cache-training `train-fresh.sh` and
 `run-openings.sh`'s training half (now `gen-openings.sh`, generation only),
 `queue-ml-v-sim.sh` and `bench-instances.sh` went too.
+
+## Lab tools on branches (never merged)
+
+Experiments after the value-net program whose tools were never merged. The
+code stays on its branch; the results are in `RUNS.md`.
+
+- **Pre-endgame lab** (`claude/preendgame-lab`): `cmd/pegpairs`, paired
+  games from close positions with 1-6 tiles in the bag (net vs net +
+  BestBot or the pre-endgame solver, net vs net, or a second net late in
+  the game), and `cmd/pegtiming`, realistic playouts of candidate moves.
+  Result: search gains ~1.3 in those positions; the net's timing is fine.
+- **Pre-endgame oversampling** (`claude/preendgame-oversampling`):
+  `mlproducer -pre-bag-max/-pre-share` and the `nwl23preft` driver.
+  Result: no gain, at any bag. To retry, change the labels, not the mix
+  (see `RUNS.md`, Pre-endgame).
+- **Net reads** (`claude/netread`): the value net's read of the
+  opponent's last play, per leave, against the mini-sim's reads. Result:
+  no gain over the tuned inference.
+- **Inference lab** (`claude/inference-experiments`, built on the MAGPIE
+  branch): the inference notebook, `decidelab`, `screendecide`,
+  `latepairs`, `divjudge`, two-turn reads and the leave-quality
+  reweighting knob. The settings that won (tau cap 0.1, bag 1-2 sims
+  searching their endgames) are on master.
