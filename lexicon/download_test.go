@@ -124,6 +124,27 @@ func TestEnsureLexiconFile(t *testing.T) {
 	is.Equal(len(entries), 5)
 }
 
+// A word map built from a word graph that gets replaced is removed with it.
+func TestStaleWordMapRemoved(t *testing.T) {
+	is := is.New(t)
+	b := &bucket{files: map[string]string{"STALE.kwg": "new graph", "SAME.kwg": "same graph"}}
+	cfg, dir := setup(t, b)
+	is.NoErr(os.MkdirAll(dir, 0o755))
+	lexica := filepath.Dir(dir)
+	for _, name := range []string{"STALE", "SAME"} {
+		is.NoErr(os.WriteFile(filepath.Join(lexica, name+".wmp"), []byte("map"), 0o644))
+	}
+	is.NoErr(os.WriteFile(filepath.Join(dir, "STALE.kwg"), []byte("old graph"), 0o644))
+	is.NoErr(os.WriteFile(filepath.Join(dir, "SAME.kwg"), []byte("same graph"), 0o644))
+
+	is.NoErr(EnsureLexiconFile("STALE", ".kwg", cfg))
+	is.NoErr(EnsureLexiconFile("SAME", ".kwg", cfg))
+	_, err := os.Stat(filepath.Join(lexica, "STALE.wmp"))
+	is.True(os.IsNotExist(err))
+	_, err = os.Stat(filepath.Join(lexica, "SAME.wmp"))
+	is.NoErr(err)
+}
+
 func TestEnsureLexiconFileOffline(t *testing.T) {
 	is := is.New(t)
 	b := &bucket{}

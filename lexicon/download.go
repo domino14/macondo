@@ -177,6 +177,19 @@ func EnsureLexiconFile(lexname, ext string, cfg *wglconfig.Config) error {
 	state.done = true
 	log.Info().Str("file", name).Str("path", fullpath).Int64("bytes", written).
 		Msg("lexicon data file downloaded")
+	if onDisk && ext == ".kwg" {
+		// A word map (.wmp) is built from the word graph and kept beside the
+		// lexica folder. One built from the graph just replaced would go on
+		// answering for the old word list, so it goes; it is built again from
+		// the new graph when it is next wanted.
+		wmp := filepath.Join(cfg.DataPath, "lexica", lexname+".wmp")
+		if err := os.Remove(wmp); err == nil {
+			log.Info().Str("path", wmp).Msg("removed the word map built from the old word graph")
+		} else if !os.IsNotExist(err) {
+			log.Warn().Err(err).Str("path", wmp).
+				Msg("could not remove the word map built from the old word graph")
+		}
+	}
 	return nil
 }
 
