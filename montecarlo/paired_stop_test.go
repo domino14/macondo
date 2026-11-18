@@ -93,7 +93,10 @@ func TestPairedSimKeepsPlays(t *testing.T) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	defer zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	s := pairedTestSimmer(t, 5, 1, 15)
-	s.SetPairedCapPerPlay(5000)
+	// Room to spare: this sim's rollouts are not the same from run to run
+	// (the classic sampling is not, on a position with no opponent rack),
+	// and at 5,000 a play about one run in six ran out of budget first.
+	s.SetPairedCapPerPlay(20000)
 	worst := s.simmedPlays.plays[len(s.simmedPlays.plays)-1]
 	s.AvoidPruningMoves([]*move.Move{worst.play})
 	if err := s.Simulate(context.Background()); err != nil {

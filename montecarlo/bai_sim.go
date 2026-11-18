@@ -6,10 +6,12 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"math/rand/v2"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
@@ -80,6 +82,8 @@ type baiState struct {
 	// statistics already because the sim topped it up (baiTopUp); the
 	// schedule's own samples at those ordinals are not counted again.
 	toppedUp []uint64
+	// rngs are the threads' random sources (baiRNG).
+	rngs []baiRNGPair
 	// topUpStart and topUpRewards are the rewards of each arm's top-up
 	// samples: those of its ordinals from topUpStart on.
 	topUpStart   []uint64
@@ -253,13 +257,41 @@ func (s *Simmer) startBAI() {
 	}
 }
 
-// baiRNG is the random source for sample number ordinal.
-func (s *Simmer) baiRNG(ordinal uint64) *frand.RNG {
+// baiRNG is the random source for sample number ordinal, set as thread's.
+// A thread has two and takes them in turn, starting each again from the
+// sample's seed: the bag still holds the last sample's source and draws from
+// it while the old rack is put back, before it is given this one, and those
+// draws must not come out of this sample's stream.
+func (s *Simmer) baiRNG(thread int, ordinal uint64) *frand.RNG {
 	var buf [40]byte
 	copy(buf[:32], s.bai.seed[:])
 	binary.BigEndian.PutUint64(buf[32:], ordinal)
 	h := sha256.Sum256(buf[:])
-	return frand.NewCustom(h[:], 0, 0)
+	pair := &s.bai.rngs[thread]
+	pair.next ^= 1
+	r := pair.rngs[pair.next]
+	if r == nil {
+		r = frand.NewCustom(h[:], 0, 0)
+		pair.rngs[pair.next] = r
+	} else {
+		reseedRNG(r, h)
+	}
+	s.rngs[thread] = r
+	return r
+}
+
+// baiRNGPair is a thread's two sources and which was handed out last.
+type baiRNGPair struct {
+	rngs [2]*frand.RNG
+	next int
+}
+
+// reseedRNG starts r again from seed, as frand.NewCustom(seed) would a new
+// one, without making one: a sim draws a source for every rollout. frand has
+// no call for this, so it reaches the ChaCha8 generator that is an RNG's only
+// field; TestReseedRNG checks the two still agree.
+func reseedRNG(r *frand.RNG, seed [32]byte) {
+	(*struct{ r *rand.ChaCha8 })(unsafe.Pointer(r)).r.Seed(seed)
 }
 
 // simBAI runs the sim until its stopping rule, its budget or the context
@@ -277,6 +309,9 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	}
 	if len(s.rngs) < threads {
 		s.rngs = make([]*frand.RNG, threads)
+	}
+	if len(b.rngs) < threads {
+		b.rngs = make([]baiRNGPair, threads)
 	}
 	minimum := b.minSamples
 	if minimum <= 0 {
@@ -314,16 +349,12 @@ func (s *Simmer) simBAI(ctx context.Context, run simRun) {
 	// before folding, and samples a thread with nothing to draw drew ahead of
 	// the schedule in vain, leave no trace, and the statistics are the same on
 	// any number of threads.
-	opts.Held = func(worker, arm int, ordinal uint64) (float64, func(), error) {
+	opts.Held = func(worker, arm int, ordinal uint64) (float64, bai.Held, error) {
 		held := baiHeldPool.Get().(*baiHeld)
 		held.reset(b.arms[arm])
+		held.sim, held.arm, held.ordinal = s, arm, ordinal
 		v, err := s.baiSample(worker, b.arms[arm], ordinal, held)
-		return v, func() {
-			if ordinal >= b.toppedUp[arm] {
-				s.baiCommit(held)
-			}
-			baiHeldPool.Put(held)
-		}, err
+		return v, held, err
 	}
 	tstart := time.Now()
 	res, err := b.runner.Run(ctx, opts, nil)
@@ -471,6 +502,25 @@ func (s *Simmer) baiTopUp(ctx context.Context, res bai.Result, threads int, dead
 type baiHeld struct {
 	tally rolloutTally
 	log   []byte
+	// The sample it belongs to, for a sample the runner commits.
+	sim     *Simmer
+	arm     int
+	ordinal uint64
+}
+
+// Commit is the runner's call when the sample is folded. A sample the top-up
+// drew already is in the statistics.
+func (h *baiHeld) Commit() {
+	if h.ordinal >= h.sim.bai.toppedUp[h.arm] {
+		h.sim.baiCommit(h)
+	}
+	h.Discard()
+}
+
+// Discard is the runner's call for a sample it will not use.
+func (h *baiHeld) Discard() {
+	h.sim = nil
+	baiHeldPool.Put(h)
 }
 
 var baiHeldPool = sync.Pool{New: func() any { return new(baiHeld) }}
@@ -513,8 +563,7 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64, held *b
 		// rack for each rollout. The sample is the rollouts' mean.
 		sum := 0.0
 		for rotation := 0; rotation < s.bai.rotations; rotation++ {
-			rng := s.baiRNG(ordinal)
-			s.rngs[thread] = rng
+			rng := s.baiRNG(thread, ordinal)
 			if err := g.SetRandomRackCycled(opp, rng, rotation); err != nil {
 				return 0, err
 			}
@@ -532,10 +581,9 @@ func (s *Simmer) baiSample(thread int, play *SimmedPlay, ordinal uint64, held *b
 		}
 		return sum / float64(s.bai.rotations), nil
 	}
-	rng := s.baiRNG(ordinal)
 	// The opponent's rack, when it is inferred, is drawn from the sample's
 	// source too.
-	s.rngs[thread] = rng
+	rng := s.baiRNG(thread, ordinal)
 	rackToSet, err := s.oppRackFor(thread)
 	if err != nil {
 		return 0, err

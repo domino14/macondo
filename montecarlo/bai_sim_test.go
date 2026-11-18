@@ -3,6 +3,7 @@ package montecarlo
 import (
 	"context"
 	"math"
+	"runtime"
 	"testing"
 	"time"
 
@@ -435,6 +436,35 @@ func TestBAIBestPlayCap(t *testing.T) {
 		}
 		if s.WinningPlay() != w {
 			t.Fatalf("cycle=%v: the winner is not the first play", cycle)
+		}
+	}
+}
+
+// A best-arm sim's rollouts make no allocations: a longer sim allocates no
+// more than a shorter one, give or take what the runtime does on its own.
+func TestBAISimRolloutsDoNotAllocate(t *testing.T) {
+	for _, cycle := range []bool{false, true} {
+		measure := func(capPerPlay int) (rollouts int, mallocs float64) {
+			s := baiTestSimmer(t, 5, 1, 15)
+			s.SetStoppingCondition(Stop999)
+			s.SetBAIBagCycle(cycle)
+			s.SetBAICapPerPlay(capPerPlay)
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			res := runBAITest(t, s)
+			runtime.ReadMemStats(&after)
+			return res.rollouts, float64(after.Mallocs) - float64(before.Mallocs)
+		}
+		shortN, shortAllocs := measure(200)
+		longN, longAllocs := measure(1400)
+		if longN < 3*shortN {
+			t.Fatalf("cycle %v: the long sim made %d rollouts and the short one %d; too close to compare", cycle, longN, shortN)
+		}
+		perRollout := (longAllocs - shortAllocs) / float64(longN-shortN)
+		t.Logf("cycle %v: %d and %d rollouts, %.0f and %.0f allocations, %.4f a rollout", cycle, shortN, longN, shortAllocs, longAllocs, perRollout)
+		if perRollout > 0.05 {
+			t.Errorf("cycle %v: %.3f allocations a rollout", cycle, perRollout)
 		}
 	}
 }

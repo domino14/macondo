@@ -139,11 +139,23 @@ type Sampler func(worker, arm int, ordinal uint64) (float64, error)
 // sample: the run can stop before the sample's round is folded, and a sample
 // drawn ahead of the schedule may never be asked for. Whatever else drawing
 // a sample does that should happen only for samples the run uses (tallies,
-// logs) the sampler holds back and does in commit, which is called when the
+// logs) the sampler holds back in held, whose Commit is called when the
 // sample is folded: at most once, in the order samples are folded, which is
 // the same on any number of threads, and possibly from another goroutine. A
-// nil commit means there is nothing to hold back.
-type HeldSampler func(worker, arm int, ordinal uint64) (value float64, commit func(), err error)
+// nil held means there is nothing to hold back.
+type HeldSampler func(worker, arm int, ordinal uint64) (value float64, held Held, err error)
+
+// Held is what a sample's sampler held back. It is an interface and not a
+// function so that a sampler can hand out a pointer it reuses, at no
+// allocation a sample.
+type Held interface {
+	// Commit is called when the sample is folded.
+	Commit()
+	// Discard is called instead when a sample drawn ahead of the schedule is
+	// dropped unused. A sample still waiting in an unfolded round when its
+	// runner is let go gets neither call.
+	Discard()
+}
 
 // Result is the outcome of a run.
 type Result struct {
@@ -368,8 +380,8 @@ type slot struct {
 	arm     int
 	ordinal uint64
 	value   float64
-	// commit is the held sampler's, called when the slot is folded.
-	commit func()
+	// commit is the held sampler's, committed when the slot is folded.
+	commit Held
 }
 
 // scheduleTopTwo splits n samples between astar and the challenger by the
@@ -417,7 +429,9 @@ type Runner struct {
 	// requested is how many samples have been laid out in rounds.
 	requested uint64
 	// live are the rounds laid out and not yet folded, oldest first.
-	live            []*round
+	live []*round
+	// spare are folded rounds, kept to be laid out again.
+	spare           []*round
 	roundsScheduled uint64
 	roundsFolded    uint64
 	// claimFrom is the first live round that may still have a free slot.
@@ -482,7 +496,7 @@ type speculation struct {
 	// expected says it is one of the currently expected slots.
 	expected bool
 	// commit is the sampler's, handed to the slot that takes the sample.
-	commit func()
+	commit Held
 }
 
 const (
@@ -573,7 +587,7 @@ func (r *Runner) scheduleRound() {
 	if r.requested < r.initialLimit && r.initialLimit-r.requested < uint64(n) {
 		n = int(r.initialLimit - r.requested)
 	}
-	rd := &round{start: r.requested, slots: make([]slot, 0, n), state: make([]uint8, n), claimBatch: 1}
+	rd := r.newRound(n)
 	if r.initialPhase {
 		// Iteration-major: consecutive slots are the same ordinal across
 		// consecutive arms.
@@ -599,6 +613,24 @@ func (r *Runner) scheduleRound() {
 	r.live = append(r.live, rd)
 }
 
+// newRound is an empty round of n slots, one that has been folded and let go
+// when there is one.
+func (r *Runner) newRound(n int) *round {
+	var rd *round
+	if k := len(r.spare); k > 0 {
+		rd, r.spare = r.spare[k-1], r.spare[:k-1]
+		slots, state := rd.slots[:0], rd.state[:0]
+		*rd = round{slots: slots, state: state}
+	} else {
+		rd = &round{slots: make([]slot, 0, r.roundSize), state: make([]uint8, 0, r.roundSize)}
+	}
+	for i := 0; i < n; i++ {
+		rd.state = append(rd.state, slotFree)
+	}
+	rd.start, rd.claimBatch = r.requested, 1
+	return rd
+}
+
 // findSpeculation is the cache entry holding arm's sample at ordinal, or -1.
 func (r *Runner) findSpeculation(arm int, ordinal uint64) int {
 	if i, ok := r.specIndex[specKey{arm, ordinal}]; ok {
@@ -610,6 +642,10 @@ func (r *Runner) findSpeculation(arm int, ordinal uint64) int {
 // releaseSpeculation empties a cache entry.
 func (r *Runner) releaseSpeculation(i int) {
 	sp := &r.specs[i]
+	if sp.commit != nil {
+		// A finished sample nobody took.
+		sp.commit.Discard()
+	}
 	delete(r.specIndex, specKey{sp.arm, sp.ordinal})
 	*sp = speculation{}
 }
@@ -628,6 +664,7 @@ func (r *Runner) matchSpeculation(rd *round, i int) {
 	sp := &r.specs[si]
 	if sp.state == specDone {
 		rd.slots[i].value, rd.slots[i].commit = sp.value, sp.commit
+		sp.commit = nil
 		rd.state[i] = slotDone
 		r.releaseSpeculation(si)
 		r.specUsed++
@@ -658,11 +695,14 @@ func (r *Runner) expectSlots() bool {
 	s := r.s
 	r.expected = r.expected[:0]
 	if r.nextRoundIsRoundRobin() {
-		counts := make(map[int]uint64)
+		// Counted as laying them out will; the counts are put back after.
 		for i := 0; i < speculationSlots; i++ {
 			arm := int((r.requested + uint64(i)) % uint64(r.numArms))
-			r.expected = append(r.expected, slot{arm: arm, ordinal: s.arms[arm].numScheduled + counts[arm]})
-			counts[arm]++
+			r.expected = append(r.expected, slot{arm: arm, ordinal: s.arms[arm].numScheduled})
+			s.arms[arm].numScheduled++
+		}
+		for i := range r.expected {
+			s.arms[r.expected[i].arm].numScheduled--
 		}
 		return true
 	}
@@ -761,9 +801,12 @@ func (r *Runner) claimSpeculation(c *call) int {
 // finishSpeculation stores a speculative sample that has been drawn or, if a
 // round adopted it meanwhile, completes that round's slot with it and folds.
 // The caller holds the lock.
-func (r *Runner) finishSpeculation(c *call, si int, value float64, commit func(), err error) {
+func (r *Runner) finishSpeculation(c *call, si int, value float64, commit Held, err error) {
 	sp := r.specs[si]
 	if err != nil {
+		if commit != nil {
+			commit.Discard()
+		}
 		if sp.adopted {
 			// The slot goes back, to be drawn by a later call.
 			sp.round.state[sp.slot] = slotFree
@@ -847,7 +890,7 @@ func (r *Runner) fold(c *call) error {
 			}
 			s.record(sl.arm, ordinal, sl.value)
 			if sl.commit != nil {
-				sl.commit()
+				sl.commit.Commit()
 				sl.commit = nil
 			}
 		}
@@ -860,7 +903,11 @@ func (r *Runner) fold(c *call) error {
 			c.status, c.stopped = StatusSampleLimit, true
 			return nil
 		}
-		r.live = r.live[1:]
+		// Moved down, not resliced, so that live keeps its room; and nothing
+		// refers to a folded round, so it can be laid out again.
+		copy(r.live, r.live[1:])
+		r.live = r.live[:len(r.live)-1]
+		r.spare = append(r.spare, rd)
 		r.roundsFolded++
 		r.epoch++
 		if r.claimFrom > 0 {
@@ -896,7 +943,7 @@ func (r *Runner) fold(c *call) error {
 // work claims slots, draws them and folds, until the call stops.
 func (r *Runner) work(c *call, worker int, sample Sampler) {
 	var values [roundRobinClaimBatch]float64
-	var commits [roundRobinClaimBatch]func()
+	var commits [roundRobinClaimBatch]Held
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for !c.stopped {
@@ -929,6 +976,7 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 		c.inFlight++
 		r.mu.Unlock()
 		var err error
+		clear(commits[:])
 		for i := 0; i < n && err == nil; i++ {
 			sl := &rd.slots[first+i]
 			if c.opts.Held != nil {
@@ -944,6 +992,9 @@ func (r *Runner) work(c *call, worker int, sample Sampler) {
 			// The slots go back, to be drawn by a later call.
 			for i := 0; i < n; i++ {
 				rd.state[first+i] = slotFree
+				if commits[i] != nil {
+					commits[i].Discard()
+				}
 			}
 			rd.claimed, r.claimFrom = 0, 0
 			if !c.stopped {

@@ -678,6 +678,7 @@ func (s *Simmer) makeGameCopies() error {
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	s.carryCheckPlayers = nil
 	s.rngs = s.makeRNGs()
+	s.bai.rngs = make([]baiRNGPair, s.threads)
 	// Work out one shuffled order here and hand every copy the same one, so the
 	// threads all start from an identical bag. The live game's bag is left
 	// alone entirely -- not just its order but its random stream, which belongs

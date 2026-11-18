@@ -21,12 +21,18 @@ func slow(sample Sampler) Sampler {
 // speculating is opts with a held sampler made from sample, whose commits
 // are counted in commits.
 func speculating(opts Options, sample Sampler, commits *atomic.Int64) Options {
-	opts.Held = func(worker, arm int, ordinal uint64) (float64, func(), error) {
+	opts.Held = func(worker, arm int, ordinal uint64) (float64, Held, error) {
 		v, err := sample(worker, arm, ordinal)
-		return v, func() { commits.Add(1) }, err
+		return v, countedHeld{commits}, err
 	}
 	return opts
 }
+
+// countedHeld counts its commits.
+type countedHeld struct{ commits *atomic.Int64 }
+
+func (h countedHeld) Commit()  { h.commits.Add(1) }
+func (h countedHeld) Discard() {}
 
 func sameResult(t *testing.T, what string, got, want Result) {
 	t.Helper()
