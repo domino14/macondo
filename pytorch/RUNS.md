@@ -81,6 +81,12 @@ A rerun of nwl23big with a new seed played it level (49.97 ± 0.16, nwl23bigb be
 | csw24l12rel | 11/2-4 | csw24open..open3 81M | csw24l12 + the csw24rel offset bias (`--rel-bias`); ~24% slower to train | 144k | 58.65 ± 0.18 | +11.5 | head to head vs csw24l12 49.98 ± 0.16: level; the bias helps 8 x 192 but not 12 x 256; best validation WDL 0.4893 vs 0.4894 |
 | **spanish** | 11/4-5 | file2017open 27M, FILE2017 | the nwl23p3 recipe (8 x 192, `-picks 3`, ~48M rows a pass) in Spanish: 28-letter features (91 planes, 76 scalars) | 141k | **58.21 ± 0.18** | +12.7 | vs HastyBot in FILE2017; in line with the English 8 x 192 nets (nwl23big 58.14, csw24big 58.06), so the recipe carries over to another alphabet unchanged |
 | nwl23qe | 11/6-7 | nwl23qe 27M, NWL23 | nwl23p3 with games whose close endgames were searched instead of played statically (MAGPIE build) | 151k | 57.97 ± 0.18 static endgames; **58.36 ± 0.18** both sides searching | +10.1 / +10.0 | head to head vs nwl23p3 49.48 ± 0.16 with static endgames, 50.11 ± 0.16 with both sides searching; see "Endgames" |
+| nwl23ms | 11/7-8 | nwl23ms 27M, NWL23 | nwl23p3 on static-endgame games from the MAGPIE build: the build control for nwl23qe | | 57.46 ± 0.18 | | head to head vs nwl23p3 48.89 ± 0.16; a bad training run, not bad data (validation worsened after 88k; nwl23p3 beats it on nwl23ms's own held-out games) |
+| nwl23qel12 | 11/8-10 | nwl23qe 27M, NWL23 | nwl23l12's net (12 x 256) on nwl23qe, `-picks 3`; final weights, validated on held-out nwl23qe games | 149k | 58.50 ± 0.18 | | both sides searching endgames; shipped nwl23l12 58.43 ± 0.18 under the same match; head to head vs nwl23l12 50.00 ± 0.16: level |
+| nwl23qe54 | 11/12-13 | nwl23qe + nwl23qe2 54M, NWL23 | nwl23qel12 on 54M games, 3 passes | | 58.47 ± 0.18 searching; 58.20 static | | head to head vs nwl23qel12 50.13 ± 0.16: 54M adds nothing over 27M; ~0.2 worse than nwl23l12 when nobody searches |
+| csw24qe54 | 11/13-14 | csw24qe + csw24qe2 54M, CSW24 | csw24l12's net on 54M searched-endgame games, 3 passes | 144k | 58.54 ± 0.18 | | both sides searching; shipped csw24l12 58.45 ± 0.18 under the same match; head to head 50.00 ± 0.16: level |
+| nwl23preft | 11/16 | nwl23qe 27M, NWL23 | fine-tune of nwl23l12, 11k steps, lr 1e-4, final weights; producer draws 30% of games as pre-endgame games (`-pre-bag-max 6 -pre-share 0.3`: every turn with 1-6 tiles in the bag), so ~50% of rows are pre-endgame vs ~8% | 11k | 58.55 ± 0.18 | | both sides searching; head to head vs nwl23ctlft 50.06 ± 0.14 (100k pairs): no gain; see "Pre-endgame" |
+| nwl23ctlft | 11/16 | nwl23qe 27M, NWL23 | the control for nwl23preft: the same fine-tune with the normal producer | 11k | | | head to head vs shipped nwl23l12 from close bag 1-3 positions 50.16 ± 0.31: level |
 
 ## Against the sim
 
@@ -121,6 +127,48 @@ Each net is strongest under the endgame play its labels came from, a swing
 of ~0.85 vs HastyBot. Searched-endgame games end within 10 points more
 often (11.8% vs 8.5%: the search plays to win, not to maximise spread);
 score, bingos, turns and first-player win rate are unchanged.
+
+With the 12 x 256 net, searched-endgame games give a net level with the
+shipped static-data nets when both sides search (nwl23qel12, nwl23qe54,
+csw24qe54 above), and ~0.2 worse when neither does. Nothing here beats the
+shipped nets.
+
+## Pre-endgame
+
+Where does the net lose to search late in the game? Paired games from close
+positions (1-6 tiles in the bag, spread within 60) taken from logged games;
+each pair plays the position twice with the bots swapped, both sides solve
+the endgame (`cmd/pegpairs`, on the `claude/preendgame-lab` branch). A
+reaches such a position in ~45% of games.
+
+| A | B | positions | A's win % | notes |
+|---|---|---|---|---|
+| nwl23l12 (net vs itself) | nwl23l12 | 4,474 | 50.13 ± 0.52 | null control: the harness is unbiased |
+| net + pre-endgame solver at bag 1 | net | 4,474 | 50.49 ± 0.52 | positions that start at bag 1: 53.5 ± 2.7; ~5 s more per game |
+| net + BestBot at bag 1-3 | net | 4,474 | 50.94 ± 0.54 | ~14 s more per game |
+| net + BestBot at bag 1-6 | net | 4,474 | **51.34 ± 0.55** | the gain is spread over bags 1-6; ~45 s more per game |
+| nwl23preft | nwl23ctlft | 4,474 | 50.78 ± 0.54 | did not replicate: 50.08 ± 0.53 on fresh positions |
+| nwl23preft | nwl23ctlft | 11,298 (bag 1-3 only) | 49.89 ± 0.30 | fresh positions; the bag 1-3 slice of the runs above (~51) was luck |
+| nwl23l12, switching to nwl23preft at bag 1-3 | nwl23l12 | 13,422 | 50.29 ± 0.31 | positions that start at bag 1-3: 50.07 ± 0.53 |
+| nwl23preft (both sides nwl23ctlft at bag 1-6) | nwl23ctlft | 4,475 (bag 40-60) | 49.44 ± 0.58 | midgame check |
+
+Timing (whether to empty the bag or keep tiles in it) is not where the net
+loses: with 48 realistic playouts per candidate (the opponent's rack
+redrawn, BestBot on both sides), BestBot's move beats the net's by
++0.49 ± 0.49 at bag 2 and -0.18 ± 0.53 at bag 3, and the class the net did
+not choose (keep vs empty the bag) is 6-10 points worse on average.
+At bags 2-3 the net's single move is as good as BestBot's, so the search
+gain there comes from BestBot's later turns (the solver at bag 1), not
+from the move at bag 2 or 3.
+
+Oversampling pre-endgame positions gives the net more rows with the same
+labels (the result of a HastyBot game) and changes nothing. The next step
+is better labels: the pre-endgame solver's value for positions with one
+tile in the bag, and BestBot playout values for two and three, as
+fine-tuning targets for those positions, then the bag 1-3 test above
+against the shipped net. A small pilot should size the label generation
+first. The fallback with no training is the solver at bag 1 in the shipped
+bot (+0.36 overall in close positions).
 
 ## Tools
 
