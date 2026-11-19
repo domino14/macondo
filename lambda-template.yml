@@ -31,6 +31,8 @@ Resources:
           MACONDO_NATS_URL: nats://10.0.0.251:4222
           MACONDO_TTABLE_MEM_FRACTION: 0.25
           MACONDO_KWG_PATH_PREFIX: 2024
+          # Keep the lexicon files already on the EFS volume; only fetch missing ones.
+          MACONDO_LEXICON_AUTO_UPDATE: "false"
           # Read the word maps seeded on the volume, never build one. A build
           # is paid on every cold start and buys nothing here: CSW24's takes
           # about as long to build as to read (~1.4s), and the KWG move
