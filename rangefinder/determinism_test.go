@@ -12,6 +12,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
 
@@ -136,18 +137,19 @@ func TestUnseededGameStillInfers(t *testing.T) {
 	is.NoErr(err)
 	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
 	plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	// Play something that keeps tiles back. A bingo leaves nothing to infer,
-	// and this game is deliberately unseeded, so the rack is a fresh draw every
-	// run and the test would pass or fail with it.
+	// Put tiles on the board and keep some back. A bingo leaves nothing to
+	// infer and a pass is not a move inference reads, and this game is
+	// deliberately unseeded, so the rack is a fresh draw every run and the
+	// test would pass or fail with it.
 	chosen := -1
 	for i, m := range plays {
-		if m.TilesPlayed() < 7 {
+		if m.Action() == move.MoveTypePlay && m.TilesPlayed() < 7 {
 			chosen = i
 			break
 		}
 	}
 	if chosen < 0 {
-		t.Skip("no non-bingo play available from this random rack")
+		t.Skip("this random rack has no play that keeps tiles back")
 	}
 	is.NoErr(g.PlayMove(plays[chosen], true, 0))
 
