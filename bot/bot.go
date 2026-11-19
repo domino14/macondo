@@ -33,6 +33,8 @@ type LambdaEvent struct {
 	BotType      int    `json:"botType"`
 	ReplyChannel string `json:"replyChannel"`
 	GameID       string `json:"gameId"`
+	// RequestID is BotRequest.request_id, for the lambda to echo.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 var (
@@ -224,6 +226,12 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
+	resp := b.respond(ng, req)
+	resp.RequestId = req.RequestId
+	return resp
+}
+
+func (b *Bot) respond(ng *game.Game, req *pb.BotRequest) *pb.BotResponse {
 	evalReq := req.EvaluationRequest
 	botType := req.BotType
 
@@ -297,6 +305,7 @@ func (b *Bot) asyncLambdaCall(data []byte) {
 		BotType:      int(req.BotType),
 		ReplyChannel: replyChannel,
 		GameID:       ng.Uid(),
+		RequestID:    req.RequestId,
 	}
 	bts, err := json.Marshal(lambdaPayload)
 	if err != nil {
@@ -329,13 +338,61 @@ func Main(ctx context.Context, channel string, bot *Bot, drainTimeout time.Durat
 	if err != nil {
 		log.Fatal().AnErr("newGameErr", err).Msg(":(")
 	}
-	nc, err := nats.Connect(bot.config.GetString(mcfg.ConfigNatsURL))
+	nc, err := nats.Connect(bot.config.GetString(mcfg.ConfigNatsURL), natsOptions()...)
 	if err != nil {
 		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}
 	err = serve(ctx, nc, channel, func(m *nats.Msg) { bot.handleMsg(nc, m) }, drainTimeout)
 	if err != nil {
 		log.Fatal().Err(err).Msg("bot-serve")
+	}
+}
+
+// natsOptions keeps the bot's connection reconnecting for as long as the
+// process runs. These match liwords' pkg/natsopts.
+//
+// nats.go's defaults give up after 60 attempts 2s apart, about two minutes,
+// and then close the connection for good: the bot keeps running but never
+// gets another request until it restarts.
+//
+// Connect still fails at startup if NATS isn't reachable, so a bad URL
+// crashes the task instead of leaving it running unconnected.
+func natsOptions() []nats.Option {
+	return []nats.Option{
+		nats.Name("macondo-bot"),
+		nats.MaxReconnects(-1),
+		// Requests published while the bot is disconnected aren't buffered
+		// for it: they go to whichever bot is subscribed, or nowhere. A short
+		// wait shortens that window after a NATS restart.
+		nats.ReconnectWait(100 * time.Millisecond),
+		// A server that disappears without closing the socket is noticed
+		// only by missed pings: about a minute with these, up to six
+		// minutes with the defaults.
+		nats.PingInterval(20 * time.Second),
+		nats.MaxPingsOutstanding(3),
+		// Also called, with a nil error, by Close at shutdown.
+		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+			if err != nil {
+				log.Warn().Err(err).Msg("nats-disconnected")
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			log.Info().Str("server", nc.ConnectedUrlRedacted()).
+				Uint64("reconnects", nc.Stats().Reconnects).Msg("nats-reconnected")
+		}),
+		nats.DiscoveredServersHandler(func(nc *nats.Conn) {
+			log.Info().Strs("servers", nc.DiscoveredServers()).Msg("nats-discovered-servers")
+		}),
+		nats.ClosedHandler(func(nc *nats.Conn) {
+			log.Info().Err(nc.LastError()).Msg("nats-closed")
+		}),
+		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
+			ev := log.Error().Err(err)
+			if sub != nil {
+				ev = ev.Str("subject", sub.Subject)
+			}
+			ev.Msg("nats-async-error")
+		}),
 	}
 }
 
