@@ -98,8 +98,9 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 
 	gevt := tp.EventFromMove(m)
 	resp := &pb.BotResponse{
-		Response: &pb.BotResponse_Move{Move: gevt},
-		GameId:   evt.GameID,
+		Response:  &pb.BotResponse_Move{Move: gevt},
+		GameId:    evt.GameID,
+		RequestId: evt.RequestID,
 	}
 	data, err := proto.Marshal(resp)
 	if err != nil {

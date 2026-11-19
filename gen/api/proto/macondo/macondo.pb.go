@@ -1081,8 +1081,12 @@ type BotRequest struct {
 	EvaluationRequest *EvaluationRequest     `protobuf:"bytes,2,opt,name=evaluation_request,json=evaluationRequest,proto3" json:"evaluation_request,omitempty"`
 	BotType           BotRequest_BotCode     `protobuf:"varint,3,opt,name=bot_type,json=botType,proto3,enum=macondo.BotRequest_BotCode" json:"bot_type,omitempty"`
 	MillisRemaining   int32                  `protobuf:"varint,4,opt,name=millis_remaining,json=millisRemaining,proto3" json:"millis_remaining,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Echoed in BotResponse.request_id, so the sender can tell which request a
+	// move answers and drop one that arrives after the game has moved on (a
+	// retried request answered twice, or a move that took too long).
+	RequestId     string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BotRequest) Reset() {
@@ -1141,6 +1145,13 @@ func (x *BotRequest) GetMillisRemaining() int32 {
 		return x.MillisRemaining
 	}
 	return 0
+}
+
+func (x *BotRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
 }
 
 type EvaluationRequest struct {
@@ -1332,9 +1343,11 @@ type BotResponse struct {
 	//
 	//	*BotResponse_Move
 	//	*BotResponse_Error
-	Response      isBotResponse_Response `protobuf_oneof:"response"`
-	Eval          *Evaluation            `protobuf:"bytes,3,opt,name=eval,proto3" json:"eval,omitempty"`
-	GameId        string                 `protobuf:"bytes,4,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"`
+	Response isBotResponse_Response `protobuf_oneof:"response"`
+	Eval     *Evaluation            `protobuf:"bytes,3,opt,name=eval,proto3" json:"eval,omitempty"`
+	GameId   string                 `protobuf:"bytes,4,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"`
+	// The request_id of the BotRequest this answers.
+	RequestId     string `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1404,6 +1417,13 @@ func (x *BotResponse) GetEval() *Evaluation {
 func (x *BotResponse) GetGameId() string {
 	if x != nil {
 		return x.GameId
+	}
+	return ""
+}
+
+func (x *BotResponse) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
 	}
 	return ""
 }
@@ -3430,13 +3450,15 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"PlayerInfo\x12\x1a\n" +
 	"\bnickname\x18\x01 \x01(\tR\bnickname\x12\x1b\n" +
 	"\treal_name\x18\x02 \x01(\tR\brealName\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId\"\x96\x06\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\"\xb5\x06\n" +
 	"\n" +
 	"BotRequest\x127\n" +
 	"\fgame_history\x18\x01 \x01(\v2\x14.macondo.GameHistoryR\vgameHistory\x12I\n" +
 	"\x12evaluation_request\x18\x02 \x01(\v2\x1a.macondo.EvaluationRequestR\x11evaluationRequest\x126\n" +
 	"\bbot_type\x18\x03 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotType\x12)\n" +
-	"\x10millis_remaining\x18\x04 \x01(\x05R\x0fmillisRemaining\"\xa0\x04\n" +
+	"\x10millis_remaining\x18\x04 \x01(\x05R\x0fmillisRemaining\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId\"\xa0\x04\n" +
 	"\aBotCode\x12\r\n" +
 	"\tHASTY_BOT\x10\x00\x12\x1a\n" +
 	"\x16LEVEL1_COMMON_WORD_BOT\x10\x01\x12\x1a\n" +
@@ -3477,12 +3499,14 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x10missed_star_play\x18\x05 \x01(\bR\x0emissedStarPlay\x12 \n" +
 	"\ftop_is_bingo\x18\x06 \x01(\bR\n" +
 	"topIsBingo\x12\"\n" +
-	"\rtop_move_word\x18\a \x01(\tR\vtopMoveWord\"\x9d\x01\n" +
+	"\rtop_move_word\x18\a \x01(\tR\vtopMoveWord\"\xbc\x01\n" +
 	"\vBotResponse\x12(\n" +
 	"\x04move\x18\x01 \x01(\v2\x12.macondo.GameEventH\x00R\x04move\x12\x16\n" +
 	"\x05error\x18\x02 \x01(\tH\x00R\x05error\x12'\n" +
 	"\x04eval\x18\x03 \x01(\v2\x13.macondo.EvaluationR\x04eval\x12\x17\n" +
-	"\agame_id\x18\x04 \x01(\tR\x06gameIdB\n" +
+	"\agame_id\x18\x04 \x01(\tR\x06gameId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x05 \x01(\tR\trequestIdB\n" +
 	"\n" +
 	"\bresponse\"\xe4\b\n" +
 	"\vPuzzleStats\x12!\n" +

@@ -172,6 +172,10 @@ message BotRequest {
 
   BotCode bot_type = 3;
   int32 millis_remaining = 4;
+  // Echoed in BotResponse.request_id, so the sender can tell which request a
+  // move answers and drop one that arrives after the game has moved on (a
+  // retried request answered twice, or a move that took too long).
+  string request_id = 5;
 }
 
 message EvaluationRequest {
@@ -201,6 +205,8 @@ message BotResponse {
   }
   Evaluation eval = 3;
   string game_id = 4;
+  // The request_id of the BotRequest this answers.
+  string request_id = 5;
 }
 
 // Puzzles
