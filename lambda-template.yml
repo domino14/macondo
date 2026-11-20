@@ -28,7 +28,7 @@ Resources:
       Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
           MACONDO_DATA_PATH: /mnt/data/data
-          MACONDO_NATS_URL: nats://10.0.0.251:4222
+          MACONDO_NATS_URL: nats://nats.woogles.io:4222
           MACONDO_TTABLE_MEM_FRACTION: 0.25
           MACONDO_KWG_PATH_PREFIX: 2024
           # Keep the lexicon files already on the EFS volume; only fetch missing ones.
