@@ -6,13 +6,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"strings"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -51,7 +51,7 @@ type Game struct {
 	board              *board.GameBoard
 	letterDistribution *tilemapping.LetterDistribution
 	bag                *tilemapping.Bag
-	customRNG          *frand.RNG // for deterministic bag draws
+	customRNG          *rand.Rand // for deterministic bag draws
 	seed               [32]byte   // the seed behind customRNG, if there is one
 	// pairedBag draws tiles from both ends of a fixed-order bag so that the
 	// same seed produces the same game twice. See pairedbag.go.
@@ -412,7 +412,7 @@ func (g *Game) StartGame() {
 // This should be called before StartGame() to ensure the bag is seeded when created.
 func (g *Game) SeedBag(seed [32]byte) {
 	// Create a seeded RNG and store it
-	g.customRNG = frand.NewCustom(seed[:], 0, 0)
+	g.customRNG = rand.New(rand.NewChaCha8(seed))
 	g.seed = seed
 	if g.bag != nil {
 		// StartGame builds a fresh bag and hands it this RNG, which covers the
@@ -1371,7 +1371,7 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 // and only then are the tiles drawn. Two copies of a position given equal
 // sources therefore deal the same rack, which is what lets a sim roll its
 // plays out against common luck. The bag keeps rng for its later draws.
-func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG) error {
+func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *rand.Rand) error {
 	return g.setRandomRackSeeded(playerIdx, knownRack, rng, 0)
 }
 
@@ -1382,7 +1382,7 @@ func (g *Game) SetRandomRackSeeded(playerIdx int, knownRack []tilemapping.Machin
 // rack once (some twice, when the tiles do not divide into racks), so the
 // mean of their results has less of the luck of the draw in it than as many
 // independent deals. The bag has to be in fixed-order mode, as a sim's is.
-func (g *Game) SetRandomRackCycled(playerIdx int, rng *frand.RNG, rotation int) error {
+func (g *Game) SetRandomRackCycled(playerIdx int, rng *rand.Rand, rotation int) error {
 	return g.setRandomRackSeeded(playerIdx, nil, rng, rotation)
 }
 
@@ -1396,7 +1396,7 @@ func (g *Game) BagCycleRotations(playerIdx int) int {
 	return (unseen + RackTileLimit - 1) / RackTileLimit
 }
 
-func (g *Game) setRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *frand.RNG, rotation int) error {
+func (g *Game) setRandomRackSeeded(playerIdx int, knownRack []tilemapping.MachineLetter, rng *rand.Rand, rotation int) error {
 	other := g.players[1-playerIdx].placeholderRack
 	n := g.RackFor(playerIdx).NoAllocTilesOn(other)
 	g.bag.PutBack(other[:n])

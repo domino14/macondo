@@ -29,7 +29,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
-	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
@@ -420,7 +419,7 @@ type Simmer struct {
 	// the game's RNG would let the number of sim iterations shift the tile
 	// order of the real game, and a paired game would stop matching its partner
 	// the moment the two bots simmed for different lengths.
-	rngs []*frand.RNG
+	rngs []*rand.Rand
 
 	wmp *wmppkg.WMP
 
@@ -687,7 +686,7 @@ func (s *Simmer) makeGameCopies() error {
 	// of it would move where a later exchange puts its tiles back, and only in
 	// whichever half of the pair happened to sim more.
 	order := s.origGame.Bag().Peek()
-	shuffle := frand.Shuffle
+	shuffle := rand.Shuffle
 	if s.rngs != nil {
 		shuffle = s.rngs[0].Shuffle
 	}
@@ -754,19 +753,19 @@ func (s *Simmer) makeGameCopies() error {
 // Mixing the turn number in matters: without it every sim in a game would
 // replay the same random stream. Mixing in the thread index keeps the threads
 // from sampling in lockstep.
-func (s *Simmer) makeRNGs() []*frand.RNG {
+func (s *Simmer) makeRNGs() []*rand.Rand {
 	seed := s.origGame.Seed()
 	if seed == ([32]byte{}) {
 		return nil
 	}
-	rngs := make([]*frand.RNG, s.threads)
+	rngs := make([]*rand.Rand, s.threads)
 	for i := range rngs {
 		var buf [48]byte
 		copy(buf[:32], seed[:])
 		binary.BigEndian.PutUint64(buf[32:40], uint64(s.origGame.Turn()))
 		binary.BigEndian.PutUint64(buf[40:48], uint64(i))
 		derived := sha256.Sum256(buf[:])
-		rngs[i] = frand.NewCustom(derived[:], 0, 0)
+		rngs[i] = rand.New(rand.NewChaCha8(derived))
 	}
 	return rngs
 }

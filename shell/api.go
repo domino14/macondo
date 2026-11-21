@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
@@ -209,7 +209,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
 	}
-	if frand.Intn(2) == 1 {
+	if rand.IntN(2) == 1 {
 		players[0], players[1] = players[1], players[0]
 	}
 

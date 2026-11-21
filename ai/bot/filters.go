@@ -2,11 +2,11 @@ package bot
 
 import (
 	"math"
+	"math/rand/v2"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -141,7 +141,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 	for _, play := range plays {
 		var err error
 		allowed := true
-		r := frand.Float64()
+		r := rand.Float64()
 
 		if play.Action() == move.MoveTypePlay {
 			mws, err = g.Board().FormedWords(play)

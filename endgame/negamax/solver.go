@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"runtime"
 	"slices"
 	"strings"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -1692,17 +1692,17 @@ aspirationLoop:
 					// do nothing, use original order
 				} else if t > 2 && t <= 7 {
 					// Shuffle the order of root nodes
-					frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
+					rand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
 						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
 					})
 				} else if t > 7 {
 					// A sort of restricted shuffle?
 					topfew := len(s.initialMoves[t]) / 3
 
-					frand.Shuffle(topfew, func(i, j int) {
+					rand.Shuffle(topfew, func(i, j int) {
 						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
 					})
-					frand.Shuffle(len(s.initialMoves[t])-topfew, func(i, j int) {
+					rand.Shuffle(len(s.initialMoves[t])-topfew, func(i, j int) {
 						s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
 					})
 				}

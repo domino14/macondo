@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"sort"
 	"sync"
 	"time"
@@ -28,7 +29,6 @@ import (
 	"github.com/domino14/macondo/triton"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 )
 
 type BotConfig struct {
@@ -347,7 +347,7 @@ type moveEval struct {
 // softmax distribution. Assume that moves are already sorted from
 // best to worst.
 func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.Move, error) {
-	return ChooseMoveWithExplorationRand(moves, temperature, frand.Float64)
+	return ChooseMoveWithExplorationRand(moves, temperature, rand.Float64)
 }
 
 // ChooseMoveWithExplorationRand is ChooseMoveWithExploration drawing its
