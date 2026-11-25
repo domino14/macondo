@@ -1,0 +1,44 @@
+name: Zig core
+
+on:
+  push:
+    branches:
+      - "*"
+    paths:
+      - "zigcore/**"
+      - ".github/workflows/zigcore.yml"
+
+jobs:
+  zigcore:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zigcore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Exactly the version pinned in zigcore/build.zig.zon.
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: zig fmt --check .
+
+      - name: Unit tests
+        run: zig build test --summary all
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Cross-check against the Go engine
+        env:
+          MACONDO_ZIG_ENGINE: ${{ github.workspace }}/zigcore/zig-out/bin/macondo-zig
+        run: go test -count=1 -v ./crosscheck/...

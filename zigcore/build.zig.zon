@@ -1,0 +1,12 @@
+.{
+    .name = .zigcore,
+    .version = "0.1.0",
+    // The pinned Zig version. CI uses exactly this one; see PLAN.md.
+    .minimum_zig_version = "0.17.1",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .fingerprint = 0x9b54ff8776d0941d,
+}

@@ -113,8 +113,8 @@ Runtime (cgo) or Triton (gRPC). Plan:
 Each step is done when its cross-check passes (see Testing). Check items off
 as they land.
 
-- [ ] **0. Scaffolding.** `zigcore/` with `build.zig`, pinned Zig version, CI
-      job, a `ucgi` binary that answers `ucgi` / `isready` / `quit`, and the
+- [x] **0. Scaffolding.** `zigcore/` with `build.zig`, pinned Zig version, CI
+      job, a `macondo-zig` binary that answers `ucgi` / `isready` / `quit`, and the
       Go cross-check harness skeleton (`zigcore/crosscheck`, a Go test
       package that starts the binary).
 - [ ] **1. Data and board.** Machine letters, letter distributions, racks,

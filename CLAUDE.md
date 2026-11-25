@@ -114,6 +114,12 @@ checklist) and `zigcore/UCGI.md` (the protocol) before working on it.
 - Do not remove or change the Go implementation of a module while porting
   it; the Go code is the reference.
 
+Commands (from `zigcore/`): `zig build` (engine binary at
+`zig-out/bin/macondo-zig`), `zig build test` (unit tests),
+`zig fmt --check .`, and from the repo root `go test ./zigcore/crosscheck/`
+(cross-checks; they skip if the binary isn't built, and use
+`MACONDO_ZIG_ENGINE` if set).
+
 ## Development Notes
 
 - Go 1.24+ required (see go.mod)

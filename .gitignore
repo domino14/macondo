@@ -40,3 +40,6 @@ data/strategy/default/models-bak*
 
 # Value nets are downloaded from Hugging Face (see README)
 data/strategy/default/models/
+# Zig core build output
+zigcore/zig-out/
+zigcore/.zig-cache/
