@@ -19,6 +19,8 @@ pub const leavemap = @import("leavemap.zig");
 pub const shadow = @import("shadow.zig");
 pub const wmp = @import("wmp.zig");
 pub const wmp_maker = @import("wmp_maker.zig");
+pub const wmp_movegen = @import("wmp_movegen.zig");
+pub const wordmap_gen = @import("wordmap_gen.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

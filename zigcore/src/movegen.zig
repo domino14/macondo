@@ -15,6 +15,8 @@ const move_mod = @import("move.zig");
 const equity = @import("equity.zig");
 const leavemap = @import("leavemap.zig");
 const shadow_mod = @import("shadow.zig");
+const wmp = @import("wmp.zig");
+const wmp_movegen = @import("wmp_movegen.zig");
 const Board = board_mod.Board;
 const Direction = board_mod.Direction;
 const Move = move_mod.Move;
@@ -75,7 +77,10 @@ pub const Generator = struct {
     rack_bits: u64 = 0,
     strip: [board_mod.max_dim]MachineLetter = undefined,
     exchange_strip: [rack_tile_limit]MachineLetter = undefined,
-    row: [board_mod.max_dim]CachedSquare = undefined,
+    /// The squares of the row being generated: row_buf, or a lane the
+    /// shadow pass loaded.
+    row: *[board_mod.max_dim]CachedSquare = undefined,
+    row_buf: [board_mod.max_dim]CachedSquare = undefined,
     out_of_memory: bool = false,
 
     // The best-play search (genBest).
@@ -86,6 +91,12 @@ pub const Generator = struct {
     best_eq: f64 = 0,
     have_best: bool = false,
     shadow: shadow_mod.State = .{},
+    /// The word map, if genBest is to use it (it must be for this board
+    /// size).
+    word_map: ?*const wmp.Wmp = null,
+    wmp_gen: wmp_movegen.MoveGen = .{},
+    /// The rack genBest started with.
+    full_rack: Rack = .{},
 
     pub fn init(gpa: Allocator, b: *Board, kwg: Kwg, ld: *const tiles.LetterDistribution) Generator {
         return .{ .gpa = gpa, .board = b, .kwg = kwg, .ld = ld };
@@ -106,6 +117,8 @@ pub const Generator = struct {
         self.out_of_memory = false;
         self.best_only = false;
         self.leave_map.initialized = false;
+        // Word-map generation leaves it at its last anchor's count.
+        self.tiles_played = 0;
 
         self.vertical = false;
         self.genByOrientation(rack, .horizontal);
@@ -137,24 +150,48 @@ pub const Generator = struct {
         self.shadow.tiles_in_bag = ctx.tiles_in_bag;
         self.shadow.opp_rack_score = ctx.opp_rack_score;
 
+        // The leave of every subset of the rack, and with it (when they
+        // are allowed) the exchanges, whose best is then a floor the
+        // anchors are measured against.
+        self.shadow.anchor_floor = -std.math.inf(f64);
         self.leave_map.init(rack);
         if (self.leave_map.initialized) {
-            leavemap.populate(&self.leave_map, rack, ctx.klv, ctx, &self.shadow.best_leaves);
+            self.full_rack = rack.*;
+            const visitor: ?leavemap.Visitor = if (add_exchange) .{ .ctx = self, .visit = visitExchange } else null;
+            leavemap.populateVisiting(&self.leave_map, rack, ctx.klv, ctx, &self.shadow.best_leaves, visitor);
         } else {
             shadow_mod.bestLeavesWithoutMap(&self.shadow);
+            if (add_exchange) self.genExchanges(rack, 0, 0);
         }
+        if (self.have_best) self.shadow.anchor_floor = self.best_eq;
+        // The word map needs the leave map's values for its subracks.
+        self.wmp_gen.init(self.ld, rack, if (self.leave_map.initialized) self.word_map else null);
+        if (self.wmp_gen.isActive()) self.wmp_gen.checkNonplaythroughExistence(ctx.tiles_in_bag > 0, &self.leave_map);
 
-        // The best exchange is a floor the anchors are measured against.
-        self.shadow.anchor_floor = -std.math.inf(f64);
-        if (add_exchange) {
-            self.genExchanges(rack, 0, 0);
-            if (self.have_best) self.shadow.anchor_floor = self.best_eq;
-        }
         shadow_mod.genShadow(self, rack);
         shadow_mod.recordFromAnchors(self, rack);
         if (!self.have_best or self.gen_pass) self.recordBest(Move.pass(), rack, null);
         if (self.out_of_memory) return error.OutOfMemory;
         return .{ .move = self.best, .equity = self.best_eq };
+    }
+
+    /// The exchange of everything but `leave`, recorded at the leave
+    /// map's subset `leave` with its value.
+    fn visitExchange(ctx: *anyopaque, leave: *const Rack, value: f64) void {
+        const self: *Generator = @ptrCast(@alignCast(ctx));
+        const n = self.full_rack.num_tiles - leave.num_tiles;
+        if (n == 0 or n > self.max_can_exchange) return;
+        const fast = !self.ctx.board_empty;
+        if (fast and self.have_best and value < self.best_eq) return;
+        var m: Move = .{ .kind = .exchange, .len = @intCast(n), .tiles_played = @intCast(n) };
+        var k: usize = 0;
+        for (self.full_rack.counts[0..self.ld.size], leave.counts[0..self.ld.size], 0..) |all, kept, ml| {
+            for (kept..all) |_| {
+                m.tiles[k] = @intCast(ml);
+                k += 1;
+            }
+        }
+        self.recordBest(m, leave, if (fast) value else null);
     }
 
     /// Keeps `m` if it beats the best move so far. `rack` holds the leave;
@@ -196,18 +233,26 @@ pub const Generator = struct {
     }
 
     pub fn loadRow(self: *Generator, row: usize, cs_dir: Direction) void {
+        self.row = &self.row_buf;
+        self.loadRowInto(self.row, row, cs_dir);
+    }
+
+    /// Reads row `row`'s squares, with the cross-sets of `cs_dir`, into
+    /// `dest`.
+    pub fn loadRowInto(self: *const Generator, dest: *[board_mod.max_dim]CachedSquare, row: usize, cs_dir: Direction) void {
         const b = self.board;
-        for (0..b.dim) |col| {
-            const sq = b.sqIdx(row, col);
-            const bonus = b.bonuses[sq];
-            self.row[col] = .{
-                .cross_set = b.cross_sets[@backingInt(cs_dir)][sq],
-                .left_ext = b.left_ext[@backingInt(cs_dir)][sq],
-                .cross_score = b.cross_scores[@backingInt(cs_dir)][sq],
+        const d = @backingInt(cs_dir);
+        var sq = b.sqIdx(row, 0);
+        for (dest[0..b.dim]) |*out| {
+            out.* = .{
+                .cross_set = b.cross_sets[d][sq],
+                .left_ext = b.left_ext[d][sq],
+                .cross_score = b.cross_scores[d][sq],
                 .letter = b.squares[sq],
-                .letter_mul = board_mod.letterMultiplier(bonus),
-                .word_mul = board_mod.wordMultiplier(bonus),
+                .letter_mul = b.letter_muls[sq],
+                .word_mul = b.word_muls[sq],
             };
+            sq += b.col_mul;
         }
     }
 
@@ -347,15 +392,21 @@ pub const Generator = struct {
         }
     }
 
-    fn recordPlay(self: *Generator, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
-        const len = rightstrip - leftstrip + 1;
-        if (len < 2) return;
+    pub fn recordPlay(self: *Generator, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
         var fast_eq: ?f64 = null;
         if (self.best_only) {
             fast_eq = self.fastEquity(score);
             // Turned away before the move is built.
             if (fast_eq) |eq| if (self.have_best and eq < self.best_eq) return;
         }
+        self.recordPlayWithEquity(rack, leftstrip, rightstrip, score, fast_eq);
+    }
+
+    /// recordPlay with the play's equity already worked out from the leave
+    /// map (null for one that must be valued in full).
+    pub fn recordPlayWithEquity(self: *Generator, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32, fast_eq: ?f64) void {
+        const len = rightstrip - leftstrip + 1;
+        if (len < 2) return;
         var m: Move = .{
             .kind = .play,
             .vertical = self.vertical,
@@ -372,7 +423,7 @@ pub const Generator = struct {
 
     /// Every distinct exchange (by tile counts). Port of andy-k's
     /// generateExchangeMoves.
-    fn genExchanges(self: *Generator, rack: *Rack, ml_in: usize, strip_idx_in: usize) void {
+    pub fn genExchanges(self: *Generator, rack: *Rack, ml_in: usize, strip_idx_in: usize) void {
         var ml = ml_in;
         var strip_idx = strip_idx_in;
         const size = self.ld.size;
@@ -610,6 +661,12 @@ test "best play agrees with the full move list" {
         var p: position_mod.Position = try testdata.position(&store, text);
         var gen = Generator.init(testing.allocator, &p.board, p.lexicon.kwg, p.dist);
         defer gen.deinit();
+        // With the lexicon's word map too, if it has been made.
+        var name_buf: [64]u8 = undefined;
+        const wmp_bytes: ?[]align(4) u8 = testdata.loadFile(try std.fmt.bufPrint(&name_buf, "lexica/{s}.wmp", .{p.lexiconName()})) catch null;
+        defer if (wmp_bytes) |b| testing.allocator.free(b);
+        var word_map: ?wmp.Wmp = if (wmp_bytes) |b| try wmp.Wmp.init(testing.allocator, b) else null;
+        defer if (word_map) |*w| w.deinit(testing.allocator);
 
         // The tiles not on the board.
         var pool: [200]MachineLetter = undefined;
@@ -648,13 +705,21 @@ test "best play agrees with the full move list" {
             };
             const ex = exchangeRules(bag + opp.num_tiles, "NWL20");
             gen.max_can_exchange = ex.max;
-            const got = try gen.genBest(&rack, ex.allowed, &ctx);
+            gen.word_map = null;
+            const got_kwg = try gen.genBest(&rack, ex.allowed, &ctx);
+            gen.word_map = if (word_map) |*w| w else null;
+            const got = if (word_map != null) try gen.genBest(&rack, ex.allowed, &ctx) else got_kwg;
+            gen.word_map = null;
             const want = try bruteBest(&gen, &rack, ex.allowed, &ctx);
-            if (!sameMove(&got.move, &want.move) or got.equity != want.equity) {
-                var buf: [64]u8 = undefined;
+            if (!sameMove(&got_kwg.move, &want.move) or got_kwg.equity != want.equity or
+                !sameMove(&got.move, &want.move) or got.equity != want.equity)
+            {
+                var buf: [128]u8 = undefined;
                 var w: std.Io.Writer = .fixed(&buf);
+                try got_kwg.move.format(p.dist, &w);
+                try w.print(" {d}, word map ", .{got_kwg.equity});
                 try got.move.format(p.dist, &w);
-                try w.print(" {d} vs ", .{got.equity});
+                try w.print(" {d}, all moves ", .{got.equity});
                 try want.move.format(p.dist, &w);
                 try w.print(" {d}", .{want.equity});
                 std.debug.print("{s} rack {d}: best {s}\n", .{ text, i, w.buffered() });

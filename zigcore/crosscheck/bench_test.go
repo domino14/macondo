@@ -14,6 +14,8 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/wmp"
 )
 
 var (
@@ -21,6 +23,7 @@ var (
 		"file of positions (one CGP per line): written by TestWritePositions, timed by BenchmarkStatic")
 	positionsLexicon = flag.String("crosscheck.lexicon", "NWL23", "lexicon of the positions TestWritePositions writes")
 	positionsGames   = flag.Int("crosscheck.posgames", 100, "games TestWritePositions plays")
+	benchWMP         = flag.Bool("crosscheck.wmp", false, "BenchmarkStatic uses the lexicon's word map")
 )
 
 // TestWritePositions writes every position of games the Go static player
@@ -87,7 +90,15 @@ func BenchmarkStatic(b *testing.B) {
 	var positions []pos
 	for _, line := range strings.Split(strings.TrimSpace(string(text)), "\n") {
 		g := parseCGP(b, cfg, line)
-		positions = append(positions, pos{g, staticPlayer(b, cfg, g)})
+		p := staticPlayer(b, cfg, g)
+		if *benchWMP {
+			w, err := wmp.EnsureWMP(cfg.WGLConfig(), g.LexiconName())
+			if err != nil {
+				b.Fatal(err)
+			}
+			p.MoveGenerator().(*movegen.GordonGenerator).SetWMP(w)
+		}
+		positions = append(positions, pos{g, p})
 	}
 	sum := 0.0
 	for _, ps := range positions {

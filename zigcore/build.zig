@@ -42,13 +42,16 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the UCGI engine on stdio");
     run_step.dependOn(&run_cmd.step);
 
-    // Times the best-move search on a file of positions.
+    // Times the best-move search on a file of positions. Linking libc lets
+    // preloading profilers (gprofng) see inside it.
+    const bench_libc = b.option(bool, "bench-libc", "Link the bench tool against libc, for profilers") orelse false;
     const bench = b.addExecutable(.{
         .name = "macondo-zig-bench",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/bench.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = bench_libc,
             .imports = &.{
                 .{ .name = "macondo", .module = core },
             },

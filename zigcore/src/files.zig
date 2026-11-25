@@ -17,7 +17,7 @@ pub const Files = struct {
         const self: *Files = @ptrCast(@alignCast(ctx));
         const path = try std.fs.path.join(gpa, &.{ data_path, rel_path });
         defer gpa.free(path);
-        return Io.Dir.cwd().readFileAllocOptions(self.io, path, gpa, .unlimited, .of(u32), null) catch |err| switch (err) {
+        return readAll(self.io, gpa, path) catch |err| switch (err) {
             error.FileNotFound => error.FileNotFound,
             error.OutOfMemory => error.OutOfMemory,
             else => {
@@ -25,5 +25,17 @@ pub const Files = struct {
                 return error.ReadFailed;
             },
         };
+    }
+
+    /// The whole file, read into one allocation of its size (word maps run
+    /// to hundreds of MB: no growing buffer).
+    fn readAll(io: Io, gpa: std.mem.Allocator, path: []const u8) ![]align(4) u8 {
+        const file = try Io.Dir.cwd().openFile(io, path, .{});
+        defer file.close(io);
+        const size = try file.length(io);
+        const buf = try gpa.alignedAlloc(u8, .of(u32), @intCast(size));
+        errdefer gpa.free(buf);
+        if (try file.readPositionalAll(io, buf, 0) != size) return error.ReadFailed;
+        return buf;
     }
 };

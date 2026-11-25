@@ -14,6 +14,8 @@ const board_mod = @import("board.zig");
 const movegen = @import("movegen.zig");
 const equity = @import("equity.zig");
 const leavemap = @import("leavemap.zig");
+const wmp_movegen = @import("wmp_movegen.zig");
+const wordmap_gen = @import("wordmap_gen.zig");
 const Generator = movegen.Generator;
 const Direction = board_mod.Direction;
 const MachineLetter = tiles.MachineLetter;
@@ -28,6 +30,14 @@ pub const Anchor = struct {
     col: u8,
     last_anchor_col: u8,
     dir: Direction,
+    // A word-map anchor (one per square and (playthrough blocks, tiles to
+    // play)) has tiles_to_play > 0; see wmp_movegen.AnchorSlot.
+    tiles_to_play: u8 = 0,
+    playthrough_blocks: u8 = 0,
+    word_length: u8 = 0,
+    leftmost_start_col: u8 = 0,
+    rightmost_start_col: u8 = 0,
+    score_bases: [wmp_movegen.score_base_count]i32 = .{ 0, 0 },
 };
 
 /// The anchors of a generation, handed out highest bound first. What is
@@ -60,12 +70,21 @@ pub const AnchorHeap = struct {
         self.keys.clearRetainingCapacity();
     }
 
+    /// Children per node: a 4-ary heap is half as deep as a binary one, and
+    /// a node's best child is picked from the four with no branch on the
+    /// comparisons (MAGPIE's anchor heap). The slots past the last key hold
+    /// sentinels (0, below every key) for the sifts to read.
+    const arity = 4;
+
     fn heapifyAll(self: *AnchorHeap, gpa: std.mem.Allocator) error{OutOfMemory}!void {
         const n = self.anchors.items.len;
         std.debug.assert(n <= idx_mask + 1);
-        try self.keys.resize(gpa, n);
+        try self.keys.ensureTotalCapacity(gpa, n + arity);
+        self.keys.items.len = n;
         for (self.anchors.items, self.keys.items, 0..) |a, *k, i| k.* = key(a.highest_equity) | i;
-        var i = n / 2;
+        @memset(self.keys.allocatedSlice()[n .. n + arity], 0);
+        if (n < 2) return;
+        var i = (n - 2) / arity + 1;
         while (i > 0) {
             i -= 1;
             self.heapifyDown(i);
@@ -73,27 +92,35 @@ pub const AnchorHeap = struct {
     }
 
     fn heapifyDown(self: *AnchorHeap, start: usize) void {
-        const keys = self.keys.items;
-        const n = keys.len;
-        var parent = start;
-        const k = keys[parent];
+        const keys = self.keys.allocatedSlice();
+        const n = self.keys.items.len;
+        const k = keys[start];
+        var hole = start;
         while (true) {
-            var child = parent * 2 + 1;
-            if (child >= n) break;
-            if (child + 1 < n and keys[child + 1] > keys[child]) child += 1;
-            if (keys[child] <= k) break;
-            keys[parent] = keys[child];
-            parent = child;
+            const first = hole * arity + 1;
+            if (first >= n) break;
+            const c = keys[first..][0..arity];
+            const pick01: usize = @intFromBool(c[1] > c[0]);
+            const best01 = @max(c[0], c[1]);
+            const pick23: usize = @intFromBool(c[3] > c[2]);
+            const best23 = @max(c[2], c[3]);
+            const high = best23 > best01;
+            const best = @max(best01, best23);
+            if (best <= k) break;
+            const child = first + if (high) 2 + pick23 else pick01;
+            keys[hole] = keys[child];
+            hole = child;
         }
-        keys[parent] = k;
+        keys[hole] = k;
     }
 
     /// Removes the anchor with the highest key; returns it with its key.
     fn extractMax(self: *AnchorHeap) struct { anchor: *const Anchor, key: u64 } {
-        const keys = self.keys.items;
+        const keys = self.keys.allocatedSlice();
         const max = keys[0];
-        const n = keys.len - 1;
+        const n = self.keys.items.len - 1;
         keys[0] = keys[n];
+        keys[n] = 0;
         self.keys.items.len = n;
         if (n > 0) self.heapifyDown(0);
         return .{ .anchor = &self.anchors.items[@intCast(max & idx_mask)], .key = max };
@@ -128,6 +155,7 @@ pub const State = struct {
     max_tiles_to_play: u32 = 0,
 
     full_rack_desc_tile_scores: [rack_tile_limit]i32 = @splat(0),
+    rack_tile_score_sum: i32 = 0,
     desc_tile_scores: [rack_tile_limit]i32 = @splat(0),
     desc_tile_scores_copy: [rack_tile_limit]i32 = @splat(0),
 
@@ -156,6 +184,10 @@ pub const State = struct {
     /// The non-score part of the bound, by tiles played (see
     /// setShadowEquities).
     equity_by_tiles_played: [rack_tile_limit + 1]f64 = undefined,
+    /// The same for plays through no board tile, with the word map: only
+    /// leaves whose played tiles make a word count. Word-map leave values
+    /// come from the leave map and so have the pre-endgame adjustment.
+    nonplaythrough_equity_by_tiles_played: [rack_tile_limit + 1]f64 = undefined,
 
     pub fn deinit(self: *State, gpa: std.mem.Allocator) void {
         self.heap.deinit(gpa);
@@ -192,6 +224,13 @@ pub fn bestLeavesWithoutMap(s: *State) void {
 fn initShadow(gen: *Generator, rack: *const Rack) void {
     const s = &gen.shadow;
     s.heap.reset();
+    // Room for every anchor there can be, so appends never allocate: one
+    // per square and direction, or with the word map one per square,
+    // direction and (playthrough blocks, tiles to play).
+    const per_square: usize = if (gen.wmp_gen.isActive()) wmp_movegen.max_anchors else 1;
+    s.heap.anchors.ensureTotalCapacity(gen.gpa, 2 * gen.board.dim * gen.board.dim * per_square) catch {
+        gen.out_of_memory = true;
+    };
     s.rack_cross_set = 0;
     s.num_letters_on_rack = rack.num_tiles;
     var n: usize = 0;
@@ -208,7 +247,14 @@ fn initShadow(gen: *Generator, rack: *const Rack) void {
     }
     @memset(s.full_rack_desc_tile_scores[n..], 0);
     std.mem.sort(i32, s.full_rack_desc_tile_scores[0..n], {}, std.sort.desc(i32));
+    s.rack_tile_score_sum = 0;
+    for (s.full_rack_desc_tile_scores[0..n]) |t| s.rack_tile_score_sum += t;
     setShadowEquities(s, gen.ctx);
+    if (gen.wmp_gen.isActive() and s.tiles_in_bag > 0) {
+        for (0..s.num_letters_on_rack + 1) |tp| {
+            s.nonplaythrough_equity_by_tiles_played[tp] = gen.wmp_gen.best_leave_values[s.num_letters_on_rack - tp];
+        }
+    }
 }
 
 /// The non-score part of the bound depends only on how many tiles a play
@@ -248,18 +294,27 @@ pub fn genShadow(gen: *Generator, rack: *const Rack) void {
     inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, lane| {
         if (dir == .vertical) gen.board.transpose();
         gen.vertical = dir == .vertical;
+        const anchors = &gen.board.anchors[@backingInt(dir)];
         for (0..dim) |row| {
-            if (!rowHasAnchor(gen, row, dir)) continue;
+            // The row's anchors as a mask: one branch per anchor rather
+            // than per square.
+            var mask: u32 = 0;
+            var sq = gen.board.sqIdx(row, 0);
+            for (0..dim) |col| {
+                mask |= @as(u32, @intFromBool(anchors[sq])) << @intCast(col);
+                sq += gen.board.col_mul;
+            }
+            if (mask == 0) continue;
             gen.cur_row = row;
             gen.last_anchor_col = 100;
-            gen.loadRow(row, dir.other());
-            gen.shadow.lanes[lane][row] = gen.row;
-            for (0..dim) |col| {
-                if (gen.board.isAnchor(row, col, dir)) {
-                    playForAnchor(gen, row, col, gen.last_anchor_col, dir);
-                    gen.last_anchor_col = col;
-                    if (gen.board.hasLetter(row, col)) gen.last_anchor_col += 1;
-                }
+            // Loaded where the recording pass will look for it.
+            gen.row = &gen.shadow.lanes[lane][row];
+            gen.loadRowInto(gen.row, row, dir.other());
+            while (mask != 0) : (mask &= mask - 1) {
+                const col: usize = @ctz(mask);
+                if (gen.wmp_gen.isActive()) playForAnchor(gen, row, col, gen.last_anchor_col, dir, true) else playForAnchor(gen, row, col, gen.last_anchor_col, dir, false);
+                gen.last_anchor_col = col;
+                if (gen.row[col].letter != 0) gen.last_anchor_col += 1;
             }
         }
         if (dir == .vertical) gen.board.transpose();
@@ -269,14 +324,7 @@ pub fn genShadow(gen: *Generator, rack: *const Rack) void {
     };
 }
 
-fn rowHasAnchor(gen: *const Generator, row: usize, dir: Direction) bool {
-    for (0..gen.board.dim) |col| {
-        if (gen.board.isAnchor(row, col, dir)) return true;
-    }
-    return false;
-}
-
-fn playForAnchor(gen: *Generator, row: usize, col: usize, last_anchor_col: usize, dir: Direction) void {
+fn playForAnchor(gen: *Generator, row: usize, col: usize, last_anchor_col: usize, dir: Direction, comptime W: bool) void {
     const s = &gen.shadow;
     const cs_dir = dir.other();
     s.left_col = col;
@@ -297,21 +345,49 @@ fn playForAnchor(gen: *Generator, row: usize, col: usize, last_anchor_col: usize
     s.max_tiles_to_play = 0;
     gen.tiles_played = 0;
     gen.cur_anchor_col = col;
+    const wmp_active = W;
+    if (wmp_active) {
+        gen.wmp_gen.resetPlaythrough();
+        gen.wmp_gen.resetAnchors();
+    }
 
     s.num_restricted = 0;
     const orig_rack_cross_set = s.rack_cross_set;
     const cur = gen.row[col].letter;
     if (cur == 0) {
-        startNonplaythrough(gen, dir);
+        startNonplaythrough(gen, dir, W);
     } else {
-        startPlaythrough(gen, last_anchor_col, cur, dir);
+        startPlaythrough(gen, last_anchor_col, cur, dir, W);
     }
     s.unrestrictTo(0);
     s.rack_cross_set = orig_rack_cross_set;
 
-    if (s.max_tiles_to_play == 0) return;
-    if (s.highest_equity >= s.anchor_floor) {
-        s.heap.anchors.append(gen.gpa, .{
+    if (wmp_active) {
+        // One anchor per (playthrough blocks, tiles to play) the square
+        // had placements for.
+        for (gen.wmp_gen.dirtyAnchors()) |idx| {
+            const a = &gen.wmp_gen.anchors[idx];
+            // None of its plays could reach the best exchange.
+            if (a.highest_equity < s.anchor_floor) continue;
+            s.heap.anchors.appendBounded(.{
+                .highest_equity = a.highest_equity,
+                .highest_score = a.highest_score,
+                .row = @intCast(row),
+                .col = @intCast(col),
+                .last_anchor_col = @intCast(last_anchor_col),
+                .dir = dir,
+                .tiles_to_play = a.tiles_to_play,
+                .playthrough_blocks = a.playthrough_blocks,
+                .word_length = a.word_length,
+                .leftmost_start_col = a.leftmost_start_col,
+                .rightmost_start_col = a.rightmost_start_col,
+                .score_bases = a.score_bases,
+            }) catch {
+                gen.out_of_memory = true;
+            };
+        }
+    } else if (s.max_tiles_to_play > 0 and s.highest_equity >= s.anchor_floor) {
+        s.heap.anchors.appendBounded(.{
             .highest_equity = s.highest_equity,
             .highest_score = s.highest_score,
             .row = @intCast(row),
@@ -324,7 +400,7 @@ fn playForAnchor(gen: *Generator, row: usize, col: usize, last_anchor_col: usize
     }
 }
 
-fn startNonplaythrough(gen: *Generator, dir: Direction) void {
+fn startNonplaythrough(gen: *Generator, dir: Direction, comptime W: bool) void {
     const s = &gen.shadow;
     const col = s.left_col;
     const sq = gen.row[col];
@@ -341,19 +417,21 @@ fn startNonplaythrough(gen: *Generator, dir: Direction) void {
     if (!tryRestrict(gen, possible, lm, wm, col, is_cross_word)) insertUnrestricted(gen, col, lm, wm, is_cross_word);
     gen.tiles_played += 1;
     // One-tile plays are recorded horizontally only.
-    if (dir == .horizontal) record(gen);
+    if (dir == .horizontal) record(gen, W);
 
     s.word_multiplier = wm;
     maybeRecalcEffMuls(gen);
-    nonplaythroughPlayLeft(gen, dir == .horizontal);
+    nonplaythroughPlayLeft(gen, dir == .horizontal, W);
 }
 
-fn startPlaythrough(gen: *Generator, last_anchor_col: usize, first: MachineLetter, dir: Direction) void {
+fn startPlaythrough(gen: *Generator, last_anchor_col: usize, first: MachineLetter, dir: Direction, comptime W: bool) void {
     const s = &gen.shadow;
     var cur = first;
     // The tiles already on the board to the left.
+    const wmp_active = W;
     while (true) {
         s.mainword_restricted_score += gen.ld.score(cur);
+        if (wmp_active) gen.wmp_gen.addPlaythroughLetter(tiles.unblank(cur));
         if (s.left_col == 0 or s.left_col == last_anchor_col + 1) break;
         s.left_col -= 1;
         cur = gen.row[s.left_col].letter;
@@ -362,13 +440,15 @@ fn startPlaythrough(gen: *Generator, last_anchor_col: usize, first: MachineLette
             break;
         }
     }
-    playthroughPlayLeft(gen, dir == .horizontal);
+    // One block of board tiles.
+    if (wmp_active) gen.wmp_gen.incrementPlaythroughBlocks();
+    playthroughPlayLeft(gen, dir == .horizontal, W);
 }
 
-fn nonplaythroughPlayLeft(gen: *Generator, is_unique: bool) void {
+fn nonplaythroughPlayLeft(gen: *Generator, is_unique: bool, comptime W: bool) void {
     const s = &gen.shadow;
     while (true) {
-        if (s.rackPossible(s.anchor_right_ext) != 0) playRight(gen, is_unique);
+        if (s.rackPossible(s.anchor_right_ext) != 0) playRight(gen, is_unique, W);
         s.anchor_right_ext = trivial;
 
         if (s.left_col == 0 or s.left_col == gen.last_anchor_col + 1 or gen.tiles_played >= s.num_letters_on_rack) return;
@@ -387,15 +467,15 @@ fn nonplaythroughPlayLeft(gen: *Generator, is_unique: bool) void {
         s.perp_additional_score += cs * wm;
         s.word_multiplier *= wm;
         if (!tryRestrict(gen, possible, lm, wm, s.left_col, is_cross_word)) insertUnrestricted(gen, s.left_col, lm, wm, is_cross_word);
-        record(gen);
+        record(gen, W);
     }
 }
 
-fn playthroughPlayLeft(gen: *Generator, is_unique_in: bool) void {
+fn playthroughPlayLeft(gen: *Generator, is_unique_in: bool, comptime W: bool) void {
     const s = &gen.shadow;
     var is_unique = is_unique_in;
     while (true) {
-        if (s.rackPossible(s.anchor_right_ext) != 0) playRight(gen, is_unique);
+        if (s.rackPossible(s.anchor_right_ext) != 0) playRight(gen, is_unique, W);
         s.anchor_right_ext = trivial;
 
         const possible_left = s.rackPossible(s.anchor_left_ext);
@@ -417,13 +497,13 @@ fn playthroughPlayLeft(gen: *Generator, is_unique_in: bool) void {
         s.word_multiplier *= wm;
         if (!tryRestrict(gen, possible, lm, wm, s.left_col, is_cross_word)) insertUnrestricted(gen, s.left_col, lm, wm, is_cross_word);
         if (sq.cross_set == trivial) is_unique = true;
-        if (gen.tiles_played > 0 and (is_unique or gen.tiles_played > 1)) record(gen);
+        if (gen.tiles_played > 0 and (is_unique or gen.tiles_played > 1)) record(gen, W);
     }
 }
 
 /// Extends to the right of the current extent: over empty squares, each
 /// time taking in the tiles already on the board right after.
-fn playRight(gen: *Generator, is_unique_in: bool) void {
+fn playRight(gen: *Generator, is_unique_in: bool, comptime W: bool) void {
     const s = &gen.shadow;
     var is_unique = is_unique_in;
 
@@ -442,6 +522,8 @@ fn playRight(gen: *Generator, is_unique_in: bool) void {
     var saved_tile_scores = false;
     var changed_muls = false;
     var last_word_mul_at_save: i32 = 0;
+    const wmp_active = W;
+    var saved_playthrough = false;
 
     const dim = gen.board.dim;
     while (s.right_col < dim - 1 and gen.tiles_played < s.num_letters_on_rack) {
@@ -476,16 +558,27 @@ fn playRight(gen: *Generator, is_unique_in: bool) void {
         if (sq.cross_set == trivial) is_unique = true;
 
         // The tiles on the board right after.
+        var found_playthrough = false;
         while (s.right_col + 1 < dim) {
             const next = gen.row[s.right_col + 1].letter;
             if (next == 0) break;
+            found_playthrough = true;
+            if (wmp_active) {
+                if (!saved_playthrough) {
+                    // To go back to where shadowing left got to.
+                    gen.wmp_gen.savePlaythroughState();
+                    saved_playthrough = true;
+                }
+                gen.wmp_gen.addPlaythroughLetter(tiles.unblank(next));
+            }
             s.mainword_restricted_score += gen.ld.score(next);
             s.right_col += 1;
         }
+        if (wmp_active and found_playthrough) gen.wmp_gen.incrementPlaythroughBlocks();
 
         if (gen.tiles_played > 0 and (is_unique or gen.tiles_played > 1)) {
             maybeRecalcEffMuls(gen);
-            record(gen);
+            record(gen, W);
         }
     }
 
@@ -503,6 +596,7 @@ fn playRight(gen: *Generator, is_unique_in: bool) void {
     }
     s.right_col = orig_right_col;
     gen.tiles_played = orig_tiles_played;
+    if (saved_playthrough) gen.wmp_gen.restorePlaythroughState();
     maybeRecalcEffMuls(gen);
 }
 
@@ -510,14 +604,44 @@ fn playRight(gen: *Generator, is_unique_in: bool) void {
 /// tiles, the restricted ones where they go, and the rest of the equity at
 /// its best for this many tiles played. Keeps the highest seen for the
 /// anchor.
-fn record(gen: *Generator) void {
+fn record(gen: *Generator, comptime W: bool) void {
     const s = &gen.shadow;
+    // With the word map: a placement of the whole rack through board tiles
+    // must make a word with them, and one through none must have some
+    // subrack of its size that makes a word.
+    const wmp_active = W;
+    var use_wmp_leaves = false;
+    if (wmp_active) {
+        const w = &gen.wmp_gen;
+        if (w.hasPlaythrough()) {
+            if (gen.tiles_played == s.num_letters_on_rack and !w.checkPlaythroughFullRackExistence()) return;
+        } else if (gen.tiles_played >= @import("wmp.zig").minimum_word_length) {
+            if (!w.wordOfLengthExists(gen.tiles_played)) return;
+            use_wmp_leaves = s.tiles_in_bag > 0;
+        }
+    }
     var tiles_played_score: i32 = 0;
     for (s.desc_tile_scores, s.desc_eff_letter_muls) |t, m| tiles_played_score += t * m;
     const bingo: i32 = if (gen.tiles_played == rack_tile_limit) movegen.bingo_bonus else 0;
     const score = tiles_played_score + s.mainword_restricted_score * s.word_multiplier + s.perp_additional_score + bingo;
 
-    const eq = @as(f64, @floatFromInt(score)) + s.equity_by_tiles_played[gen.tiles_played];
+    const rest = if (use_wmp_leaves) s.nonplaythrough_equity_by_tiles_played[gen.tiles_played] else s.equity_by_tiles_played[gen.tiles_played];
+    const eq = @as(f64, @floatFromInt(score)) + rest;
+
+    if (wmp_active) {
+        const word_length = gen.wmp_gen.num_played_through + gen.tiles_played;
+        if (word_length >= @import("wmp.zig").minimum_word_length) {
+            // The tiles this bound places: the rack's, less those past its
+            // unrestricted squares' multipliers.
+            var shadow_tile_score_sum = s.rack_tile_score_sum;
+            for (s.num_unrestricted_muls..rack_tile_limit) |i| shadow_tile_score_sum -= s.desc_tile_scores[i];
+            const smallest_mul: i32 = if (s.num_unrestricted_muls > 0) s.desc_eff_letter_muls[s.num_unrestricted_muls - 1] else wmp_movegen.score_base_count;
+            gen.wmp_gen.recordPlacement(gen.tiles_played, word_length, s.left_col, score, eq, shadow_tile_score_sum, smallest_mul);
+        }
+        // Word-map anchors are the slots; the square's own maxima below
+        // are for the GADDAG generator's one anchor per square.
+        return;
+    }
 
     if (eq > s.highest_equity) s.highest_equity = eq;
     if (score > s.highest_score) s.highest_score = score;
@@ -638,12 +762,17 @@ pub fn recordFromAnchors(gen: *Generator, rack: *Rack) void {
         gen.cur_anchor_col = a.col;
         gen.last_anchor_col = a.last_anchor_col;
         if (loaded == null or loaded.?.row != a.row or loaded.?.dir != a.dir) {
-            gen.row = s.lanes[@intFromBool(need_transposed)][a.row];
+            gen.row = &s.lanes[@intFromBool(need_transposed)][a.row];
             loaded = .{ .row = a.row, .dir = a.dir };
         }
-        gen.genForAnchor(rack);
+        if (a.tiles_to_play > 0) {
+            wordmap_gen.gen(gen, rack, a);
+        } else {
+            gen.genForAnchor(rack);
+        }
     }
     if (transposed) gen.board.transpose();
+    gen.tiles_played = 0;
 }
 
 // Tests ----------------------------------------------------------------------
@@ -751,4 +880,102 @@ test "shadow score bounds" {
         .{ addle, "L", &.{ 17, 17, 16, 14, 10, 9 } },           .{ magpies, "SS", &.{15} },
     };
     for (cases) |c| try expectShadow(c[0], c[1], c[2]);
+}
+
+// Word-map shadow tests, ported from movegen/wmp_shadow_test.go (MAGPIE's
+// test/shadow_test.c): scores only, best first, as Go's RunShadowOnlyWMP.
+
+fn shadowOnlyWmp(cgp_text: []const u8, rack_text: []const u8) ![]Anchor {
+    const wmp = @import("wmp.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    var p = try testdata.position(&store, cgp_text);
+    const bytes = try testdata.loadFile("lexica/CSW21.wmp");
+    defer testing.allocator.free(bytes);
+    var w = try wmp.Wmp.init(testing.allocator, bytes);
+    defer w.deinit(testing.allocator);
+
+    var mls: [8]MachineLetter = undefined;
+    const rack: Rack = .fromLetters(mls[0..try p.dist.toMachineLetters(rack_text, &mls)]);
+    var gen = Generator.init(testing.allocator, &p.board, p.lexicon.kwg, p.dist);
+    defer gen.deinit();
+    const ctx: equity.Context = .{ .ld = p.dist, .klv = null, .board_dim = p.board.dim, .board_empty = false, .tiles_in_bag = 100, .opp_rack_score = 0 };
+    gen.ctx = &ctx;
+    gen.shadow.tiles_in_bag = 100;
+    gen.shadow.best_leaves = @splat(0);
+    gen.shadow.anchor_floor = -std.math.inf(f64);
+    gen.leave_map.init(&rack);
+    gen.leave_map.values = @splat(0);
+    gen.wmp_gen.init(p.dist, &rack, &w);
+    gen.wmp_gen.checkNonplaythroughExistence(false, &gen.leave_map);
+    genShadow(&gen, &rack);
+    if (gen.out_of_memory) return error.OutOfMemory;
+    var out: std.ArrayList(Anchor) = .empty;
+    errdefer out.deinit(testing.allocator);
+    while (gen.shadow.heap.keys.items.len > 0) try out.append(testing.allocator, gen.shadow.heap.extractMax().anchor.*);
+    if (out.items.len > 1) {
+        for (1..out.items.len) |i| try testing.expect(out.items[i].highest_equity <= out.items[i - 1].highest_equity);
+    }
+    return out.toOwnedSlice(testing.allocator);
+}
+
+const Want = struct { score: i32, tiles: u8, blocks: u8 = 0 };
+
+fn expectWmpAnchors(anchors: []const Anchor, want: []const Want) !void {
+    for (want, anchors[0..want.len]) |w, a| {
+        try testing.expectEqual(w.score, a.highest_score);
+        try testing.expectEqual(w.tiles, a.tiles_to_play);
+        try testing.expectEqual(w.blocks, a.playthrough_blocks);
+    }
+}
+
+test "word-map shadow, nonplaythrough existence" {
+    const empty21 = "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex CSW21;";
+    // MUZJIKS: an anchor for each length 2 to 7, all at the centre.
+    const muzjiks = try shadowOnlyWmp(empty21, "MUZJIKS");
+    defer testing.allocator.free(muzjiks);
+    try testing.expectEqual(6, muzjiks.len);
+    try expectWmpAnchors(muzjiks, &.{ .{ .score = 128, .tiles = 7 }, .{ .score = 76, .tiles = 6 }, .{ .score = 74, .tiles = 5 }, .{ .score = 52, .tiles = 4 }, .{ .score = 46, .tiles = 3 }, .{ .score = 36, .tiles = 2 } });
+    for (muzjiks) |a| {
+        try testing.expect(a.row == 7 and a.col == 7 and a.dir == .horizontal);
+    }
+    // TRONGLE: no seven.
+    const trongle = try shadowOnlyWmp(empty21, "TRONGLE");
+    defer testing.allocator.free(trongle);
+    try testing.expectEqual(5, trongle.len);
+    try expectWmpAnchors(trongle, &.{ .{ .score = 18, .tiles = 6 }, .{ .score = 16, .tiles = 5 }, .{ .score = 10, .tiles = 4 }, .{ .score = 8, .tiles = 3 }, .{ .score = 6, .tiles = 2 } });
+    // VVWWXYZ: nothing.
+    const none = try shadowOnlyWmp(empty21, "VVWWXYZ");
+    defer testing.allocator.free(none);
+    try testing.expectEqual(0, none.len);
+}
+
+test "word-map shadow, playthrough bingo existence" {
+    const qi_qis_board = "15/15/15/15/15/15/15/6QI7/6I8/6S8/15/15/15/15/15 / 0/0 0 lex CSW21;";
+    // FRUITED: f9 UFTRIDE for 88, down column 8 from row 5.
+    const fruited = try shadowOnlyWmp(qi_qis_board, "FRUITED");
+    defer testing.allocator.free(fruited);
+    try testing.expectEqual(46, fruited.len);
+    try expectWmpAnchors(fruited, &.{.{ .score = 88, .tiles = 7 }});
+    // Vertical anchors are in transposed coordinates: column F is row 5.
+    try testing.expect(fruited[0].dir == .vertical and fruited[0].row == 5 and fruited[0].col == 8);
+    // AOUNS??: 8g (QI)NghAOSU for 101.
+    const aouns = try shadowOnlyWmp(qi_qis_board, "AOUNS??");
+    defer testing.allocator.free(aouns);
+    try testing.expectEqual(56, aouns.len);
+    try expectWmpAnchors(aouns, &.{.{ .score = 101, .tiles = 7, .blocks = 1 }});
+    try testing.expect(aouns[0].dir == .horizontal and aouns[0].row == 7 and aouns[0].col == 7);
+}
+
+test "word-map shadow, one tile" {
+    // QI across with an I under the Q: D makes (I)D across and D(I) down.
+    const anchors = try shadowOnlyWmp("15/15/15/15/15/15/15/6QI7/6I8/15/15/15/15/15/15 / 0/0 0 lex CSW21;", "D");
+    defer testing.allocator.free(anchors);
+    try testing.expectEqual(2, anchors.len);
+    const a0 = anchors[0];
+    try testing.expect(a0.highest_score == 6 and a0.row == 8 and a0.col == 6 and a0.dir == .horizontal);
+    try testing.expect(a0.tiles_to_play == 1 and a0.playthrough_blocks == 1 and a0.leftmost_start_col == 5 and a0.rightmost_start_col == 6);
+    const a1 = anchors[1];
+    try testing.expect(a1.highest_score == 3 and a1.row == 7 and a1.col == 7 and a1.dir == .vertical);
+    try testing.expect(a1.tiles_to_play == 1 and a1.playthrough_blocks == 1 and a1.leftmost_start_col == 6 and a1.rightmost_start_col == 6);
 }

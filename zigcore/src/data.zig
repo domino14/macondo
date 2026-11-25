@@ -6,6 +6,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tiles = @import("tiles.zig");
 const kwg_mod = @import("kwg.zig");
+const wmp_mod = @import("wmp.zig");
+const wmp_maker = @import("wmp_maker.zig");
 
 pub const LoadError = error{ FileNotFound, ReadFailed, OutOfMemory };
 
@@ -35,6 +37,11 @@ pub const Lexicon = struct {
     kwg: kwg_mod.Kwg,
 };
 
+pub const WordMap = struct {
+    bytes: []align(4) u8,
+    wmp: wmp_mod.Wmp,
+};
+
 pub const Leaves = struct {
     bytes: []align(4) u8,
     klv: kwg_mod.Klv,
@@ -52,6 +59,8 @@ pub const Store = struct {
     lexica: std.StringHashMapUnmanaged(*Lexicon) = .empty,
     leaves: std.StringHashMapUnmanaged(*Leaves) = .empty,
     peg: std.StringHashMapUnmanaged([]f64) = .empty,
+    /// Word maps by lexicon; null for a lexicon that can't have one.
+    word_maps: std.StringHashMapUnmanaged(?*WordMap) = .empty,
 
     pub fn init(gpa: Allocator, source: Source) Store {
         return .{ .gpa = gpa, .source = source };
@@ -86,6 +95,16 @@ pub const Store = struct {
             self.gpa.free(e.value_ptr.*);
         }
         self.peg.deinit(self.gpa);
+        var m = self.word_maps.iterator();
+        while (m.next()) |e| {
+            self.gpa.free(e.key_ptr.*);
+            if (e.value_ptr.*) |wm| {
+                wm.wmp.deinit(self.gpa);
+                self.gpa.free(wm.bytes);
+                self.gpa.destroy(wm);
+            }
+        }
+        self.word_maps.deinit(self.gpa);
         self.* = undefined;
     }
 
@@ -135,6 +154,38 @@ pub const Store = struct {
         errdefer self.gpa.free(key);
         try self.lexica.put(self.gpa, key, lex);
         return lex;
+    }
+
+    /// The word map of lexicon `name` (lexica/<name>.wmp), made from its
+    /// word graph in memory if there is no file; null if `ld` can't have
+    /// one. Made for a 15x15 board, as Go and MAGPIE make them.
+    pub fn wordMap(self: *Store, data_path: []const u8, name: []const u8, lex: *const Lexicon, ld: *const tiles.LetterDistribution) Error!?*const wmp_mod.Wmp {
+        if (!validName(name)) return error.InvalidName;
+        if (self.word_maps.get(name)) |wm| return if (wm) |w| &w.wmp else null;
+
+        const key = try self.gpa.dupe(u8, name);
+        errdefer self.gpa.free(key);
+        const bytes: []align(4) u8 = self.loadFile(data_path, "lexica/{s}.wmp", .{name}) catch |err| switch (err) {
+            error.FileNotFound => wmp_maker.makeFromKwg(self.gpa, lex.kwg, ld, 15) catch |e| switch (e) {
+                error.OutOfMemory => return error.OutOfMemory,
+                // This distribution can't have a word map.
+                else => {
+                    try self.word_maps.put(self.gpa, key, null);
+                    return null;
+                },
+            },
+            else => |e| return e,
+        };
+        errdefer self.gpa.free(bytes);
+        const wm = try self.gpa.create(WordMap);
+        errdefer self.gpa.destroy(wm);
+        wm.* = .{ .bytes = bytes, .wmp = wmp_mod.Wmp.init(self.gpa, bytes) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.InvalidData,
+        } };
+        errdefer wm.wmp.deinit(self.gpa);
+        try self.word_maps.put(self.gpa, key, wm);
+        return &wm.wmp;
     }
 
     /// Leave values from the file at `rel` under `data_path`, cached by path.

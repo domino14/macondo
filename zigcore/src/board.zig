@@ -110,6 +110,9 @@ pub const Board = struct {
     tiles_played: u32,
     squares: [max_squares]MachineLetter,
     bonuses: [max_squares]u8,
+    /// Each square's letter and word multipliers, from its bonus.
+    letter_muls: [max_squares]u8,
+    word_muls: [max_squares]u8,
     cross_sets: [2][max_squares]CrossSet,
     cross_scores: [2][max_squares]i32,
     anchors: [2][max_squares]bool,
@@ -128,6 +131,8 @@ pub const Board = struct {
             .tiles_played = 0,
             .squares = @splat(0),
             .bonuses = @splat(' '),
+            .letter_muls = @splat(1),
+            .word_muls = @splat(1),
             .cross_sets = undefined,
             .cross_scores = undefined,
             .anchors = undefined,
@@ -137,6 +142,10 @@ pub const Board = struct {
         for (layout.rows, 0..) |row, r| {
             std.debug.assert(row.len == dim);
             @memcpy(b.bonuses[r * dim ..][0..dim], row);
+        }
+        for (b.bonuses[0 .. dim * dim], 0..) |bonus_char, i| {
+            b.letter_muls[i] = letterMultiplier(bonus_char);
+            b.word_muls[i] = wordMultiplier(bonus_char);
         }
         b.clear();
         return b;

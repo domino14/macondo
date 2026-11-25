@@ -25,6 +25,8 @@ pub const Options = struct {
     hash_mb: u32 = 256,
     /// Owned by the engine's allocator.
     data_path: []u8,
+    /// Use word maps in the best-play search (making them if missing).
+    word_maps: bool = true,
 };
 
 /// What the adapter should do after a command.
@@ -93,6 +95,7 @@ pub const Engine = struct {
         try out.print("option name threads type spin default 1 min 1 max {d}\n", .{threads_max});
         try out.print("option name hash-mb type spin default 256 min 1 max {d}\n", .{hash_mb_max});
         try out.writeAll("option name data-path type string default ./data\n");
+        try out.writeAll("option name word-maps type check default true\n");
         try out.writeAll("ucgiok\n");
     }
 
@@ -114,6 +117,12 @@ pub const Engine = struct {
         } else if (std.mem.eql(u8, name, "hash-mb")) {
             self.options.hash_mb = parseSpin(value, 1, hash_mb_max) orelse
                 return out.print("error bad-value {s}\n", .{name});
+        } else if (std.mem.eql(u8, name, "word-maps")) {
+            if (std.mem.eql(u8, value, "true")) {
+                self.options.word_maps = true;
+            } else if (std.mem.eql(u8, value, "false")) {
+                self.options.word_maps = false;
+            } else return out.print("error bad-value {s}\n", .{name});
         } else if (std.mem.eql(u8, name, "data-path")) {
             const copy = try self.gpa.dupe(u8, value);
             self.gpa.free(self.options.data_path);
@@ -140,7 +149,7 @@ pub const Engine = struct {
         if (!std.mem.startsWith(u8, trimmed, "cgp ")) return out.writeAll("error bad-position\n");
         const text = trimmed["cgp ".len..];
         var p: Position = undefined;
-        p.fromCgp(text, &self.store, self.options.data_path) catch |err| switch (err) {
+        p.fromCgpWith(text, &self.store, self.options.data_path, self.options.word_maps) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.FileNotFound, error.ReadFailed, error.InvalidData, error.InvalidName => |e| return self.dataError(e, out),
             else => |e| {
@@ -179,6 +188,7 @@ pub const Engine = struct {
 
         var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
         defer gen.deinit();
+        gen.word_map = p.word_map;
         const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
         gen.max_can_exchange = ex.max;
         const ctx = p.equityContext();
@@ -300,6 +310,7 @@ test "ucgi handshake" {
         \\option name threads type spin default 1 min 1 max 512
         \\option name hash-mb type spin default 256 min 1 max 65536
         \\option name data-path type string default ./data
+        \\option name word-maps type check default true
         \\ucgiok
         \\
     , got);

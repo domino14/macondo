@@ -63,6 +63,19 @@ pub const LeaveMap = struct {
     pub inline fn currentValue(self: *const LeaveMap) f64 {
         return self.values[self.current];
     }
+
+    /// The `i`th tile of letter `ml` (from 0) moves from the leave into the
+    /// tiles played, clearing the letter's bits from the top down. For
+    /// enumerating the rack's subsets the other way round, as the word
+    /// map's move generator does (MAGPIE's leave_map_complement_add_letter).
+    pub inline fn complementAdd(self: *LeaveMap, ml: MachineLetter, i: u32, count: u32) void {
+        self.current &= ~(@as(u32, 1) << @intCast(self.base[ml] + count - 1 - i));
+    }
+
+    /// Undoes complementAdd.
+    pub inline fn complementTake(self: *LeaveMap, ml: MachineLetter, i: u32, count: u32) void {
+        self.current |= @as(u32, 1) << @intCast(self.base[ml] + count - 1 - i);
+    }
 };
 
 /// The highest leave value (or endgame adjustment) over the subsets of
@@ -74,8 +87,21 @@ pub const BestLeaves = [max_rack_size + 1]f64;
 /// graph once, keeping the word index of the leave so far, as movegen's
 /// populateLeaveMapIncremental does. `klv` null values every leave at 0.
 pub fn populate(lm: *LeaveMap, rack: *Rack, klv: ?*const kwg_mod.Klv, ctx: *const equity.Context, best: *BestLeaves) void {
+    populateVisiting(lm, rack, klv, ctx, best, null);
+}
+
+/// Called at each subset, with the rack holding it and its value.
+pub const Visitor = struct {
+    ctx: *anyopaque,
+    visit: *const fn (ctx: *anyopaque, leave: *const Rack, value: f64) void,
+};
+
+/// populate, calling `visitor` (if any) at each subset: one walk for what
+/// needs every leave of the rack, such as recording the exchanges (MAGPIE's
+/// generate_exchange_moves).
+pub fn populateVisiting(lm: *LeaveMap, rack: *Rack, klv: ?*const kwg_mod.Klv, ctx: *const equity.Context, best: *BestLeaves, visitor: ?Visitor) void {
     best.* = @splat(-std.math.inf(f64));
-    var p: Populator = .{ .lm = lm, .rack = rack, .klv = klv, .ctx = ctx, .best = best, .size = ctx.ld.size };
+    var p: Populator = .{ .lm = lm, .rack = rack, .klv = klv, .ctx = ctx, .best = best, .size = ctx.ld.size, .visitor = visitor };
     if (klv) |k| {
         p.rec(0, k.kwg.dawgRoot(), 0);
     } else {
@@ -90,6 +116,7 @@ const Populator = struct {
     ctx: *const equity.Context,
     best: *BestLeaves,
     size: usize,
+    visitor: ?Visitor = null,
 
     /// Records the value of the current leave, whose raw leave value is
     /// `raw` (0 if not in the leave graph).
@@ -97,11 +124,14 @@ const Populator = struct {
         const n = self.rack.num_tiles;
         const played = self.lm.total_tiles - n;
         var raw = raw_leave;
-        const v = self.ctx.leaveMapValue(raw, self.rack.scoreOn(self.ctx.ld), n, played);
+        // The leave's tile scores matter only for the endgame adjustment.
+        const leave_score = if (self.ctx.tiles_in_bag > 0) 0 else self.rack.scoreOn(self.ctx.ld);
+        const v = self.ctx.leaveMapValue(raw, leave_score, n, played);
         // With the bag empty the adjustment stands in for the leave value.
         if (self.ctx.tiles_in_bag <= 0) raw = v;
         self.lm.values[self.lm.current] = v;
         if (raw > self.best[n]) self.best[n] = raw;
+        if (self.visitor) |vis| vis.visit(vis.ctx, self.rack, v);
     }
 
     fn rec(self: *Populator, ml_start: usize, node: u32, word: i32) void {

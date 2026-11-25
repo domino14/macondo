@@ -10,6 +10,7 @@ const cgp_mod = @import("cgp.zig");
 const data = @import("data.zig");
 const equity = @import("equity.zig");
 const kwg_mod = @import("kwg.zig");
+const wmp = @import("wmp.zig");
 const MachineLetter = tiles.MachineLetter;
 
 pub const Error = data.Error || cgp_mod.Error || error{
@@ -30,6 +31,9 @@ pub const Position = struct {
     leaves: ?*const kwg_mod.Klv,
     /// Pre-endgame equity adjustments (see equity.Context.peg).
     peg: []const f64,
+    /// The lexicon's word map, for the best-play search; null on boards
+    /// it isn't made for, or when not asked for.
+    word_map: ?*const wmp.Wmp = null,
     /// Owned copies of the CGP's names.
     lexicon_name: [64]u8,
     lexicon_name_len: usize,
@@ -71,6 +75,12 @@ pub const Position = struct {
     /// Sets `self` up from a CGP string, loading data through `store`.
     /// On error `self` is left unchanged.
     pub fn fromCgp(self: *Position, text: []const u8, store: *data.Store, data_path: []const u8) Error!void {
+        return self.fromCgpWith(text, store, data_path, false);
+    }
+
+    /// fromCgp, with the lexicon's word map if `word_maps` (loading or
+    /// making it the first time).
+    pub fn fromCgpWith(self: *Position, text: []const u8, store: *data.Store, data_path: []const u8, word_maps: bool) Error!void {
         const c = try cgp_mod.Cgp.parse(text);
         if (!(std.mem.eql(u8, c.variant, "classic") or std.mem.eql(u8, c.variant, "classic_super")))
             return error.UnsupportedVariant;
@@ -129,6 +139,11 @@ pub const Position = struct {
             if (u > have) return error.TooManyTiles;
         }
 
+        if (word_maps) {
+            if (try store.wordMap(data_path, c.lexicon, lex, dist)) |w| {
+                if (w.board_dim == p.board.dim) p.word_map = w;
+            }
+        }
         p.board.countTiles();
         cross_set.generateAll(&p.board, lex.kwg, dist);
         p.board.updateAllAnchors();

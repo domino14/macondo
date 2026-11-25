@@ -13,6 +13,49 @@ const Io = std.Io;
 const macondo = @import("macondo");
 const Files = @import("files.zig").Files;
 
+/// A sampling profiler for the bench: with BENCH_PROFILE=<file>, a
+/// profiling timer interrupts the run every 50 us of CPU time and the
+/// interrupted instruction's address is kept; at the end they go to the
+/// file, one hex address per line, for llvm-symbolizer --inlining.
+const Profiler = struct {
+    var samples: [1 << 22]u64 = undefined;
+    var count: usize = 0;
+
+    fn handler(_: std.os.linux.SIG, _: *const std.os.linux.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+        if (count == samples.len) return;
+        // x86_64 Linux: the ucontext's flags, link and stack (40 bytes), then
+        // the saved r8-r15, rdi, rsi, rbp, rbx, rdx, rax, rcx, rsp, rip.
+        const words: [*]const u64 = @ptrCast(@alignCast(ctx.?));
+        samples[count] = words[(40 / 8) + 16];
+        count += 1;
+    }
+
+    fn start() void {
+        const linux = std.os.linux;
+        var act: linux.Sigaction = .{
+            .handler = .{ .sigaction = handler },
+            .mask = linux.sigemptyset(),
+            .flags = linux.SA.SIGINFO | linux.SA.RESTART,
+        };
+        _ = linux.sigaction(.PROF, &act, null);
+        // The kernel reads a timeval: the second field is microseconds.
+        const t: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 50 }, .it_value = .{ .sec = 0, .nsec = 50 } };
+        _ = linux.setitimer(@backingInt(linux.ITIMER.PROF), &t, null);
+    }
+
+    fn stop(io: Io, path: []const u8) !void {
+        const linux = std.os.linux;
+        const t: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 0 } };
+        _ = linux.setitimer(@backingInt(linux.ITIMER.PROF), &t, null);
+        const file = try Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
+        var buf: [4096]u8 = undefined;
+        var w = file.writer(io, &buf);
+        for (samples[0..count]) |a| try w.interface.print("0x{x}\n", .{a});
+        try w.interface.flush();
+    }
+};
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
@@ -36,37 +79,56 @@ pub fn main(init: std.process.Init) !void {
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     while (lines.next()) |line| {
         var p: macondo.position.Position = undefined;
-        p.fromCgp(line, &store, data_path) catch |err| {
+        p.fromCgpWith(line, &store, data_path, true) catch |err| {
             std.log.err("{t} for {s} ({s})", .{ err, line, store.lastPath() });
             return err;
         };
         try positions.append(gpa, p);
     }
 
-    var checksum: f64 = 0;
-    var best_ns: i96 = std.math.maxInt(i96);
-    for (0..rounds) |round| {
-        const start = Io.Timestamp.now(io, .awake);
-        var sum: f64 = 0;
-        for (positions.items) |*p| {
-            var gen = macondo.movegen.Generator.init(gpa, &p.board, p.lexicon.kwg, p.dist);
-            defer gen.deinit();
-            const ex = macondo.movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
-            gen.max_can_exchange = ex.max;
-            const ctx = p.equityContext();
-            var rack = p.racks[0];
-            const best = try gen.genBest(&rack, ex.allowed, &ctx);
-            sum += best.equity;
-        }
-        const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
-        best_ns = @min(best_ns, ns);
-        if (round == 0) checksum = sum;
-    }
-    const n = positions.items.len;
-    const per: f64 = @as(f64, @floatFromInt(best_ns)) / @as(f64, @floatFromInt(n));
-    var out_buf: [256]u8 = undefined;
+    var out_buf: [512]u8 = undefined;
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
-    try w.interface.print("{d} positions, best of {d} rounds: {d:.2} us/position, {d:.0} positions/s, equity sum {d:.6}\n", .{ n, rounds, per / 1000, 1e9 / per, checksum });
+    if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "phases")) return benchPhases(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_NO_WMP") != null);
+    // BENCH_MODE=wmp or gaddag times one only (for profiling).
+    const only = init.environ_map.get("BENCH_MODE");
+    const profile = init.environ_map.get("BENCH_PROFILE");
+    if (profile != null) Profiler.start();
+    defer if (profile) |path| Profiler.stop(io, path) catch {};
+    for ([_]bool{ false, true }) |use_wmp| {
+        if (only) |m| if (std.mem.eql(u8, m, "wmp") != use_wmp) continue;
+        var checksum: f64 = 0;
+        var best_ns: i96 = std.math.maxInt(i96);
+        // One generator for all, as a game or a sim uses one.
+        const gen = try gpa.create(macondo.movegen.Generator);
+        defer gpa.destroy(gen);
+        gen.* = .init(gpa, &positions.items[0].board, positions.items[0].lexicon.kwg, positions.items[0].dist);
+        defer gen.deinit();
+        for (0..rounds) |round| {
+            const start = Io.Timestamp.now(io, .awake);
+            var sum: f64 = 0;
+            for (positions.items) |*p| {
+                gen.board = &p.board;
+                gen.kwg = p.lexicon.kwg;
+                gen.ld = p.dist;
+                gen.word_map = if (use_wmp) p.word_map else null;
+                const ex = macondo.movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
+                gen.max_can_exchange = ex.max;
+                const ctx = p.equityContext();
+                var rack = p.racks[0];
+                const best = try gen.genBest(&rack, ex.allowed, &ctx);
+                sum += best.equity;
+            }
+            const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+            best_ns = @min(best_ns, ns);
+            if (round == 0) {
+                checksum = sum;
+                try w.interface.print("{s} round 1: {d:.2} us/position\n", .{ if (use_wmp) "word maps" else "GADDAG", @as(f64, @floatFromInt(ns)) / @as(f64, @floatFromInt(positions.items.len)) / 1000 });
+            }
+        }
+        const n = positions.items.len;
+        const per: f64 = @as(f64, @floatFromInt(best_ns)) / @as(f64, @floatFromInt(n));
+        try w.interface.print("{s}: {d} positions, best of {d} rounds: {d:.2} us/position, {d:.0} positions/s, equity sum {d:.6}\n", .{ if (use_wmp) "word maps" else "GADDAG", n, rounds, per / 1000, 1e9 / per, checksum });
+    }
     try w.interface.flush();
 }
 
@@ -88,4 +150,64 @@ fn benchWmp(init: std.process.Init, args: []const []const u8) !void {
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
     try w.interface.print("{s}: {d} bytes in {d:.3} s (one thread)\n", .{ args[2], bytes.len, @as(f64, @floatFromInt(ns)) / 1e9 });
     try w.interface.flush();
+}
+
+/// The best-play search's phases timed apart (word maps on), as genBest
+/// runs them.
+fn benchPhases(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, rounds: u32, no_wmp: bool) !void {
+    const names = [_][]const u8{ "leave map", "word-map subracks", "exchanges", "shadow", "anchors" };
+    var best: [names.len]i96 = @splat(std.math.maxInt(i96));
+    const gen = try gpa.create(macondo.movegen.Generator);
+    defer gpa.destroy(gen);
+    gen.* = .init(gpa, &positions[0].board, positions[0].lexicon.kwg, positions[0].dist);
+    defer gen.deinit();
+    for (0..rounds) |_| {
+        var total: [names.len]i96 = @splat(0);
+        for (positions) |*p| {
+            gen.board = &p.board;
+            gen.kwg = p.lexicon.kwg;
+            gen.ld = p.dist;
+            gen.word_map = if (no_wmp) null else p.word_map;
+            const ex = macondo.movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
+            gen.max_can_exchange = ex.max;
+            const ctx = p.equityContext();
+            var rack = p.racks[0];
+            gen.best_only = true;
+            gen.ctx = &ctx;
+            gen.have_best = false;
+            gen.shadow.tiles_in_bag = ctx.tiles_in_bag;
+            gen.shadow.opp_rack_score = ctx.opp_rack_score;
+            var t = Io.Timestamp.now(io, .awake);
+            gen.leave_map.init(&rack);
+            macondo.leavemap.populate(&gen.leave_map, &rack, ctx.klv, &ctx, &gen.shadow.best_leaves);
+            t = lap(io, t, &total[0]);
+            gen.wmp_gen.init(gen.ld, &rack, gen.word_map);
+            gen.wmp_gen.checkNonplaythroughExistence(ctx.tiles_in_bag > 0, &gen.leave_map);
+            t = lap(io, t, &total[1]);
+            gen.shadow.anchor_floor = -std.math.inf(f64);
+            if (ex.allowed) {
+                gen.genExchanges(&rack, 0, 0);
+                if (gen.have_best) gen.shadow.anchor_floor = gen.best_eq;
+            }
+            t = lap(io, t, &total[2]);
+            macondo.shadow.genShadow(gen, &rack);
+            t = lap(io, t, &total[3]);
+            macondo.shadow.recordFromAnchors(gen, &rack);
+            t = lap(io, t, &total[4]);
+            gen.best_only = false;
+        }
+        for (&best, total) |*b, x| b.* = @min(b.*, x);
+    }
+    var out_buf: [512]u8 = undefined;
+    var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
+    for (names, best) |name, ns| {
+        try w.interface.print("{s}: {d:.2} us/position\n", .{ name, @as(f64, @floatFromInt(ns)) / @as(f64, @floatFromInt(positions.len)) / 1000 });
+    }
+    try w.interface.flush();
+}
+
+fn lap(io: Io, t: Io.Timestamp, total: *i96) Io.Timestamp {
+    const now = Io.Timestamp.now(io, .awake);
+    total.* += t.durationTo(now).nanoseconds;
+    return now;
 }

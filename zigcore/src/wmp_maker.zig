@@ -62,7 +62,7 @@ pub const Error = error{ BadBoardDim, IncompatibleDistribution } || Allocator.Er
 
 /// The word map file of the DAWG's words for a board of `dim` (Go and
 /// MAGPIE make them for 15).
-pub fn makeFromKwg(gpa: Allocator, k: kwg_mod.Kwg, ld: *const tiles.LetterDistribution, dim: usize) Error![]u8 {
+pub fn makeFromKwg(gpa: Allocator, k: kwg_mod.Kwg, ld: *const tiles.LetterDistribution, dim: usize) Error![]align(4) u8 {
     var list = try WordList.fromKwg(gpa, k, dim);
     defer list.deinit(gpa);
     return make(gpa, &list, ld, dim);
@@ -70,7 +70,7 @@ pub fn makeFromKwg(gpa: Allocator, k: kwg_mod.Kwg, ld: *const tiles.LetterDistri
 
 /// The word map file of `list`'s words for a board of `dim`. Words of
 /// lengths outside 2 to `dim` are left out. Port of MakeFromWords.
-pub fn make(gpa: Allocator, list: *const WordList, ld: *const tiles.LetterDistribution, dim: usize) Error![]u8 {
+pub fn make(gpa: Allocator, list: *const WordList, ld: *const tiles.LetterDistribution, dim: usize) Error![]align(4) u8 {
     if (dim < 2 or dim > board_mod.max_dim) return error.BadBoardDim;
     try wmp.checkCompatible(ld, dim);
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
@@ -281,9 +281,9 @@ fn maxWordLookupBytes(m: *const wmp.Wmp) u32 {
     return most;
 }
 
-/// The word map's file bytes.
-fn serialize(gpa: Allocator, m: *const wmp.Wmp) Allocator.Error![]u8 {
-    var out: std.ArrayList(u8) = .empty;
+/// The word map's file bytes, aligned as data files are.
+fn serialize(gpa: Allocator, m: *const wmp.Wmp) Allocator.Error![]align(4) u8 {
+    var out: Out = .empty;
     errdefer out.deinit(gpa);
     try out.appendSlice(gpa, &.{ m.version, m.board_dim });
     try appendInt(gpa, &out, m.max_word_lookup_bytes);
@@ -298,13 +298,15 @@ fn serialize(gpa: Allocator, m: *const wmp.Wmp) Allocator.Error![]u8 {
     return out.toOwnedSlice(gpa);
 }
 
-fn appendInt(gpa: Allocator, out: *std.ArrayList(u8), v: u32) Allocator.Error!void {
+const Out = std.ArrayListAligned(u8, .of(u32));
+
+fn appendInt(gpa: Allocator, out: *Out, v: u32) Allocator.Error!void {
     var b: [4]u8 = undefined;
     std.mem.writeInt(u32, &b, v, .little);
     try out.appendSlice(gpa, &b);
 }
 
-fn appendTable(gpa: Allocator, out: *std.ArrayList(u8), t: anytype) Allocator.Error!void {
+fn appendTable(gpa: Allocator, out: *Out, t: anytype) Allocator.Error!void {
     try appendInt(gpa, out, t.num_buckets);
     for (t.bucket_starts) |s| try appendInt(gpa, out, s);
     try appendInt(gpa, out, @intCast(t.entries.len));

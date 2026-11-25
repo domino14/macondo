@@ -26,6 +26,7 @@ before it is frozen.
 < option name threads type spin default 1 min 1 max 512
 < option name hash-mb type spin default 256 min 1 max 65536
 < option name data-path type string default ./data
+< option name word-maps type check default true
 < ucgiok
 > setoption name threads value 8
 > isready
@@ -58,7 +59,11 @@ Data files are found under the `data-path` option, laid out as in Macondo's
 SuperCrosswordGame board), and `strategy/<lexicon>/preendgame.json`. A
 lexicon without leave values of its own uses those of the lexicon it is
 derived from (CSW19 uses CSW24's, as in Macondo), and failing that plays
-by score alone.
+by score alone. The best-play search uses the lexicon's word map,
+`lexica/<lexicon>.wmp` (MAGPIE's format), on boards it is made for (15x15);
+without the file the engine makes it from the word graph in memory, which
+takes a second or two the first time. `setoption name word-maps value
+false` turns them off.
 
 ## Searching
 

@@ -52,6 +52,9 @@ pub const LetterDistribution = struct {
     lower: [max_alphabet_size][]u8,
     counts: [max_alphabet_size]u8,
     scores: [max_alphabet_size]i32,
+    /// Scores by any machine letter, designated blanks (0) included: a
+    /// lookup with no branch.
+    score_table: [256]i32,
     vowels: LetterSet,
     /// Total number of tiles, including blanks.
     total_tiles: u32,
@@ -66,6 +69,7 @@ pub const LetterDistribution = struct {
             .lower = undefined,
             .counts = @splat(0),
             .scores = @splat(0),
+            .score_table = @splat(0),
             .vowels = 0,
             .total_tiles = 0,
             .max_letter_len = 0,
@@ -94,6 +98,8 @@ pub const LetterDistribution = struct {
             };
             ld.counts[i] = count;
             ld.scores[i] = points;
+            // Designated blanks (with the blank bit) stay 0.
+            if (i != 0) ld.score_table[i] = points;
             if (vowel == 1) ld.vowels |= @as(LetterSet, 1) << @intCast(i);
             ld.total_tiles += count;
             const len = std.unicode.utf8CountCodepoints(glyph) catch unreachable;
@@ -114,7 +120,7 @@ pub const LetterDistribution = struct {
 
     /// The score of a tile; a designated blank scores as the blank.
     pub inline fn score(self: *const LetterDistribution, ml: MachineLetter) i32 {
-        return self.scores[if (isBlanked(ml)) 0 else ml];
+        return self.score_table[ml];
     }
 
     pub fn isVowel(self: *const LetterDistribution, ml: MachineLetter) bool {

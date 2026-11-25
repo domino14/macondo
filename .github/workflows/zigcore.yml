@@ -53,7 +53,7 @@ jobs:
       - name: Make word maps
         working-directory: .
         run: |
-          for lex in NWL20 NWL23 CSW24; do
+          for lex in NWL20 NWL23 CSW21 CSW24; do
             go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/$lex.kwg -out /opt/data/lexica/$lex.wmp -lex $lex
           done
 
