@@ -124,12 +124,15 @@ as they land.
       `leave`. Check: every square identical to Go on positions from random
       games and on random-tile boards (phonies), for several lexica and both
       board sizes; leave values identical.
-- [ ] **2. Movegen + minimal protocol.** Full movegen incl. exchanges, shadow
-      pruning and WMP-based generation; `position cgp`, `gen` (debug list of
-      all moves with scores). Check: identical move lists and scores on
-      thousands of random positions, all lexica and board sizes in testdata.
+- [x] **2. Movegen + minimal protocol.** GADDAG generation of every move
+      (tile plays, exchanges, pass) with scores; `gen` (debug list of all
+      moves). Check: identical move lists and scores on the step 1
+      positions (random games and random-tile boards, several lexica, both
+      board sizes).
 - [ ] **3. Equity and static player.** Leave values, opening and endgame
-      adjustments, static best move; `go static`.
+      adjustments; best-play search with shadow pruning and WMP-based
+      generation (these only pay off when looking for the best play, so
+      they are checked here); static best move; `go static`.
       Check: identical equities and best moves.
 - [ ] **4. Game rules and autoplay.** Bag, racks, turn logic, challenge rules,
       paired bags; `autoplay` command. Check: identical games from the same

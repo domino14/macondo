@@ -96,8 +96,8 @@ lowercase for a blank, `exch.ABC` for an exchange and `pass` for a pass.
 Used by the cross-check harness; engines may omit them.
 
 ```
-> gen                    list every legal move with score and equity, one per line
-< move 8D.QUIZ score 84 equity 79.5
+> gen                    list every legal move for the player on turn, one per line
+< move 8D.QUIZ score 84
 < genok count 4211
 > crosssets              every square's cross-set data, both directions
 < cs 7 8 h set 3fffffffffffffff score 0 anchor 1 lext 7ffffff rext 3fffffffffffffff
@@ -107,7 +107,8 @@ Used by the cross-check harness; engines may omit them.
 > autoplay games 100 seed 42
 ```
 
-`crosssets` prints one `cs <row> <col> <h|v>` line per square and direction
+`gen` lists the moves highest score first; an engine with an equity model
+may add `equity <value>` to each line. `crosssets` prints one `cs <row> <col> <h|v>` line per square and direction
 (rows and columns from 0): the cross-set and the left and right extension
 sets as hex bit masks (bit n = machine letter n), the cross-score, and
 whether the square is an anchor. `leave` prints the value exactly as stored

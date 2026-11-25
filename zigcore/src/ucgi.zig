@@ -10,6 +10,8 @@ const data = @import("data.zig");
 const tiles = @import("tiles.zig");
 const board_mod = @import("board.zig");
 const Position = @import("position.zig").Position;
+const movegen = @import("movegen.zig");
+const Move = @import("move.zig").Move;
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -68,6 +70,8 @@ pub const Engine = struct {
             try self.setPosition(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "load")) {
             try self.load(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "gen")) {
+            try self.printMoves(out);
         } else if (std.mem.eql(u8, cmd, "crosssets")) {
             try self.printCrossSets(out);
         } else if (std.mem.eql(u8, cmd, "leave")) {
@@ -158,6 +162,30 @@ pub const Engine = struct {
                 return out.writeAll("error bad-load\n");
             }
         }
+    }
+
+    /// Debug: every move for the player on turn, highest score first, then
+    /// `genok count <n>`.
+    fn printMoves(self: *Engine, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
+        gen.max_can_exchange = ex.max;
+        var rack = p.racks[0];
+        try gen.genAll(&rack, ex.allowed);
+        const plays = gen.plays.items;
+        std.mem.sort(Move, plays, {}, struct {
+            fn higher(_: void, a: Move, b: Move) bool {
+                return a.score > b.score;
+            }
+        }.higher);
+        for (plays) |*m| {
+            try out.writeAll("move ");
+            try m.format(p.dist, out);
+            try out.print(" score {d}\n", .{m.score});
+        }
+        try out.print("genok count {d}\n", .{plays.len});
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension

@@ -12,6 +12,8 @@ pub const cross_set = @import("cross_set.zig");
 pub const cgp = @import("cgp.zig");
 pub const data = @import("data.zig");
 pub const position = @import("position.zig");
+pub const move = @import("move.zig");
+pub const movegen = @import("movegen.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

@@ -274,7 +274,7 @@ const testdata = @import("testdata.zig");
 
 fn loadDist(name: []const u8) !LetterDistribution {
     var buf: [64]u8 = undefined;
-    const bytes = try testdata.load(try std.fmt.bufPrint(&buf, "letterdistributions/{s}", .{name}));
+    const bytes = try testdata.loadFile(try std.fmt.bufPrint(&buf, "letterdistributions/{s}", .{name}));
     defer testing.allocator.free(bytes);
     return LetterDistribution.parse(testing.allocator, name, bytes);
 }

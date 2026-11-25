@@ -187,7 +187,7 @@ test "parse fields and options" {
 }
 
 test "decode rows" {
-    const bytes = try testdata.load("letterdistributions/english");
+    const bytes = try testdata.loadFile("letterdistributions/english");
     defer testing.allocator.free(bytes);
     var ld = try tiles.LetterDistribution.parse(testing.allocator, "english", bytes);
     defer ld.deinit(testing.allocator);
@@ -202,7 +202,7 @@ test "decode rows" {
 }
 
 test "decode catalan rows with bracketed tiles" {
-    const bytes = try testdata.load("letterdistributions/catalan");
+    const bytes = try testdata.loadFile("letterdistributions/catalan");
     defer testing.allocator.free(bytes);
     var ld = try tiles.LetterDistribution.parse(testing.allocator, "catalan", bytes);
     defer ld.deinit(testing.allocator);

@@ -32,6 +32,12 @@ pub const Position = struct {
     scoreless_turns: u32,
     max_scoreless_turns: u32,
 
+    /// Tiles player `who` can't see: the bag and the other rack.
+    pub fn unseenBy(self: *const Position, who: usize) i32 {
+        return @as(i32, @intCast(self.dist.total_tiles)) - @as(i32, @intCast(self.board.tiles_played)) -
+            @as(i32, self.racks[who].num_tiles);
+    }
+
     pub fn lexiconName(self: *const Position) []const u8 {
         return self.lexicon_name[0..self.lexicon_name_len];
     }

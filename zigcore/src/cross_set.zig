@@ -157,65 +157,11 @@ pub fn generate(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg,
 
 const testing = std.testing;
 const testdata = @import("testdata.zig");
-const cgp = @import("cgp.zig");
 const CrossSet = board_mod.CrossSet;
 
-const Fixture = struct {
-    ld: LetterDistribution,
-    kwg_bytes: []align(4) u8,
-    kwg: Kwg,
-
-    fn load(lexicon: []const u8) !Fixture {
-        const dist_bytes = try testdata.load("letterdistributions/english");
-        defer testing.allocator.free(dist_bytes);
-        var buf: [64]u8 = undefined;
-        const kwg_bytes = try testdata.load(try std.fmt.bufPrint(&buf, "lexica/gaddag/{s}.kwg", .{lexicon}));
-        errdefer testing.allocator.free(kwg_bytes);
-        return .{
-            .ld = try .parse(testing.allocator, "english", dist_bytes),
-            .kwg_bytes = kwg_bytes,
-            .kwg = try .init(kwg_bytes),
-        };
-    }
-
-    fn deinit(self: *Fixture) void {
-        self.ld.deinit(testing.allocator);
-        testing.allocator.free(self.kwg_bytes);
-    }
-
-    fn cs(self: *const Fixture, letters: []const u8) CrossSet {
-        var mls: [32]MachineLetter = undefined;
-        const n = self.ld.toMachineLetters(letters, &mls) catch unreachable;
-        var set: CrossSet = 0;
-        for (mls[0..n]) |ml| set |= @as(CrossSet, 1) << @intCast(ml);
-        return set;
-    }
-
-    fn boardFromFen(self: *const Fixture, fen: []const u8) !Board {
-        var b = Board.init(&board_mod.crossword_game);
-        var rows = std.mem.splitScalar(u8, fen, '/');
-        var r: usize = 0;
-        while (rows.next()) |row_text| : (r += 1) {
-            var row: [board_mod.max_dim]MachineLetter = undefined;
-            const n = try cgp.decodeRow(row_text, &self.ld, &row);
-            _ = b.setRow(r, row[0..n]);
-        }
-        b.countTiles();
-        return b;
-    }
-
-    /// Go's SetRow: clears the row, then sets the letters of `text` from
-    /// the left.
-    fn setRowText(self: *const Fixture, b: *Board, row: usize, text: []const u8) !void {
-        var mls: [board_mod.max_dim]MachineLetter = @splat(0);
-        _ = try self.ld.toMachineLetters(text, &mls);
-        _ = b.setRow(row, mls[0..b.dim]);
-        b.countTiles();
-    }
-};
-
-const vs_ed = "14E/14N/14d/14U/4GLOWS5R/8PET3E/7FAXING1R/6JAY1TEEMS/2B2BOY4N2/2L1DOE5U2/2ANEW5PI2/2MO1LEU3ON2/2EH7HE2/15/15";
-const vs_matt = "7ZEP1F3/1FLUKY3R1R3/5EX2A1U3/2SCARIEST1I3/9TOT3/6GO1LO4/6OR1ETA3/6JABS1b3/5QI4A3/5I1N3N3/3ReSPOND1D3/1HOE3V3O3/1ENCOMIA3N3/7T7/3VENGED6";
+const Fixture = testdata.Fixture;
+const vs_ed = testdata.vs_ed;
+const vs_matt = testdata.vs_matt;
 
 const Case = struct { row: usize, col: usize, set: CrossSet, dir: Direction, score: i32 };
 

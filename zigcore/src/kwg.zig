@@ -218,7 +218,7 @@ const testing = std.testing;
 const testdata = @import("testdata.zig");
 
 test "NWL20 words and letter sets" {
-    const bytes = try testdata.load("lexica/gaddag/NWL20.kwg");
+    const bytes = try testdata.loadFile("lexica/gaddag/NWL20.kwg");
     defer testing.allocator.free(bytes);
     const k = try Kwg.init(bytes);
 
@@ -238,7 +238,7 @@ test "NWL20 words and letter sets" {
 }
 
 test "NWL20 leave values" {
-    const bytes = try testdata.load("lexica/gaddag/NWL20.klv2");
+    const bytes = try testdata.loadFile("lexica/gaddag/NWL20.klv2");
     defer testing.allocator.free(bytes);
     var klv = try Klv.init(testing.allocator, bytes);
     defer klv.deinit(testing.allocator);

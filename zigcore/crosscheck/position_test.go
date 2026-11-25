@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,11 +42,12 @@ var boardCases = []boardCase{
 	{"FILE2017", "spanish", board.CrosswordGameLayout},
 }
 
-// TestBoardCrossCheck plays random games with the Go engine and, after
+// TestPositionCrossCheck plays random games with the Go engine and, after
 // every move, checks that the Zig engine computes the same cross-sets,
-// cross-scores, anchors and extension sets for the position, and the same
-// leave values for random leaves.
-func TestBoardCrossCheck(t *testing.T) {
+// cross-scores, anchors and extension sets for the position, the same
+// moves with the same scores, and the same leave values for random leaves.
+// It does the same on boards of random tiles with random racks.
+func TestPositionCrossCheck(t *testing.T) {
 	e := startEngine(t)
 	defer e.Quit()
 	cfg := config.DefaultConfig()
@@ -74,7 +76,9 @@ func TestBoardCrossCheck(t *testing.T) {
 			}
 			// Random tiles: phonies and shapes no game reaches.
 			for i := 0; i < 50**gamesFlag; i++ {
-				comparePosition(t, e, cfg, randomTilesCGP(t, cfg, bc, uint64(i)))
+				cgpStr := randomTilesCGP(t, cfg, bc, uint64(i))
+				comparePosition(t, e, cfg, cgpStr)
+				compareMoves(t, e, cfg, cgpStr)
 				positions++
 				if t.Failed() {
 					return
@@ -132,8 +136,110 @@ func randomTilesCGP(t *testing.T, cfg *config.Config, bc boardCase, seed uint64)
 			}
 		}
 	}
-	return fmt.Sprintf("%s / 0/0 0 lex %s; ld %s; bdn %s;",
-		b.ToFEN(ld.TileMapping()), bc.lexicon, bc.dist, bc.layout)
+	// Racks from what is left: usually full, sometimes short (end of game).
+	var racks [2]string
+	for i := range racks {
+		n := min(len(bag), 7)
+		if rng.IntN(4) == 0 {
+			n = min(len(bag), rng.IntN(8))
+		}
+		racks[i] = tilemapping.MachineWord(bag[len(bag)-n:]).UserVisible(ld.TileMapping())
+		bag = bag[:len(bag)-n]
+	}
+	return fmt.Sprintf("%s %s/%s 0/0 0 lex %s; ld %s; bdn %s;",
+		b.ToFEN(ld.TileMapping()), racks[0], racks[1], bc.lexicon, bc.dist, bc.layout)
+}
+
+// compareMoves generates every move for the player on turn in both engines
+// and compares the lists (as multisets: the order is not compared).
+func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
+	t.Helper()
+	parsed, err := cgp.ParseCGP(cfg, cgpStr)
+	if err != nil {
+		t.Fatalf("Go can't parse %q: %v", cgpStr, err)
+	}
+	g := parsed.Game
+	g.RecalculateBoard()
+	ld := g.Bag().LetterDistribution()
+	gd, err := kwg.GetKWG(cfg.WGLConfig(), g.LexiconName(), kwg.WithDistribution(ld.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := movegen.NewGordonGenerator(gd, g.Board(), ld)
+	unseen := int(g.RackFor(1).NumTiles()) + g.Bag().TilesRemaining()
+	exchAllowed := unseen-game.RackTileLimit >= g.ExchangeLimit()
+	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, g.ExchangeLimit()))
+	plays := gen.GenAll(g.RackFor(0), exchAllowed)
+
+	alph := ld.TileMapping()
+	want := make([]string, 0, len(plays))
+	for _, m := range plays {
+		want = append(want, ucgiMove(m, alph)+" score "+strconv.Itoa(m.Score()))
+	}
+
+	lines, err := e.Command("gen", "genok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(lines))
+	for _, l := range lines[:len(lines)-1] {
+		got = append(got, strings.TrimPrefix(l, "move "))
+	}
+	if last := lines[len(lines)-1]; last != "genok count "+strconv.Itoa(len(got)) {
+		t.Fatalf("bad gen trailer %q after %d moves", last, len(got))
+	}
+	missing, extra := multisetDiff(want, got)
+	if len(missing) > 0 || len(extra) > 0 {
+		t.Errorf("position %s: %d moves from Go, %d from Zig", cgpStr, len(want), len(got))
+		for i, m := range missing {
+			if i == 10 {
+				break
+			}
+			t.Errorf("  only Go:  %s", m)
+		}
+		for i, m := range extra {
+			if i == 10 {
+				break
+			}
+			t.Errorf("  only Zig: %s", m)
+		}
+	}
+}
+
+// ucgiMove writes a Go move in UCGI notation (see zigcore/UCGI.md).
+func ucgiMove(m *move.Move, alph *tilemapping.TileMapping) string {
+	switch m.Action() {
+	case move.MoveTypePlay:
+		return m.BoardCoords() + "." + m.Tiles().UserVisiblePlayedTiles(alph)
+	case move.MoveTypeExchange:
+		return "exch." + m.Tiles().UserVisible(alph)
+	case move.MoveTypePass:
+		return "pass"
+	}
+	return "unhandled"
+}
+
+// multisetDiff returns the items of a not in b and of b not in a, counting
+// repeats.
+func multisetDiff(a, b []string) (onlyA, onlyB []string) {
+	counts := map[string]int{}
+	for _, s := range a {
+		counts[s]++
+	}
+	for _, s := range b {
+		counts[s]--
+	}
+	for s, n := range counts {
+		for ; n > 0; n-- {
+			onlyA = append(onlyA, s)
+		}
+		for ; n < 0; n++ {
+			onlyB = append(onlyB, s)
+		}
+	}
+	sort.Strings(onlyA)
+	sort.Strings(onlyB)
+	return onlyA, onlyB
 }
 
 // crossCheckGame plays one game and compares every position. It returns the
@@ -169,6 +275,7 @@ func crossCheckGame(t *testing.T, e *Engine, cfg *config.Config, dataPath string
 			cgpStr += " bdn " + bc.layout + ";"
 		}
 		comparePosition(t, e, cfg, cgpStr)
+		compareMoves(t, e, cfg, cgpStr)
 		if klv != nil {
 			compareLeaves(t, e, klv, g.RackFor(g.PlayerOnTurn()), rules.LetterDistribution().TileMapping(), rng)
 		}
