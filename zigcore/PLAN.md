@@ -129,7 +129,7 @@ as they land.
       moves). Check: identical move lists and scores on the step 1
       positions (random games and random-tile boards, several lexica, both
       board sizes).
-- [ ] **3. Equity and static player.** Leave values, opening and endgame
+- [x] **3. Equity and static player.** Leave values, opening and endgame
       adjustments; best-play search with shadow pruning and WMP-based
       generation (these only pay off when looking for the best play, so
       they are checked here); static best move; `go static`.
@@ -171,7 +171,12 @@ as they land.
   Multithreaded results are compared statistically.
 - **Benchmarks:** keep a `zig build bench` with movegen-per-second,
   sim-iterations-per-second and endgame nodes-per-second, and record numbers
-  next to Go and MAGPIE on the same machine.
+  next to Go and MAGPIE on the same machine. For the best-move search, the
+  positions come from `TestWritePositions` in the cross-check package, Go
+  times them with `BenchmarkStatic` and MAGPIE with
+  `bench/magpie_bench.sh`; `zig build bench` can also break the search into
+  phases (`BENCH_MODE=phases`) and sample a profile
+  (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`).
 
 ## Zig version policy
 
