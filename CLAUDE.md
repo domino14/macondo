@@ -98,6 +98,22 @@ Uses Viper for configuration management:
 - **GCG**: Game notation format for importing/exporting games
 - **Protobuf**: Internal APIs and data serialization
 
+## Zig core (`zigcore/`)
+
+The engine core is being ported to Zig, module by module. Read
+`zigcore/PLAN.md` (architecture, what moves to Zig, port order with a
+checklist) and `zigcore/UCGI.md` (the protocol) before working on it.
+
+- Work on the next unchecked step in `zigcore/PLAN.md`, and check it off in
+  the same PR that makes its cross-check pass.
+- Use the pinned Zig version only. A Zig upgrade is its own PR.
+- Compute code does no I/O: data comes in as byte slices, allocators are
+  passed in, searches can be stopped and report progress through callbacks.
+- Every ported module needs its Go tests ported and a passing cross-check
+  against the Go implementation (single thread, fixed seed, exact match).
+- Do not remove or change the Go implementation of a module while porting
+  it; the Go code is the reference.
+
 ## Development Notes
 
 - Go 1.24+ required (see go.mod)

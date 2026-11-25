@@ -1,0 +1,116 @@
+# UCGI: Universal Crossword Game Interface (draft 0)
+
+A line-based protocol between a crossword game engine and an interface,
+modeled on chess's UCI. Status: draft, expected to change while the Zig core
+is built. Feedback from other engine authors (MAGPIE, wolges) is welcome
+before it is frozen.
+
+## Transport
+
+- One command or response per line, UTF-8, ending in `\n`.
+- **Native:** the interface starts the engine as a child process and talks
+  over stdin/stdout. The engine writes nothing else to stdout; logs go to
+  stderr.
+- **WASM:** the engine runs in a Web Worker; each line is one `postMessage`
+  string in each direction.
+- **Socket (optional):** the same lines over TCP or WebSocket.
+- Tokens are separated by spaces. A value that contains spaces is the rest of
+  the line (as with `position cgp ...`) or is quoted.
+
+## Session
+
+```
+> ucgi
+< id name MacondoZig 0.1
+< id author ...
+< option name threads type spin default 1 min 1 max 512
+< option name hash-mb type spin default 256 min 1 max 65536
+< option name data-path type string default ./data
+< ucgiok
+> setoption name threads value 8
+> isready
+< readyok
+> quit
+```
+
+- `isready` is answered only when all earlier commands, including slow ones
+  such as loading a lexicon, have finished.
+- The engine answers unknown commands with `error unknown-command <name>` and
+  carries on.
+
+## Setting up a position
+
+```
+> position cgp <CGP string>
+```
+
+CGP (Compact Game Position, see `cgp/`) carries the board, racks, scores,
+scoreless turns and options such as the lexicon and letter distribution. The
+engine loads lexicon data on first use, or ahead of time with:
+
+```
+> load lex CSW24 dist english
+```
+
+## Searching
+
+All `go` commands run in the background. While a search runs the engine
+accepts `stop`, `isready` and `quit`; any other command gets
+`error busy`. Every search ends with exactly one `bestmove` line, also after
+`stop`.
+
+```
+> go static                       best play by static equity
+> go sim plies 2 iterations 5000  Monte Carlo sim (also: time <ms>, stop-confidence <pct>, bai)
+> go infer                        rack inference for the last opponent play
+> go endgame plies 6
+> go preendgame
+> go auto                         choose the algorithm by game state, as the bot does
+> stop
+```
+
+Progress, as often as the engine likes:
+
+```
+< info nodes 182734 nps 4100000 time 44 depth 5 value 23 pv 8H.QI 9G.ZA
+< info sim iterations 1200 play 8D.QUIZ win 0.71 equity 41.2 stderr 1.3
+< bestmove 8D.QUIZ
+```
+
+`info` lines are key/value tokens. A key the interface does not know is
+skipped. Long structured payloads (full sim tables, inference rack lists) use
+`info json <one-line JSON>`.
+
+## Move notation
+
+Moves use the coordinates and letters of GCG: `8D.QUIZ` (row first means
+horizontal, column first means vertical), `.` for a played-through tile,
+lowercase for a blank, `exch.ABC` for an exchange and `pass` for a pass.
+
+## Debug and test commands
+
+Used by the cross-check harness; engines may omit them.
+
+```
+> gen                    list every legal move with score and equity, one per line
+< move 8D.QUIZ score 84 equity 79.5
+< genok count 4211
+> crosssets              print cross-sets and cross-scores
+> autoplay games 100 seed 42
+```
+
+## NN evaluation callback (optional)
+
+For engines that hand neural-network evaluation to the interface:
+
+```
+< evalreq id 7 model <name> n 40 <base64 feature data>
+> evalresp id 7 <base64 output data>
+```
+
+## To decide
+
+- Exact sim and inference `info` fields.
+- Whether multiple named positions or searches can run at once.
+- How lexicon data is passed to a WASM engine (bytes through postMessage,
+  or URLs the worker fetches).
