@@ -3,6 +3,10 @@
 //! crosscheck/bench_test.go). Usage:
 //!
 //!     zig build bench -Doptimize=ReleaseFast -- <positions> [rounds] [data path]
+//!
+//! or times making a lexicon's word map from its KWG:
+//!
+//!     zig build bench -Doptimize=ReleaseFast -- wmp <lexicon> [data path]
 
 const std = @import("std");
 const Io = std.Io;
@@ -17,6 +21,7 @@ pub fn main(init: std.process.Init) !void {
         std.log.err("usage: bench <positions file> [rounds] [data path]", .{});
         return error.Usage;
     }
+    if (std.mem.eql(u8, args[1], "wmp")) return benchWmp(init, args);
     const rounds = if (args.len > 2) try std.fmt.parseInt(u32, args[2], 10) else 5;
     const data_path = if (args.len > 3) args[3] else "../data";
 
@@ -62,5 +67,25 @@ pub fn main(init: std.process.Init) !void {
     var out_buf: [256]u8 = undefined;
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
     try w.interface.print("{d} positions, best of {d} rounds: {d:.2} us/position, {d:.0} positions/s, equity sum {d:.6}\n", .{ n, rounds, per / 1000, 1e9 / per, checksum });
+    try w.interface.flush();
+}
+
+fn benchWmp(init: std.process.Init, args: []const []const u8) !void {
+    const io = init.io;
+    const gpa = init.gpa;
+    if (args.len < 3) return error.Usage;
+    const data_path = if (args.len > 3) args[3] else "../data";
+    var files: Files = .{ .io = io };
+    var store: macondo.data.Store = .init(gpa, files.source());
+    defer store.deinit();
+    const lex = try store.lexicon(data_path, args[2]);
+    const ld = try store.distribution(data_path, "english");
+    const start = Io.Timestamp.now(io, .awake);
+    const bytes = try macondo.wmp_maker.makeFromKwg(gpa, lex.kwg, ld, 15);
+    defer gpa.free(bytes);
+    const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+    var out_buf: [256]u8 = undefined;
+    var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
+    try w.interface.print("{s}: {d} bytes in {d:.3} s (one thread)\n", .{ args[2], bytes.len, @as(f64, @floatFromInt(ns)) / 1e9 });
     try w.interface.flush();
 }

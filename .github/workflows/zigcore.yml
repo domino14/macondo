@@ -48,6 +48,15 @@ jobs:
           mkdir -p /opt/data/lexica/gaddag
           cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
 
+      # Word maps are made locally, not published. Go's maker makes the ones
+      # the Zig tests read (and check the Zig maker against).
+      - name: Make word maps
+        working-directory: .
+        run: |
+          for lex in NWL20 NWL23 CSW24; do
+            go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/$lex.kwg -out /opt/data/lexica/$lex.wmp -lex $lex
+          done
+
       - name: Check formatting
         run: zig fmt --check .
 

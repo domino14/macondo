@@ -17,6 +17,8 @@ pub const movegen = @import("movegen.zig");
 pub const equity = @import("equity.zig");
 pub const leavemap = @import("leavemap.zig");
 pub const shadow = @import("shadow.zig");
+pub const wmp = @import("wmp.zig");
+pub const wmp_maker = @import("wmp_maker.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
