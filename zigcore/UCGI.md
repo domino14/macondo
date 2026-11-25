@@ -52,6 +52,10 @@ engine loads lexicon data on first use, or ahead of time with:
 > load lex CSW24 dist english
 ```
 
+Data files are found under the `data-path` option, laid out as in Macondo's
+`data/` directory: `letterdistributions/<name>`,
+`lexica/gaddag/<lexicon>.kwg` and `.klv2`.
+
 ## Searching
 
 All `go` commands run in the background. While a search runs the engine
@@ -95,9 +99,27 @@ Used by the cross-check harness; engines may omit them.
 > gen                    list every legal move with score and equity, one per line
 < move 8D.QUIZ score 84 equity 79.5
 < genok count 4211
-> crosssets              print cross-sets and cross-scores
+> crosssets              every square's cross-set data, both directions
+< cs 7 8 h set 3fffffffffffffff score 0 anchor 1 lext 7ffffff rext 3fffffffffffffff
+< crosssetsok
+> leave AEST             leave value of the tiles, from the lexicon's leave file
+< leave 18.48235
 > autoplay games 100 seed 42
 ```
+
+`crosssets` prints one `cs <row> <col> <h|v>` line per square and direction
+(rows and columns from 0): the cross-set and the left and right extension
+sets as hex bit masks (bit n = machine letter n), the cross-score, and
+whether the square is an anchor. `leave` prints the value exactly as stored
+(a 32-bit float).
+
+## Errors
+
+Errors are one line, `error <token> [detail]`, and the engine carries on.
+Tokens so far: `unknown-command`, `unknown-option`, `bad-value`,
+`bad-setoption`, `bad-position`, `bad-cgp <reason>`, `bad-load`, `bad-name`,
+`bad-tiles`, `no-position`, `data-not-found <path>`,
+`data-read-failed <path>`, `data-invalid <path>`, `line-too-long`.
 
 ## NN evaluation callback (optional)
 

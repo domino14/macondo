@@ -1,16 +1,17 @@
 name: Zig core
 
+# Every push: the cross-check compares against the Go engine, so a change
+# to the Go code it ports can break it too.
 on:
   push:
     branches:
       - "*"
-    paths:
-      - "zigcore/**"
-      - ".github/workflows/zigcore.yml"
 
 jobs:
   zigcore:
     runs-on: ubuntu-latest
+    env:
+      MACONDO_DATA_PATH: /opt/data
     defaults:
       run:
         working-directory: zigcore
@@ -29,11 +30,29 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The published lexica, as in the main build (same cache key).
+      - name: Cache lexicon data
+        uses: actions/cache@v4
+        with:
+          path: lexica-cache/lexica/gaddag
+          key: lexica-${{ hashFiles('cmd/fetch_lexica/lexica.txt') }}
+
+      - name: Fetch lexicon data
+        working-directory: .
+        run: go run ./cmd/fetch_lexica -data-path lexica-cache
+
+      - name: Install lexicon data
+        working-directory: .
+        run: |
+          cp -r data /opt/data
+          mkdir -p /opt/data/lexica/gaddag
+          cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
+
       - name: Check formatting
         run: zig fmt --check .
 
       - name: Unit tests
-        run: zig build test --summary all
+        run: zig build test --summary all -Ddata-path=/opt/data
 
       - name: Build
         run: zig build -Doptimize=ReleaseSafe
@@ -41,4 +60,4 @@ jobs:
       - name: Cross-check against the Go engine
         env:
           MACONDO_ZIG_ENGINE: ${{ github.workspace }}/zigcore/zig-out/bin/macondo-zig
-        run: go test -count=1 -v ./crosscheck/...
+        run: go test -count=1 -v ./crosscheck/... -crosscheck.games 10

@@ -117,10 +117,13 @@ as they land.
       job, a `macondo-zig` binary that answers `ucgi` / `isready` / `quit`, and the
       Go cross-check harness skeleton (`zigcore/crosscheck`, a Go test
       package that starts the binary).
-- [ ] **1. Data and board.** Machine letters, letter distributions, racks,
+- [x] **1. Data and board.** Machine letters, letter distributions, racks,
       KWG reader, KLV2 reader, board layouts, board state, cross-sets and
-      cross-scores, Zobrist hashing, CGP parsing.
-      Check: cross-sets and cross-scores identical to Go on random positions.
+      cross-scores (with anchors and extension sets), CGP parsing;
+      `position cgp`, `load`, and the debug commands `crosssets` and
+      `leave`. Check: every square identical to Go on positions from random
+      games and on random-tile boards (phonies), for several lexica and both
+      board sizes; leave values identical.
 - [ ] **2. Movegen + minimal protocol.** Full movegen incl. exchanges, shadow
       pruning and WMP-based generation; `position cgp`, `gen` (debug list of
       all moves with scores). Check: identical move lists and scores on
@@ -136,7 +139,9 @@ as they land.
       thread and a fixed seed; statistical agreement with many threads.
 - [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
-- [ ] **7. Endgame.** Negamax, TT, ABDADA, PV split; `go endgame`.
+- [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
+      `go endgame`. (The Go Zobrist keys come from an unseeded RNG, so
+      hashes are compared by property, e.g. incremental = from scratch.)
       Check: identical values (not PVs; ties can differ) on the endgame
       test suite.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.

@@ -5,8 +5,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const data_path = b.option([]const u8, "data-path", "Macondo data directory for tests (default ../data)") orelse "../data";
+
     const options = b.addOptions();
     options.addOption([]const u8, "version", zon.version);
+    options.addOption([]const u8, "data_path", data_path);
 
     // The engine: everything except the I/O adapters. Tools, tests and the
     // later WASM build import this module.
@@ -42,6 +45,11 @@ pub fn build(b: *std.Build) void {
     const core_tests = b.addTest(.{ .root_module = core });
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&b.addRunArtifact(core_tests).step);
-    test_step.dependOn(&b.addRunArtifact(exe_tests).step);
+    // Tests read data files relative to zigcore/.
+    const run_core_tests = b.addRunArtifact(core_tests);
+    run_core_tests.setCwd(b.path("."));
+    const run_exe_tests = b.addRunArtifact(exe_tests);
+    run_exe_tests.setCwd(b.path("."));
+    test_step.dependOn(&run_core_tests.step);
+    test_step.dependOn(&run_exe_tests.step);
 }
