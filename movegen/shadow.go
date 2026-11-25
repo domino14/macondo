@@ -967,6 +967,15 @@ func (gen *GordonGenerator) shadowRecord() {
 			equity += gen.wmpMoveGen.NonplaythroughBestLeaveValues()[leaveCount]
 		} else {
 			equity += s.bestLeaves[leaveCount]
+			// The pre-endgame adjustment can be positive, so an upper bound
+			// must include it (as MAGPIE's static_eval_get_shadow_equity
+			// does), or a play it lifts above its anchor's bound is pruned.
+			// The word map's best leaves above come from the leave map,
+			// whose values have it already.
+			bagPlusSeven := s.tilesInBag - gen.tilesPlayed + game.RackTileLimit
+			if bagPlusSeven < len(gen.pegValues) {
+				equity += gen.pegValues[bagPlusSeven]
+			}
 		}
 	} else {
 		// Bag empty (endgame): adjustment depends on whether we play out.
