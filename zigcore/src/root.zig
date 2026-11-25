@@ -14,6 +14,9 @@ pub const data = @import("data.zig");
 pub const position = @import("position.zig");
 pub const move = @import("move.zig");
 pub const movegen = @import("movegen.zig");
+pub const equity = @import("equity.zig");
+pub const leavemap = @import("leavemap.zig");
+pub const shadow = @import("shadow.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

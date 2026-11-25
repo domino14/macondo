@@ -118,7 +118,11 @@ Commands (from `zigcore/`): `zig build` (engine binary at
 `zig-out/bin/macondo-zig`), `zig build test` (unit tests),
 `zig fmt --check .`, and from the repo root `go test ./zigcore/crosscheck/`
 (cross-checks; they skip if the binary isn't built, and use
-`MACONDO_ZIG_ENGINE` if set).
+`MACONDO_ZIG_ENGINE` if set). Speed: write positions with
+`go test ./zigcore/crosscheck/ -run TestWritePositions -crosscheck.positions
+<file>`, then time them with `zig build bench -Doptimize=ReleaseFast --
+<file>` and `go test ./zigcore/crosscheck/ -run XXX -bench BenchmarkStatic
+-crosscheck.positions <file>`.
 
 ## Development Notes
 

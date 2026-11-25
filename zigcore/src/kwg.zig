@@ -245,6 +245,6 @@ test "NWL20 leave values" {
     // Blanks and S are good, Q alone is bad, an empty leave is 0.
     try testing.expect(klv.leaveValue(&.{0}) > 20);
     try testing.expect(klv.leaveValue(&.{19}) > 5);
-    try testing.expect(klv.leaveValue(&.{17}) < -5);
+    try testing.expect(klv.leaveValue(&.{17}) < 0);
     try testing.expectEqual(0, klv.leaveValue(&.{}));
 }

@@ -8,6 +8,8 @@ const board_mod = @import("board.zig");
 const cross_set = @import("cross_set.zig");
 const cgp_mod = @import("cgp.zig");
 const data = @import("data.zig");
+const equity = @import("equity.zig");
+const kwg_mod = @import("kwg.zig");
 const MachineLetter = tiles.MachineLetter;
 
 pub const Error = data.Error || cgp_mod.Error || error{
@@ -24,6 +26,10 @@ pub const Position = struct {
     board: board_mod.Board,
     dist: *const tiles.LetterDistribution,
     lexicon: *const data.Lexicon,
+    /// The leave values the lexicon is played with, if any.
+    leaves: ?*const kwg_mod.Klv,
+    /// Pre-endgame equity adjustments (see equity.Context.peg).
+    peg: []const f64,
     /// Owned copies of the CGP's names.
     lexicon_name: [64]u8,
     lexicon_name_len: usize,
@@ -36,6 +42,26 @@ pub const Position = struct {
     pub fn unseenBy(self: *const Position, who: usize) i32 {
         return @as(i32, @intCast(self.dist.total_tiles)) - @as(i32, @intCast(self.board.tiles_played)) -
             @as(i32, self.racks[who].num_tiles);
+    }
+
+    /// Tiles in the bag: those in neither rack nor on the board. With the
+    /// opponent's rack unknown (empty in the CGP), its tiles count as in
+    /// the bag, as in the Go engine.
+    pub fn tilesInBag(self: *const Position) i32 {
+        return self.unseenBy(0) - @as(i32, self.racks[1].num_tiles);
+    }
+
+    /// The equity context for the player to move (player 0).
+    pub fn equityContext(self: *const Position) equity.Context {
+        return .{
+            .ld = self.dist,
+            .klv = self.leaves,
+            .peg = self.peg,
+            .board_dim = self.board.dim,
+            .board_empty = self.board.tiles_played == 0,
+            .tiles_in_bag = self.tilesInBag(),
+            .opp_rack_score = self.racks[1].scoreOn(self.dist),
+        };
     }
 
     pub fn lexiconName(self: *const Position) []const u8 {
@@ -52,11 +78,16 @@ pub const Position = struct {
         if (c.lexicon.len > 64) return error.InvalidName;
         const dist = try store.distribution(data_path, c.letter_distribution);
         const lex = try store.lexicon(data_path, c.lexicon);
+        const super = layout == &board_mod.super_crossword_game;
+        const leaves = try store.leavesFor(data_path, c.lexicon, super);
+        const peg = try store.preEndgameValues(data_path, c.lexicon);
 
         var p: Position = .{
             .board = .init(layout),
             .dist = dist,
             .lexicon = lex,
+            .leaves = if (leaves) |l| &l.klv else null,
+            .peg = peg,
             .lexicon_name = undefined,
             .lexicon_name_len = c.lexicon.len,
             .racks = .{ .{}, .{} },

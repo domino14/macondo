@@ -12,6 +12,7 @@ const board_mod = @import("board.zig");
 const Position = @import("position.zig").Position;
 const movegen = @import("movegen.zig");
 const Move = @import("move.zig").Move;
+const equity = @import("equity.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -70,6 +71,8 @@ pub const Engine = struct {
             try self.setPosition(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "load")) {
             try self.load(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "go")) {
+            try self.go(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "gen")) {
             try self.printMoves(out);
         } else if (std.mem.eql(u8, cmd, "crosssets")) {
@@ -164,8 +167,33 @@ pub const Engine = struct {
         }
     }
 
-    /// Debug: every move for the player on turn, highest score first, then
-    /// `genok count <n>`.
+    /// `go static`: the best move by static equity. Writes
+    /// `info move <move> score <n> equity <e>` and `bestmove <move>`.
+    fn go(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        const kind = tokens.next() orelse return out.writeAll("error bad-go\n");
+        if (!std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var rack = p.racks[0];
+        if (rack.num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
+
+        var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
+        gen.max_can_exchange = ex.max;
+        const ctx = p.equityContext();
+        const best = try gen.genBest(&rack, ex.allowed, &ctx);
+        try out.writeAll("info move ");
+        try best.move.format(p.dist, out);
+        try out.print(" score {d} equity {d}\n", .{ best.move.score, best.equity });
+        try out.writeAll("bestmove ");
+        try best.move.format(p.dist, out);
+        try out.writeAll("\n");
+    }
+
+    /// Debug: every move for the player on turn with its score and static
+    /// equity (a pass gets the static pass penalty, as in the Go static
+    /// player's move list), best first, then `genok count <n>`.
     fn printMoves(self: *Engine, out: *Writer) (Writer.Error || Allocator.Error)!void {
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
@@ -174,18 +202,26 @@ pub const Engine = struct {
         gen.max_can_exchange = ex.max;
         var rack = p.racks[0];
         try gen.genAll(&rack, ex.allowed);
-        const plays = gen.plays.items;
-        std.mem.sort(Move, plays, {}, struct {
-            fn higher(_: void, a: Move, b: Move) bool {
-                return a.score > b.score;
-            }
-        }.higher);
-        for (plays) |*m| {
-            try out.writeAll("move ");
-            try m.format(p.dist, out);
-            try out.print(" score {d}\n", .{m.score});
+
+        const ctx = p.equityContext();
+        const Ranked = struct { m: Move, eq: f64 };
+        const ranked = try self.gpa.alloc(Ranked, gen.plays.items.len);
+        defer self.gpa.free(ranked);
+        for (gen.plays.items, ranked) |*m, *r| {
+            const lv = m.leave(&rack);
+            r.* = .{ .m = m.*, .eq = if (m.kind == .pass) equity.static_pass_penalty else ctx.equity(m, &lv) };
         }
-        try out.print("genok count {d}\n", .{plays.len});
+        std.mem.sort(Ranked, ranked, {}, struct {
+            fn before(_: void, a: Ranked, b: Ranked) bool {
+                return equity.better(&a.m, a.eq, &b.m, b.eq);
+            }
+        }.before);
+        for (ranked) |*r| {
+            try out.writeAll("move ");
+            try r.m.format(p.dist, out);
+            try out.print(" score {d} equity {d}\n", .{ r.m.score, r.eq });
+        }
+        try out.print("genok count {d}\n", .{ranked.len});
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension
@@ -207,8 +243,8 @@ pub const Engine = struct {
         try out.writeAll("crosssetsok\n");
     }
 
-    /// Debug: `leave <tiles>` prints the leave value of the tiles with the
-    /// position's lexicon's leave file.
+    /// Debug: `leave <tiles>` prints the value of keeping the tiles, from
+    /// the leave values the position's lexicon is played with (0 if none).
     fn printLeave(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         const text = std.mem.trim(u8, args, " \t\r");
@@ -216,9 +252,9 @@ pub const Engine = struct {
         const n = p.dist.toMachineLetters(text, &mls) catch return out.writeAll("error bad-tiles\n");
         for (mls[0..n]) |ml| if (tiles.isBlanked(ml)) return out.writeAll("error bad-tiles\n");
         std.mem.sort(tiles.MachineLetter, mls[0..n], {}, std.sort.asc(tiles.MachineLetter));
-        const lv = self.store.leaveValues(self.options.data_path, p.lexiconName()) catch |err| return self.dataError(err, out);
+        const klv = p.leaves orelse return out.writeAll("leave 0\n");
         // The leave file holds f32s; print the f32 exactly.
-        const v: f32 = @floatCast(lv.klv.leaveValue(mls[0..n]));
+        const v: f32 = @floatCast(klv.leaveValue(mls[0..n]));
         try out.print("leave {d}\n", .{v});
     }
 };
@@ -305,4 +341,34 @@ test "setoption" {
         \\
     , out.written());
     try testing.expectEqual(8, engine.options.threads);
+}
+
+test "go static and gen with equities" {
+    const testdata = @import("testdata.zig");
+    const build_options = @import("build_options");
+    var engine = try Engine.init(testing.allocator, "0.0.0", testdata.file_source);
+    defer engine.deinit();
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    var buf: [256]u8 = undefined;
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}), &out.writer);
+
+    _ = try engine.handle("go static", &out.writer);
+    _ = try engine.handle("go sim", &out.writer);
+    // The opening: FERAL and FARLE score 24, but FERAL puts a vowel next
+    // to a double-letter square.
+    _ = try engine.handle("position cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEFLR/ 0/0 0 lex NWL23;", &out.writer);
+    if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go sim\nerror data-not-found")) return error.SkipZigTest;
+    _ = try engine.handle("go static", &out.writer);
+    _ = try engine.handle("gen", &out.writer);
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    try testing.expectEqualStrings("error no-position", lines.next().?);
+    try testing.expectEqualStrings("error bad-go sim", lines.next().?);
+    try testing.expectEqualStrings("info move 8D.FARLE score 24 equity 24", lines.next().?);
+    try testing.expectEqualStrings("bestmove 8D.FARLE", lines.next().?);
+    // gen: best first, FARLE before FLARE on the tiebreak (same score,
+    // same square, F-A before F-L).
+    try testing.expectEqualStrings("move 8D.FARLE score 24 equity 24", lines.next().?);
+    try testing.expectEqualStrings("move 8D.FLARE score 24 equity 24", lines.next().?);
+    try testing.expectEqualStrings("move 8D.FERAL score 24 equity 23.3", lines.next().?);
 }

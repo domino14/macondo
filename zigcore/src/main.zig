@@ -4,32 +4,10 @@
 const std = @import("std");
 const Io = std.Io;
 const macondo = @import("macondo");
+const Files = @import("files.zig").Files;
 
 /// Longest accepted input line. CGP strings are well under this.
 const max_line = 64 * 1024;
-
-/// Reads data files from disk for the engine.
-const Files = struct {
-    io: Io,
-
-    fn source(self: *Files) macondo.data.Source {
-        return .{ .ctx = self, .loadFn = load };
-    }
-
-    fn load(ctx: *anyopaque, gpa: std.mem.Allocator, data_path: []const u8, rel_path: []const u8) macondo.data.LoadError![]align(4) u8 {
-        const self: *Files = @ptrCast(@alignCast(ctx));
-        const path = try std.fs.path.join(gpa, &.{ data_path, rel_path });
-        defer gpa.free(path);
-        return Io.Dir.cwd().readFileAllocOptions(self.io, path, gpa, .unlimited, .of(u32), null) catch |err| switch (err) {
-            error.FileNotFound => error.FileNotFound,
-            error.OutOfMemory => error.OutOfMemory,
-            else => {
-                std.log.err("reading {s}: {t}", .{ path, err });
-                return error.ReadFailed;
-            },
-        };
-    }
-};
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;

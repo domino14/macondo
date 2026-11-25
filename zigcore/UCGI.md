@@ -54,7 +54,11 @@ engine loads lexicon data on first use, or ahead of time with:
 
 Data files are found under the `data-path` option, laid out as in Macondo's
 `data/` directory: `letterdistributions/<name>`,
-`lexica/gaddag/<lexicon>.kwg` and `.klv2`.
+`lexica/gaddag/<lexicon>.kwg` and `.klv2` (`super-<lexicon>.klv2` on the
+SuperCrosswordGame board), and `strategy/<lexicon>/preendgame.json`. A
+lexicon without leave values of its own uses those of the lexicon it is
+derived from (CSW19 uses CSW24's, as in Macondo), and failing that plays
+by score alone.
 
 ## Searching
 
@@ -71,6 +75,14 @@ accepts `stop`, `isready` and `quit`; any other command gets
 > go preendgame
 > go auto                         choose the algorithm by game state, as the bot does
 > stop
+```
+
+`go static` answers at once with the best move by static equity (score,
+leave value, and the opening, pre-endgame and endgame adjustments):
+
+```
+< info move 8D.QUIZ score 84 equity 102.5
+< bestmove 8D.QUIZ
 ```
 
 Progress, as often as the engine likes:
@@ -97,7 +109,7 @@ Used by the cross-check harness; engines may omit them.
 
 ```
 > gen                    list every legal move for the player on turn, one per line
-< move 8D.QUIZ score 84
+< move 8D.QUIZ score 84 equity 102.5
 < genok count 4211
 > crosssets              every square's cross-set data, both directions
 < cs 7 8 h set 3fffffffffffffff score 0 anchor 1 lext 7ffffff rext 3fffffffffffffff
@@ -107,19 +119,22 @@ Used by the cross-check harness; engines may omit them.
 > autoplay games 100 seed 42
 ```
 
-`gen` lists the moves highest score first; an engine with an equity model
-may add `equity <value>` to each line. `crosssets` prints one `cs <row> <col> <h|v>` line per square and direction
+`gen` lists the moves best first by static equity (a pass, listed only
+when there is no tile play, gets equity -50); an engine without an
+equity model may leave `equity` out and list them by score. `crosssets` prints one `cs <row> <col> <h|v>` line per square and direction
 (rows and columns from 0): the cross-set and the left and right extension
 sets as hex bit masks (bit n = machine letter n), the cross-score, and
 whether the square is an anchor. `leave` prints the value exactly as stored
-(a 32-bit float).
+(a 32-bit float), from the leave values the position's lexicon is played
+with (0 if it has none). Equities are printed so that they read back as
+the same 64-bit float.
 
 ## Errors
 
 Errors are one line, `error <token> [detail]`, and the engine carries on.
 Tokens so far: `unknown-command`, `unknown-option`, `bad-value`,
 `bad-setoption`, `bad-position`, `bad-cgp <reason>`, `bad-load`, `bad-name`,
-`bad-tiles`, `no-position`, `data-not-found <path>`,
+`bad-tiles`, `bad-go`, `rack-too-big`, `no-position`, `data-not-found <path>`,
 `data-read-failed <path>`, `data-invalid <path>`, `line-too-long`.
 
 ## NN evaluation callback (optional)

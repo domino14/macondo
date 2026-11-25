@@ -14,14 +14,15 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
+	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 var gamesFlag = flag.Int("crosscheck.games", 3,
@@ -30,16 +31,23 @@ var gamesFlag = flag.Int("crosscheck.games", 3,
 // A lexicon and board to cross-check.
 type boardCase struct {
 	lexicon, dist, layout string
+	// peg runs the case on a data directory where the lexicon has
+	// pre-endgame adjustments (none ships with any).
+	peg bool
 }
 
 var boardCases = []boardCase{
-	{"NWL20", "english", board.CrosswordGameLayout},
-	{"CSW24", "english", board.CrosswordGameLayout},
-	{"CSW24", "english_super", board.SuperCrosswordGameLayout},
-	{"OSPS49", "polish", board.CrosswordGameLayout},
-	{"FRA20", "french", board.CrosswordGameLayout},
-	{"RD29", "german", board.CrosswordGameLayout},
-	{"FILE2017", "spanish", board.CrosswordGameLayout},
+	{lexicon: "NWL20", dist: "english", layout: board.CrosswordGameLayout},
+	{lexicon: "CSW24", dist: "english", layout: board.CrosswordGameLayout},
+	{lexicon: "CSW24", dist: "english_super", layout: board.SuperCrosswordGameLayout},
+	{lexicon: "OSPS49", dist: "polish", layout: board.CrosswordGameLayout},
+	{lexicon: "FRA20", dist: "french", layout: board.CrosswordGameLayout},
+	{lexicon: "RD29", dist: "german", layout: board.CrosswordGameLayout},
+	{lexicon: "FILE2017", dist: "spanish", layout: board.CrosswordGameLayout},
+	// No leaves of its own: it borrows NWL23's.
+	{lexicon: "NSWL20", dist: "english", layout: board.CrosswordGameLayout},
+	// Its own lexicon so no earlier case has cached its (empty) table.
+	{lexicon: "NWL18", dist: "english", layout: board.CrosswordGameLayout, peg: true},
 }
 
 // TestPositionCrossCheck plays random games with the Go engine and, after
@@ -63,9 +71,24 @@ func TestPositionCrossCheck(t *testing.T) {
 	}
 
 	for _, bc := range boardCases {
-		t.Run(bc.lexicon+"-"+bc.layout, func(t *testing.T) {
+		name := bc.lexicon + "-" + bc.layout
+		if bc.peg {
+			name += "-peg"
+		}
+		t.Run(name, func(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(dataPath, "lexica", "gaddag", bc.lexicon+".kwg")); err != nil {
 				t.Skipf("no %s word graph", bc.lexicon)
+			}
+			origDataPath := dataPath
+			cfg, dataPath := cfg, dataPath
+			if bc.peg {
+				dataPath = pegDataPath(t, dataPath, bc.lexicon)
+				cfg = config.DefaultConfig()
+				cfg.Set(config.ConfigDataPath, dataPath)
+				if err := e.Send("setoption name data-path value " + dataPath); err != nil {
+					t.Fatal(err)
+				}
+				defer e.Send("setoption name data-path value " + origDataPath)
 			}
 			positions := 0
 			for gi := 0; gi < *gamesFlag; gi++ {
@@ -79,6 +102,7 @@ func TestPositionCrossCheck(t *testing.T) {
 				cgpStr := randomTilesCGP(t, cfg, bc, uint64(i))
 				comparePosition(t, e, cfg, cgpStr)
 				compareMoves(t, e, cfg, cgpStr)
+				compareBest(t, e, cfg, cgpStr)
 				positions++
 				if t.Failed() {
 					return
@@ -87,6 +111,29 @@ func TestPositionCrossCheck(t *testing.T) {
 			t.Logf("%d positions match", positions)
 		})
 	}
+}
+
+// pegDataPath makes a data directory that is dataPath's but for one thing:
+// lexicon has pre-endgame adjustments, Quackle's.
+func pegDataPath(t *testing.T, dataPath, lexicon string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, sub := range []string{"lexica", "letterdistributions"} {
+		if err := os.Symlink(filepath.Join(dataPath, sub), filepath.Join(dir, sub)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	peg, err := os.ReadFile(filepath.Join(dataPath, "strategy", "default", "quackle_preendgame.json"))
+	if err != nil {
+		t.Skip("no quackle_preendgame.json")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "strategy", lexicon), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "strategy", lexicon, "preendgame.json"), peg, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // randomTilesCGP lays a few runs of random tiles from the bag, words or
@@ -150,31 +197,51 @@ func randomTilesCGP(t *testing.T, cfg *config.Config, bc boardCase, seed uint64)
 		b.ToFEN(ld.TileMapping()), racks[0], racks[1], bc.lexicon, bc.dist, bc.layout)
 }
 
-// compareMoves generates every move for the player on turn in both engines
-// and compares the lists (as multisets: the order is not compared).
-func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
+// staticPlayer is the Go static player for a position, with the evaluator
+// the bots use: CombinedStaticCalculator, with the SuperCrosswordGame
+// leaves on that board.
+func staticPlayer(t testing.TB, cfg *config.Config, g *game.Game) *turnplayer.AIStaticTurnPlayer {
+	t.Helper()
+	leaves := ""
+	if g.Rules().BoardName() == board.SuperCrosswordGameLayout {
+		leaves = "super-leaves.klv2"
+	}
+	calc, err := equity.NewCombinedStaticCalculator(g.LexiconName(), cfg, leaves, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := turnplayer.NewAIStaticTurnPlayerFromGame(g, cfg, []equity.EquityCalculator{calc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// parseCGP sets a position up in the Go engine as the cross-checks compare
+// it: the board recalculated from scratch.
+func parseCGP(t testing.TB, cfg *config.Config, cgpStr string) *game.Game {
 	t.Helper()
 	parsed, err := cgp.ParseCGP(cfg, cgpStr)
 	if err != nil {
 		t.Fatalf("Go can't parse %q: %v", cgpStr, err)
 	}
-	g := parsed.Game
-	g.RecalculateBoard()
-	ld := g.Bag().LetterDistribution()
-	gd, err := kwg.GetKWG(cfg.WGLConfig(), g.LexiconName(), kwg.WithDistribution(ld.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	gen := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	unseen := int(g.RackFor(1).NumTiles()) + g.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= g.ExchangeLimit()
-	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, g.ExchangeLimit()))
-	plays := gen.GenAll(g.RackFor(0), exchAllowed)
+	parsed.RecalculateBoard()
+	return parsed.Game
+}
 
-	alph := ld.TileMapping()
+// compareMoves generates every move for the player on turn in both engines
+// and compares the lists, scores and static equities included, in order:
+// best equity first, ties broken by Go's TiebreaksBetter.
+func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
+	t.Helper()
+	g := parseCGP(t, cfg, cgpStr)
+	p := staticPlayer(t, cfg, g)
+	plays := p.GenerateMoves(1 << 30)
+
+	alph := g.Alphabet()
 	want := make([]string, 0, len(plays))
 	for _, m := range plays {
-		want = append(want, ucgiMove(m, alph)+" score "+strconv.Itoa(m.Score()))
+		want = append(want, fmt.Sprintf("%s score %d equity %s", ucgiMove(m, alph), m.Score(), fmtFloat(m.Equity())))
 	}
 
 	lines, err := e.Command("gen", "genok")
@@ -183,7 +250,15 @@ func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
 	}
 	got := make([]string, 0, len(lines))
 	for _, l := range lines[:len(lines)-1] {
-		got = append(got, strings.TrimPrefix(l, "move "))
+		f := strings.Fields(l)
+		if len(f) != 6 || f[0] != "move" || f[2] != "score" || f[4] != "equity" {
+			t.Fatalf("bad gen line %q", l)
+		}
+		eq, err := strconv.ParseFloat(f[5], 64)
+		if err != nil {
+			t.Fatalf("bad equity in %q", l)
+		}
+		got = append(got, fmt.Sprintf("%s score %s equity %s", f[1], f[3], fmtFloat(eq)))
 	}
 	if last := lines[len(lines)-1]; last != "genok count "+strconv.Itoa(len(got)) {
 		t.Fatalf("bad gen trailer %q after %d moves", last, len(got))
@@ -203,7 +278,50 @@ func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
 			}
 			t.Errorf("  only Zig: %s", m)
 		}
+		return
 	}
+	for i := range want {
+		if want[i] != got[i] {
+			t.Errorf("position %s: move %d is %s in Go, %s in Zig", cgpStr, i, want[i], got[i])
+			return
+		}
+	}
+}
+
+// compareBest asks both engines for the best move by static equity, the
+// way the Go engine finds it in sims and autoplay: GenBestStaticTurn, with
+// shadow pruning and the top-play recorder.
+func compareBest(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
+	t.Helper()
+	g := parseCGP(t, cfg, cgpStr)
+	p := staticPlayer(t, cfg, g)
+	m := turnplayer.GenBestStaticTurn(g, p, g.PlayerOnTurn())
+	want := fmt.Sprintf("%s score %d equity %s", ucgiMove(m, g.Alphabet()), m.Score(), fmtFloat(m.Equity()))
+
+	lines, err := e.Command("go static", "bestmove")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("go static: %q", lines)
+	}
+	f := strings.Fields(lines[0])
+	if len(f) != 7 || f[0] != "info" || f[1] != "move" || f[3] != "score" || f[5] != "equity" {
+		t.Fatalf("bad info line %q", lines[0])
+	}
+	eq, err := strconv.ParseFloat(f[6], 64)
+	if err != nil {
+		t.Fatalf("bad equity in %q", lines[0])
+	}
+	got := fmt.Sprintf("%s score %s equity %s", f[2], f[4], fmtFloat(eq))
+	if got != want || lines[1] != "bestmove "+f[2] {
+		t.Errorf("position %s: best move %s in Go, %s in Zig (%s)", cgpStr, want, got, lines[1])
+	}
+}
+
+// fmtFloat writes a float64 so that equal strings mean equal values.
+func fmtFloat(f float64) string {
+	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
 // ucgiMove writes a Go move in UCGI notation (see zigcore/UCGI.md).
@@ -265,7 +383,6 @@ func crossCheckGame(t *testing.T, e *Engine, cfg *config.Config, dataPath string
 	if err != nil {
 		t.Fatal(err)
 	}
-	klv := loadKLV(t, dataPath, bc.lexicon)
 	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
 
 	positions := 0
@@ -276,9 +393,8 @@ func crossCheckGame(t *testing.T, e *Engine, cfg *config.Config, dataPath string
 		}
 		comparePosition(t, e, cfg, cgpStr)
 		compareMoves(t, e, cfg, cgpStr)
-		if klv != nil {
-			compareLeaves(t, e, klv, g.RackFor(g.PlayerOnTurn()), rules.LetterDistribution().TileMapping(), rng)
-		}
+		compareBest(t, e, cfg, cgpStr)
+		compareLeaves(t, e, staticPlayer(t, cfg, parseCGP(t, cfg, cgpStr)), g.RackFor(g.PlayerOnTurn()), rules.LetterDistribution().TileMapping(), rng)
 		positions++
 		if t.Failed() {
 			return positions
@@ -317,12 +433,7 @@ func crossCheckGame(t *testing.T, e *Engine, cfg *config.Config, dataPath string
 // square.
 func comparePosition(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
 	t.Helper()
-	parsed, err := cgp.ParseCGP(cfg, cgpStr)
-	if err != nil {
-		t.Fatalf("Go can't parse its own CGP %q: %v", cgpStr, err)
-	}
-	parsed.RecalculateBoard()
-	b := parsed.Board()
+	b := parseCGP(t, cfg, cgpStr).Board()
 
 	if err := e.Send("position cgp " + cgpStr); err != nil {
 		t.Fatal(err)
@@ -364,8 +475,9 @@ func comparePosition(t *testing.T, e *Engine, cfg *config.Config, cgpStr string)
 	}
 }
 
-// compareLeaves checks the leave values of a few random subsets of rack.
-func compareLeaves(t *testing.T, e *Engine, klv *equity.KLV, rack *tilemapping.Rack, tm *tilemapping.TileMapping, rng *rand.Rand) {
+// compareLeaves checks the leave values of a few random subsets of rack,
+// against the leaves the Go static player uses.
+func compareLeaves(t *testing.T, e *Engine, p *turnplayer.AIStaticTurnPlayer, rack *tilemapping.Rack, tm *tilemapping.TileMapping, rng *rand.Rand) {
 	t.Helper()
 	tiles := rack.TilesOn()
 	for range 4 {
@@ -384,25 +496,11 @@ func compareLeaves(t *testing.T, e *Engine, klv *equity.KLV, rack *tilemapping.R
 		if err != nil {
 			t.Fatalf("leave %q: %q", text, got)
 		}
-		want := klv.LeaveValue(append(tilemapping.MachineWord(nil), leave...))
+		want := p.Calculators()[0].(*equity.CombinedStaticCalculator).LeaveValue(append(tilemapping.MachineWord(nil), leave...))
 		if float64(float32(zig)) != want {
 			t.Errorf("leave %q: zig %v, go %v", text, float32(zig), want)
 		}
 	}
-}
-
-func loadKLV(t *testing.T, dataPath, lexicon string) *equity.KLV {
-	t.Helper()
-	f, err := os.Open(filepath.Join(dataPath, "lexica", "gaddag", lexicon+".klv2"))
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	klv, err := equity.ReadKLV(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return klv
 }
 
 func boolInt(b bool) int {

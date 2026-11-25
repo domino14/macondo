@@ -29,6 +29,18 @@ pub const Move = struct {
         return self.tiles[0..self.len];
     }
 
+    /// What `rack` keeps after this move: the rack less the tiles played
+    /// (a designated blank comes off as a blank) or thrown in.
+    pub fn leave(self: *const Move, rack: *const tiles.Rack) tiles.Rack {
+        var r = rack.*;
+        if (self.kind == .pass) return r;
+        for (self.tileSlice()) |ml| {
+            if (self.kind == .play and ml == 0) continue;
+            r.take(if (tiles.isBlanked(ml)) 0 else ml);
+        }
+        return r;
+    }
+
     /// UCGI notation: `8D.QUIZ` (row first = horizontal, column first =
     /// vertical; `.` for a tile already on the board, lower case for a
     /// designated blank), `exch.ABC`, `pass`.

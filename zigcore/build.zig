@@ -42,6 +42,25 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the UCGI engine on stdio");
     run_step.dependOn(&run_cmd.step);
 
+    // Times the best-move search on a file of positions.
+    const bench = b.addExecutable(.{
+        .name = "macondo-zig-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/bench.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "macondo", .module = core },
+            },
+        }),
+    });
+    b.installArtifact(bench);
+    const run_bench = b.addRunArtifact(bench);
+    run_bench.setCwd(b.path("."));
+    run_bench.addPassthruArgs();
+    const bench_step = b.step("bench", "Time the best-move search on a file of positions");
+    bench_step.dependOn(&run_bench.step);
+
     const core_tests = b.addTest(.{ .root_module = core });
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
     const test_step = b.step("test", "Run unit tests");
