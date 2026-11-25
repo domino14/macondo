@@ -120,9 +120,8 @@ pub fn generate(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg,
             const s = kwg.nextNodeIdx(right.node, 0);
             if (s != 0) rightside_rightx = kwg.letterSets(s).extensions;
         }
-        // On the last tile of the word to the right (the Go code's comment
-        // says the first; it writes the last, and the port must match), and
-        // on this square.
+        // On the last tile of the word to the right (as in MAGPIE), and on
+        // this square.
         b.setLeftExtSet(row, @intCast(right_col), t_dir, withBlank(rightside_leftx));
         b.setRightExtSet(row, @intCast(right_col), t_dir, withBlank(rightside_rightx));
         b.setLeftExtSet(row, col, t_dir, withBlank(rightside_leftx));

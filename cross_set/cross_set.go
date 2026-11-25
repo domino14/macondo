@@ -418,7 +418,8 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 				_, rightsideRightxSet = getLetterSets(gd, sIdx)
 			}
 		}
-		// Store extension sets on the leftmost tile of the right-side word.
+		// Store extension sets on the rightmost tile of the right-side word
+		// (rightCol), as MAGPIE does.
 		b.SetLeftExtSet(row, rightCol, tDir, extSetWithBlank(rightsideLeftxSet))
 		b.SetRightExtSet(row, rightCol, tDir, extSetWithBlank(rightsideRightxSet))
 		// Store leftx on the empty square itself for right-side tiles.
