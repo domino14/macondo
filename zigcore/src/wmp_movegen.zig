@@ -166,15 +166,31 @@ pub const MoveGen = struct {
         self.resetBlankWordCache();
         self.count_by_size = @splat(0);
         self.has_word_of_length = @splat(false);
-        self.enumerate(0, 0, 0, 0, lm);
+        var rl: RackLetters = .{};
+        for (0..wmp.max_alphabet_size) |ml| {
+            const n = wmp.count(self.player, @intCast(ml));
+            if (n == 0) continue;
+            rl.letters[rl.n] = @intCast(ml);
+            rl.counts[rl.n] = n;
+            rl.scores[rl.n] = self.tile_scores[ml];
+            rl.n += 1;
+        }
+        self.enumerate(&rl, 0, 0, 0, 0, lm);
         var size: usize = wmp.minimum_word_length;
         while (size <= self.full_rack_size) : (size += 1) self.checkNonplaythroughsOfSize(size, check_leaves);
     }
 
-    fn enumerate(self: *MoveGen, current: BitRack, next_ml: u8, size: u32, score_sum: i32, lm: *leavemap.LeaveMap) void {
-        var ml = next_ml;
-        while (ml < wmp.max_alphabet_size and wmp.count(self.player, ml) == 0) ml += 1;
-        if (ml >= wmp.max_alphabet_size) {
+    /// The rack's distinct letters with their counts and scores, for
+    /// enumerate (which walks only those, as MAGPIE's compact enumeration).
+    const RackLetters = struct {
+        letters: [rack_size]u8 = undefined,
+        counts: [rack_size]u32 = undefined,
+        scores: [rack_size]i32 = undefined,
+        n: usize = 0,
+    };
+
+    fn enumerate(self: *MoveGen, rl: *const RackLetters, current: BitRack, idx: usize, size: u32, score_sum: i32, lm: *leavemap.LeaveMap) void {
+        if (idx == rl.n) {
             const i = combination_offsets[size] + self.count_by_size[size];
             self.np_racks[i] = current;
             self.leave_values[i] = lm.currentValue();
@@ -182,16 +198,17 @@ pub const MoveGen = struct {
             self.count_by_size[size] += 1;
             return;
         }
-        const max_this: u32 = wmp.count(self.player, ml);
-        const tile_score = self.tile_scores[ml];
+        const ml = rl.letters[idx];
+        const max_this = rl.counts[idx];
+        const tile_score = rl.scores[idx];
         var cur = current;
         for (0..max_this) |k| {
             const i: u32 = @intCast(k);
-            self.enumerate(cur, ml + 1, size + i, score_sum + @as(i32, @intCast(i)) * tile_score, lm);
+            self.enumerate(rl, cur, idx + 1, size + i, score_sum + @as(i32, @intCast(i)) * tile_score, lm);
             wmp.add(&cur, ml);
             lm.complementAdd(ml, i, max_this);
         }
-        self.enumerate(cur, ml + 1, size + max_this, score_sum + @as(i32, @intCast(max_this)) * tile_score, lm);
+        self.enumerate(rl, cur, idx + 1, size + max_this, score_sum + @as(i32, @intCast(max_this)) * tile_score, lm);
         var k = max_this;
         while (k > 0) {
             k -= 1;

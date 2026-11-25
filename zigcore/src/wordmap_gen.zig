@@ -44,8 +44,7 @@ pub fn gen(g: *Generator, rack: *Rack, anchor: *const shadow.Anchor) void {
     var candidates = w.candidateSubracks(prune_now, score_bound, &bases, cutoff);
 
     const start_cols: u32 = (@as(u32, 2) << @intCast(rightmost)) - (@as(u32, 1) << @intCast(leftmost));
-    var letter_cols_loaded = false;
-    var letter_cols: [64]u32 = undefined;
+    var letter_cols: ?*const [wmp.max_alphabet_size]u32 = null;
 
     while (candidates != 0) : (candidates &= candidates - 1) {
         const si = @ctz(candidates);
@@ -54,10 +53,8 @@ pub fn gen(g: *Generator, rack: *Rack, anchor: *const shadow.Anchor) void {
             if (@as(f64, @floatFromInt(bound)) + w.leaveValue(si) < g.best_eq) continue;
         }
         if (!w.subrackWords(si)) continue;
-        if (!letter_cols_loaded) {
-            loadLetterCols(g, &letter_cols, leftmost, rightmost + word_length - 1);
-            letter_cols_loaded = true;
-        }
+        const cols = letter_cols orelse laneLetterCols(g);
+        letter_cols = cols;
         const words = w.words;
         var off: usize = 0;
         while (off + word_length <= words.len) : (off += word_length) {
@@ -65,7 +62,7 @@ pub fn gen(g: *Generator, rack: *Rack, anchor: *const shadow.Anchor) void {
             // Every start column at once: the word fits at a column when each
             // of its letters can go on its square from there.
             var fit = start_cols;
-            for (word, 0..) |letter, i| fit &= letter_cols[letter & 63] >> @intCast(i);
+            for (word, 0..) |letter, i| fit &= cols[letter & 31] >> @intCast(i);
             while (fit != 0) : (fit &= fit - 1) {
                 const start: usize = @ctz(fit);
                 markWord(g, word, start);
@@ -81,7 +78,22 @@ pub fn gen(g: *Generator, rack: *Rack, anchor: *const shadow.Anchor) void {
 /// every such column and loses those that don't allow it; a column that
 /// allows fewer than half (a tile's, usually) is instead given to the
 /// letters it allows. Port of wordmapLoadLetterCols.
-fn loadLetterCols(g: *Generator, letter_cols: *[64]u32, first: usize, last: usize) void {
+/// The letter columns of the lane being generated, worked out the first
+/// time one of its anchors needs them in this generation: they depend on
+/// the lane's squares only, and an anchor reads only its own columns.
+fn laneLetterCols(g: *Generator) *const [wmp.max_alphabet_size]u32 {
+    const s = &g.shadow;
+    const lane = @intFromBool(g.vertical);
+    const bit = @as(u32, 1) << @intCast(g.cur_row);
+    const cols = &s.lane_letter_cols[lane][g.cur_row];
+    if (s.lane_letter_cols_valid[lane] & bit == 0) {
+        loadLetterCols(g, cols, 0, g.board.dim - 1);
+        s.lane_letter_cols_valid[lane] |= bit;
+    }
+    return cols;
+}
+
+fn loadLetterCols(g: *Generator, letter_cols: *[wmp.max_alphabet_size]u32, first: usize, last: usize) void {
     const num_letters = g.ld.size;
     const universe: u64 = (@as(u64, 1) << @intCast(num_letters)) - 2;
     var col_letters: [board_mod.max_dim]u64 = undefined;

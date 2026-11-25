@@ -101,7 +101,13 @@ pub const Visitor = struct {
 /// generate_exchange_moves).
 pub fn populateVisiting(lm: *LeaveMap, rack: *Rack, klv: ?*const kwg_mod.Klv, ctx: *const equity.Context, best: *BestLeaves, visitor: ?Visitor) void {
     best.* = @splat(-std.math.inf(f64));
-    var p: Populator = .{ .lm = lm, .rack = rack, .klv = klv, .ctx = ctx, .best = best, .size = ctx.ld.size, .visitor = visitor };
+    var p: Populator = .{ .lm = lm, .rack = rack, .klv = klv, .ctx = ctx, .best = best, .visitor = visitor };
+    // The rack's distinct letters: the walks go through those only.
+    for (rack.counts[0..ctx.ld.size], 0..) |n, ml| {
+        if (n == 0) continue;
+        p.letters[p.num_letters] = @intCast(ml);
+        p.num_letters += 1;
+    }
     if (klv) |k| {
         p.rec(0, k.kwg.dawgRoot(), 0);
     } else {
@@ -115,8 +121,9 @@ const Populator = struct {
     klv: ?*const kwg_mod.Klv,
     ctx: *const equity.Context,
     best: *BestLeaves,
-    size: usize,
     visitor: ?Visitor = null,
+    letters: [max_rack_size]MachineLetter = undefined,
+    num_letters: usize = 0,
 
     /// Records the value of the current leave, whose raw leave value is
     /// `raw` (0 if not in the leave graph).
@@ -134,67 +141,63 @@ const Populator = struct {
         if (self.visitor) |vis| vis.visit(vis.ctx, self.rack, v);
     }
 
-    fn rec(self: *Populator, ml_start: usize, node: u32, word: i32) void {
-        var ml = ml_start;
-        while (ml < self.size and self.rack.counts[ml] == 0) ml += 1;
-        if (ml == self.size) {
+    fn rec(self: *Populator, idx: usize, node: u32, word: i32) void {
+        if (idx == self.num_letters) {
             var raw: f64 = 0;
             if (self.ctx.tiles_in_bag > 0 and self.rack.num_tiles > 0 and word >= 0) {
                 raw = leaveValueByIndex(self.klv.?, word - 1);
             }
             return self.leaf(raw);
         }
-        const m: MachineLetter = @intCast(ml);
-        const num = self.rack.counts[ml];
+        const m = self.letters[idx];
+        const num = self.rack.counts[m];
         for (0..num) |_| {
             self.rack.take(m);
-            self.lm.take(m, self.rack.counts[ml]);
+            self.lm.take(m, self.rack.counts[m]);
         }
         // None of this letter in the leave: the graph state is unchanged.
-        self.rec(ml + 1, node, word);
+        self.rec(idx + 1, node, word);
 
         // Then one copy more at a time, moving down the graph for each.
         const k = &self.klv.?.kwg;
         var cur_node = node;
         var cur_word = word;
         for (0..num) |i| {
-            self.lm.add(m, self.rack.counts[ml]);
+            self.lm.add(m, self.rack.counts[m]);
             self.rack.add(m);
             const next = incrementNodeToMl(self.klv.?, cur_node, cur_word, m);
             if (next.node == 0) {
                 // No leave in the graph has this many: every subset with
                 // this many or more is valued as if absent.
-                self.zero(ml + 1);
+                self.zero(idx + 1);
                 for (i + 1..num) |_| {
-                    self.lm.add(m, self.rack.counts[ml]);
+                    self.lm.add(m, self.rack.counts[m]);
                     self.rack.add(m);
-                    self.zero(ml + 1);
+                    self.zero(idx + 1);
                 }
                 return;
             }
             cur_node = k.arcIndex(next.node);
             cur_word = next.word + 1;
-            self.rec(ml + 1, cur_node, cur_word);
+            self.rec(idx + 1, cur_node, cur_word);
         }
     }
 
-    /// Records every subset of the letters from `ml_start` on, with the
-    /// leave so far absent from the leave graph.
-    fn zero(self: *Populator, ml_start: usize) void {
-        var ml = ml_start;
-        while (ml < self.size and self.rack.counts[ml] == 0) ml += 1;
-        if (ml == self.size) return self.leaf(0);
-        const m: MachineLetter = @intCast(ml);
-        const num = self.rack.counts[ml];
+    /// Records every subset of the letters from `idx` on, with the leave so
+    /// far absent from the leave graph.
+    fn zero(self: *Populator, idx: usize) void {
+        if (idx == self.num_letters) return self.leaf(0);
+        const m = self.letters[idx];
+        const num = self.rack.counts[m];
         for (0..num) |_| {
             self.rack.take(m);
-            self.lm.take(m, self.rack.counts[ml]);
+            self.lm.take(m, self.rack.counts[m]);
         }
-        self.zero(ml + 1);
+        self.zero(idx + 1);
         for (0..num) |_| {
-            self.lm.add(m, self.rack.counts[ml]);
+            self.lm.add(m, self.rack.counts[m]);
             self.rack.add(m);
-            self.zero(ml + 1);
+            self.zero(idx + 1);
         }
     }
 };

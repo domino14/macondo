@@ -141,18 +141,26 @@ pub const Generator = struct {
     /// only if nothing else was found (or gen_pass is set). Ties go to
     /// equity.tiebreaksBetter. The rack must hold at most 7 tiles.
     pub fn genBest(self: *Generator, rack: *Rack, add_exchange: bool, ctx: *const equity.Context) Allocator.Error!Best {
+        self.bestStart(rack, add_exchange, ctx);
+        self.bestSubracks(rack);
+        shadow_mod.genShadow(self, rack);
+        shadow_mod.recordFromAnchors(self, rack);
+        return self.bestFinish(rack);
+    }
+
+    // genBest's steps, apart for timing them (the bench tool's phases).
+
+    /// The leave of every subset of the rack, and with it (when they are
+    /// allowed) the exchanges, whose best is then a floor the anchors are
+    /// measured against.
+    pub fn bestStart(self: *Generator, rack: *Rack, add_exchange: bool, ctx: *const equity.Context) void {
         std.debug.assert(rack.num_tiles <= rack_tile_limit);
         self.out_of_memory = false;
         self.best_only = true;
-        defer self.best_only = false;
         self.ctx = ctx;
         self.have_best = false;
         self.shadow.tiles_in_bag = ctx.tiles_in_bag;
         self.shadow.opp_rack_score = ctx.opp_rack_score;
-
-        // The leave of every subset of the rack, and with it (when they
-        // are allowed) the exchanges, whose best is then a floor the
-        // anchors are measured against.
         self.shadow.anchor_floor = -std.math.inf(f64);
         self.leave_map.init(rack);
         if (self.leave_map.initialized) {
@@ -164,12 +172,17 @@ pub const Generator = struct {
             if (add_exchange) self.genExchanges(rack, 0, 0);
         }
         if (self.have_best) self.shadow.anchor_floor = self.best_eq;
-        // The word map needs the leave map's values for its subracks.
-        self.wmp_gen.init(self.ld, rack, if (self.leave_map.initialized) self.word_map else null);
-        if (self.wmp_gen.isActive()) self.wmp_gen.checkNonplaythroughExistence(ctx.tiles_in_bag > 0, &self.leave_map);
+    }
 
-        shadow_mod.genShadow(self, rack);
-        shadow_mod.recordFromAnchors(self, rack);
+    /// The word map's look at the rack's subracks (it needs the leave
+    /// map's values).
+    pub fn bestSubracks(self: *Generator, rack: *const Rack) void {
+        self.wmp_gen.init(self.ld, rack, if (self.leave_map.initialized) self.word_map else null);
+        if (self.wmp_gen.isActive()) self.wmp_gen.checkNonplaythroughExistence(self.ctx.tiles_in_bag > 0, &self.leave_map);
+    }
+
+    pub fn bestFinish(self: *Generator, rack: *const Rack) Allocator.Error!Best {
+        defer self.best_only = false;
         if (!self.have_best or self.gen_pass) self.recordBest(Move.pass(), rack, null);
         if (self.out_of_memory) return error.OutOfMemory;
         return .{ .move = self.best, .equity = self.best_eq };

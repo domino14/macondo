@@ -155,7 +155,7 @@ fn benchWmp(init: std.process.Init, args: []const []const u8) !void {
 /// The best-play search's phases timed apart (word maps on), as genBest
 /// runs them.
 fn benchPhases(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, rounds: u32, no_wmp: bool) !void {
-    const names = [_][]const u8{ "leave map", "word-map subracks", "exchanges", "shadow", "anchors" };
+    const names = [_][]const u8{ "leaves and exchanges", "word-map subracks", "shadow", "anchors" };
     var best: [names.len]i96 = @splat(std.math.maxInt(i96));
     const gen = try gpa.create(macondo.movegen.Generator);
     defer gpa.destroy(gen);
@@ -172,29 +172,16 @@ fn benchPhases(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Pos
             gen.max_can_exchange = ex.max;
             const ctx = p.equityContext();
             var rack = p.racks[0];
-            gen.best_only = true;
-            gen.ctx = &ctx;
-            gen.have_best = false;
-            gen.shadow.tiles_in_bag = ctx.tiles_in_bag;
-            gen.shadow.opp_rack_score = ctx.opp_rack_score;
             var t = Io.Timestamp.now(io, .awake);
-            gen.leave_map.init(&rack);
-            macondo.leavemap.populate(&gen.leave_map, &rack, ctx.klv, &ctx, &gen.shadow.best_leaves);
+            gen.bestStart(&rack, ex.allowed, &ctx);
             t = lap(io, t, &total[0]);
-            gen.wmp_gen.init(gen.ld, &rack, gen.word_map);
-            gen.wmp_gen.checkNonplaythroughExistence(ctx.tiles_in_bag > 0, &gen.leave_map);
+            gen.bestSubracks(&rack);
             t = lap(io, t, &total[1]);
-            gen.shadow.anchor_floor = -std.math.inf(f64);
-            if (ex.allowed) {
-                gen.genExchanges(&rack, 0, 0);
-                if (gen.have_best) gen.shadow.anchor_floor = gen.best_eq;
-            }
-            t = lap(io, t, &total[2]);
             macondo.shadow.genShadow(gen, &rack);
-            t = lap(io, t, &total[3]);
+            t = lap(io, t, &total[2]);
             macondo.shadow.recordFromAnchors(gen, &rack);
-            t = lap(io, t, &total[4]);
-            gen.best_only = false;
+            t = lap(io, t, &total[3]);
+            _ = try gen.bestFinish(&rack);
         }
         for (&best, total) |*b, x| b.* = @min(b.*, x);
     }

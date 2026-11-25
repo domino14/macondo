@@ -178,6 +178,12 @@ pub const State = struct {
     /// columns as rows of the transposed board), for the recording pass.
     lanes: [2][board_mod.max_dim][board_mod.max_dim]movegen.CachedSquare = undefined,
 
+    /// Per lane, for word-map generation: each letter's columns (see
+    /// wordmap_gen.loadLetterCols), and which lanes have them this
+    /// generation.
+    lane_letter_cols: [2][board_mod.max_dim][@import("wmp.zig").max_alphabet_size]u32 = undefined,
+    lane_letter_cols_valid: [2]u32 = .{ 0, 0 },
+
     best_leaves: leavemap.BestLeaves = undefined,
     tiles_in_bag: i32 = 0,
     opp_rack_score: i32 = 0,
@@ -224,6 +230,7 @@ pub fn bestLeavesWithoutMap(s: *State) void {
 fn initShadow(gen: *Generator, rack: *const Rack) void {
     const s = &gen.shadow;
     s.heap.reset();
+    s.lane_letter_cols_valid = .{ 0, 0 };
     // Room for every anchor there can be, so appends never allocate: one
     // per square and direction, or with the word map one per square,
     // direction and (playthrough blocks, tiles to play).
