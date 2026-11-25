@@ -35,6 +35,7 @@ pub const Error = LoadError || error{ InvalidData, InvalidName };
 pub const Lexicon = struct {
     bytes: []align(4) u8,
     kwg: kwg_mod.Kwg,
+    sibling_tiles: []u64 = &.{},
 };
 
 pub const WordMap = struct {
@@ -78,6 +79,7 @@ pub const Store = struct {
         while (l.next()) |e| {
             self.gpa.free(e.key_ptr.*);
             self.gpa.free(e.value_ptr.*.bytes);
+            self.gpa.free(e.value_ptr.*.sibling_tiles);
             self.gpa.destroy(e.value_ptr.*);
         }
         self.lexica.deinit(self.gpa);
@@ -150,6 +152,9 @@ pub const Store = struct {
         const lex = try self.gpa.create(Lexicon);
         errdefer self.gpa.destroy(lex);
         lex.* = .{ .bytes = bytes, .kwg = kwg_mod.Kwg.init(bytes) catch return error.InvalidData };
+        lex.sibling_tiles = try lex.kwg.buildSiblingTiles(self.gpa);
+        errdefer self.gpa.free(lex.sibling_tiles);
+        lex.kwg.sibling_tiles = lex.sibling_tiles;
         const key = try self.gpa.dupe(u8, name);
         errdefer self.gpa.free(key);
         try self.lexica.put(self.gpa, key, lex);

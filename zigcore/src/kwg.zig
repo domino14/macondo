@@ -28,11 +28,38 @@ pub const tile_shift = 24;
 
 pub const Kwg = struct {
     nodes: []const u32,
+    /// For each node, the tiles of the sibling list from it to the list's
+    /// end, as a bit set: move generation visits only the arcs it can use
+    /// and finds each by counting bits (lists are sorted by tile). MAGPIE's
+    /// kwg sibling tiles. Empty until buildSiblingTiles.
+    sibling_tiles: []const u64 = &.{},
 
     /// Uses `bytes` in place; they must outlive the Kwg.
     pub fn init(bytes: []align(4) const u8) error{InvalidKwg}!Kwg {
         if (bytes.len % 4 != 0 or bytes.len < 8) return error.InvalidKwg;
         return .{ .nodes = std.mem.bytesAsSlice(u32, bytes) };
+    }
+
+    /// The sibling tile sets of every node, for `sibling_tiles`; the
+    /// caller owns them.
+    pub fn buildSiblingTiles(self: Kwg, gpa: std.mem.Allocator) error{OutOfMemory}![]u64 {
+        const out = try gpa.alloc(u64, self.nodes.len);
+        var i = self.nodes.len;
+        var next: u64 = 0;
+        while (i > 0) {
+            i -= 1;
+            const n = self.nodes[i];
+            const bit = @as(u64, 1) << @intCast((n >> tile_shift) & 63);
+            next = bit | (if (n & is_end_bit != 0) 0 else next);
+            out[i] = next;
+        }
+        return out;
+    }
+
+    /// The node of the list starting at `node` with tile `bit`, whose list
+    /// tiles are `list_tiles` (which must hold it).
+    pub inline fn listNode(node: u32, list_tiles: u64, bit: u64) u32 {
+        return node + @popCount(list_tiles & (bit - 1));
     }
 
     pub inline fn tile(self: Kwg, i: u32) u8 {
@@ -247,4 +274,30 @@ test "NWL20 leave values" {
     try testing.expect(klv.leaveValue(&.{19}) > 5);
     try testing.expect(klv.leaveValue(&.{17}) < 0);
     try testing.expectEqual(0, klv.leaveValue(&.{}));
+}
+
+test "reachable sibling lists are sorted by tile" {
+    // Move generation finds the GADDAG separator (tile 0) by looking at a
+    // list's first node only. Every list reachable from the roots is
+    // checked (a file may end with nodes no arc leads to).
+    for ([_][]const u8{ "lexica/gaddag/NWL20.kwg", "lexica/gaddag/CSW24.kwg", "lexica/gaddag/FRA20.kwg", "lexica/gaddag/OSPS49.kwg" }) |path| {
+        const bytes = testdata.loadFile(path) catch continue;
+        defer testing.allocator.free(bytes);
+        const k = try Kwg.init(bytes);
+        var seen = try std.DynamicBitSet.initEmpty(testing.allocator, k.nodes.len);
+        defer seen.deinit();
+        var stack: std.ArrayList(u32) = .empty;
+        defer stack.deinit(testing.allocator);
+        try stack.appendSlice(testing.allocator, &.{ k.dawgRoot(), k.gaddagRoot() });
+        while (stack.pop()) |start| {
+            if (start == 0 or seen.isSet(start)) continue;
+            seen.set(start);
+            var i = start;
+            while (true) : (i += 1) {
+                if (k.arcIndex(i) != 0) try stack.append(testing.allocator, k.arcIndex(i));
+                if (k.isEnd(i)) break;
+                try testing.expect(k.tile(i) < k.tile(i + 1));
+            }
+        }
+    }
 }

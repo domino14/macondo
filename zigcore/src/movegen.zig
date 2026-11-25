@@ -228,7 +228,11 @@ pub const Generator = struct {
 
     pub fn genForAnchor(self: *Generator, rack: *Rack) void {
         const col = self.cur_anchor_col;
-        self.recursiveGen(col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+        if (self.best_only) {
+            self.recursiveGen(true, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+        } else {
+            self.recursiveGen(false, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+        }
     }
 
     fn record(self: *Generator, m: Move) void {
@@ -287,25 +291,25 @@ pub const Generator = struct {
         }
     }
 
-    /// Gordon's Gen.
-    fn recursiveGen(self: *Generator, col: usize, rack: *Rack, node: u32, leftstrip: usize, rightstrip: usize, unique_play: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
-        const sq = self.row[col];
+    /// Gordon's Gen, for the best-play search (`best`: plays valued from
+    /// the leave map as they are found) or for every move.
+    fn recursiveGen(self: *Generator, comptime best: bool, col: usize, rack: *Rack, node: u32, leftstrip: usize, rightstrip: usize, unique_play: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
+        const sq = &self.row[col];
         const nodes = self.kwg.nodes;
+        const list_tiles = self.kwg.sibling_tiles[node];
+        const scores = &self.ld.score_table;
         if (sq.letter != 0) {
-            const raw: u32 = tiles.unblank(sq.letter);
+            const raw_bit = @as(u64, 1) << @intCast(tiles.unblank(sq.letter));
             var next: u32 = 0;
             var accepts = false;
-            var i = node;
-            while (true) : (i += 1) {
-                const n = nodes[i];
-                if (n >> kwg_mod.tile_shift == raw) {
-                    next = n & kwg_mod.arc_mask;
-                    accepts = n & kwg_mod.accepts_bit != 0;
-                    break;
-                }
-                if (n & kwg_mod.is_end_bit != 0) break;
+            if (list_tiles & raw_bit != 0) {
+                const n = nodes[Kwg.listNode(node, list_tiles, raw_bit)];
+                next = n & kwg_mod.arc_mask;
+                accepts = n & kwg_mod.accepts_bit != 0;
             }
-            self.goOn(col, sq.letter, rack, next, accepts, leftstrip, rightstrip, unique_play, base_score + self.ld.score(sq.letter), cross_scores, word_mul);
+            // Start loading the next list while this square is dealt with.
+            @prefetch(&nodes[next], .{});
+            self.goOn(best, col, sq.letter, rack, next, accepts, leftstrip, rightstrip, unique_play, base_score + scores[sq.letter], cross_scores, word_mul);
             return;
         }
         if (rack.num_tiles == 0) return;
@@ -320,51 +324,52 @@ pub const Generator = struct {
         if (n_blank == 0) allowed &= self.rack_bits;
         if (allowed == 0) return;
 
-        var i = node;
-        while (true) : (i += 1) {
-            const n = nodes[i];
-            const ml: MachineLetter = @intCast(n >> kwg_mod.tile_shift);
-            if (allowed & (@as(u64, 1) << @intCast(ml)) != 0) {
+        // Only the arcs whose tiles can go here, in the list's order.
+        var placeable = allowed & list_tiles;
+        while (placeable != 0) : (placeable &= placeable - 1) {
+            const ml: MachineLetter = @intCast(@ctz(placeable));
+            const n = nodes[Kwg.listNode(node, list_tiles, placeable & (~placeable +% 1))];
+            {
                 const n_ml = rack.counts[ml];
                 const arc = n & kwg_mod.arc_mask;
                 const accepts = n & kwg_mod.accepts_bit != 0;
+                @prefetch(&nodes[arc], .{});
                 if (n_ml > 0) {
                     rack.take(ml);
                     if (n_ml == 1) self.rack_bits &= ~(@as(u64, 1) << @intCast(ml));
-                    if (self.leave_map.initialized) self.leave_map.take(ml, n_ml - 1);
+                    if (best) self.leave_map.take(ml, n_ml - 1);
                     self.tiles_played += 1;
-                    const sml = self.ld.score(ml);
+                    const sml = scores[ml];
                     var addl_cross: i32 = 0;
                     if (!empty_adjacent) {
                         addl_cross = if (wm > 1) wm * (cs + sml) else cs + sml * lm;
                     }
-                    self.goOn(col, ml, rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score + sml * lm, cross_scores + addl_cross, word_mul * wm);
+                    self.goOn(best, col, ml, rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score + sml * lm, cross_scores + addl_cross, word_mul * wm);
                     self.tiles_played -= 1;
-                    if (self.leave_map.initialized) self.leave_map.add(ml, n_ml - 1);
+                    if (best) self.leave_map.add(ml, n_ml - 1);
                     rack.add(ml);
                     self.rack_bits |= @as(u64, 1) << @intCast(ml);
                 }
                 if (n_blank > 0) {
                     rack.take(0);
-                    if (self.leave_map.initialized) self.leave_map.take(0, n_blank - 1);
+                    if (best) self.leave_map.take(0, n_blank - 1);
                     self.tiles_played += 1;
-                    self.goOn(col, tiles.blank(ml), rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score, cross_scores + cs * wm, word_mul * wm);
+                    self.goOn(best, col, tiles.blank(ml), rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score, cross_scores + cs * wm, word_mul * wm);
                     self.tiles_played -= 1;
-                    if (self.leave_map.initialized) self.leave_map.add(0, n_blank - 1);
+                    if (best) self.leave_map.add(0, n_blank - 1);
                     rack.add(0);
                 }
             }
-            if (n & kwg_mod.is_end_bit != 0) break;
         }
     }
 
     /// Gordon's GoOn.
-    fn goOn(self: *Generator, cur_col: usize, letter: MachineLetter, rack: *Rack, new_node: u32, accepts: bool, leftstrip_in: usize, rightstrip_in: usize, unique_play_in: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
+    fn goOn(self: *Generator, comptime best: bool, cur_col: usize, letter: MachineLetter, rack: *Rack, new_node: u32, accepts: bool, leftstrip_in: usize, rightstrip_in: usize, unique_play_in: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
         var leftstrip = leftstrip_in;
         var rightstrip = rightstrip_in;
         var unique_play = unique_play_in;
         const bingo: i32 = if (self.tiles_played == rack_tile_limit) bingo_bonus else 0;
-        const sq = self.row[cur_col];
+        const sq = &self.row[cur_col];
         const dim = self.board.dim;
 
         if (sq.letter != 0) {
@@ -381,15 +386,18 @@ pub const Generator = struct {
             if (accepts and no_letter_left and self.tiles_played > 0 and
                 (unique_play or self.tiles_played > 1) and self.tiles_played <= self.max_tile_usage)
             {
-                self.recordPlay(rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
+                self.recordFound(best, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
             }
             if (new_node == 0) return;
             if (cur_col > 0 and cur_col - 1 != self.last_anchor_col) {
-                self.recursiveGen(cur_col - 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+                self.recursiveGen(best, cur_col - 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
-            const sep = self.kwg.nextNodeIdx(new_node, 0);
-            if (sep != 0 and no_letter_left and self.cur_anchor_col < dim - 1) {
-                self.recursiveGen(self.cur_anchor_col + 1, rack, sep, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+            // The separator is tile 0, so in a sorted list it can only come
+            // first.
+            const first = self.kwg.nodes[new_node];
+            if (first >> kwg_mod.tile_shift == 0 and no_letter_left and self.cur_anchor_col < dim - 1) {
+                const sep = first & kwg_mod.arc_mask;
+                if (sep != 0) self.recursiveGen(best, self.cur_anchor_col + 1, rack, sep, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
         } else {
             rightstrip = cur_col;
@@ -397,12 +405,29 @@ pub const Generator = struct {
             if (accepts and no_letter_right and self.tiles_played > 0 and
                 (unique_play or self.tiles_played > 1) and self.tiles_played <= self.max_tile_usage)
             {
-                self.recordPlay(rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
+                self.recordFound(best, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
             }
             if (new_node != 0 and cur_col < dim - 1) {
-                self.recursiveGen(cur_col + 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+                self.recursiveGen(best, cur_col + 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
         }
+    }
+
+    inline fn recordFound(self: *Generator, comptime best: bool, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
+        if (best) return self.recordPlay(rack, leftstrip, rightstrip, score);
+        const len = rightstrip - leftstrip + 1;
+        if (len < 2) return;
+        var m: Move = .{
+            .kind = .play,
+            .vertical = self.vertical,
+            .row = @intCast(if (self.vertical) leftstrip else self.cur_row),
+            .col = @intCast(if (self.vertical) self.cur_row else leftstrip),
+            .len = @intCast(len),
+            .tiles_played = @intCast(self.tiles_played),
+            .score = score,
+        };
+        @memcpy(m.tiles[0..len], self.strip[leftstrip .. rightstrip + 1]);
+        self.record(m);
     }
 
     pub fn recordPlay(self: *Generator, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
@@ -799,7 +824,7 @@ fn rowGen(gen: *Generator, rack: *Rack, row: usize, anchor_col: usize, vertical:
     gen.cur_anchor_col = anchor_col;
     gen.setRackBits(rack);
     gen.loadRow(row, if (vertical) .horizontal else .vertical);
-    gen.recursiveGen(anchor_col, rack, gen.kwg.gaddagRoot(), anchor_col, anchor_col, unique, 0, 0, 1);
+    gen.recursiveGen(false, anchor_col, rack, gen.kwg.gaddagRoot(), anchor_col, anchor_col, unique, 0, 0, 1);
 }
 
 fn rackFrom(f: *const testdata.Fixture, text: []const u8) !Rack {

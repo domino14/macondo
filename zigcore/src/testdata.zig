@@ -34,6 +34,7 @@ pub const Fixture = struct {
     ld: LetterDistribution,
     kwg_bytes: []align(4) u8,
     kwg: Kwg,
+    sibling_tiles: []u64,
 
     pub fn load(lexicon: []const u8) !Fixture {
         const dist_bytes = try loadFile("letterdistributions/english");
@@ -41,16 +42,22 @@ pub const Fixture = struct {
         var buf: [64]u8 = undefined;
         const kwg_bytes = try loadFile(try std.fmt.bufPrint(&buf, "lexica/gaddag/{s}.kwg", .{lexicon}));
         errdefer testing.allocator.free(kwg_bytes);
+        var kwg: Kwg = try .init(kwg_bytes);
+        const sib = try kwg.buildSiblingTiles(testing.allocator);
+        errdefer testing.allocator.free(sib);
+        kwg.sibling_tiles = sib;
         return .{
             .ld = try .parse(testing.allocator, "english", dist_bytes),
             .kwg_bytes = kwg_bytes,
-            .kwg = try .init(kwg_bytes),
+            .kwg = kwg,
+            .sibling_tiles = sib,
         };
     }
 
     pub fn deinit(self: *Fixture) void {
         self.ld.deinit(testing.allocator);
         testing.allocator.free(self.kwg_bytes);
+        testing.allocator.free(self.sibling_tiles);
     }
 
     pub fn cs(self: *const Fixture, letters: []const u8) CrossSet {
