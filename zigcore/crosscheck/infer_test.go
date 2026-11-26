@@ -59,6 +59,10 @@ func TestInferCrossCheck(t *testing.T) {
 	}
 	const master = 20261127
 	kinds := map[string]int{}
+	// Time spent per engine, by the Zig engine's thread count (Go reads on
+	// one thread throughout).
+	var goTime, zigTime [2]time.Duration
+	var reads [2]int
 	for _, bc := range boardCases {
 		if bc.peg {
 			continue
@@ -75,16 +79,27 @@ func TestInferCrossCheck(t *testing.T) {
 				if err := e.Send(fmt.Sprintf("setoption name threads value %d", threads)); err != nil {
 					t.Fatal(err)
 				}
-				kind := compareInfer(t, e, cfg, c, uint64(i+1), *inferBudget)
+				kind, goT, zigT := compareInfer(t, e, cfg, c, uint64(i+1), *inferBudget)
 				kinds[kind]++
+				goTime[i%2] += goT
+				zigTime[i%2] += zigT
+				reads[i%2]++
 			}
 			t.Logf("%d inferences match", len(cases))
 		})
 	}
 	t.Logf("paths: %v", kinds)
+	for k, threads := range []int{1, 4} {
+		if reads[k] > 0 {
+			t.Logf("%d reads, Zig on %d thread(s): Go %v, Zig %v (Go/Zig %.2f)", reads[k], threads,
+				goTime[k], zigTime[k], goTime[k].Seconds()/zigTime[k].Seconds())
+		}
+	}
 }
 
-func compareInfer(t *testing.T, e *Engine, cfg *config.Config, c inferCase, seed uint64, budget int) string {
+// compareInfer returns the kind of read and the time each engine took
+// (Go's from PrepareFinder, Zig's from the go command).
+func compareInfer(t *testing.T, e *Engine, cfg *config.Config, c inferCase, seed uint64, budget int) (string, time.Duration, time.Duration) {
 	t.Helper()
 	g := parseCGP(t, cfg, c.before)
 	liveSeed := automatic.DeriveSeed(seed, 0)
@@ -118,21 +133,25 @@ func compareInfer(t *testing.T, e *Engine, cfg *config.Config, c inferCase, seed
 	rf.SetTauCap(0.1)
 	rf.SetBudget(budget)
 	rf.SetTracing(true)
+	goStart := time.Now()
 	if err := rf.PrepareFinder(g.RackFor(me).TilesOn()); err != nil {
 		t.Fatalf("%s: Go: %v", after, err)
 	}
 	if err := rf.Infer(context.Background()); err != nil {
 		t.Fatalf("%s: Go: %v", after, err)
 	}
+	goTime := time.Since(goStart)
 	want := rf.Inferences().InferredRacks
 
 	if err := e.Send("position cgp " + after); err != nil {
 		t.Fatal(err)
 	}
+	zigStart := time.Now()
 	lines, err := e.Command(fmt.Sprintf("go infer budget %d seed %d trace 1", budget, seed), "inferok")
 	if err != nil {
 		t.Fatalf("%s: %v", after, err)
 	}
+	zigTime := time.Since(zigStart)
 	// The measurements first, in order, so that a difference shows where it
 	// starts.
 	var zigDraws []string
@@ -177,11 +196,11 @@ func compareInfer(t *testing.T, e *Engine, cfg *config.Config, c inferCase, seed
 	}
 	switch {
 	case m.Action() == move.MoveTypeExchange:
-		return "exchange"
+		return "exchange", goTime, zigTime
 	case head[13] == "1":
-		return "enumerated-kept-" + head[5]
+		return "enumerated-kept-" + head[5], goTime, zigTime
 	}
-	return "sampled-kept-" + head[5]
+	return "sampled-kept-" + head[5], goTime, zigTime
 }
 
 // lastMoveNotation writes m in CGP's lm notation, the tiles it plays
