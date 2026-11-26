@@ -383,7 +383,7 @@ pub const MoveGen = struct {
                 candidates |= @as(u64, 1) << @intCast(i);
                 continue;
             }
-            const hash = wmp.mix(br);
+            const hash = wmp.indexHash(br);
             if (wfl.mayHaveWords(hash)) {
                 self.pt_hashes[i] = hash;
                 candidates |= @as(u64, 1) << @intCast(i);

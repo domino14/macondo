@@ -268,7 +268,7 @@ fn maxWordLookupBytes(m: *const wmp.Wmp) u32 {
                         if (second & (@as(u32, 1) << @intCast(ml2)) == 0) continue;
                         wmp.add(&rack, ml2);
                         wmp.setCount(&rack, 0, 0);
-                        if (wfl.hashedWordEntry(rack, wmp.mix(rack))) |we| total += @intCast(wfl.blanklessWords(we, len).len / len);
+                        if (wfl.hashedWordEntry(rack, wmp.indexHash(rack))) |we| total += @intCast(wfl.blanklessWords(we, len).len / len);
                         wmp.setCount(&rack, 0, 1);
                         wmp.take(&rack, ml2);
                     }

@@ -80,6 +80,15 @@ pub inline fn mix(br: BitRack) u64 {
     return low;
 }
 
+/// The hash of the blankless lookup index and its filter (MAGPIE's
+/// wmp_index_hash): linear in the rack's halves, two independent
+/// multiplies; its top bits depend on every bit of the rack.
+pub inline fn indexHash(br: BitRack) u64 {
+    const low: u64 = @truncate(br);
+    const high: u64 = @truncate(br >> 64);
+    return low *% 0x9E3779B97F4A7C15 +% high *% 0xC2B2AE3D27D4EB4F;
+}
+
 /// Whether a word map can hold racks of `ld` for a board of `dim`: at most
 /// 32 letters and 2 blanks, and no letter (counting the blanks as it)
 /// more than 15 times in a word. Port of CheckCompatible.
@@ -159,28 +168,78 @@ pub const ForLength = struct {
     /// have no words, and this says so without reading the table.
     filter: []u64 = &.{},
     filter_shift: u6 = 0,
+    /// The blankless lookup index (MAGPIE's word index), built at load:
+    /// copies of the blankless entries in buckets of two (one 64-byte
+    /// cache line), chosen by the top bits of indexHash; a full bucket
+    /// spills into the next, and an empty slot ends a probe. A lookup reads
+    /// one bucket instead of a bucket start and then an entry.
+    index: []align(64) Entry = &.{},
+    index_shift: u6 = 0,
+    index_mask: u32 = 0,
 
     const filter_bits_per_entry = 16;
+    const index_bucket_slots = 2;
+    const index_max_fill_percent = 75;
 
     inline fn filterBits(hash: u64, shift: u6) u64 {
         return (@as(u64, 1) << @intCast((hash >> (shift - 6)) & 63)) |
             (@as(u64, 1) << @intCast((hash >> (shift - 12)) & 63));
     }
 
-    fn buildFilter(self: *ForLength, gpa: Allocator) Allocator.Error!void {
+    /// Builds the filter and the index over the blankless entries.
+    fn buildIndex(self: *ForLength, gpa: Allocator) Allocator.Error!void {
         self.filter = &.{};
-        if (self.words.num_buckets == 0 or self.words.entries.len == 0) return;
+        self.index = &.{};
+        const n = self.words.entries.len;
+        if (self.words.num_buckets == 0 or n == 0) return;
         var words: u64 = 64;
-        while (words * 64 < @as(u64, self.words.entries.len) * filter_bits_per_entry) words <<= 1;
+        while (words * 64 < @as(u64, n) * filter_bits_per_entry) words <<= 1;
         const shift: u6 = @intCast(@as(u7, 64) - std.math.log2_int(u64, words));
         const filter = try gpa.alloc(u64, words);
+        errdefer gpa.free(filter);
         @memset(filter, 0);
+
+        const min_slots = (@as(u64, n) * 100 + index_max_fill_percent - 1) / index_max_fill_percent;
+        var buckets: u64 = 16;
+        while (buckets * index_bucket_slots < min_slots) buckets <<= 1;
+        const index = try gpa.alignedAlloc(Entry, .@"64", buckets * index_bucket_slots);
+        @memset(std.mem.sliceAsBytes(index), 0);
+        const index_shift: u6 = @intCast(@as(u7, 64) - std.math.log2_int(u64, buckets));
+        const mask: u32 = @intCast(buckets - 1);
+
         for (self.words.entries) |*e| {
-            const hash = mix(entryRack(e));
+            const hash = indexHash(entryRack(e));
             filter[hash >> shift] |= filterBits(hash, shift);
+            var b: u32 = @intCast(hash >> index_shift);
+            place: while (true) : (b = (b + 1) & mask) {
+                for (index[b * index_bucket_slots ..][0..index_bucket_slots]) |*slot| {
+                    if (entryRack(slot) == 0) {
+                        slot.* = e.*;
+                        break :place;
+                    }
+                }
+            }
         }
         self.filter = filter;
         self.filter_shift = shift;
+        self.index = index;
+        self.index_shift = index_shift;
+        self.index_mask = mask;
+    }
+
+    /// The blankless entry of `br` (whose indexHash is `hash`) in the
+    /// index, or null. Both slots of a bucket are compared before
+    /// branching.
+    inline fn probe(self: *const ForLength, hash: u64, br: BitRack) ?*const Entry {
+        var b: u32 = @intCast(hash >> self.index_shift);
+        while (true) : (b = (b + 1) & self.index_mask) {
+            const bucket = self.index[b * index_bucket_slots ..][0..index_bucket_slots];
+            const k0 = entryRack(&bucket[0]);
+            const k1 = entryRack(&bucket[1]);
+            if (k0 == br) return &bucket[0];
+            if (k1 == br) return &bucket[1];
+            if (k0 == 0 or k1 == 0) return null;
+        }
     }
 
     /// False if the blankless rack with this hash surely has no words.
@@ -192,15 +251,18 @@ pub const ForLength = struct {
     }
 
     pub fn wordEntry(self: *const ForLength, br: BitRack) ?*const Entry {
-        const hash = mix(br);
+        // A word map being made has no index yet: the file's buckets.
+        if (self.index.len == 0) return self.words.lookup(br);
+        const hash = indexHash(br);
         if (!self.mayHaveWords(hash)) return null;
-        return self.words.scan(@as(u32, @truncate(hash)) & (self.words.num_buckets - 1), br);
+        return self.probe(hash, br);
     }
 
-    /// wordEntry for a rack whose hash is known and passed mayHaveWords.
+    /// wordEntry for a rack whose indexHash is known and passed
+    /// mayHaveWords (or that surely has words).
     pub fn hashedWordEntry(self: *const ForLength, br: BitRack, hash: u64) ?*const Entry {
-        if (self.words.num_buckets == 0) return null;
-        return self.words.scan(@as(u32, @truncate(hash)) & (self.words.num_buckets - 1), br);
+        if (self.index.len == 0) return self.words.lookup(br);
+        return self.probe(hash, br);
     }
 
     pub fn blankEntry(self: *const ForLength, br: BitRack) ?*const Entry {
@@ -236,7 +298,7 @@ pub const ForLength = struct {
             if (allowed & (@as(u32, 1) << @intCast(ml)) == 0) continue;
             add(&br, ml);
             // The entry says this makes a word: no need for the filter.
-            if (self.hashedWordEntry(br, mix(br))) |be| n += self.writeBlankless(be, word_length, buf[n..]);
+            if (self.hashedWordEntry(br, indexHash(br))) |be| n += self.writeBlankless(be, word_length, buf[n..]);
             take(&br, ml);
         }
         return n;
@@ -288,7 +350,7 @@ pub const Wmp = struct {
             wfl.word_letters = try r.take(@as(usize, uninlined) * len);
             wfl.blanks = try r.table();
             wfl.double_blanks = try r.table();
-            try wfl.buildFilter(gpa);
+            try wfl.buildIndex(gpa);
         }
         return w;
     }
@@ -296,7 +358,9 @@ pub const Wmp = struct {
     pub fn deinit(self: *Wmp, gpa: Allocator) void {
         for (&self.wfls) |*wfl| {
             if (wfl.filter.len > 0) gpa.free(wfl.filter);
+            if (wfl.index.len > 0) gpa.free(wfl.index);
             wfl.filter = &.{};
+            wfl.index = &.{};
         }
     }
 
@@ -556,7 +620,8 @@ test "the filter lets every rack with words through" {
     for (2..16) |len| {
         const wfl = &l.wmp.wfls[len];
         for (wfl.words.entries) |*e| {
-            try testing.expect(wfl.mayHaveWords(mix(entryRack(e))));
+            try testing.expect(wfl.mayHaveWords(indexHash(entryRack(e))));
+            try testing.expectEqual(entryRack(e), entryRack(wfl.hashedWordEntry(entryRack(e), indexHash(entryRack(e))).?));
         }
     }
 }
