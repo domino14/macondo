@@ -27,6 +27,7 @@ pub const sim = @import("sim.zig");
 pub const carry = @import("carry.zig");
 pub const gomath = @import("gomath.zig");
 pub const bai = @import("bai.zig");
+pub const rit = @import("rit.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

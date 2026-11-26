@@ -65,6 +65,7 @@ pub fn main(init: std.process.Init) !void {
         return error.Usage;
     }
     if (std.mem.eql(u8, args[1], "wmp")) return benchWmp(init, args);
+    if (std.mem.eql(u8, args[1], "rit")) return benchRit(init, args);
     const rounds = if (args.len > 2) try std.fmt.parseInt(u32, args[2], 10) else 5;
     const data_path = if (args.len > 3) args[3] else "../data";
 
@@ -197,6 +198,131 @@ fn benchWmp(init: std.process.Init, args: []const []const u8) !void {
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
     try w.interface.print("{s}: {d} bytes in {d:.3} s (one thread)\n", .{ args[2], bytes.len, @as(f64, @floatFromInt(ns)) / 1e9 });
     try w.interface.flush();
+}
+
+/// `rit <lexicon> [data] [out|-] [MAGPIE .rit]`: makes the lexicon's rack
+/// info table (with its own leaves and word map) on every core, times it,
+/// writes it to `out` if given, and compares the word-list fields with a
+/// MAGPIE table made from the same files if given.
+fn benchRit(init: std.process.Init, args: []const []const u8) !void {
+    const io = init.io;
+    const gpa = init.gpa;
+    if (args.len < 3) return error.Usage;
+    const data_path = if (args.len > 3) args[3] else "../data";
+    var files: Files = .{ .io = io };
+    var store: macondo.data.Store = .init(gpa, files.source());
+    defer store.deinit();
+    const lex = try store.lexicon(data_path, args[2]);
+    const ld = try store.distribution(data_path, "english");
+    const leaves = (try store.leavesFor(data_path, args[2], false)).?;
+    const word_map = (try store.wordMap(data_path, args[2], lex, ld)).?;
+    const threads = try std.Thread.getCpuCount();
+    var out_buf: [512]u8 = undefined;
+    var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
+    const start = Io.Timestamp.now(io, .awake);
+    const bytes = try macondo.rit.make(gpa, .{ .ld = ld, .kwg_bytes = lex.bytes, .klv = &leaves.klv, .klv_bytes = leaves.bytes, .word_map = word_map }, threads);
+    defer gpa.free(bytes);
+    const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+    const rit = try macondo.rit.Rit.init(bytes);
+    try w.interface.print("{s}: {d} racks, {d} bytes in {d:.1} s ({d} threads)\n", .{ args[2], rit.entries.len, bytes.len, @as(f64, @floatFromInt(ns)) / 1e9, threads });
+    try w.interface.flush();
+    if (args.len > 4 and !std.mem.eql(u8, args[4], "-")) {
+        const f = try Io.Dir.cwd().createFile(io, args[4], .{});
+        defer f.close(io);
+        try f.writePositionalAll(io, bytes, 0);
+    }
+    if (args.len > 5) try compareMagpieRit(io, gpa, &rit, args[5], &w.interface);
+}
+
+/// Compares a table with MAGPIE's (version 13 layout): the word-list
+/// fields must be equal, the leave values equal once rounded to MAGPIE's
+/// thousandths, and the best exchanges equal but where MAGPIE's rounding
+/// ties two.
+fn compareMagpieRit(io: Io, gpa: std.mem.Allocator, rit: *const macondo.rit.Rit, path: []const u8, w: *Io.Writer) !void {
+    const m = try Io.Dir.cwd().readFileAllocOptions(io, path, gpa, .unlimited, .@"16", null);
+    defer gpa.free(m);
+    const num_buckets = std.mem.readInt(u32, m[4..8], .little);
+    const num_entries = std.mem.readInt(u32, m[8..12], .little);
+    const entries_at = 12 + (@as(usize, num_buckets) + 1) * 4;
+    const esize = (m.len - entries_at - 16) / num_entries;
+    try w.print("MAGPIE table: version {d}, {d} entries of {d} bytes\n", .{ m[0], num_entries, esize });
+    if (num_entries != rit.entries.len) return error.EntryCountDiffers;
+    var diffs: [6]u64 = @splat(0);
+    const names = [_][]const u8{ "playthrough union", "tp7 masks", "tp6 masks", "np word lengths", "leaves (rounded)", "best exchange (beyond rounding ties)" };
+    for (0..num_entries) |i| {
+        const e = m[entries_at + i * esize ..][0..esize];
+        const br = std.mem.readInt(u128, e[esize - 16 ..][0..16], .little);
+        const z = rit.lookup(br) orelse return error.RackMissing;
+        var off: usize = 384;
+        const u32At = struct {
+            fn f(b: []const u8, o: usize) u32 {
+                return std.mem.readInt(u32, b[o..][0..4], .little);
+            }
+        }.f;
+        for (0..8) |k| {
+            if (u32At(e, off + 4 * k) != z.playthrough_union[k]) {
+                diffs[0] += 1;
+                break;
+            }
+        }
+        off += 32 + 32 + 32; // union, np best leaves, best leaves
+        for (0..8) |k| {
+            if (u32At(e, off + 4 * k) != z.multi_pt_tp7[k]) {
+                diffs[1] += 1;
+                break;
+            }
+        }
+        off += 32;
+        for (0..9) |k| {
+            if (u32At(e, off + 4 * k) != z.multi_pt_tp6[k]) {
+                diffs[2] += 1;
+                break;
+            }
+        }
+        off += 36;
+        if (e[off] != z.np_has_word) diffs[3] += 1;
+        off += 1 + 1 + 7; // np words, bingo count, bingo words
+        const strip = e[off..][0..7];
+        const n_ex = e[off + 7];
+        if (n_ex != z.exchange_len or !std.mem.eql(u8, strip[0..n_ex], z.exchange[0..z.exchange_len])) {
+            // Fine if MAGPIE's thousandths tie the two: compare the exact
+            // values of both exchanges' leaves.
+            const theirs_v = exchangeLeaveValue(z, strip[0..n_ex]);
+            const mine_v = exchangeLeaveValue(z, z.exchange[0..z.exchange_len]);
+            if (@round(theirs_v * 1000) != @round(mine_v * 1000) or theirs_v > mine_v) diffs[5] += 1;
+        }
+        // Leaves: MAGPIE's leave map index runs over the played tiles
+        // where Zig's runs over those kept, so compare as sets.
+        var mine: [128]i32 = undefined;
+        var theirs: [128]i32 = undefined;
+        for (0..128) |k| {
+            mine[k] = @intFromFloat(@round(@as(f64, z.leaves[k]) * 1000));
+            const raw: i32 = @as(i32, e[3 * k]) | (@as(i32, e[3 * k + 1]) << 8) | (@as(i32, e[3 * k + 2]) << 16);
+            theirs[k] = (raw ^ (1 << 23)) - (1 << 23);
+        }
+        std.mem.sort(i32, &mine, {}, std.sort.asc(i32));
+        std.mem.sort(i32, &theirs, {}, std.sort.asc(i32));
+        if (!std.mem.eql(i32, &mine, &theirs)) diffs[4] += 1;
+    }
+    for (names, diffs) |name, d| try w.print("  {s}: {d} racks differ\n", .{ name, d });
+    try w.flush();
+}
+
+/// The exact leave value of exchanging `strip` from entry `e`'s rack.
+fn exchangeLeaveValue(e: *const macondo.rit.Entry, strip: []const u8) f64 {
+    var rack: macondo.tiles.Rack = .{};
+    for (0..32) |ml| {
+        for (0..macondo.wmp.count(e.rack, @intCast(ml))) |_| rack.add(@intCast(ml));
+    }
+    var lm: macondo.leavemap.LeaveMap = .{};
+    lm.init(&rack);
+    var leave = rack;
+    for (strip) |ml| leave.take(ml);
+    var idx: u32 = 0;
+    for (leave.counts, 0..) |n, ml| {
+        if (n > 0) idx |= ((@as(u32, 1) << @intCast(n)) - 1) << @intCast(lm.base[ml]);
+    }
+    return e.leaves[idx];
 }
 
 /// The best-play search's phases timed apart (word maps on), as genBest
