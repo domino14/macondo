@@ -137,6 +137,21 @@ const Level = struct {
     changed: [max_changed]u16 = undefined,
     n_changed: u8 = 0,
     lone: [2]LonePlay = .{ .{}, .{} },
+    /// The opponent's tile types with a play here, once worked out.
+    stuck_types: ?u64 = null,
+    /// Each player's best plays here by lane, shared by the positions one
+    /// move down in the lanes their move leaves alone (siblingBest).
+    sibling: [2]Sibling = .{ .{}, .{} },
+};
+
+/// A lane's best play of the player's whole rack and best other play (by
+/// score, ties to the larger move code), each a pass if there is none.
+const LaneBest = struct { whole: SmallMove = .{}, partial: SmallMove = .{} };
+
+const Sibling = struct {
+    /// The lanes whose bests are known.
+    valid: u64 = 0,
+    best: [max_lanes]LaneBest = undefined,
 };
 
 /// The solver's view the lists need: its board, racks and move generator.
@@ -164,6 +179,8 @@ pub const PathLists = struct {
     wanted: [max_lanes]u32 = undefined,
     gen_anchors: std.ArrayList(u8) = .empty,
     generated: std.ArrayList(SmallMove) = .empty,
+    /// A list of some lanes' plays (siblingBest).
+    scratch: MoveList = .{},
     /// Set while a leaf is played out.
     in_playout: bool = false,
     /// Compare every list with a full generation (tests).
@@ -181,6 +198,7 @@ pub const PathLists = struct {
         p.levels.deinit(p.gpa);
         p.gen_anchors.deinit(p.gpa);
         p.generated.deinit(p.gpa);
+        p.scratch.deinit(p.gpa);
     }
 
     /// Forgets everything, the lists starting at stack depth `base`.
@@ -191,6 +209,9 @@ pub const PathLists = struct {
             lv.lists[0].valid = false;
             lv.lists[1].valid = false;
             lv.lone = .{ .{}, .{} };
+            lv.stuck_types = null;
+            lv.sibling[0].valid = 0;
+            lv.sibling[1].valid = 0;
         }
     }
 
@@ -241,6 +262,210 @@ pub const PathLists = struct {
         next.lists[0].valid = false;
         next.lists[1].valid = false;
         next.lone = .{ .{}, .{} };
+        next.stuck_types = null;
+        next.sibling[0].valid = 0;
+        next.sibling[1].valid = 0;
+    }
+
+    /// What siblingBest finds.
+    pub const Shared = struct {
+        /// The best play in the lanes the last move left alone, if any, and
+        /// its value.
+        best: ?SmallMove,
+        value: i32,
+        /// The lanes the last move changed, to be searched.
+        own: u64,
+    };
+
+    /// The player's best play at stack depth `n` by score plus, for one of
+    /// their whole rack, `out_bonus`, ties to the larger move code, among
+    /// the lanes the last move (from n - 1, by the other player) left
+    /// alone, and those it changed. The plays in the lanes it left alone
+    /// are the player's plays one move up, whose best by lane all the
+    /// positions after n - 1 share (MAGPIE's path_move_lists_best_play).
+    /// Null at the start of the path.
+    pub fn siblingBest(p: *PathLists, n: usize, player: u1, out_bonus: i32) Allocator.Error!?Shared {
+        if (n <= p.base or n > p.levels.items.len) return null;
+        const up = &p.levels.items[n - 1];
+        if (up.tile_play and up.mover == player) return null;
+        const num_lanes = 2 * p.dim;
+        const own = up.hits;
+        const shared = ((@as(u64, 1) << @intCast(num_lanes)) - 1) & ~own;
+        const sib = &up.sibling[player];
+        const n_tiles = p.host.racks[player].num_tiles;
+        const missing = shared & ~sib.valid;
+        if (missing != 0) {
+            const l = if (up.lists[player].valid) &up.lists[player] else blk: {
+                try p.derive(n - 1, player, missing, &p.scratch);
+                break :blk &p.scratch;
+            };
+            var lanes = missing;
+            while (lanes != 0) : (lanes &= lanes - 1) {
+                const lane = @ctz(lanes);
+                var lb: LaneBest = .{};
+                for (l.moves.items[@intCast(l.lane_begin[lane])..@intCast(l.lane_begin[lane + 1])]) |m| {
+                    const kept = if (m.tiles_played == n_tiles) &lb.whole else &lb.partial;
+                    if (kept.isPass() or m.score > kept.score or (m.score == kept.score and m.tm > kept.tm)) kept.* = m;
+                }
+                sib.best[lane] = lb;
+            }
+            sib.valid |= missing;
+        }
+        var best: ?SmallMove = null;
+        var best_v: i32 = 0;
+        var lanes = shared;
+        while (lanes != 0) : (lanes &= lanes - 1) {
+            const lane = @ctz(lanes);
+            const lb = &sib.best[lane];
+            inline for (.{ true, false }) |whole| {
+                const m = if (whole) lb.whole else lb.partial;
+                if (!m.isPass()) {
+                    const v = m.score + (if (whole) out_bonus else 0);
+                    if (best == null or v > best_v or (v == best_v and m.tm > best.?.tm)) {
+                        best = m;
+                        best_v = v;
+                    }
+                }
+            }
+        }
+        return .{ .best = best, .value = best_v, .own = own };
+    }
+
+    /// Notes the opponent's tile types with a play at stack depth `n`.
+    pub fn noteStuckTypes(p: *PathLists, n: usize, types: u64) void {
+        if (n < p.levels.items.len) p.levels.items[n].stuck_types = types;
+    }
+
+    /// The opponent's tile types with a play one move up from stack depth
+    /// `n`, if they were worked out.
+    pub fn stuckTypesBefore(p: *const PathLists, n: usize) ?u64 {
+        if (n <= p.base or n > p.levels.items.len) return null;
+        return p.levels.items[n - 1].stuck_types;
+    }
+
+    /// Sets p.hit to the squares the last move (from stack depth n - 1)
+    /// changed, and returns its lanes.
+    pub fn lastMoveHits(p: *PathLists, n: usize) u64 {
+        @memset(p.hit[0 .. 2 * p.dim], 0);
+        const lv = &p.levels.items[n - 1];
+        var lanes = lv.hits;
+        while (lanes != 0) : (lanes &= lanes - 1) {
+            const lane = @ctz(lanes);
+            p.hit[lane] = lv.lane_hits[lane];
+        }
+        return lv.hits;
+    }
+
+    /// The tile types of `wanted` that a play of the player's places at
+    /// stack depth `n` (the position now), as far as their nearest list up
+    /// the path tells: the plays of it that still stand, which their rack
+    /// holds and which cover no square a move since has changed (in p.hit,
+    /// the lanes of `touched`). The plays it cannot tell are those of the
+    /// anchors in `touched` whose reach covers such a square: see
+    /// tileTypesGenerated. Null without a list up the path (MAGPIE's
+    /// path_move_lists_standing_tile_types).
+    pub fn standingTileTypes(p: *PathLists, n: usize, player: u1, wanted: u64) ?struct { found: u64, touched: u64 } {
+        if (n >= p.levels.items.len or n < p.base) return null;
+        const num_lanes = 2 * p.dim;
+        @memset(p.hit[0..num_lanes], 0);
+        var touched: u64 = 0;
+        var j = n;
+        const l = while (true) {
+            if (p.levels.items[j].lists[player].valid) break &p.levels.items[j].lists[player];
+            if (j == p.base) return null;
+            j -= 1;
+            const lv = &p.levels.items[j];
+            touched |= lv.hits;
+            var lanes = lv.hits;
+            while (lanes != 0) : (lanes &= lanes - 1) {
+                const lane = @ctz(lanes);
+                p.hit[lane] |= lv.lane_hits[lane];
+            }
+        };
+        const counts = rackTileCounts(&p.host.racks[player], p.numLetters());
+        var found: u64 = 0;
+        for (l.moves.items, l.used.items) |m, *used| {
+            var types: u64 = 0;
+            for (0..m.tiles_played) |i| types |= @as(u64, 1) << @intCast(m.rackTile(i));
+            if (types & wanted & ~found == 0) continue;
+            if (!holds(&counts, used)) continue;
+            const lane = if (m.vertical()) p.dim + m.col() else m.row();
+            if (playSpan(m) & p.hit[lane] != 0) continue;
+            found |= types & wanted;
+            if (found == wanted) break;
+        }
+        return .{ .found = found, .touched = touched };
+    }
+
+    /// The tile types of `wanted` that the plays of the player's from the
+    /// anchors in the lanes of `lanes` whose reach covers a square of p.hit
+    /// (as standingTileTypes leaves it) place; stops once it has them all.
+    pub fn tileTypesGenerated(p: *PathLists, player: u1, lanes: u64, wanted: u64) Allocator.Error!u64 {
+        const rack = &p.host.racks[player];
+        const n_tiles = rack.num_tiles;
+        // The anchors to generate from, worked out on the board as it
+        // stands (before the generator transposes it for the columns).
+        var lane_set = lanes;
+        while (lane_set != 0) : (lane_set &= lane_set - 1) {
+            const lane = @ctz(lane_set);
+            const masks = p.laneMasks(lane);
+            const full = (@as(u32, 1) << @intCast(p.dim)) - 1;
+            const empties = ~masks.occupied & full;
+            const blocked = empties & ~p.laneFits(lane, rack);
+            const hit = p.hit[lane];
+            var wanted_anchors: u32 = 0;
+            var prev: ?usize = null;
+            var as = masks.anchors;
+            while (as != 0) : (as &= as - 1) {
+                const a: usize = @ctz(as);
+                if (spanReach(empties, blocked, a, prev, n_tiles, p.dim) & hit != 0) wanted_anchors |= @as(u32, 1) << @intCast(a);
+                prev = a;
+            }
+            p.anchors[lane] = masks.anchors;
+            p.wanted[lane] = wanted_anchors;
+        }
+        const gen = p.host.gen;
+        gen.plays.clearRetainingCapacity();
+        gen.out_of_memory = false;
+        gen.best_only = false;
+        gen.leave_map.initialized = false;
+        gen.tiles_played = 0;
+        gen.setRackBits(rack);
+        defer gen.plays.clearRetainingCapacity();
+        var found: u64 = 0;
+        const dim = p.dim;
+        inline for (.{ false, true }) |vertical| {
+            const side_lanes = if (vertical) lanes >> @intCast(dim) else lanes & ((@as(u64, 1) << @intCast(dim)) - 1);
+            if (side_lanes != 0 and found != wanted) {
+                if (vertical) gen.board.transpose();
+                defer if (vertical) gen.board.transpose();
+                gen.vertical = vertical;
+                var rows = side_lanes;
+                while (rows != 0 and found != wanted) : (rows &= rows - 1) {
+                    const row: usize = @ctz(rows);
+                    const lane = if (vertical) dim + row else row;
+                    const lane_anchors = p.anchors[lane];
+                    var want = p.wanted[lane];
+                    if (want == 0) continue;
+                    gen.cur_row = row;
+                    gen.loadRow(row, if (vertical) .horizontal else .vertical);
+                    while (want != 0 and found != wanted) : (want &= want - 1) {
+                        const col: usize = @ctz(want);
+                        const before = lane_anchors & ((@as(u32, 1) << @intCast(col)) - 1);
+                        gen.last_anchor_col = if (before != 0) 31 - @clz(before) else 100;
+                        gen.cur_anchor_col = col;
+                        gen.genForAnchor(rack);
+                        if (gen.out_of_memory) return error.OutOfMemory;
+                        for (gen.plays.items) |*mv| {
+                            const m: SmallMove = .fromMove(mv);
+                            for (0..m.tiles_played) |i| found |= (@as(u64, 1) << @intCast(m.rackTile(i))) & wanted;
+                        }
+                        gen.plays.clearRetainingCapacity();
+                    }
+                }
+            }
+        }
+        return found;
     }
 
     /// The best play of the player's one tile at stack depth `n`.
@@ -379,6 +604,29 @@ pub const PathLists = struct {
         return hits;
     }
 
+    /// The squares of `lane` where one of the rack's tiles fits (by the
+    /// cross-sets the lane's plays read), as the generator tests it.
+    fn laneFits(p: *const PathLists, lane: usize, rack: *const Rack) u32 {
+        const b = p.host.board;
+        const dim = p.dim;
+        var rack_bits: u64 = 0;
+        for (1..p.numLetters()) |ml| {
+            if (rack.counts[ml] > 0) rack_bits |= @as(u64, 1) << @intCast(ml);
+        }
+        const blank = rack.counts[0] > 0;
+        // A row's plays read the cross-sets of words down, a column's of
+        // words across.
+        const cs: usize = if (lane < dim) @backingInt(board_mod.Direction.vertical) else @backingInt(board_mod.Direction.horizontal);
+        var fits: u32 = 0;
+        for (0..dim) |i| {
+            const idx = if (lane < dim) lane * dim + i else i * dim + (lane - dim);
+            const allowed = b.cross_sets[cs][idx] & ~@as(u64, 1);
+            const ok = if (blank) allowed != 0 else allowed & rack_bits != 0;
+            fits |= @as(u32, @intFromBool(ok)) << @intCast(i);
+        }
+        return fits;
+    }
+
     fn laneMasks(p: *const PathLists, lane: usize) struct { anchors: u32, occupied: u32 } {
         const b = p.host.board;
         const dim = p.dim;
@@ -400,6 +648,17 @@ pub const PathLists = struct {
         try p.grow(n + 1);
         const l = &p.levels.items[n].lists[player];
         if (l.valid) return l;
+        try p.derive(n, player, ~@as(u64, 0), l);
+        l.valid = true;
+        if (p.check) try p.checkAgainstFullGeneration(l, player);
+        return l;
+    }
+
+    /// Makes into `l` the player's plays at stack depth `n` in the lanes of
+    /// `restrict` (the others left empty), from their nearest list up the
+    /// path. The lanes of `restrict` must stand on the board as they did at
+    /// `n`, and the player's rack must be as it was there.
+    fn derive(p: *PathLists, n: usize, player: u1, restrict: u64, l: *MoveList) Allocator.Error!void {
         var src: ?*MoveList = null;
         var mask: u64 = 0;
         var rack_changed = false;
@@ -421,7 +680,9 @@ pub const PathLists = struct {
                 break;
             }
         }
-        if (src == null) mask = (@as(u64, 1) << @intCast(num_lanes)) - 1;
+        const all_lanes = ((@as(u64, 1) << @intCast(num_lanes)) - 1) & restrict;
+        if (src == null) mask = all_lanes;
+        mask &= all_lanes;
         const rack = &p.host.racks[player];
         var partial: u64 = 0;
         var gen_mask = mask;
@@ -439,17 +700,13 @@ pub const PathLists = struct {
                     continue;
                 }
                 const empties = ~masks.occupied & full;
+                const blocked = empties & ~p.laneFits(lane, rack);
                 var wanted: u32 = 0;
-                var prev: usize = 0;
+                var prev: ?usize = null;
                 var as = masks.anchors;
                 while (as != 0) : (as &= as - 1) {
                     const a: usize = @ctz(as);
-                    var right = if (a + 1 < 32) empties >> @intCast(a + 1) else 0;
-                    var k: usize = 0;
-                    while (k < n_tiles and right != 0) : (k += 1) right &= right - 1;
-                    var last = p.dim - 1;
-                    if (right != 0) last = a + 1 + @ctz(right);
-                    const reach = ((@as(u32, 2) << @intCast(last)) -% 1) & ~((@as(u32, 1) << @intCast(prev)) - 1);
+                    const reach = spanReach(empties, blocked, a, prev, n_tiles, p.dim);
                     if (hit & reach != 0) wanted |= @as(u32, 1) << @intCast(a);
                     prev = a;
                 }
@@ -459,7 +716,9 @@ pub const PathLists = struct {
                 if (wanted == 0) gen_mask &= ~(@as(u64, 1) << @intCast(lane));
             }
         } else {
-            for (0..num_lanes) |lane| {
+            var lanes = all_lanes;
+            while (lanes != 0) : (lanes &= lanes - 1) {
+                const lane = @ctz(lanes);
                 p.wanted[lane] = ~@as(u32, 0);
                 p.anchors[lane] = p.laneMasks(lane).anchors;
             }
@@ -488,10 +747,14 @@ pub const PathLists = struct {
         var lane: usize = 0;
         while (lane < num_lanes) : (lane += 1) {
             const lane_bit = @as(u64, 1) << @intCast(lane);
+            if (all_lanes & lane_bit == 0) {
+                l.lane_begin[lane] = @intCast(k);
+                continue;
+            }
             if (mask & lane_bit == 0 and !rack_changed) {
                 const s = src.?;
                 var end = lane + 1;
-                while (end < num_lanes and mask & (@as(u64, 1) << @intCast(end)) == 0) end += 1;
+                while (end < num_lanes and mask & (@as(u64, 1) << @intCast(end)) == 0 and all_lanes & (@as(u64, 1) << @intCast(end)) != 0) end += 1;
                 const from: usize = @intCast(s.lane_begin[lane]);
                 const to: usize = @intCast(s.lane_begin[end]);
                 while (lane < end) : (lane += 1) l.lane_begin[lane] = s.lane_begin[lane] + @as(i32, @intCast(k)) - @as(i32, @intCast(from));
@@ -523,7 +786,12 @@ pub const PathLists = struct {
                         continue;
                     }
                     while (from < to and s.anchor.items[from] < a) from += 1;
+                    const hit = p.hit[lane];
                     while (from < to and s.anchor.items[from] == a) : (from += 1) {
+                        // A play over a square a move changed may not stand
+                        // (its reach now short of the change, as through a
+                        // square no tile of the rack fits any more).
+                        if (playSpan(s.moves.items[from]) & hit != 0) continue;
                         if (!rack_changed or holds(&rack_counts, &s.used.items[from])) {
                             moves[k] = s.moves.items[from];
                             used[k] = s.used.items[from];
@@ -561,9 +829,6 @@ pub const PathLists = struct {
         l.used.shrinkRetainingCapacity(k);
         l.anchor.shrinkRetainingCapacity(k);
         l.lane_begin[num_lanes] = @intCast(k);
-        l.valid = true;
-        if (p.check) try p.checkAgainstFullGeneration(l, player);
-        return l;
     }
 
     fn checkAgainstFullGeneration(p: *PathLists, l: *const MoveList, player: u1) Allocator.Error!void {
@@ -582,6 +847,44 @@ pub const PathLists = struct {
         }
     }
 };
+
+/// The squares along its lane that a play covers.
+fn playSpan(m: SmallMove) u32 {
+    const start: u5 = @intCast(if (m.vertical()) m.row() else m.col());
+    return ((@as(u32, 1) << @intCast(m.len)) - 1) << start;
+}
+
+/// The squares along a lane that a play from the anchor at `a` can cover
+/// (MAGPIE's anchor_span_reach): past the previous anchor `prev` (the
+/// generator does not go back onto it); each way no further than the
+/// empty squares (of `empties`) the rack's `n_tiles` tiles can fill, less
+/// the anchor's own if it is empty; and short of an empty square no tile
+/// of the rack fits (`blocked`). An anchor on such a square anchors no
+/// play, and reaches only itself.
+fn spanReach(empties: u32, blocked: u32, a: usize, prev: ?usize, n_tiles: usize, dim: usize) u32 {
+    const bit = @as(u32, 1) << @intCast(a);
+    if (blocked & bit != 0) return bit;
+    const spare = n_tiles -| @intFromBool(empties & bit != 0);
+    // Right: the first empty square past the ones the spare tiles fill, or
+    // a blocked one.
+    var right_empties = empties & ~((bit << 1) -% 1);
+    for (0..spare) |_| right_empties &= right_empties -% 1;
+    var right_stop: usize = if (right_empties != 0) @ctz(right_empties) else dim;
+    const right_blocked = blocked & ~((bit << 1) -% 1);
+    if (right_blocked != 0) right_stop = @min(right_stop, @ctz(right_blocked));
+    // Left: likewise, and past the previous anchor.
+    var left_empties = empties & (bit - 1);
+    for (0..spare) |_| {
+        if (left_empties == 0) break;
+        left_empties &= ~(@as(u32, 1) << @intCast(31 - @clz(left_empties)));
+    }
+    var left: usize = if (left_empties != 0) 32 - @clz(left_empties) else 0;
+    const left_blocked = blocked & (bit - 1);
+    if (left_blocked != 0) left = @max(left, 32 - @clz(left_blocked));
+    if (prev) |pa| left = @max(left, pa + 1);
+    const right = right_stop - 1;
+    return (((@as(u32, 2) << @intCast(right)) -% 1) & ~((@as(u32, 1) << @intCast(left)) - 1)) | bit;
+}
 
 /// The tile of the rack that `m`, which places all the others, keeps.
 pub fn keptTile(rack: *const Rack, m: SmallMove, num_letters: usize) MachineLetter {
@@ -609,4 +912,39 @@ pub fn loneTileAt(b: *const Board, tile: MachineLetter, face: i32, r: usize, c: 
     if (has_h) score += (ls + b.cross_scores[0][idx]) * wm;
     if (has_v) score += (ls + b.cross_scores[1][idx]) * wm;
     return score;
+}
+
+test "an anchor's reach covers every span a play from it can cover" {
+    var prng: std.Random.DefaultPrng = .init(5);
+    const r = prng.random();
+    const dim = 15;
+    const full = (@as(u32, 1) << dim) - 1;
+    for (0..20000) |_| {
+        const occupied = r.int(u32) & r.int(u32) & full;
+        const empties = ~occupied & full;
+        const blocked = empties & r.int(u32) & r.int(u32) & r.int(u32);
+        const a = r.uintLessThan(usize, dim);
+        const prev: ?usize = if (a > 0 and r.boolean()) r.uintLessThan(usize, a) else null;
+        const n_tiles = r.intRangeAtMost(usize, 1, 7);
+        const reach = spanReach(empties, blocked, a, prev, n_tiles, dim);
+        // Every run [lo, hi] through the anchor, past the previous anchor,
+        // over no blocked square, with no more empty squares than tiles.
+        for (0..a + 1) |lo| {
+            if (prev) |pa| if (lo <= pa) continue;
+            for (a..dim) |hi| {
+                const span = ((@as(u32, 2) << @intCast(hi)) - 1) & ~((@as(u32, 1) << @intCast(lo)) - 1);
+                if (span & blocked != 0) continue;
+                if (@popCount(span & empties) > n_tiles) continue;
+                try std.testing.expect(span & ~reach == 0);
+            }
+        }
+    }
+}
+
+test "a play's span is the squares it covers along its lane" {
+    var m: SmallMove = .{ .len = 4 };
+    m.tm = (@as(u64, 3) << 6) | (@as(u64, 5) << 1); // row 3, column 5, across
+    try std.testing.expectEqual(@as(u32, 0b1111) << 5, playSpan(m));
+    m.tm |= 1; // down: its lane is column 5, from row 3
+    try std.testing.expectEqual(@as(u32, 0b1111) << 3, playSpan(m));
 }

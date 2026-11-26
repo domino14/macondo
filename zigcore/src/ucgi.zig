@@ -529,6 +529,8 @@ pub const Engine = struct {
                 opts.magpie_ordering = false;
             } else if (std.mem.eql(u8, key, "nofirstreply")) {
                 opts.first_reply = false;
+            } else if (std.mem.eql(u8, key, "nosibling")) {
+                opts.sibling = false;
             } else if (std.mem.eql(u8, key, "gooutreply")) {
                 opts.go_out_reply = true;
             } else if (std.mem.eql(u8, key, "goplayout")) {

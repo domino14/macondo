@@ -39,7 +39,7 @@ pub const max_variant = 25;
 const max_playout = max_variant;
 const aspiration_window = 25;
 const stuck_memo_size = 1 << 14;
-const StuckEntry = struct { key: u64 = 0, frac: f32 = 0 };
+const StuckEntry = struct { key: u64 = 0, types: u64 = 0 };
 /// What a play that goes out adds to its value for the first reply (see
 /// negamax): enough to put every such play first.
 const first_reply_out_priority = 100000;
@@ -181,6 +181,10 @@ pub const Options = struct {
     /// only, but the search's order changes, and with it the positions
     /// searched).
     first_reply: bool = true,
+    /// The first replies and the playouts' first moves take the best plays
+    /// of the lanes the last move left alone from the lists, shared by the
+    /// last move's siblings, and search only the lanes it changed.
+    sibling: bool = true,
     /// Search each depth after the first in a window around the last
     /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
     /// single-threaded search has none). The value is the same; the
@@ -677,6 +681,8 @@ pub const Solver = struct {
     pruned: ?wordprune.Pruned = null,
     best_cache: bestsmall.Cache,
     stuck_memo: [stuck_memo_size]StuckEntry = @splat(.{}),
+    /// Set while the leaf under a first reply is searched.
+    under_first_reply: bool = false,
     /// Each lane's key (bestsmall.laneKey), kept up as moves are played.
     lane_keys: [max_lanes]u64 = undefined,
     /// The board's occupancy, a mask a row, kept up as moves are played.
@@ -1100,6 +1106,22 @@ pub const Solver = struct {
     /// oppStuckFraction remembered by position key (`key`; 0: not
     /// remembered), as Go's stuck-fraction memo: a node asks for it for
     /// its first reply, its move ordering and its leaves.
+    /// The best play of `player` (on turn) by score plus, for one of their
+    /// whole rack, `out_bonus`: bestsmall.best, or with `alone` false, the
+    /// lists' best of the lanes the last move left alone and a search of
+    /// the lanes it changed.
+    fn bestPlay(self: *Solver, player: u1, out_bonus: i32, alone: bool) Allocator.Error!?SmallMove {
+        const rack = &self.racks[player];
+        if (self.opts.sibling and !alone) {
+            if (self.lists) |*l| {
+                if (try l.siblingBest(self.frames.items.len, player, out_bonus)) |sb| {
+                    return bestsmall.bestIn(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value);
+                }
+            }
+        }
+        return bestsmall.best(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys);
+    }
+
     fn oppStuckFraction(self: *Solver, node_key: u64) Allocator.Error!f32 {
         if (node_key == 0) return self.oppStuckFractionFresh();
         // The fraction depends on the board and the opponent's rack only:
@@ -1109,38 +1131,72 @@ pub const Solver = struct {
         if (self.on_turn != 0) key ^= self.zobrist.their_turn;
         for (0..self.numLetters()) |ml| key ^= self.zobrist.our_rack[ml][self.racks[0].counts[ml]];
         const slot = &self.stuck_memo[key & (stuck_memo_size - 1)];
-        if (slot.key == key) return slot.frac;
-        const frac = try self.oppStuckFractionFresh();
-        slot.* = .{ .key = key, .frac = frac };
-        return frac;
+        const types = if (slot.key == key) slot.types else fresh: {
+            const t = try self.oppStuckTypesFresh();
+            slot.* = .{ .key = key, .types = t };
+            break :fresh t;
+        };
+        if (self.lists) |*lists| lists.noteStuckTypes(self.frames.items.len, types);
+        return self.stuckFractionFromBV(&self.racks[1], types);
     }
 
     fn oppStuckFractionFresh(self: *Solver) Allocator.Error!f32 {
+        return self.stuckFractionFromBV(&self.racks[1], try self.oppStuckTypesFresh());
+    }
+
+    /// The opponent's tile types that some play of theirs places (each
+    /// type of their rack has a bit, the blank bit 0).
+    fn oppStuckTypesFresh(self: *Solver) Allocator.Error!u64 {
         const opp = &self.racks[1];
         if (opp.num_tiles == 0) return 0;
         var rack_bv: u64 = 0;
         for (0..self.numLetters()) |ml| {
             if (opp.counts[ml] > 0) rack_bv |= @as(u64, 1) << @intCast(ml);
         }
+        const n = self.frames.items.len;
         if (opp.num_tiles == 1) {
             if (self.lists) |*lists| {
                 // One tile: stuck exactly when it has no play alone.
-                if (try lists.bestLoneTilePlay(self.frames.items.len, 1, self) == null) return self.stuckFractionFromBV(opp, 0);
-                return 0;
+                if (try lists.bestLoneTilePlay(n, 1, self) == null) return 0;
+                return rack_bv;
             }
         }
         const playable = self.playableTiles(rack_bv & ~@as(u64, 1));
         var tiles_bv = playable & rack_bv;
         if (rack_bv & 1 != 0 and playable >> 1 != 0) tiles_bv |= 1;
-        if (tiles_bv == rack_bv) return 0;
-        if (opp.num_tiles == 1) return self.stuckFractionFromBV(opp, tiles_bv);
+        if (tiles_bv == rack_bv) return tiles_bv;
+        if (opp.num_tiles == 1) return tiles_bv;
         if (self.lists) |*lists| {
-            const l = try lists.get(self.frames.items.len, 1);
+            const scanned = tiles_bv;
+            const undecided = rack_bv & ~tiles_bv;
+            // As MAGPIE does. The scan settles the plays of one tile, so an
+            // undecided type is in a play of two or more, along its own
+            // lane: if no play placed it before the last move (with the
+            // rack they had, which held this one), a play that does now
+            // covers a square that move changed.
+            if (lists.stuckTypesBefore(n)) |before| {
+                if (undecided & before == 0) {
+                    const lanes = lists.lastMoveHits(n);
+                    if (lanes != 0) tiles_bv |= try lists.tileTypesGenerated(1, lanes, undecided);
+                    if (self.opts.check_lists) try self.checkStuckTypes(rack_bv, scanned, tiles_bv);
+                    return tiles_bv;
+                }
+            }
+            // Otherwise the types their plays that stand from their nearest
+            // list place, and only if some are still wanted, a generation
+            // of the plays the moves since may have changed.
+            if (lists.standingTileTypes(n, 1, undecided)) |st| {
+                tiles_bv |= st.found;
+                if (tiles_bv != rack_bv and st.touched != 0) tiles_bv |= try lists.tileTypesGenerated(1, st.touched, rack_bv & ~tiles_bv);
+                if (self.opts.check_lists) try self.checkStuckTypes(rack_bv, scanned, tiles_bv);
+                return tiles_bv;
+            }
+            const l = try lists.get(n, 1);
             for (l.moves.items) |m| {
                 for (0..m.tiles_played) |i| tiles_bv |= @as(u64, 1) << @intCast(m.rackTile(i));
                 if (tiles_bv & rack_bv == rack_bv) break;
             }
-            return self.stuckFractionFromBV(opp, tiles_bv);
+            return tiles_bv & rack_bv;
         }
         try self.gen.genAll(opp, false);
         for (self.gen.plays.items) |*mv| {
@@ -1151,7 +1207,17 @@ pub const Solver = struct {
             }
             if (tiles_bv & rack_bv == rack_bv) break;
         }
-        return self.stuckFractionFromBV(opp, tiles_bv);
+        return tiles_bv & rack_bv;
+    }
+
+    /// Checks the opponent's tile types against their full list (tests).
+    fn checkStuckTypes(self: *Solver, rack_bv: u64, scanned: u64, types: u64) Allocator.Error!void {
+        const l = try self.lists.?.get(self.frames.items.len, 1);
+        var all = scanned;
+        for (l.moves.items) |m| {
+            for (0..m.tiles_played) |i| all |= @as(u64, 1) << @intCast(m.rackTile(i));
+        }
+        if (all & rack_bv != types) std.debug.panic("opponent's tile types {b}, their list's {b}", .{ types, all & rack_bv });
     }
 
     /// The best play of a one-tile rack, the first square in row order of
@@ -1279,7 +1345,10 @@ pub const Solver = struct {
                 // search for it, with MAGPIE's caches of lane bounds and
                 // anchors' best plays.
                 var n: usize = 0;
-                const found = try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], &self.best_cache, &self.lane_keys);
+                const found = if (played == 0)
+                    try self.bestPlay(on, 2 * rack_scores[1 - on], self.under_first_reply)
+                else
+                    try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], &self.best_cache, &self.lane_keys);
                 if (self.opts.check_lists) try self.checkBestPlay(found, rack, 2 * rack_scores[1 - on]);
                 if (found) |m| {
                     buf[n] = m;
@@ -1476,14 +1545,20 @@ pub const Solver = struct {
         if (self.opts.first_reply and self.opts.heuristics and depth == 1 and !at_root and tt_move == ttable.invalid_move and
             self.scoreless == 0 and self.racks[on].num_tiles >= 2 and try self.oppStuckFraction(node_key) == 0)
         {
-            if (try bestsmall.best(&self.gen, &self.racks[on], first_reply_out_priority, &self.best_cache, &self.lane_keys)) |fr| {
+            const found = try self.bestPlay(on, first_reply_out_priority, false);
+            if (self.opts.check_lists) try self.checkBestPlay(found, &self.racks[on], first_reply_out_priority);
+            if (found) |fr| {
                 try self.play(fr, &placed);
                 self.nodes += 1;
                 const child_key = self.zobrist.addMove(node_key, false, fr.row(), fr.col(), fr.vertical(), placed[0..fr.len], &self.racks[on], self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+                // Its leaf has no siblings to share lane bests with.
+                self.under_first_reply = true;
                 const value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
+                    self.under_first_reply = false;
                     self.unplay();
                     return err;
                 };
+                self.under_first_reply = false;
                 self.unplay();
                 max_reach = @max(max_reach, self.reach + 1);
                 first_reply = fr;

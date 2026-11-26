@@ -159,6 +159,13 @@ pub fn updateKeys(b: *const board_mod.Board, keys: *[max_lanes]u64, sq: *const b
 /// The rack must hold 1 to 7 tiles.
 /// `lane_keys` are the board's lanes' keys (laneKey).
 pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64) Allocator.Error!?SmallMove {
+    return bestIn(gen, rack, out_bonus, cache, lane_keys, ~@as(u64, 0), null, 0);
+}
+
+/// As best, among `incumbent` (of value `incumbent_value`), if any, and
+/// the plays in the lanes of `lanes` (rows 0..dim, then columns).
+pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64, lanes: u64, incumbent: ?SmallMove, incumbent_value: i32) Allocator.Error!?SmallMove {
+    if (lanes == 0) return incumbent;
     const eq_ctx: equity.Context = .{ .ld = gen.ld, .klv = null, .board_dim = gen.board.dim, .board_empty = false, .tiles_in_bag = 1, .opp_rack_score = 0 };
     gen.ctx = &eq_ctx;
     defer gen.ctx = undefined;
@@ -186,6 +193,7 @@ pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_ke
     var loaded: [2]u32 = .{ 0, 0 };
     for (0..2) |side| {
         for (0..dim) |row| {
+            if (lanes >> @intCast(side * dim + row) & 1 == 0) continue;
             const key = finish(mix(lane_keys[side * dim + row], rack_key));
             keys[side][row] = key;
             @prefetch(&cache.lanes[key >> cache.lane_shift], .{});
@@ -195,6 +203,7 @@ pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_ke
         if (dir == .vertical) gen.board.transpose();
         gen.vertical = dir == .vertical;
         for (0..dim) |row| {
+            if (lanes >> @intCast(side * dim + row) & 1 == 0) continue;
             const lane = &s.lanes[side][row];
             const key = keys[side][row];
             const e = &cache.lanes[key >> cache.lane_shift];
@@ -238,8 +247,8 @@ pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_ke
     try s.heap.heapifyAll(gen.gpa);
 
     gen.setRackBits(rack);
-    var result: ?SmallMove = null;
-    var best_v: i32 = 0;
+    var result: ?SmallMove = incumbent;
+    var best_v: i32 = incumbent_value;
     var transposed = false;
     while (s.heap.keys.items.len > 0) {
         const a = s.heap.extractMax().anchor;
