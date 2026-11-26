@@ -10,7 +10,14 @@
 # rollout doesn't. Prints MAGPIE's own timing of the sims and the wall
 # time less that of a run without them.
 #
-# Usage: magpie_sim.sh <positions> [MAGPIE checkout] [Macondo data path]
+# MAGPIE's CLI loads the lexicon named in its settings from ./data when it
+# starts, and a later `set -path` does not reload a lexicon of the same
+# name, so MAGPIE runs from a work directory whose ./data holds Macondo's
+# files, and never saves its settings. With MAGPIE_RIT=1 it also builds
+# MAGPIE's rack info table from Macondo's leaves and word map (about 20 s
+# and 1.9 GB, in the work directory) and times the sims with it as well.
+#
+# Usage: [MAGPIE_RIT=1] magpie_sim.sh <positions> [MAGPIE checkout] [Macondo data path]
 set -euo pipefail
 positions=$(realpath "$1")
 magpie=$(realpath "${2:-$HOME/code/magpie}")
@@ -34,19 +41,31 @@ for s in range(2):
 open(sys.argv[1], "w").write("\n".join(lines) + "\n")
 PY
 
-{
-  echo "set -path $work/data -lex NWL23 -threads 1 -numplays 15 -plies 2 -sr rr -threshold none -iterations 3000 -minplayiterations 1 -seed 1 -pfrequency 0"
-  while read -r p; do
-    echo "cgp ${p% lex*} -lex NWL23"
-    echo "gen"
-    echo "sim"
-  done < "$positions"
-} > "$work/sim.txt"
-grep -v '^sim$' "$work/sim.txt" > "$work/nosim.txt"
-
-cd "$magpie"
-wall() { local s e; s=$(date +%s%N); ./bin/magpie < "$1" > "$2" 2>&1; e=$(date +%s%N); echo $(( (e - s) / 1000 )); }
-sim_us=$(wall "$work/sim.txt" "$work/sim.out")
-nosim_us=$(wall "$work/nosim.txt" /dev/null)
-awk -v wall=$((sim_us - nosim_us)) '/Iters:/{it+=$2} /Time:/{t+=$2}
-  END{printf "magpie: %d rollouts, own timing %.2f us/rollout, wall %.2f us/rollout\n", it, t*1e6/it, wall/it}' "$work/sim.out"
+cd "$work"
+bin="$magpie/bin/magpie"
+rits=false
+if [ "${MAGPIE_RIT:-0}" = 1 ]; then
+  echo "convert klvwmp2rit NWL23.NWL23 english NWL23 NWL23 -savesettings false" | "$bin" > /dev/null 2>&1
+  rits="false true"
+fi
+wall() { local s e; s=$(date +%s%N); "$bin" < "$1" > "$2" 2>&1; e=$(date +%s%N); echo $(( (e - s) / 1000 )); }
+for rit in $rits; do
+  {
+    echo "set -lex NWL23 -rit $rit -threads 1 -numplays 15 -plies 2 -sr rr -threshold none -iterations 3000 -minplayiterations 1 -seed 1 -pfrequency 0 -savesettings false"
+    while read -r p; do
+      echo "cgp ${p% lex*}"
+      echo "gen"
+      echo "sim"
+    done < "$positions"
+  } > sim.txt
+  grep -v '^sim$' sim.txt > nosim.txt
+  sim_us=$(wall sim.txt sim.out)
+  nosim_us=$(wall nosim.txt /dev/null)
+  if [ "$rit" = true ] && grep -q "no rack info table\|playing without the rack info table" sim.out; then
+    echo "MAGPIE did not use its rack info table:" >&2
+    grep "rack info table" sim.out | sort -u >&2
+    exit 1
+  fi
+  awk -v rit=$rit -v wall=$((sim_us - nosim_us)) '/Iters:/{it+=$2} /Time:/{t+=$2}
+    END{printf "MAGPIE (rack info table %s): %d rollouts, own timing %.2f us/rollout, wall %.2f us/rollout\n", rit, it, t*1e6/it, wall/it}' sim.out
+done
