@@ -27,6 +27,7 @@ before it is frozen.
 < option name hash-mb type spin default 256 min 1 max 65536
 < option name data-path type string default ./data
 < option name word-maps type check default true
+< option name rack-tables type combo default auto var auto var true var false
 < ucgiok
 > setoption name threads value 8
 > isready
@@ -64,6 +65,16 @@ by score alone. The best-play search uses the lexicon's word map,
 without the file the engine makes it from the word graph in memory, which
 takes a second or two the first time. `setoption name word-maps value
 false` turns them off.
+
+With word maps, the best-play search can also use a rack info table,
+`lexica/<lexicon>.<leaves>.zrit`: what it works out for each full rack before
+it looks at the board (leave values, the best exchange, which words the
+rack's subracks can make), precomputed for every rack (MAGPIE's rack info
+table, with exact leave values). It makes searches faster, not different.
+`setoption name rack-tables value auto` (the default) uses one if it is there
+and was made from the lexicon's word graph and leave file; `true` also makes
+one if there isn't (about 20 seconds on every core and 2.3 GB for English)
+and saves it; `false` never uses one.
 
 ## Searching
 

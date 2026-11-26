@@ -56,6 +56,7 @@ Rules for the layers:
 |---|---|---|
 | Tiles and lexica | `word-golib` (`tilemapping`, `kwg`, `cache`, letter distributions) | Port the parts the engine uses: machine letters, racks, distributions, KWG reading. Go keeps `word-golib` for the shell. |
 | Word maps | `wmp` (reader, lookup, maker, `movegen.go`, `bitrack.go`, `policy.go`) | The maker too, with Go's output byte for byte: word maps are tens of times the size of their KWGs and aren't published, so an engine with no Go beside it (the WASM build above all) makes its own. The engine makes one in memory when the file is missing; writing it to disk is the adapter's choice. |
+| Rack info tables | none in Go: MAGPIE's `rack_info_table` and its maker | Ported from MAGPIE with exact leave values (MAGPIE rounds to thousandths), so results stay Go's: they only make the best-play search faster. Optional (`rack-tables`), made and saved on request; checked against MAGPIE's tables made from the same files. |
 | WordSmog | `alphadawg`, `cross_set/alpha_cross_set.go`, `movegen/alpha_gen.go`, `ai/turnplayer/wordsmog.go` | `.kad` files are plain DAWG-only KWGs. |
 | Board and rules | `board` (incl. layouts, cross-sets), `cross_set`, `zobrist`, the rules part of `game` (`rules.go`, `turn.go`, `pairedbag.go`, bag and racks, challenge rules) | Game history, GCG, display and backup stay in Go. |
 | Moves | `move`, `tinymove`, `leavemap` | |

@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init) !void {
     var lines = std.mem.tokenizeScalar(u8, text, '\n');
     while (lines.next()) |line| {
         var p: macondo.position.Position = undefined;
-        p.fromCgpWith(line, &store, data_path, true) catch |err| {
+        p.fromCgpWith(line, &store, data_path, .{ .word_maps = true, .rack_tables = if (init.environ_map.get("BENCH_RIT") != null) .auto else .never }) catch |err| {
             std.log.err("{t} for {s} ({s})", .{ err, line, store.lastPath() });
             return err;
         };
@@ -118,6 +118,7 @@ pub fn main(init: std.process.Init) !void {
                 gen.kwg = p.lexicon.kwg;
                 gen.ld = p.dist;
                 gen.word_map = if (use_wmp) p.word_map else null;
+                gen.rit = if (use_wmp) p.rit else null;
                 const ex = macondo.movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
                 gen.max_can_exchange = ex.max;
                 const ctx = p.equityContext();

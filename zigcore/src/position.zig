@@ -34,6 +34,8 @@ pub const Position = struct {
     /// The lexicon's word map, for the best-play search; null on boards
     /// it isn't made for, or when not asked for.
     word_map: ?*const wmp.Wmp = null,
+    /// The rack info table for the lexicon and leaves, if one is used.
+    rit: ?*const @import("rit.zig").Rit = null,
     /// Owned copies of the CGP's names.
     lexicon_name: [64]u8,
     lexicon_name_len: usize,
@@ -75,12 +77,20 @@ pub const Position = struct {
     /// Sets `self` up from a CGP string, loading data through `store`.
     /// On error `self` is left unchanged.
     pub fn fromCgp(self: *Position, text: []const u8, store: *data.Store, data_path: []const u8) Error!void {
-        return self.fromCgpWith(text, store, data_path, false);
+        return self.fromCgpWith(text, store, data_path, .{});
     }
 
-    /// fromCgp, with the lexicon's word map if `word_maps` (loading or
-    /// making it the first time).
-    pub fn fromCgpWith(self: *Position, text: []const u8, store: *data.Store, data_path: []const u8, word_maps: bool) Error!void {
+    /// What fromCgpWith loads besides what the rules need.
+    pub const Extras = struct {
+        /// The lexicon's word map (loaded, or made the first time).
+        word_maps: bool = false,
+        /// The rack info table for the lexicon and leaves (with word maps
+        /// only).
+        rack_tables: data.RackTables = .never,
+    };
+
+    /// fromCgp, with the extras the best-play search can use.
+    pub fn fromCgpWith(self: *Position, text: []const u8, store: *data.Store, data_path: []const u8, extras: Extras) Error!void {
         const c = try cgp_mod.Cgp.parse(text);
         if (!(std.mem.eql(u8, c.variant, "classic") or std.mem.eql(u8, c.variant, "classic_super")))
             return error.UnsupportedVariant;
@@ -139,10 +149,13 @@ pub const Position = struct {
             if (u > have) return error.TooManyTiles;
         }
 
-        if (word_maps) {
+        if (extras.word_maps) {
             if (try store.wordMap(data_path, c.lexicon, lex, dist)) |w| {
                 if (w.board_dim == p.board.dim) p.word_map = w;
             }
+        }
+        if (p.word_map) |w| {
+            if (leaves) |l| p.rit = try store.rackInfoTable(data_path, c.lexicon, lex, l, w, dist, extras.rack_tables);
         }
         p.board.countTiles();
         cross_set.generateAll(&p.board, lex.kwg, dist);

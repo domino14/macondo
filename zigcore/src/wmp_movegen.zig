@@ -15,6 +15,7 @@ const tiles = @import("tiles.zig");
 const wmp = @import("wmp.zig");
 const leavemap = @import("leavemap.zig");
 pub const BitRack = wmp.BitRack;
+const rit_mod = @import("rit.zig");
 pub const Entry = wmp.Entry;
 
 pub const rack_size = 7;
@@ -60,6 +61,9 @@ pub const MoveGen = struct {
     // of their tile scores.
     np_racks: [total_subracks]BitRack = undefined,
     np_entries: [total_subracks]?*const Entry = undefined,
+    /// Which np_entries have been looked up (all, without a rack info
+    /// table: see npEntry).
+    np_known: u128 = 0,
     pt_racks: [total_subracks]BitRack = undefined,
     pt_entries: [total_subracks]?*const Entry = undefined,
     // Three spare entries at the end for leaveKept's last vector.
@@ -176,6 +180,7 @@ pub const MoveGen = struct {
             rl.n += 1;
         }
         self.enumerate(&rl, 0, 0, 0, 0, lm);
+        self.np_known = 0;
         var size: usize = wmp.minimum_word_length;
         while (size <= self.full_rack_size) : (size += 1) self.checkNonplaythroughsOfSize(size, check_leaves);
     }
@@ -216,6 +221,51 @@ pub const MoveGen = struct {
         }
     }
 
+    /// checkNonplaythroughExistence with a rack info table entry for the
+    /// rack: the subracks are enumerated with their leave values, but
+    /// which sizes make words and the best leaves of those that do come
+    /// from the entry (its raw best plus the pre-endgame adjustment of the
+    /// size, which is the most of the subracks' values), and each
+    /// subrack's word map entry is looked up only when needed.
+    pub fn checkNonplaythroughWithRit(self: *MoveGen, e: *const rit_mod.Entry, ctx: *const @import("equity.zig").Context, lm: *leavemap.LeaveMap) void {
+        lm.current = (@as(u32, 1) << @intCast(self.full_rack_size)) - 1;
+        self.resetBlankWordCache();
+        self.count_by_size = @splat(0);
+        var rl: RackLetters = .{};
+        for (0..wmp.max_alphabet_size) |ml| {
+            const n = wmp.count(self.player, @intCast(ml));
+            if (n == 0) continue;
+            rl.letters[rl.n] = @intCast(ml);
+            rl.counts[rl.n] = n;
+            rl.scores[rl.n] = self.tile_scores[ml];
+            rl.n += 1;
+        }
+        self.enumerate(&rl, 0, 0, 0, 0, lm);
+        self.np_known = 0;
+        self.has_word_of_length = @splat(false);
+        var size: usize = wmp.minimum_word_length;
+        while (size <= self.full_rack_size) : (size += 1) {
+            const leave_size = self.full_rack_size - size;
+            const has = e.np_has_word & (@as(u8, 1) << @intCast(size)) != 0;
+            self.has_word_of_length[size] = has;
+            self.best_leave_values[leave_size] = if (has)
+                ctx.leaveMapValue(e.np_best_leaves[leave_size], 0, @intCast(leave_size), @intCast(size))
+            else
+                -std.math.inf(f64);
+        }
+    }
+
+    /// The word map entry of subrack `i` (of `size` tiles) without
+    /// playthrough, looked up the first time it is asked for.
+    inline fn npEntry(self: *MoveGen, i: usize, size: usize) ?*const Entry {
+        const bit = @as(u128, 1) << @intCast(i);
+        if (self.np_known & bit == 0) {
+            self.np_entries[i] = self.wmp.?.entry(self.np_racks[i], size);
+            self.np_known |= bit;
+        }
+        return self.np_entries[i];
+    }
+
     fn checkNonplaythroughsOfSize(self: *MoveGen, size: usize, check_leaves: bool) void {
         const leave_size = self.full_rack_size - size;
         self.best_leave_values[leave_size] = if (check_leaves) -std.math.inf(f64) else 0;
@@ -223,6 +273,7 @@ pub const MoveGen = struct {
         for (0..self.count_by_size[size]) |k| {
             const i = offset + k;
             self.np_entries[i] = self.wmp.?.entry(self.np_racks[i], size);
+            self.np_known |= @as(u128, 1) << @intCast(i);
             if (self.np_entries[i] == null) continue;
             self.has_word_of_length[size] = true;
             if (check_leaves and self.leave_values[i] > self.best_leave_values[leave_size]) {
@@ -319,7 +370,7 @@ pub const MoveGen = struct {
         if (self.word_length <= self.tiles_to_play) {
             while (kept != 0) : (kept &= kept - 1) {
                 const i = @ctz(kept);
-                if (self.np_entries[offset + i] != null) candidates |= @as(u64, 1) << @intCast(i);
+                if (self.npEntry(offset + i, self.tiles_to_play) != null) candidates |= @as(u64, 1) << @intCast(i);
             }
             return candidates;
         }
@@ -392,7 +443,7 @@ pub const MoveGen = struct {
             self.pt_entries[si] = entry;
         } else {
             br = self.np_racks[si];
-            entry = self.np_entries[si];
+            entry = self.npEntry(si, self.tiles_to_play);
         }
         const e = entry orelse return false;
         if (wmp.count(br, 0) == 0) {

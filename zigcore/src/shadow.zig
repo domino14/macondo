@@ -10,12 +10,14 @@
 
 const std = @import("std");
 const carry_mod = @import("carry.zig");
+const rit_mod = @import("rit.zig");
 const tiles = @import("tiles.zig");
 const board_mod = @import("board.zig");
 const movegen = @import("movegen.zig");
 const equity = @import("equity.zig");
 const leavemap = @import("leavemap.zig");
 const wmp_movegen = @import("wmp_movegen.zig");
+const wmp = @import("wmp.zig");
 const wordmap_gen = @import("wordmap_gen.zig");
 const Generator = movegen.Generator;
 const Direction = board_mod.Direction;
@@ -666,7 +668,11 @@ fn record(gen: *Generator, comptime W: bool) void {
     if (wmp_active) {
         const w = &gen.wmp_gen;
         if (w.hasPlaythrough()) {
-            if (gen.tiles_played == s.num_letters_on_rack and !w.checkPlaythroughFullRackExistence()) return;
+            if (gen.rit_entry) |e| {
+                if (!ritAllows(e, w, gen.tiles_played)) return;
+            }
+            if (gen.tiles_played == s.num_letters_on_rack and (gen.rit_entry == null or w.num_played_through > 1) and
+                !w.checkPlaythroughFullRackExistence()) return;
         } else if (gen.tiles_played >= @import("wmp.zig").minimum_word_length) {
             if (!w.wordOfLengthExists(gen.tiles_played)) return;
             use_wmp_leaves = s.tiles_in_bag > 0;
@@ -698,6 +704,40 @@ fn record(gen: *Generator, comptime W: bool) void {
     if (eq > s.highest_equity) s.highest_equity = eq;
     if (score > s.highest_score) s.highest_score = score;
     if (gen.tiles_played > s.max_tiles_to_play) s.max_tiles_to_play = gen.tiles_played;
+}
+
+/// Whether the rack info table entry of a full rack lets `tiles_played`
+/// tiles through the word map generator's playthrough tiles make a word
+/// (MAGPIE's checks in shadow_record): with one tile played through, some
+/// subrack of that size must make a word with it; with several, for 6 or 7
+/// tiles played from a blankless rack, every tile played through must be a
+/// letter some word of the length has outside some such subrack. Only a
+/// necessary condition: false rules the placement out.
+fn ritAllows(e: *const rit_mod.Entry, w: *const wmp_movegen.MoveGen, tiles_played: u32) bool {
+    if (w.num_played_through == 1) {
+        const ml: u5 = @intCast(@ctz(w.playthrough) / 4);
+        return (e.playthrough_union[rit_mod.rack_size - tiles_played] >> ml) & 1 != 0;
+    }
+    if (wmp.count(w.player, 0) != 0) return true;
+    const length = tiles_played + w.num_played_through;
+    const mask: u32 = switch (tiles_played) {
+        rit_mod.rack_size => if (length >= rit_mod.tp7_min_length and length < rit_mod.tp7_min_length + rit_mod.tp7_lengths)
+            e.multi_pt_tp7[length - rit_mod.tp7_min_length]
+        else
+            return true,
+        rit_mod.rack_size - 1 => if (length >= rit_mod.tp6_min_length and length < rit_mod.tp6_min_length + rit_mod.tp6_lengths)
+            e.multi_pt_tp6[length - rit_mod.tp6_min_length]
+        else
+            return true,
+        else => return true,
+    };
+    var pt = w.playthrough;
+    while (pt != 0) {
+        const ml: u5 = @intCast(@ctz(pt) / 4);
+        if ((mask >> ml) & 1 == 0) return false;
+        pt &= ~(@as(wmp.BitRack, 0xf) << (@as(u7, ml) * 4));
+    }
+    return true;
 }
 
 /// If only one letter can go on the square, takes a tile for it (a blank
@@ -938,7 +978,6 @@ test "shadow score bounds" {
 // test/shadow_test.c): scores only, best first, as Go's RunShadowOnlyWMP.
 
 fn shadowOnlyWmp(cgp_text: []const u8, rack_text: []const u8) ![]Anchor {
-    const wmp = @import("wmp.zig");
     var store = testdata.store();
     defer store.deinit();
     var p = try testdata.position(&store, cgp_text);

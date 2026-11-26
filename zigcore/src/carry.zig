@@ -77,6 +77,7 @@ const LaneSquare = struct {
 pub const WmpRackState = struct {
     np_racks: [wmp_movegen.total_subracks]wmp_movegen.BitRack,
     np_entries: [wmp_movegen.total_subracks]?*const wmp_movegen.Entry,
+    np_known: u128,
     leave_values: [wmp_movegen.total_subracks + 3]f64,
     tile_score_sums: [wmp_movegen.total_subracks + 3]i32,
     count_by_size: [wmp_movegen.rack_size + 1]u8,
@@ -86,6 +87,7 @@ pub const WmpRackState = struct {
     fn save(self: *WmpRackState, g: *const wmp_movegen.MoveGen) void {
         self.np_racks = g.np_racks;
         self.np_entries = g.np_entries;
+        self.np_known = g.np_known;
         self.leave_values = g.leave_values;
         self.tile_score_sums = g.tile_score_sums;
         self.count_by_size = g.count_by_size;
@@ -96,6 +98,7 @@ pub const WmpRackState = struct {
     fn load(self: *const WmpRackState, g: *wmp_movegen.MoveGen) void {
         g.np_racks = self.np_racks;
         g.np_entries = self.np_entries;
+        g.np_known = self.np_known;
         g.leave_values = self.leave_values;
         g.tile_score_sums = self.tile_score_sums;
         g.count_by_size = self.count_by_size;
@@ -130,6 +133,8 @@ const RackEntry = struct {
     exchange_eq: f64 = 0,
     leave_map: leavemap.LeaveMap = .{},
     best_leaves: leavemap.BestLeaves = undefined,
+    /// The rack's rack info table entry, if the generator has a table.
+    rit_entry: ?*const @import("rit.zig").Entry = null,
     wmp_state: WmpRackState = undefined,
     /// bounds[(dir*dim+lane)*bounds_per_lane+i] is a lane's i'th bound;
     /// its contents are the dim squares from that index times dim.
@@ -257,6 +262,7 @@ pub fn loadSetup(gen: *Generator, rack: *const Rack) bool {
     gen.leave_map = entry.leave_map;
     gen.leave_map.current = (@as(u32, 1) << @intCast(rack.num_tiles)) - 1;
     gen.shadow.best_leaves = entry.best_leaves;
+    gen.rit_entry = entry.rit_entry;
     return true;
 }
 
@@ -270,6 +276,7 @@ pub fn saveSetup(gen: *Generator) void {
     }
     entry.leave_map = gen.leave_map;
     entry.best_leaves = gen.shadow.best_leaves;
+    entry.rit_entry = gen.rit_entry;
     entry.has_setup = true;
 }
 

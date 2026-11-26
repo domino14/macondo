@@ -29,6 +29,9 @@ pub const Options = struct {
     data_path: []u8,
     /// Use word maps in the best-play search (making them if missing).
     word_maps: bool = true,
+    /// Use rack info tables (see data.RackTables): auto, true (make one
+    /// if missing), false.
+    rack_tables: data.RackTables = .auto,
 };
 
 /// What the adapter should do after a command.
@@ -100,6 +103,7 @@ pub const Engine = struct {
         try out.print("option name hash-mb type spin default 256 min 1 max {d}\n", .{hash_mb_max});
         try out.writeAll("option name data-path type string default ./data\n");
         try out.writeAll("option name word-maps type check default true\n");
+        try out.writeAll("option name rack-tables type combo default auto var auto var true var false\n");
         try out.writeAll("ucgiok\n");
     }
 
@@ -127,6 +131,14 @@ pub const Engine = struct {
             } else if (std.mem.eql(u8, value, "false")) {
                 self.options.word_maps = false;
             } else return out.print("error bad-value {s}\n", .{name});
+        } else if (std.mem.eql(u8, name, "rack-tables")) {
+            if (std.mem.eql(u8, value, "auto")) {
+                self.options.rack_tables = .auto;
+            } else if (std.mem.eql(u8, value, "true")) {
+                self.options.rack_tables = .always;
+            } else if (std.mem.eql(u8, value, "false")) {
+                self.options.rack_tables = .never;
+            } else return out.print("error bad-value {s}\n", .{name});
         } else if (std.mem.eql(u8, name, "data-path")) {
             const copy = try self.gpa.dupe(u8, value);
             self.gpa.free(self.options.data_path);
@@ -153,7 +165,7 @@ pub const Engine = struct {
         if (!std.mem.startsWith(u8, trimmed, "cgp ")) return out.writeAll("error bad-position\n");
         const text = trimmed["cgp ".len..];
         var p: Position = undefined;
-        p.fromCgpWith(text, &self.store, self.options.data_path, self.options.word_maps) catch |err| switch (err) {
+        p.fromCgpWith(text, &self.store, self.options.data_path, .{ .word_maps = self.options.word_maps, .rack_tables = self.options.rack_tables }) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.FileNotFound, error.ReadFailed, error.InvalidData, error.InvalidName => |e| return self.dataError(e, out),
             else => |e| {
@@ -211,6 +223,7 @@ pub const Engine = struct {
         gen.* = .init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
         defer gen.deinit();
         gen.word_map = p.word_map;
+        gen.rit = p.rit;
         for (0..games) |gi| {
             const seed = game_mod.deriveSeed(master, if (pairs) gi / 2 else gi);
             var g: game_mod.Game = .start(p, seed, pairs);
@@ -243,6 +256,7 @@ pub const Engine = struct {
         var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
         defer gen.deinit();
         gen.word_map = p.word_map;
+        gen.rit = p.rit;
         const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
         gen.max_can_exchange = ex.max;
         const ctx = p.equityContext();
@@ -454,6 +468,7 @@ test "ucgi handshake" {
         \\option name hash-mb type spin default 256 min 1 max 65536
         \\option name data-path type string default ./data
         \\option name word-maps type check default true
+        \\option name rack-tables type combo default auto var auto var true var false
         \\ucgiok
         \\
     , got);

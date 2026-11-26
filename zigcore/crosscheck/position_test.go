@@ -38,6 +38,9 @@ type boardCase struct {
 
 var boardCases = []boardCase{
 	{lexicon: "NWL20", dist: "english", layout: board.CrosswordGameLayout},
+	// The Zig engine plays NWL23 with its rack info table where
+	// data/lexica/NWL23.NWL23.zrit exists (rack-tables auto).
+	{lexicon: "NWL23", dist: "english", layout: board.CrosswordGameLayout},
 	{lexicon: "CSW24", dist: "english", layout: board.CrosswordGameLayout},
 	{lexicon: "CSW24", dist: "english_super", layout: board.SuperCrosswordGameLayout},
 	{lexicon: "OSPS49", dist: "polish", layout: board.CrosswordGameLayout},

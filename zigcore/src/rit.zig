@@ -170,11 +170,25 @@ pub const MakeError = Allocator.Error || error{ IncompatibleDistribution, Thread
 /// Makes the table for every full rack `inputs.ld` can draw, on `threads`
 /// threads (1 for none). Returns the file's bytes.
 pub fn make(gpa: Allocator, inputs: Inputs, threads: usize) MakeError![]align(16) u8 {
-    const ld = inputs.ld;
-    if (ld.size > wmp.max_alphabet_size) return error.IncompatibleDistribution;
+    if (inputs.ld.size > wmp.max_alphabet_size) return error.IncompatibleDistribution;
     var racks: std.ArrayList(BitRack) = .empty;
     defer racks.deinit(gpa);
-    try enumerateRacks(gpa, ld, 0, rack_size, 0, &racks);
+    try enumerateRacks(gpa, inputs.ld, 0, rack_size, 0, &racks);
+    return build(gpa, inputs, racks.items, threads, true);
+}
+
+/// A table of `racks` only (full racks of the distribution), with the
+/// same entries a whole table has: for tests, where making the whole
+/// table takes too long. The multi-playthrough masks are worked out rack
+/// by rack instead of by the flipped walk.
+pub fn makeFor(gpa: Allocator, inputs: Inputs, racks: []const BitRack) MakeError![]align(16) u8 {
+    if (inputs.ld.size > wmp.max_alphabet_size) return error.IncompatibleDistribution;
+    return build(gpa, inputs, racks, 1, false);
+}
+
+fn build(gpa: Allocator, inputs: Inputs, racks_in: []const BitRack, threads: usize, whole: bool) MakeError![]align(16) u8 {
+    const ld = inputs.ld;
+    const racks: struct { items: []const BitRack } = .{ .items = racks_in };
     const n: u32 = @intCast(racks.items.len);
     const num_buckets: u32 = @max(1, std.math.ceilPowerOfTwoAssert(u32, @max(n, 1)));
 
@@ -230,8 +244,77 @@ pub fn make(gpa: Allocator, inputs: Inputs, threads: usize) MakeError![]align(16
         }
     }
     const rit = Rit.init(bytes) catch unreachable;
-    try addMultiPlaythroughMasks(gpa, inputs, &rit, all);
+    if (whole) {
+        try addMultiPlaythroughMasks(gpa, inputs, &rit, all);
+    } else {
+        addMultiPlaythroughMasksFor(inputs, all);
+    }
     return bytes;
+}
+
+/// The multi-playthrough masks of `entries`, word by word: for each
+/// distinct subrack S of 6 or 7 tiles of a blankless rack and each
+/// blankless word M of a covered length containing S, the letters of M
+/// outside S.
+fn addMultiPlaythroughMasksFor(inputs: Inputs, entries: []Entry) void {
+    const w = inputs.word_map;
+    for (entries) |*e| {
+        e.multi_pt_tp6 = @splat(0);
+        e.multi_pt_tp7 = @splat(0);
+    }
+    var len: usize = tp6_min_length;
+    while (len < tp6_min_length + tp6_lengths and len <= w.board_dim) : (len += 1) {
+        for (w.wfls[len].words.entries) |*we| {
+            const word = wmp.entryRack(we);
+            if (wmp.count(word, 0) != 0) continue;
+            const word_letters = letterSet(word);
+            for (entries) |*e| {
+                if (wmp.count(e.rack, 0) != 0) continue;
+                // A subrack of 6 or 7 tiles has every letter of the rack
+                // but at most one.
+                const rack_letters = letterSet(e.rack);
+                const missing = rack_letters & ~word_letters;
+                if (@popCount(missing) > 1) continue;
+                if (len >= tp7_min_length and missing == 0 and within(e.rack, word)) {
+                    e.multi_pt_tp7[len - tp7_min_length] |= outside(word, e.rack);
+                }
+                var letters = rack_letters;
+                while (letters != 0) : (letters &= letters - 1) {
+                    const ml: u8 = @intCast(@ctz(letters));
+                    var sub = e.rack;
+                    wmp.take(&sub, ml);
+                    if (letterSet(sub) & ~word_letters != 0 or !within(sub, word)) continue;
+                    e.multi_pt_tp6[len - tp6_min_length] |= outside(word, sub);
+                }
+            }
+        }
+    }
+}
+
+/// The letters a multiset has.
+fn letterSet(br: BitRack) u32 {
+    var set: u32 = 0;
+    for (0..wmp.max_alphabet_size) |ml| {
+        if (wmp.count(br, @intCast(ml)) != 0) set |= @as(u32, 1) << @intCast(ml);
+    }
+    return set;
+}
+
+/// The letters of `word` beyond those of `sub` (not the blank).
+fn outside(word: BitRack, sub: BitRack) u32 {
+    var mask: u32 = 0;
+    for (1..wmp.max_alphabet_size) |l| {
+        if (wmp.count(word, @intCast(l)) > wmp.count(sub, @intCast(l))) mask |= @as(u32, 1) << @intCast(l);
+    }
+    return mask;
+}
+
+/// Whether multiset `a` is within `b`.
+fn within(a: BitRack, b: BitRack) bool {
+    for (0..wmp.max_alphabet_size) |ml| {
+        if (wmp.count(a, @intCast(ml)) > wmp.count(b, @intCast(ml))) return false;
+    }
+    return true;
 }
 
 fn bucketOf(br: BitRack, num_buckets: u32) u32 {
@@ -334,6 +417,9 @@ fn computeEntry(inputs: Inputs, e: *Entry) void {
     };
     var lm: leavemap.LeaveMap = .{};
     lm.init(&rack);
+    // Indices no subset has stay 0, so that a table is the same every time
+    // it is made.
+    lm.values = @splat(0);
     var b: EntryBuilder = .{ .inputs = inputs, .entry = e, .full = rack, .full_br = br };
     var best: leavemap.BestLeaves = undefined;
     var r = rack;
@@ -433,4 +519,167 @@ const testing = std.testing;
 
 test "entry layout" {
     try testing.expectEqual(704, @sizeOf(Entry));
+}
+
+const testdata = @import("testdata.zig");
+const game_mod = @import("game.zig");
+const movegen = @import("movegen.zig");
+const build_options = @import("build_options");
+
+/// NWL20 positions with a full rack to move and tiles in the bag, from
+/// seeded static games, and a table for their racks.
+const Fixture = struct {
+    store: @import("data.zig").Store,
+    pos: @import("position.zig").Position,
+    games: std.ArrayList(game_mod.Game) = .empty,
+    bytes: []align(16) u8 = &.{},
+    rit: Rit = undefined,
+
+    fn init(self: *Fixture) !void {
+        self.store = testdata.store();
+        errdefer self.store.deinit();
+        self.pos = try testdata.position(&self.store, "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex NWL20;");
+        const lex = self.pos.lexicon;
+        self.pos.word_map = (try self.store.wordMap(build_options.data_path, "NWL20", lex, self.pos.dist)) orelse return error.SkipZigTest;
+        const leaves = (try self.store.leavesFor(build_options.data_path, "NWL20", false)) orelse return error.SkipZigTest;
+
+        var gen = movegen.Generator.init(testing.allocator, &self.pos.board, lex.kwg, self.pos.dist);
+        defer gen.deinit();
+        gen.word_map = self.pos.word_map;
+        var racks: std.ArrayList(BitRack) = .empty;
+        defer racks.deinit(testing.allocator);
+        for (0..4) |seed| {
+            var g: game_mod.Game = .start(&self.pos, @splat(@intCast(seed + 40)), false);
+            gen.board = &g.pos.board;
+            while (g.playing) {
+                const rack = g.pos.racks[g.on_turn];
+                if (rack.num_tiles == rack_size and g.bag.len > 0 and g.pos.board.tiles_played > 0) {
+                    try self.games.append(testing.allocator, g);
+                    const br = wmp.fromRack(&rack);
+                    if (std.mem.indexOfScalar(BitRack, racks.items, br) == null) try racks.append(testing.allocator, br);
+                }
+                _ = try game_mod.playStaticTurn(&g, &gen);
+            }
+        }
+        self.bytes = try makeFor(testing.allocator, .{
+            .ld = self.pos.dist,
+            .kwg_bytes = lex.bytes,
+            .klv = &leaves.klv,
+            .klv_bytes = leaves.bytes,
+            .word_map = self.pos.word_map.?,
+        }, racks.items);
+        self.rit = try Rit.init(self.bytes);
+    }
+
+    fn deinit(self: *Fixture) void {
+        testing.allocator.free(self.bytes);
+        self.games.deinit(testing.allocator);
+        self.store.deinit();
+    }
+};
+
+/// Whether leave map index `i` is a subset of `rack`: of each letter, a
+/// run of low bits.
+fn canonicalIndex(lm: *const leavemap.LeaveMap, rack: *const Rack, i: usize) bool {
+    var idx: u32 = @intCast(i);
+    for (rack.counts, 0..) |c, ml| {
+        if (c == 0) continue;
+        const bits = (idx >> @intCast(lm.base[ml])) & ((@as(u32, 1) << @intCast(c)) - 1);
+        if (bits & (bits + 1) != 0) return false;
+        idx &= ~(((@as(u32, 1) << @intCast(c)) - 1) << @intCast(lm.base[ml]));
+    }
+    return idx == 0;
+}
+
+test "table entries are what the generator works out" {
+    var f: Fixture = .{ .store = undefined, .pos = undefined };
+    try f.init();
+    defer f.deinit();
+    try testing.expect(f.rit.entries.len > 50);
+    try testing.expect(f.rit.madeFrom(f.pos.lexicon.bytes, (try f.store.leavesFor(build_options.data_path, "NWL20", false)).?.bytes));
+
+    var gen = movegen.Generator.init(testing.allocator, &f.pos.board, f.pos.lexicon.kwg, f.pos.dist);
+    defer gen.deinit();
+    gen.word_map = f.pos.word_map;
+    for (f.rit.entries) |*e| {
+        try testing.expectEqual(e, f.rit.lookup(e.rack).?);
+        var rack: Rack = .{};
+        for (0..f.pos.dist.size) |ml| {
+            for (0..wmp.count(e.rack, @intCast(ml))) |_| rack.add(@intCast(ml));
+        }
+        // No pre-endgame adjustment, every exchange allowed: the leave
+        // walk's values and best exchange.
+        const ctx: equity.Context = .{ .ld = f.pos.dist, .klv = f.pos.leaves, .board_dim = 15, .board_empty = false, .tiles_in_bag = 50, .opp_rack_score = 0 };
+        gen.max_can_exchange = rack_size;
+        var r = rack;
+        gen.bestStart(&r, true, &ctx);
+        for (gen.leave_map.values, e.leaves, 0..) |want, got, i| if (canonicalIndex(&gen.leave_map, &rack, i)) testing.expectEqual(want, @as(f64, got)) catch |err| {
+            std.debug.print("leave {d} of {any}\n", .{ i, rack.counts[0..f.pos.dist.size] });
+            return err;
+        };
+        for (gen.shadow.best_leaves, e.best_leaves) |want, got| try testing.expectEqual(want, @as(f64, got));
+        try testing.expect(gen.have_best);
+        try testing.expectEqual(gen.best.len, e.exchange_len);
+        try testing.expectEqualSlices(MachineLetter, gen.best.tileSlice(), e.exchange[0..e.exchange_len]);
+        // The word lengths subracks make alone, and their best leaves.
+        gen.bestSubracks(&r);
+        for (wmp.minimum_word_length..rack_size + 1) |n| {
+            try testing.expectEqual(gen.wmp_gen.has_word_of_length[n], e.np_has_word & (@as(u8, 1) << @intCast(n)) != 0);
+            if (gen.wmp_gen.has_word_of_length[n]) try testing.expectEqual(gen.wmp_gen.best_leave_values[rack_size - n], @as(f64, e.np_best_leaves[rack_size - n]));
+        }
+        gen.best_only = false;
+    }
+}
+
+test "the best move is the same with the table" {
+    var f: Fixture = .{ .store = undefined, .pos = undefined };
+    try f.init();
+    defer f.deinit();
+    const plain = try testing.allocator.create(movegen.Generator);
+    defer testing.allocator.destroy(plain);
+    plain.* = .init(testing.allocator, &f.pos.board, f.pos.lexicon.kwg, f.pos.dist);
+    defer plain.deinit();
+    plain.word_map = f.pos.word_map;
+    const with = try testing.allocator.create(movegen.Generator);
+    defer testing.allocator.destroy(with);
+    with.* = .init(testing.allocator, &f.pos.board, f.pos.lexicon.kwg, f.pos.dist);
+    defer with.deinit();
+    with.word_map = f.pos.word_map;
+    with.rit = &f.rit;
+
+    // Pre-endgame adjustments for every bag size, to take the table's
+    // other paths too.
+    var peg: [101]f64 = undefined;
+    for (&peg, 0..) |*v, i| v.* = @as(f64, @floatFromInt(@as(i32, @intCast(i % 7)) - 3)) * 0.37;
+    var used: usize = 0;
+    var anchors_plain: usize = 0;
+    var anchors_with: usize = 0;
+    for (f.games.items) |*g| {
+        for ([_]bool{ false, true }) |with_peg| {
+            for ([_]u8{ rack_size, 3 }) |max_exchange| {
+                var ctx = g.equityContext();
+                if (with_peg) ctx.peg = &peg;
+                const ex = g.exchangeRules();
+                plain.board = &g.pos.board;
+                with.board = &g.pos.board;
+                plain.max_can_exchange = @min(ex.max, max_exchange);
+                with.max_can_exchange = @min(ex.max, max_exchange);
+                var r1 = g.pos.racks[g.on_turn];
+                var r2 = r1;
+                const want = try plain.genBest(&r1, ex.allowed, &ctx);
+                anchors_plain += plain.shadow.heap.anchors.items.len;
+                const got = try with.genBest(&r2, ex.allowed, &ctx);
+                anchors_with += with.shadow.heap.anchors.items.len;
+                if (with.rit_entry != null) used += 1;
+                testing.expectEqual(want.equity, got.equity) catch |err| {
+                    std.debug.print("equity {d} vs {d}\n", .{ want.equity, got.equity });
+                    return err;
+                };
+                try testing.expect(!equity.tiebreaksBetter(&want.move, &got.move) and !equity.tiebreaksBetter(&got.move, &want.move));
+            }
+        }
+    }
+    try testing.expectEqual(4 * f.games.items.len, used);
+    // The table rules placements out.
+    try testing.expect(anchors_with < anchors_plain);
 }

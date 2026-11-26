@@ -274,6 +274,7 @@ pub const Sim = struct {
         // Each rollout points the generator at its own board first.
         gen.* = .init(gpa, @constCast(&g.pos.board), g.pos.lexicon.kwg, g.pos.dist);
         gen.word_map = g.pos.word_map;
+        gen.rit = g.pos.rit;
         errdefer gen.deinit();
         const carry = try gpa.create(carry_mod.Carry);
         errdefer gpa.destroy(carry);

@@ -9,8 +9,15 @@ const tiles = @import("tiles.zig");
 const kwg_mod = @import("kwg.zig");
 const wmp_mod = @import("wmp.zig");
 const wmp_maker = @import("wmp_maker.zig");
+const rit_mod = @import("rit.zig");
 
 pub const LoadError = error{ FileNotFound, ReadFailed, OutOfMemory };
+pub const SaveError = error{WriteFailed};
+
+/// Whether positions use a rack info table (see rit.zig): `auto` when
+/// there is one for the lexicon and leaves, `always` making (and keeping)
+/// one if there isn't, `never`.
+pub const RackTables = enum { auto, always, never };
 
 /// Supplied by the adapter. `load` returns the bytes of `rel_path` under
 /// `data_path`, allocated with `gpa` and 4-byte aligned; the caller owns
@@ -18,6 +25,13 @@ pub const LoadError = error{ FileNotFound, ReadFailed, OutOfMemory };
 pub const Source = struct {
     ctx: *anyopaque,
     loadFn: *const fn (ctx: *anyopaque, gpa: Allocator, data_path: []const u8, rel_path: []const u8) LoadError![]align(4) u8,
+    /// Optional: a big file mapped read-only (page-aligned), given back
+    /// with unmapFn. Without it big files are read like the others.
+    mapFn: ?*const fn (ctx: *anyopaque, data_path: []const u8, rel_path: []const u8) LoadError![]align(16) const u8 = null,
+    unmapFn: ?*const fn (ctx: *anyopaque, bytes: []align(16) const u8) void = null,
+    /// Optional: writes a file the engine made, so that it is there next
+    /// time (rack info tables). Without it they are not kept.
+    saveFn: ?*const fn (ctx: *anyopaque, data_path: []const u8, rel_path: []const u8, bytes: []const u8) SaveError!void = null,
 
     pub fn load(self: Source, gpa: Allocator, data_path: []const u8, rel_path: []const u8) LoadError![]align(4) u8 {
         return self.loadFn(self.ctx, gpa, data_path, rel_path);
@@ -47,6 +61,14 @@ pub const WordMap = struct {
 pub const Leaves = struct {
     bytes: []align(4) u8,
     klv: kwg_mod.Klv,
+    /// The file's path under the data path (owned by the store).
+    path: []const u8 = "",
+};
+
+pub const RackTable = struct {
+    bytes: []align(16) const u8,
+    mapped: bool,
+    rit: rit_mod.Rit,
 };
 
 /// Everything loaded so far, by name. Entries live until deinit, so
@@ -64,6 +86,7 @@ pub const Store = struct {
     /// Word maps by lexicon; null for a lexicon that can't have one.
     word_maps: std.StringHashMapUnmanaged(?*WordMap) = .empty,
     win_table: ?*WinTable = null,
+    rack_tables: std.StringHashMapUnmanaged(*RackTable) = .empty,
 
     pub fn init(gpa: Allocator, source: Source) Store {
         return .{ .gpa = gpa, .source = source };
@@ -110,6 +133,13 @@ pub const Store = struct {
         }
         self.word_maps.deinit(self.gpa);
         if (self.win_table) |t| self.gpa.destroy(t);
+        var rt = self.rack_tables.iterator();
+        while (rt.next()) |e| {
+            self.gpa.free(e.key_ptr.*);
+            self.freeTableBytes(e.value_ptr.*.bytes, e.value_ptr.*.mapped);
+            self.gpa.destroy(e.value_ptr.*);
+        }
+        self.rack_tables.deinit(self.gpa);
         self.* = undefined;
     }
 
@@ -132,6 +162,81 @@ pub const Store = struct {
             return t;
         }
         return error.FileNotFound;
+    }
+
+    /// The rack info table of lexicon `name` with `leaves`, per `mode`:
+    /// lexica/<lexicon>.<leaves>.zrit, used only if it was made from these
+    /// word graph and leave files; with `always`, made on every core if
+    /// there is none (about 20 s and 2.3 GB for English) and saved if the
+    /// source can. Null if there is none to use.
+    pub fn rackInfoTable(self: *Store, data_path: []const u8, name: []const u8, lex: *const Lexicon, leaves: *const Leaves, word_map: *const wmp_mod.Wmp, ld: *const tiles.LetterDistribution, mode: RackTables) Error!?*const rit_mod.Rit {
+        if (mode == .never) return null;
+        if (!validName(name)) return error.InvalidName;
+        var buf: [128]u8 = undefined;
+        const rel = try fmtName(&buf, "lexica/{s}.{s}.zrit", .{ name, leavesStem(leaves.path) });
+        if (self.rack_tables.get(rel)) |t| return &t.rit;
+
+        var bytes: []align(16) const u8 = &.{};
+        var mapped = false;
+        if (self.loadTableBytes(data_path, rel)) |loaded| {
+            bytes = loaded.bytes;
+            mapped = loaded.mapped;
+            const ok = if (rit_mod.Rit.init(bytes)) |r| r.madeFrom(lex.bytes, leaves.bytes) else |_| false;
+            if (!ok) {
+                self.freeTableBytes(bytes, mapped);
+                bytes = &.{};
+            }
+        } else |err| if (err != error.FileNotFound) return err;
+        if (bytes.len == 0) {
+            if (mode != .always) return null;
+            const threads = std.Thread.getCpuCount() catch 1;
+            const made = rit_mod.make(self.gpa, .{
+                .ld = ld,
+                .kwg_bytes = lex.bytes,
+                .klv = &leaves.klv,
+                .klv_bytes = leaves.bytes,
+                .word_map = word_map,
+            }, threads) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return null,
+            };
+            if (self.source.saveFn) |save| save(self.source.ctx, data_path, rel, made) catch {};
+            bytes = made;
+            mapped = false;
+        }
+        errdefer self.freeTableBytes(bytes, mapped);
+        const t = try self.gpa.create(RackTable);
+        errdefer self.gpa.destroy(t);
+        t.* = .{ .bytes = bytes, .mapped = mapped, .rit = rit_mod.Rit.init(bytes) catch unreachable };
+        const key = try self.gpa.dupe(u8, rel);
+        errdefer self.gpa.free(key);
+        try self.rack_tables.put(self.gpa, key, t);
+        return &t.rit;
+    }
+
+    fn loadTableBytes(self: *Store, data_path: []const u8, rel: []const u8) LoadError!struct { bytes: []align(16) const u8, mapped: bool } {
+        self.setLastPath(rel);
+        if (self.source.mapFn) |map| return .{ .bytes = try map(self.source.ctx, data_path, rel), .mapped = true };
+        const raw = try self.source.load(self.gpa, data_path, rel);
+        defer self.gpa.free(raw);
+        const copy = try self.gpa.alignedAlloc(u8, .@"16", raw.len);
+        @memcpy(copy, raw);
+        return .{ .bytes = copy, .mapped = false };
+    }
+
+    fn freeTableBytes(self: *Store, bytes: []align(16) const u8, mapped: bool) void {
+        if (bytes.len == 0) return;
+        if (mapped) {
+            if (self.source.unmapFn) |unmap| unmap(self.source.ctx, bytes);
+        } else {
+            self.gpa.free(bytes);
+        }
+    }
+
+    fn setLastPath(self: *Store, rel: []const u8) void {
+        const n = @min(rel.len, self.last_path.len);
+        @memcpy(self.last_path[0..n], rel[0..n]);
+        self.last_path_len = n;
     }
 
     pub fn lastPath(self: *const Store) []const u8 {
@@ -236,6 +341,7 @@ pub const Store = struct {
         const key = try self.gpa.dupe(u8, rel);
         errdefer self.gpa.free(key);
         try self.leaves.put(self.gpa, key, lv);
+        lv.path = key;
         return lv;
     }
 
@@ -305,6 +411,18 @@ pub const Store = struct {
         return values;
     }
 };
+
+/// The name a rack info table gives its leaves: the leave file's name
+/// without extension, or for the legacy strategy files (leaves.klv2) their
+/// folder's. Two leave files can share a name; a table is used only for
+/// the files it was made from in any case.
+fn leavesStem(path: []const u8) []const u8 {
+    const base = std.fs.path.basename(path);
+    const stem = base[0 .. std.mem.lastIndexOfScalar(u8, base, '.') orelse base.len];
+    if (!std.mem.endsWith(u8, stem, "leaves")) return stem;
+    const dir = std.fs.path.dirname(path) orelse return stem;
+    return std.fs.path.basename(dir);
+}
 
 /// The strategy folders searched for a lexicon's files, in order: its own,
 /// the one of the lexicon it borrows from, and "default". Port of

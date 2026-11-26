@@ -16,6 +16,7 @@ const equity = @import("equity.zig");
 const leavemap = @import("leavemap.zig");
 const shadow_mod = @import("shadow.zig");
 const carry_mod = @import("carry.zig");
+const rit_mod = @import("rit.zig");
 const wmp = @import("wmp.zig");
 const wmp_movegen = @import("wmp_movegen.zig");
 const Board = board_mod.Board;
@@ -102,6 +103,11 @@ pub const Generator = struct {
     /// it. It changes how fast genBest runs, not what it finds; it must be
     /// forgotten when the lexicon, leaves or word map change.
     carry: ?*carry_mod.Carry = null,
+    /// The rack info table for the lexicon and leaves genBest values plays
+    /// with, if it is to use one; and the entry for the rack of the
+    /// generation in progress (full racks with tiles in the bag only).
+    rit: ?*const rit_mod.Rit = null,
+    rit_entry: ?*const rit_mod.Entry = null,
 
     pub fn init(gpa: Allocator, b: *Board, kwg: Kwg, ld: *const tiles.LetterDistribution) Generator {
         return .{ .gpa = gpa, .board = b, .kwg = kwg, .ld = ld };
@@ -168,6 +174,7 @@ pub const Generator = struct {
         self.shadow.opp_rack_score = ctx.opp_rack_score;
         self.shadow.anchor_floor = -std.math.inf(f64);
         if (self.carry) |c| c.cur = null;
+        self.rit_entry = null;
         self.leave_map.init(rack);
         if (self.leave_map.initialized) {
             self.full_rack = rack.*;
@@ -179,6 +186,18 @@ pub const Generator = struct {
                     self.exchangesFromLeaveMap(rack);
                     carry_mod.saveExchange(self, self.max_can_exchange);
                 }
+            } else if (self.ritEntryFor(rack, ctx)) |e| {
+                self.rit_entry = e;
+                self.leavesFromRit(e, ctx);
+                if (add_exchange) {
+                    if (self.max_can_exchange >= rit_mod.rack_size and ctx.tiles_in_bag >= ctx.peg.len) {
+                        self.recordRitExchange(e);
+                    } else {
+                        self.exchangesFromLeaveMap(rack);
+                    }
+                }
+                carry_mod.saveSetup(self);
+                if (add_exchange) carry_mod.saveExchange(self, self.max_can_exchange);
             } else {
                 const visitor: ?leavemap.Visitor = if (add_exchange) .{ .ctx = self, .visit = visitExchange } else null;
                 leavemap.populateVisiting(&self.leave_map, rack, ctx.klv, ctx, &self.shadow.best_leaves, visitor);
@@ -197,7 +216,11 @@ pub const Generator = struct {
     pub fn bestSubracks(self: *Generator, rack: *const Rack) void {
         self.wmp_gen.init(self.ld, rack, if (self.leave_map.initialized) self.word_map else null);
         if (self.wmp_gen.isActive() and !carry_mod.loadWmp(self)) {
-            self.wmp_gen.checkNonplaythroughExistence(self.ctx.tiles_in_bag > 0, &self.leave_map);
+            if (self.rit_entry) |e| {
+                self.wmp_gen.checkNonplaythroughWithRit(e, self.ctx, &self.leave_map);
+            } else {
+                self.wmp_gen.checkNonplaythroughExistence(self.ctx.tiles_in_bag > 0, &self.leave_map);
+            }
             carry_mod.saveWmp(self);
         }
     }
@@ -205,6 +228,8 @@ pub const Generator = struct {
     pub fn bestFinish(self: *Generator, rack: *const Rack) Allocator.Error!Best {
         defer self.best_only = false;
         if (!self.have_best or self.gen_pass) self.recordBest(Move.pass(), rack, null);
+        // With the subrack entries looked up since.
+        if (self.rit_entry != null and self.wmp_gen.isActive()) carry_mod.saveWmp(self);
         carry_mod.remember(self);
         if (self.out_of_memory) return error.OutOfMemory;
         return .{ .move = self.best, .equity = self.best_eq };
@@ -227,6 +252,47 @@ pub const Generator = struct {
             }
         }
         self.recordBest(m, leave, if (fast) value else null);
+    }
+
+    /// The rack info table's entry for `rack`, where genBest can use one:
+    /// a full rack, tiles in the bag, leave values, a board with tiles.
+    fn ritEntryFor(self: *const Generator, rack: *const Rack, ctx: *const equity.Context) ?*const rit_mod.Entry {
+        const r = self.rit orelse return null;
+        if (rack.num_tiles != rit_mod.rack_size or ctx.tiles_in_bag <= 0 or ctx.board_empty or ctx.klv == null) return null;
+        return r.lookup(wmp.fromRack(rack));
+    }
+
+    /// The leave map's values and the best leaves from a table entry: its
+    /// raw leaves plus the pre-endgame adjustment of each subset's size,
+    /// as populate works them out.
+    fn leavesFromRit(self: *Generator, e: *const rit_mod.Entry, ctx: *const equity.Context) void {
+        const lm = &self.leave_map;
+        if (ctx.tiles_in_bag >= ctx.peg.len) {
+            // No subset gets an adjustment.
+            for (&lm.values, e.leaves) |*d, v| d.* = v;
+        } else {
+            for (&lm.values, e.leaves, 0..) |*d, v, i| {
+                const kept: u32 = @popCount(@as(u32, @intCast(i)));
+                d.* = ctx.leaveMapValue(v, 0, kept, rit_mod.rack_size - kept);
+            }
+        }
+        for (&self.shadow.best_leaves, e.best_leaves) |*d, v| d.* = v;
+    }
+
+    /// Records the table's best exchange (only when every exchange size is
+    /// allowed and none gets a pre-endgame adjustment, as the table
+    /// assumes).
+    fn recordRitExchange(self: *Generator, e: *const rit_mod.Entry) void {
+        if (e.exchange_len == 0) return;
+        var m: Move = .{ .kind = .exchange, .len = e.exchange_len, .tiles_played = e.exchange_len };
+        @memcpy(m.tiles[0..e.exchange_len], e.exchange[0..e.exchange_len]);
+        var leave = self.full_rack;
+        for (m.tileSlice()) |ml| leave.take(ml);
+        var idx: u32 = 0;
+        for (leave.counts[0..self.ld.size], 0..) |n, ml| {
+            if (n > 0) idx |= ((@as(u32, 1) << @intCast(n)) - 1) << @intCast(self.leave_map.base[ml]);
+        }
+        self.recordBest(m, &leave, self.leave_map.values[idx]);
     }
 
     /// Records the exchanges from the leave map's values (filled for this
