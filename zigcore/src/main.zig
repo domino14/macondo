@@ -13,30 +13,28 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     var files: Files = .{ .io = io };
 
-    var engine = try macondo.ucgi.Engine.init(init.gpa, macondo.version, files.source());
-    defer engine.deinit();
-
     var in_buf: [max_line]u8 = undefined;
     var stdin_reader: Io.File.Reader = .init(.stdin(), io, &in_buf);
     const in = &stdin_reader.interface;
 
     var out_buf: [4096]u8 = undefined;
     var stdout_writer: Io.File.Writer = .init(.stdout(), io, &out_buf);
-    const out = &stdout_writer.interface;
+
+    // The engine writes (and flushes) responses itself: a search running
+    // in the background writes while commands are read.
+    var engine = try macondo.ucgi.Engine.init(init.gpa, io, macondo.version, files.source(), &stdout_writer.interface);
+    defer engine.deinit();
 
     while (true) {
         const line = in.takeDelimiter('\n') catch |err| switch (err) {
             error.StreamTooLong => {
                 // Drop the rest of the oversized line and carry on.
                 _ = in.discardDelimiterInclusive('\n') catch {};
-                try out.writeAll("error line-too-long\n");
-                try out.flush();
+                try engine.writeLine("error line-too-long");
                 continue;
             },
             else => |e| return e,
         } orelse break;
-        const status = try engine.handle(line, out);
-        try out.flush();
-        if (status == .quit) break;
+        if (try engine.handle(line) == .quit) break;
     }
 }

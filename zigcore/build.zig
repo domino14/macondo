@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const data_path = b.option([]const u8, "data-path", "Macondo data directory for tests (default ../data)") orelse "../data";
+    const tsan = b.option(bool, "tsan", "Build with ThreadSanitizer (for `zig build test`: finds data races)") orelse false;
 
     const options = b.addOptions();
     options.addOption([]const u8, "version", zon.version);
@@ -17,6 +18,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        .sanitize_thread = tsan,
         .imports = &.{
             .{ .name = "build_options", .module = options.createModule() },
         },

@@ -15,6 +15,7 @@ const Move = @import("move.zig").Move;
 const equity = @import("equity.zig");
 const game_mod = @import("game.zig");
 const sim_mod = @import("sim.zig");
+const bai_mod = @import("bai.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -39,32 +40,92 @@ pub const Status = enum { @"continue", quit };
 
 pub const Engine = struct {
     gpa: Allocator,
+    /// For running searches in the background and their workers: the
+    /// engine does no I/O through it.
+    io: std.Io,
     version: []const u8,
     options: Options,
     store: data.Store,
     position: ?Position = null,
+    /// Where responses go: from the command loop and from a search running
+    /// in the background, one at a time.
+    out: *Writer,
+    out_mutex: std.Io.Mutex = .init,
+    search: ?*Search = null,
 
     /// `source` is how the engine reads data files; see data.Source.
-    pub fn init(gpa: Allocator, version: []const u8, source: data.Source) Allocator.Error!Engine {
+    /// Responses are written to `out`, and flushed after each command and
+    /// each line a background search writes.
+    pub fn init(gpa: Allocator, io: std.Io, version: []const u8, source: data.Source, out: *Writer) Allocator.Error!Engine {
         return .{
             .gpa = gpa,
+            .io = io,
             .version = version,
             .options = .{ .data_path = try gpa.dupe(u8, "./data") },
             .store = .init(gpa, source),
+            .out = out,
         };
     }
 
     pub fn deinit(self: *Engine) void {
+        self.stopSearch();
         self.store.deinit();
         self.gpa.free(self.options.data_path);
         self.* = undefined;
     }
 
-    /// Handles one input line (without its trailing newline) and writes the
-    /// response lines to `out`. The caller flushes `out`.
-    pub fn handle(self: *Engine, line: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!Status {
+    /// Writes a line to the engine's output (the adapter's own errors),
+    /// between whatever a background search writes.
+    pub fn writeLine(self: *Engine, line: []const u8) Writer.Error!void {
+        self.out_mutex.lockUncancelable(self.io);
+        defer self.out_mutex.unlock(self.io);
+        try self.out.writeAll(line);
+        try self.out.writeAll("\n");
+        try self.out.flush();
+    }
+
+    /// Waits for the search running in the background, if any, to finish
+    /// and write its bestmove.
+    pub fn waitSearch(self: *Engine) void {
+        const s = self.search orelse return;
+        if (s.future) |*f| f.await(self.io);
+        s.destroy();
+        self.search = null;
+    }
+
+    /// Stops the search running in the background, if any, and waits for
+    /// it to write its bestmove.
+    pub fn stopSearch(self: *Engine) void {
+        const s = self.search orelse return;
+        s.stop.store(true, .monotonic);
+        self.waitSearch();
+    }
+
+    /// Handles one input line (without its trailing newline), writing the
+    /// response lines to the engine's output. While a search runs in the
+    /// background only stop, isready and quit are taken.
+    pub fn handle(self: *Engine, line: []const u8) (Writer.Error || Allocator.Error)!Status {
         var tokens = std.mem.tokenizeAny(u8, line, " \t\r");
         const cmd = tokens.next() orelse return .@"continue";
+        if (self.search) |s| {
+            if (s.done.load(.acquire)) self.waitSearch();
+        }
+        if (std.mem.eql(u8, cmd, "quit")) {
+            self.stopSearch();
+            return .quit;
+        }
+        if (std.mem.eql(u8, cmd, "stop")) {
+            if (self.search) |s| s.stop.store(true, .monotonic);
+            return .@"continue";
+        }
+        self.out_mutex.lockUncancelable(self.io);
+        defer self.out_mutex.unlock(self.io);
+        defer self.out.flush() catch {};
+        const out = self.out;
+        if (self.search != null and !std.mem.eql(u8, cmd, "isready")) {
+            try out.writeAll("error busy\n");
+            return .@"continue";
+        }
 
         if (std.mem.eql(u8, cmd, "ucgi")) {
             try self.identify(out);
@@ -88,8 +149,6 @@ pub const Engine = struct {
             try self.printCrossSets(out);
         } else if (std.mem.eql(u8, cmd, "leave")) {
             try self.printLeave(tokens.rest(), out);
-        } else if (std.mem.eql(u8, cmd, "quit")) {
-            return .quit;
         } else {
             try out.print("error unknown-command {s}\n", .{cmd});
         }
@@ -287,22 +346,26 @@ pub const Engine = struct {
         try out.print("genok count {d}\n", .{ranked.len});
     }
 
-    /// `go sim`: a Monte Carlo sim of the best plays by static equity,
-    /// single-threaded, run to a fixed number of iterations. Writes one
-    /// `info sim` line per play, best first, then `bestmove`.
+    /// `go sim`: a Monte Carlo sim of the best plays by static equity, on
+    /// the `threads` option's workers, in the background. Plain, it rolls
+    /// every play out until stopped (or for `iterations`); with `stop` it
+    /// is a best-arm run. `time` stops it after that many milliseconds.
+    /// Progress lines as it runs, then one `info sim` line per play, best
+    /// first, and `bestmove`.
     fn goSim(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         var plies: u32 = 2;
-        var iterations: u64 = 1000;
+        var iterations: u64 = 0;
         var num_plays: usize = 15;
         var seed: u64 = 1;
         var stop: ?u32 = null;
         var cap: u64 = default_sim_cap;
         var best_cap: u64 = default_sim_best_cap;
+        var time_ms: u64 = 0;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             const v = tokens.next() orelse return out.writeAll("error bad-go\n");
             const n = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-go\n");
-            if (std.mem.eql(u8, key, "plies") and n >= 1 and n <= 32) {
+            if (std.mem.eql(u8, key, "plies") and n >= 1 and n <= sim_mod.max_plies) {
                 plies = @intCast(n);
             } else if (std.mem.eql(u8, key, "iterations")) {
                 iterations = n;
@@ -316,6 +379,8 @@ pub const Engine = struct {
                 cap = n;
             } else if (std.mem.eql(u8, key, "bestcap")) {
                 best_cap = n;
+            } else if (std.mem.eql(u8, key, "time")) {
+                time_ms = n;
             } else return out.print("error bad-go {s}\n", .{key});
         }
         if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
@@ -324,42 +389,38 @@ pub const Engine = struct {
         const ranked = try rankedMoves(self.gpa, p);
         defer self.gpa.free(ranked);
         const moves = try self.gpa.alloc(Move, @min(num_plays, ranked.len));
-        defer self.gpa.free(moves);
+        errdefer self.gpa.free(moves);
         for (moves, ranked[0..moves.len]) |*m, r| m.* = r.m;
 
         const game_seed = game_mod.deriveSeed(seed, 0);
         const g = try self.gpa.create(game_mod.Game);
-        defer self.gpa.destroy(g);
+        errdefer self.gpa.destroy(g);
         g.* = game_mod.Game.fromPosition(p, game_seed) catch return out.writeAll("error bad-position\n");
-        const sim = try self.gpa.create(sim_mod.Sim);
-        defer self.gpa.destroy(sim);
-        sim.* = try .init(self.gpa, g, game_seed, 0, moves, plies, win_table);
-        defer sim.deinit();
-        if (stop) |condition| {
-            const res = sim.runBai(.{
-                .delta = sim_mod.stopDelta(condition).?,
-                .cap_per_play = cap,
-                .best_play_cap = best_cap,
-            }) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return out.print("error sim-failed {t}\n", .{err}),
-            };
-            try out.print("info sim status {s} rollouts {d}\n", .{ res.status.name(), res.samples });
-        } else if (g.playing) {
-            for (0..iterations) |_| try sim.iterate();
+        const sim = try sim_mod.Sim.create(self.gpa, g, game_seed, 0, moves, plies, win_table, self.options.threads);
+        errdefer sim.destroy();
+        const search = try self.gpa.create(Search);
+        search.* = .{
+            .engine = self,
+            .dist = p.dist,
+            .game = g,
+            .moves = moves,
+            .sim = sim,
+            .bai = if (stop) |c| .{ .delta = sim_mod.stopDelta(c).?, .cap_per_play = cap, .best_play_cap = best_cap } else null,
+            .iterations = iterations,
+            .time_ms = time_ms,
+            .started = std.Io.Clock.Timestamp.now(self.io, .awake),
+            .playing = g.playing,
+        };
+        self.search = search;
+        // Writes happen once this command's lock is released.
+        search.future = self.io.concurrent(Search.run, .{search}) catch null;
+        if (search.future == null) {
+            // No concurrency: the search runs here, and the command waits.
+            self.out_mutex.unlock(self.io);
+            defer self.out_mutex.lockUncancelable(self.io);
+            search.run();
+            self.waitSearch();
         }
-
-        const order = try self.gpa.alloc(*const sim_mod.Play, moves.len);
-        defer self.gpa.free(order);
-        sim.ranked(order);
-        for (order) |play| {
-            try out.print("info sim iterations {d} play ", .{play.win.n});
-            try play.move.format(p.dist, out);
-            try out.print(" win {d} equity {d} stderr {d}\n", .{ play.win.mean(), play.equity.mean(), play.equity.stdErr() });
-        }
-        try out.writeAll("bestmove ");
-        if (order.len > 0) try order[0].move.format(p.dist, out) else try out.writeAll("pass");
-        try out.writeAll("\n");
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension
@@ -398,6 +459,131 @@ pub const Engine = struct {
 };
 
 /// Writes "TooManyTiles" as "too-many-tiles", for error tokens.
+/// A sim running in the background: it owns its game, moves and sim.
+const Search = struct {
+    engine: *Engine,
+    dist: *const tiles.LetterDistribution,
+    game: *game_mod.Game,
+    moves: []Move,
+    sim: *sim_mod.Sim,
+    bai: ?sim_mod.BaiOptions,
+    iterations: u64,
+    time_ms: u64,
+    started: std.Io.Clock.Timestamp,
+    /// False if the game is already over: nothing to sim.
+    playing: bool,
+    stop: std.atomic.Value(bool) = .init(false),
+    /// The sim is done (computed); the search is done (bestmove written).
+    computed: std.Io.Event = .unset,
+    done: std.atomic.Value(bool) = .init(false),
+    future: ?std.Io.Future(void) = null,
+    bai_result: ?bai_mod.Result = null,
+    err: ?anyerror = null,
+
+    /// How often progress lines are written.
+    const progress_ms = 1000;
+
+    fn destroy(s: *Search) void {
+        const gpa = s.engine.gpa;
+        s.sim.destroy();
+        gpa.destroy(s.game);
+        gpa.free(s.moves);
+        gpa.destroy(s);
+    }
+
+    fn compute(s: *Search) void {
+        const io = s.engine.io;
+        defer s.computed.set(io);
+        if (!s.playing) return;
+        if (s.bai) |opts_in| {
+            var opts = opts_in;
+            opts.stop = &s.stop;
+            s.bai_result = s.sim.runBai(io, opts) catch |e| {
+                s.err = e;
+                return;
+            };
+        } else {
+            s.sim.run(io, .{ .iterations = s.iterations, .stop = &s.stop }) catch |e| {
+                s.err = e;
+            };
+        }
+    }
+
+    fn run(s: *Search) void {
+        const io = s.engine.io;
+        var computing = io.concurrent(compute, .{s}) catch null;
+        if (computing == null) compute(s);
+        const order = s.engine.gpa.alloc(*const sim_mod.Play, s.moves.len) catch null;
+        defer if (order) |o| s.engine.gpa.free(o);
+        while (!s.computed.isSet()) {
+            var wait_ms: i64 = progress_ms;
+            if (s.time_ms > 0) {
+                const left = @as(i64, @intCast(s.time_ms)) - s.elapsedMs();
+                if (left <= 0) {
+                    s.stop.store(true, .monotonic);
+                    wait_ms = progress_ms;
+                } else wait_ms = @min(wait_ms, left);
+            }
+            s.computed.waitTimeout(io, .{ .duration = .{ .raw = .fromMilliseconds(wait_ms), .clock = .awake } }) catch {};
+            if (s.computed.isSet()) break;
+            if (order) |o| s.writeProgress(o);
+        }
+        if (computing) |*f| f.await(io);
+        s.writeResult(order);
+        s.done.store(true, .release);
+    }
+
+    fn elapsedMs(s: *const Search) i64 {
+        return s.started.durationTo(std.Io.Clock.Timestamp.now(s.engine.io, .awake)).raw.toMilliseconds();
+    }
+
+    /// `info nodes <n> nps <n> time <ms> rollouts <n> best <move> win <w>
+    /// equity <e>`.
+    fn writeProgress(s: *Search, order: []*const sim_mod.Play) void {
+        const e = s.engine;
+        const pr = s.sim.progress(e.io, order);
+        const ms = @max(s.elapsedMs(), 1);
+        const nodes = s.sim.nodes();
+        e.out_mutex.lockUncancelable(e.io);
+        defer e.out_mutex.unlock(e.io);
+        const out = e.out;
+        out.print("info nodes {d} nps {d} time {d} rollouts {d}", .{ nodes, @divTrunc(@as(i64, @intCast(nodes)) * 1000, ms), ms, pr.rollouts }) catch return;
+        if (pr.best) |m| {
+            out.writeAll(" best ") catch return;
+            m.format(s.dist, out) catch return;
+            out.print(" win {d} equity {d}", .{ pr.win, pr.equity }) catch return;
+        }
+        out.writeAll("\n") catch return;
+        out.flush() catch {};
+    }
+
+    /// The per-play lines, best first, and bestmove.
+    fn writeResult(s: *Search, order_buf: ?[]*const sim_mod.Play) void {
+        const e = s.engine;
+        e.out_mutex.lockUncancelable(e.io);
+        defer e.out_mutex.unlock(e.io);
+        const out = e.out;
+        defer out.flush() catch {};
+        if (s.err) |err| out.print("error sim-failed {t}\n", .{err}) catch {};
+        if (s.bai_result) |res| {
+            out.print("info sim status {s} rollouts {d}\n", .{ res.status.name(), res.samples }) catch return;
+        }
+        const order = order_buf orelse {
+            out.writeAll("bestmove pass\n") catch {};
+            return;
+        };
+        s.sim.ranked(order);
+        for (order) |play| {
+            out.print("info sim iterations {d} play ", .{play.stats.win.n}) catch return;
+            play.move.format(s.dist, out) catch return;
+            out.print(" win {d} equity {d} stderr {d}\n", .{ play.stats.win.mean(), play.stats.equity.mean(), play.stats.equity.stdErr() }) catch return;
+        }
+        out.writeAll("bestmove ") catch return;
+        if (order.len > 0) order[0].move.format(s.dist, out) catch return else out.writeAll("pass") catch return;
+        out.writeAll("\n") catch {};
+    }
+};
+
 /// A best-arm sim's budget in rollouts per play, and the rollouts after
 /// which it settles for the leading play: the elite bot's.
 const default_sim_cap = 1000;
@@ -451,13 +637,14 @@ const testing = std.testing;
 
 /// Runs `lines` through a fresh engine and returns everything it wrote.
 fn transcript(lines: []const []const u8) ![]u8 {
-    var engine = try Engine.init(testing.allocator, "0.0.0", .empty);
-    defer engine.deinit();
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", .empty, &out.writer);
+    defer engine.deinit();
     for (lines) |line| {
-        if (try engine.handle(line, &out.writer) == .quit) break;
+        if (try engine.handle(line) == .quit) break;
     }
+    engine.waitSearch();
     return out.toOwnedSlice();
 }
 
@@ -484,25 +671,25 @@ test "isready, blank lines, unknown commands, quit" {
 }
 
 test "setoption" {
-    var engine = try Engine.init(testing.allocator, "0.0.0", .empty);
-    defer engine.deinit();
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", .empty, &out.writer);
+    defer engine.deinit();
 
-    _ = try engine.handle("setoption name threads value 8", &out.writer);
-    _ = try engine.handle("setoption name hash-mb value 1024", &out.writer);
-    _ = try engine.handle("setoption name data-path value /opt/my data\r", &out.writer);
+    _ = try engine.handle("setoption name threads value 8");
+    _ = try engine.handle("setoption name hash-mb value 1024");
+    _ = try engine.handle("setoption name data-path value /opt/my data\r");
     try testing.expectEqualStrings("", out.written());
     try testing.expectEqual(8, engine.options.threads);
     try testing.expectEqual(1024, engine.options.hash_mb);
     try testing.expectEqualStrings("/opt/my data", engine.options.data_path);
 
-    _ = try engine.handle("setoption name threads value 0", &out.writer);
-    _ = try engine.handle("setoption name threads value 513", &out.writer);
-    _ = try engine.handle("setoption name hash-mb value lots", &out.writer);
-    _ = try engine.handle("setoption name colour value blue", &out.writer);
-    _ = try engine.handle("setoption threads 8", &out.writer);
-    _ = try engine.handle("setoption name threads value", &out.writer);
+    _ = try engine.handle("setoption name threads value 0");
+    _ = try engine.handle("setoption name threads value 513");
+    _ = try engine.handle("setoption name hash-mb value lots");
+    _ = try engine.handle("setoption name colour value blue");
+    _ = try engine.handle("setoption threads 8");
+    _ = try engine.handle("setoption name threads value");
     try testing.expectEqualStrings(
         \\error bad-value threads
         \\error bad-value threads
@@ -518,21 +705,21 @@ test "setoption" {
 test "go static and gen with equities" {
     const testdata = @import("testdata.zig");
     const build_options = @import("build_options");
-    var engine = try Engine.init(testing.allocator, "0.0.0", testdata.file_source);
-    defer engine.deinit();
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", testdata.file_source, &out.writer);
+    defer engine.deinit();
     var buf: [256]u8 = undefined;
-    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}), &out.writer);
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
 
-    _ = try engine.handle("go static", &out.writer);
-    _ = try engine.handle("go infer", &out.writer);
+    _ = try engine.handle("go static");
+    _ = try engine.handle("go infer");
     // The opening: FERAL and FARLE score 24, but FERAL puts a vowel next
     // to a double-letter square.
-    _ = try engine.handle("position cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEFLR/ 0/0 0 lex NWL23;", &out.writer);
+    _ = try engine.handle("position cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEFLR/ 0/0 0 lex NWL23;");
     if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go infer\nerror data-not-found")) return error.SkipZigTest;
-    _ = try engine.handle("go static", &out.writer);
-    _ = try engine.handle("gen", &out.writer);
+    _ = try engine.handle("go static");
+    _ = try engine.handle("gen");
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     try testing.expectEqualStrings("error no-position", lines.next().?);
     try testing.expectEqualStrings("error bad-go infer", lines.next().?);
@@ -543,4 +730,56 @@ test "go static and gen with equities" {
     try testing.expectEqualStrings("move 8D.FARLE score 24 equity 24", lines.next().?);
     try testing.expectEqualStrings("move 8D.FLARE score 24 equity 24", lines.next().?);
     try testing.expectEqualStrings("move 8D.FERAL score 24 equity 23.3", lines.next().?);
+}
+
+test "go sim runs in the background" {
+    const testdata = @import("testdata.zig");
+    const build_options = @import("build_options");
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", testdata.file_source, &out.writer);
+    defer engine.deinit();
+    var buf: [256]u8 = undefined;
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
+    _ = try engine.handle("setoption name threads value 2");
+    _ = try engine.handle("position cgp 15/15/15/15/15/15/15/5TURnERY3/15/15/15/15/15/15/15 BEIMOQS/ 0/76 0 lex NWL20;");
+    if (out.written().len > 0) return error.SkipZigTest;
+
+    // No limit: runs until stopped. Commands other than stop, isready and
+    // quit are refused meanwhile.
+    _ = try engine.handle("go sim plies 2 plays 5");
+    try testing.expect(engine.search != null);
+    _ = try engine.handle("isready");
+    _ = try engine.handle("gen");
+    _ = try engine.handle("stop");
+    engine.waitSearch();
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    var saw_ready = false;
+    var saw_busy = false;
+    var plays: usize = 0;
+    var last: []const u8 = "";
+    while (lines.next()) |l| {
+        if (l.len == 0) continue;
+        if (std.mem.eql(u8, l, "readyok")) saw_ready = true;
+        if (std.mem.eql(u8, l, "error busy")) saw_busy = true;
+        if (std.mem.startsWith(u8, l, "info sim iterations")) plays += 1;
+        last = l;
+    }
+    try testing.expect(saw_ready and saw_busy);
+    try testing.expectEqual(5, plays);
+    try testing.expect(std.mem.startsWith(u8, last, "bestmove "));
+
+    // An iteration cap, then a time limit, end it by themselves.
+    out.clearRetainingCapacity();
+    _ = try engine.handle("go sim plies 2 plays 4 iterations 30");
+    engine.waitSearch();
+    try testing.expect(std.mem.indexOf(u8, out.written(), "info sim iterations 30 play ") != null);
+    out.clearRetainingCapacity();
+    _ = try engine.handle("go sim plies 2 plays 4 time 300");
+    engine.waitSearch();
+    try testing.expect(std.mem.indexOf(u8, out.written(), "bestmove ") != null);
+    // After a search the engine takes commands again.
+    out.clearRetainingCapacity();
+    _ = try engine.handle("isready");
+    try testing.expectEqualStrings("readyok\n", out.written());
 }

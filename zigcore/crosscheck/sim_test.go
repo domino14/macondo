@@ -33,6 +33,9 @@ var (
 type simCase struct {
 	plies, iters, stop, cap, bestCap int
 	seed                             uint64
+	// threads is the Zig engine's: a best-arm sim is the same on any
+	// number, so it is compared with Go's single-threaded sim too.
+	threads int
 }
 
 func (c simCase) command() string {
@@ -80,6 +83,7 @@ func TestSimCrossCheck(t *testing.T) {
 				for _, c := range []simCase{
 					{plies: plies, iters: *simIterations, seed: uint64(i + 1)},
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1)},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), threads: 4},
 				} {
 					compareSim(t, e, cfg, cgpStr, c)
 					sims++
@@ -99,6 +103,10 @@ func TestSimCrossCheck(t *testing.T) {
 func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c simCase) {
 	t.Helper()
 	cmd := c.command()
+	threads := max(c.threads, 1)
+	if err := e.Send(fmt.Sprintf("setoption name threads value %d", threads)); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.Send("position cgp " + cgpStr); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +117,10 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 	zig := map[string]simResult{}
 	zigStatus := ""
 	for _, l := range lines[:len(lines)-1] {
+		if strings.HasPrefix(l, "info nodes ") {
+			// Progress.
+			continue
+		}
 		f := strings.Fields(l)
 		if len(f) == 6 && f[1] == "sim" && f[2] == "status" {
 			zigStatus = f[3]
@@ -134,11 +146,11 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 			t.Fatalf("%s: Zig did not sim %s", cgpStr, m)
 		}
 		if w != z {
-			t.Fatalf("%s (%s): %s: Go %+v, Zig %+v", cgpStr, cmd, m, w, z)
+			t.Fatalf("%s (%s, %d threads): %s: Go %+v, Zig %+v", cgpStr, cmd, threads, m, w, z)
 		}
 	}
 	if c.stop > 0 && (best != zigBest || status != zigStatus) {
-		t.Fatalf("%s (%s): Go picked %s (%s), Zig %s (%s)", cgpStr, cmd, best, status, zigBest, zigStatus)
+		t.Fatalf("%s (%s, %d threads): Go picked %s (%s), Zig %s (%s)", cgpStr, cmd, threads, best, status, zigBest, zigStatus)
 	}
 	if c.stop > 0 {
 		counts := map[int]bool{}

@@ -85,7 +85,7 @@ accepts `stop`, `isready` and `quit`; any other command gets
 
 ```
 > go static                       best play by static equity
-> go sim plies 2 iterations 5000  Monte Carlo sim (also: time <ms>, stop-confidence <pct>, bai)
+> go sim plies 2                  Monte Carlo sim until stop (also: iterations, time <ms>, stop <confidence>)
 > go infer                        rack inference for the last opponent play
 > go endgame plies 6
 > go preendgame
@@ -101,14 +101,22 @@ leave value, and the opening, pre-endgame and endgame adjustments):
 < bestmove 8D.QUIZ
 ```
 
-`go sim plies <n> iterations <n> plays <n> seed <n>` sims the `plays` best
-plays by static equity (default 15) for `iterations` iterations (default
-1000), rolling each out `plies` plies (default 2) with best static plays
-against a random opponent rack. The game is seeded with SHA-256 of `seed`
-(default 1) and 0, both big-endian u64s, at turn 0, and the bag starts in
-machine-letter order, so the same command gives the same numbers as Macondo's
-single-threaded sim of the same position with that seed. It ends with one
-line per play, best first by win probability (then equity), and `bestmove`:
+`go sim plies <n> plays <n> seed <n> [iterations <n>] [time <ms>]` sims the
+`plays` best plays by static equity (default 15), rolling each out `plies`
+plies (default 2) with best static plays against a random opponent rack,
+once an iteration, until `stop` (or for `iterations` iterations, or `time`
+milliseconds). It runs on the `threads` option's workers. The game is seeded
+with SHA-256 of `seed` (default 1) and 0, both big-endian u64s, at turn 0,
+and the bag starts in machine-letter order, so on one thread the same command
+gives the same numbers as Macondo's single-threaded sim of the same position
+with that seed (on several, the same numbers in distribution). About once a
+second it writes a progress line, and it ends with one line per play, best
+first by win probability (then equity), and `bestmove`:
+
+```
+< info nodes 182734 nps 410000 time 1000 rollouts 61200 best 8D.QUIZ win 0.71 equity 41.2
+```
+
 
 ```
 < info sim iterations 1000 play 8D.QUIZ win 0.71 equity 41.2 stderr 1.3
@@ -121,7 +129,9 @@ rollouts go mostly to the leader and its closest challenger, and the sim
 stops when the leader is told apart from every other play with that
 confidence (999 is 99.9%), when it has `bestcap` rollouts (default 10000),
 when the sim has spent `cap` rollouts per play (default 1000), or when the
-game is decided. `iterations` doesn't apply. Each play's line gives its own
+game is decided (or at `stop` or `time`). `iterations` doesn't apply. The
+rollouts it makes, and so its result, are the same on any number of threads.
+Each play's line gives its own
 rollouts, the best-arm pick comes first, and a line before them says why the
 sim stopped (`threshold`, `cutoff`, `sample-limit`, `best-arm-limit`) and how
 many rollouts it made:

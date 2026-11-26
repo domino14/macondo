@@ -95,7 +95,8 @@ pub fn main(init: std.process.Init) !void {
         if (profile != null) Profiler.start();
         defer if (profile) |path| Profiler.stop(io, path) catch {};
         const plies: u32 = if (init.environ_map.get("BENCH_PLIES")) |v| try std.fmt.parseInt(u32, v, 10) else 2;
-        return benchSim(io, gpa, &store, data_path, positions.items, rounds, plies, &w.interface);
+        const threads: usize = if (init.environ_map.get("BENCH_THREADS")) |v| try std.fmt.parseInt(usize, v, 10) else 1;
+        return benchSim(io, gpa, &store, data_path, positions.items, rounds, plies, threads, init.environ_map.get("BENCH_BAI") != null, &w.interface);
     }
     // BENCH_MODE=wmp or gaddag times one only (for profiling).
     const only = init.environ_map.get("BENCH_MODE");
@@ -142,9 +143,11 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// BENCH_MODE=sim: a single-threaded sim of each position's 15 best plays
-/// by static equity, two plies (BENCH_PLIES), `iterations` iterations (`go sim plies 2
+/// by static equity, two plies (BENCH_PLIES), on BENCH_THREADS workers,
+/// `iterations` iterations (with BENCH_BAI, a best-arm run to 99% with a
+/// budget of `iterations` rollouts a play) (`go sim plies 2
 /// iterations <n> plays 15`, without the opponent's rack).
-fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_path: []const u8, positions: []macondo.position.Position, iterations: u32, plies: u32, w: *Io.Writer) !void {
+fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_path: []const u8, positions: []macondo.position.Position, iterations: u32, plies: u32, threads: usize, bai: bool, w: *Io.Writer) !void {
     const win_table = try store.winTable(data_path);
     var rollouts: u64 = 0;
     var nodes: u64 = 0;
@@ -162,21 +165,31 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         const g = try gpa.create(macondo.game.Game);
         defer gpa.destroy(g);
         g.* = try .fromPosition(p, seed);
-        const sim = try gpa.create(macondo.sim.Sim);
-        defer gpa.destroy(sim);
-        sim.* = try .init(gpa, g, seed, 0, moves, plies, win_table);
-        defer sim.deinit();
+        const sim = try macondo.sim.Sim.create(gpa, g, seed, 0, moves, plies, win_table, threads);
+        defer sim.destroy();
         const start = Io.Timestamp.now(io, .awake);
-        for (0..iterations) |_| try sim.iterate();
+        if (bai) {
+            // A best-arm run to 99% with a budget of `iterations` rollouts
+            // a play.
+            const res = try sim.runBai(io, .{ .delta = 0.01, .cap_per_play = iterations });
+            rollouts += res.samples;
+        } else {
+            try sim.run(io, .{ .iterations = iterations });
+            rollouts += iterations * moves.len;
+        }
         total_ns += start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
-        rollouts += iterations * moves.len;
-        nodes += sim.nodes;
-        gens += sim.carry.generations;
-        hits += sim.carry.rack_hits;
+        nodes += sim.nodes();
+        for (sim.workers) |*wk| {
+            gens += wk.carry.generations;
+            hits += wk.carry.rack_hits;
+        }
     }
-    try w.print("sim: {d} positions, {d} rollouts, {d:.2} us/rollout, {d:.0} nodes/s\n", .{
-        positions.len,                                                                rollouts,
-        @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(rollouts)) / 1000, @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
+    try w.print("sim ({d} threads): {d} positions, {d} rollouts, {d:.2} us/rollout, {d:.0} nodes/s\n", .{
+        threads,
+        positions.len,
+        rollouts,
+        @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(rollouts)) / 1000,
+        @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
     });
     try w.print("best-move memory: {d} generations, {d:.1}% found their rack\n", .{ gens, 100 * @as(f64, @floatFromInt(hits)) / @as(f64, @floatFromInt(@max(gens, 1))) });
     try w.flush();

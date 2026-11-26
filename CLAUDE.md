@@ -109,6 +109,8 @@ checklist) and `zigcore/UCGI.md` (the protocol) before working on it.
 - Use the pinned Zig version only. A Zig upgrade is its own PR.
 - Compute code does no I/O: data comes in as byte slices, allocators are
   passed in, searches can be stopped and report progress through callbacks.
+  Concurrency comes in as a `std.Io` (worker groups, mutexes, events),
+  used for nothing else, so a WASM build can supply its own.
 - Every ported module needs its Go tests ported and a passing cross-check
   against the Go implementation (single thread, fixed seed, exact match).
 - Do not remove or change the Go implementation of a module while porting

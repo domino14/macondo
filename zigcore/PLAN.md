@@ -144,6 +144,11 @@ as they land.
       thread and a fixed seed; statistical agreement with many threads.
       Endgame leaves need the endgame solver (step 7): until then the
       cross-check sims positions with at least three tiles in the bag.
+      Done: plain sims (until stopped) and best-arm sims (the elite bot's
+      rule) on any number of threads, as a std.Io group, best-arm results
+      the same on any number; `go sim` in the background with progress,
+      `stop` and `time`. Go's other stopping rules (classic, paired) are
+      not ported.
 - [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
 - [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
@@ -191,8 +196,9 @@ as they land.
   phases (`BENCH_MODE=phases`) and sample a profile
   (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`). Sims
   are timed on the same kind of file (midgame positions): `BENCH_MODE=sim`
-  (the second argument is the iterations), Go's `BenchmarkSim` and
-  `bench/magpie_sim.sh`.
+  (the second argument is the iterations; BENCH_PLIES, BENCH_THREADS,
+  BENCH_BAI, BENCH_RIT), Go's `BenchmarkSim` and `bench/magpie_sim.sh`.
+  `zig build test -Dtsan=true` runs the tests under ThreadSanitizer.
 
 ## Zig version policy
 
@@ -211,8 +217,11 @@ Woogles needs its source available.
 
 ## Open questions
 
-- WASM threading: own Web Worker pool on `wasm32-freestanding`, or
-  `wasm32-emscripten` with pthreads? (Leaning: own pool.)
+- WASM threading: the core takes its concurrency from a `std.Io` passed in
+  (worker groups, mutexes, events), so the WASM build supplies one: Zig's
+  `Io.Threaded` on wasm32 with atomics and shared memory, or an `Io` of our
+  own over a Web Worker pool. Which, and on which target, is decided at
+  step 11.
 - `info` payloads: plain tokens, or JSON for the richer sim and inference
   output? (Leaning: tokens, with JSON allowed in specific `info` fields.)
 - Should weaker bot levels (`ai/bot/filters.go`) move into the core so bots

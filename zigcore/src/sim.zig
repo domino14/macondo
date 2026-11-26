@@ -4,10 +4,18 @@
 //! Macondo's montecarlo.Simmer, drawing the same tiles from the same seed
 //! so that a single-threaded sim gives exactly the Go engine's statistics.
 //!
-//! Not yet ported: the stopping conditions, best-arm identification, paired
-//! stops, inference and the endgame leaves (Go searches the endgames that
-//! rollouts reach with at most two tiles in the bag; here they are played
-//! out statically).
+//! Two ways to run: plain, every play rolled out once an iteration until
+//! stopped (or a number of iterations), and best-arm identification (BAI),
+//! which picks the plays to roll out and stops when the best is told apart.
+//! Both run on any number of workers, each with its own game copies,
+//! generator and random source, run as a std.Io group. A best-arm run gives
+//! the same result on any number of workers; a plain run on one worker
+//! gives exactly Go's single-threaded statistics, and on several workers
+//! Go's statistics in distribution.
+//!
+//! Not yet ported: Go's other stopping rules, inference and the endgame
+//! leaves (Go searches the endgames that rollouts reach with at most two
+//! tiles in the bag; here they are played out statically).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,6 +24,7 @@ const game_mod = @import("game.zig");
 const movegen = @import("movegen.zig");
 const chacha8 = @import("chacha8.zig");
 const carry_mod = @import("carry.zig");
+const cross_set = @import("cross_set.zig");
 const bai = @import("bai.zig");
 const gomath = @import("gomath.zig");
 const Move = @import("move.zig").Move;
@@ -57,6 +66,27 @@ pub const Stat = struct {
 
     pub fn stdErr(self: *const Stat) f64 {
         return @sqrt(self.variance() / @as(f64, @floatFromInt(self.n)));
+    }
+
+    /// Adds the values `o` was made of (Chan et al.'s pairwise update).
+    /// Into an empty statistic it is a copy, so a merge of one is exact.
+    pub fn merge(self: *Stat, o: *const Stat) void {
+        if (o.n == 0) return;
+        if (self.n == 0) {
+            self.* = o.*;
+            return;
+        }
+        const na: f64 = @floatFromInt(self.n);
+        const nb: f64 = @floatFromInt(o.n);
+        const n = na + nb;
+        const delta = o.new_m - self.new_m;
+        const m = self.new_m + delta * nb / n;
+        const s2 = self.new_s + o.new_s + delta * delta * na * nb / n;
+        self.n += o.n;
+        self.old_m = m;
+        self.new_m = m;
+        self.old_s = s2;
+        self.new_s = s2;
     }
 };
 
@@ -115,18 +145,79 @@ pub const WinTable = struct {
     }
 };
 
-/// One candidate play and what its rollouts came to.
-pub const Play = struct {
-    move: Move,
+/// The most plies a rollout can have.
+pub const max_plies = 32;
+
+/// What one rollout came to.
+pub const Rollout = struct {
+    /// The play rolled out (its index in Sim.plays).
+    play: u32 = 0,
+    win: f64 = 0,
     /// Spread gained over the rollout plus the leftover leave values.
+    equity: f64 = 0,
+    leftover: f64 = 0,
+    /// Plies played, and by ply the score of the play made and whether it
+    /// was a bingo (bit `ply`).
+    plies: u8 = 0,
+    scores: [max_plies]i32 = undefined,
+    bingos: u32 = 0,
+};
+
+/// What a play's rollouts came to.
+pub const PlayStats = struct {
     equity: Stat = .{},
     leftover: Stat = .{},
     win: Stat = .{},
     /// By ply: the score of the play made and whether it was a bingo.
     scores: []Stat,
     bingos: []Stat,
+
+    fn add(self: *PlayStats, r: *const Rollout) void {
+        for (0..r.plies) |ply| {
+            self.scores[ply].push(@floatFromInt(r.scores[ply]));
+            self.bingos[ply].push(@floatFromInt((r.bingos >> @intCast(ply)) & 1));
+        }
+        self.equity.push(r.equity);
+        self.leftover.push(r.leftover);
+        self.win.push(r.win);
+    }
+
+    fn reset(self: *PlayStats) void {
+        self.equity = .{};
+        self.leftover = .{};
+        self.win = .{};
+        @memset(self.scores, .{});
+        @memset(self.bingos, .{});
+    }
+
+    fn merge(self: *PlayStats, o: *const PlayStats) void {
+        self.equity.merge(&o.equity);
+        self.leftover.merge(&o.leftover);
+        self.win.merge(&o.win);
+        for (self.scores, o.scores) |*a, *b| a.merge(b);
+        for (self.bingos, o.bingos) |*a, *b| a.merge(b);
+    }
+};
+
+/// One candidate play and what its rollouts came to.
+pub const Play = struct {
+    move: Move,
+    stats: PlayStats,
     ignored: bool = false,
 };
+
+/// `n` plays' statistics, `plies` plies each, in one allocation.
+fn allocStats(gpa: Allocator, n: usize, plies: u32) Allocator.Error!struct { stats: []PlayStats, buf: []Stat } {
+    const stats = try gpa.alloc(PlayStats, n);
+    errdefer gpa.free(stats);
+    const buf = try gpa.alloc(Stat, 2 * n * plies);
+    @memset(buf, .{});
+    for (stats, 0..) |*ps, i| {
+        const b = buf[2 * i * plies ..][0 .. 2 * plies];
+        ps.* = .{ .scores = b[0..plies], .bingos = b[plies..] };
+    }
+    return .{ .stats = stats, .buf = buf };
+}
 
 /// Win probabilities this close (or both all but certain) rank the plays
 /// by equity instead (winProbsIndistinguishable).
@@ -143,10 +234,10 @@ fn winsIndistinguishable(a: f64, b: f64) bool {
 /// Whether `a` ranks above `b`: by win probability, then equity
 /// (sortPlaysByWinRate).
 pub fn ranksAbove(a: *const Play, b: *const Play) bool {
-    const wa = a.win.mean();
-    const wb = b.win.mean();
+    const wa = a.stats.win.mean();
+    const wb = b.stats.win.mean();
     if (!winsIndistinguishable(wa, wb)) return wa > wb;
-    return a.equity.mean() > b.equity.mean();
+    return a.stats.equity.mean() > b.stats.equity.mean();
 }
 
 pub const BaiOptions = struct {
@@ -158,9 +249,15 @@ pub const BaiOptions = struct {
     cap_per_play: u64 = default_bai_cap_per_play,
     /// Stops once the leading play has this many rollouts; 0 for never.
     best_play_cap: u64 = 0,
-    /// Checked between rounds: why to stop now (time, a stop command), or
-    /// .none.
-    stop: ?*const fn (*Sim) bai.Status = null,
+    /// Set to stop the run (a stop command, a time limit).
+    stop: ?*const std.atomic.Value(bool) = null,
+};
+
+pub const RunOptions = struct {
+    /// Iterations to run (counting those run before); 0 for no limit.
+    iterations: u64 = 0,
+    /// Set to stop the run (a stop command, a time limit).
+    stop: ?*const std.atomic.Value(bool) = null,
 };
 
 pub const default_bai_min_samples = 128;
@@ -228,145 +325,187 @@ pub fn threadSeed(seed: [32]u8, turn: u64, thread: u64) [32]u8 {
 pub const Sim = struct {
     gpa: Allocator,
     plays: []Play,
+    stat_buf: []Stat,
     plies: u32,
     win_table: *const WinTable,
-    /// The position after this iteration's opponent rack was dealt: where
-    /// every rollout starts.
-    start: Game,
-    /// The game a rollout is played on.
-    work: Game,
-    /// The thread's random source. It carries on from rollout to rollout
-    /// (the games are reset, it isn't).
-    rng: chacha8.Rng,
-    gen: *movegen.Generator,
-    /// The rollout generator's memory of best plays by rack.
-    carry: *carry_mod.Carry,
-    /// The rollout games' memory of cross-sets by the words beside a
-    /// square.
-    cross_cache: *@import("cross_set.zig").Cache,
-    /// Tests: a generator without the memory that checks every rollout
-    /// move the memory helped find.
-    check: ?*movegen.Generator = null,
     initial_player: u1,
     initial_spread: i32,
+    workers: []Worker,
+    /// Plain runs: iterations claimed by workers, and finished.
+    claimed: std.atomic.Value(u64) = .init(0),
+    finished: std.atomic.Value(u64) = .init(0),
+    /// Iterations: of a plain run, finished; of a best-arm run, rollouts
+    /// over plays.
     iterations: u64 = 0,
-    /// Moves made (candidate plays and rollout plies), as Go counts nodes.
-    nodes: u64 = 0,
-    stat_buf: []Stat,
     /// What best-arm sims draw their samples from: SHA-256 of the game's
     /// seed and turn (startBAI).
     bai_seed: [32]u8,
     /// The play a best-arm run picked, which ranks first.
     winner: ?usize = null,
+    /// The best-arm run in progress, for progress reports.
+    bai_runner: ?*bai.Runner(Rollout) = null,
+    /// Keeps a progress report and a plain run's last merge apart.
+    stats_mutex: std.Io.Mutex = .init,
+    bai_stop: ?*const std.atomic.Value(bool) = null,
 
     /// A sim of `moves` from `g` (whose seed is `seed` at turn `turn`),
-    /// rolling each out `plies` plies. Single-threaded: thread 0 of Go's
-    /// sim.
-    pub fn init(gpa: Allocator, g: *const Game, seed: [32]u8, turn: u64, moves: []const Move, plies: u32, win_table: *const WinTable) Allocator.Error!Sim {
+    /// rolling each out `plies` plies (at most max_plies), on `threads`
+    /// workers. Worker i is Go's sim thread i.
+    pub fn create(gpa: Allocator, g: *const Game, seed: [32]u8, turn: u64, moves: []const Move, plies: u32, win_table: *const WinTable, threads: usize) Allocator.Error!*Sim {
+        std.debug.assert(plies >= 1 and plies <= max_plies);
+        const sim = try gpa.create(Sim);
+        errdefer gpa.destroy(sim);
+        const a = try allocStats(gpa, moves.len, plies);
+        errdefer {
+            gpa.free(a.buf);
+            gpa.free(a.stats);
+        }
         const plays = try gpa.alloc(Play, moves.len);
         errdefer gpa.free(plays);
-        const stat_buf = try gpa.alloc(Stat, 2 * moves.len * plies);
-        errdefer gpa.free(stat_buf);
-        @memset(stat_buf, .{});
-        for (plays, moves, 0..) |*p, m, i| {
-            const s = stat_buf[2 * i * plies ..][0 .. 2 * plies];
-            p.* = .{ .move = m, .scores = s[0..plies], .bingos = s[plies..] };
-        }
-        const gen = try gpa.create(movegen.Generator);
-        errdefer gpa.destroy(gen);
-        // Each rollout points the generator at its own board first.
-        gen.* = .init(gpa, @constCast(&g.pos.board), g.pos.lexicon.kwg, g.pos.dist);
-        gen.word_map = g.pos.word_map;
-        gen.rit = g.pos.rit;
-        errdefer gen.deinit();
-        const carry = try gpa.create(carry_mod.Carry);
-        errdefer gpa.destroy(carry);
-        carry.* = .init(gpa);
-        gen.carry = carry;
-        errdefer carry.deinit();
-        const cross_cache = try gpa.create(@import("cross_set.zig").Cache);
-        errdefer gpa.destroy(cross_cache);
-        cross_cache.* = try .init(gpa, @import("cross_set.zig").Cache.default_index_bits);
-        errdefer cross_cache.deinit(gpa);
-
-        var sim: Sim = .{
+        for (plays, moves, a.stats) |*p, m, ps| p.* = .{ .move = m, .stats = ps };
+        gpa.free(a.stats);
+        const workers = try gpa.alloc(Worker, @max(threads, 1));
+        errdefer gpa.free(workers);
+        sim.* = .{
             .gpa = gpa,
             .plays = plays,
+            .stat_buf = a.buf,
             .plies = plies,
             .win_table = win_table,
-            .start = g.*,
-            .work = undefined,
-            .rng = .init(threadSeed(seed, turn, 0)),
-            .gen = gen,
-            .carry = carry,
-            .cross_cache = cross_cache,
             .initial_player = g.on_turn,
             .initial_spread = g.pos.scores[g.on_turn] - g.pos.scores[1 - g.on_turn],
-            .stat_buf = stat_buf,
+            .workers = workers,
             .bai_seed = undefined,
         };
         var buf: [40]u8 = undefined;
         buf[0..32].* = seed;
         std.mem.writeInt(u64, buf[32..40], turn, .big);
         std.crypto.hash.sha2.Sha256.hash(&buf, &sim.bai_seed, .{});
-        // The copies draw the bag as it lies, after one shuffle from the
-        // thread's source (makeGameCopies).
-        sim.start.paired = false;
-        sim.start.cross_cache = cross_cache;
-        sim.start.bag.fixed_order = true;
-        sim.start.bag.shuffle(&sim.rng);
+        var made: usize = 0;
+        errdefer for (workers[0..made]) |*w| w.deinit();
+        for (workers, 0..) |*w, i| {
+            try w.init(sim, g, threadSeed(seed, turn, i));
+            made += 1;
+            if (i == 0) {
+                // Every copy draws the bag as it lies, after one shuffle
+                // from thread 0's source (makeGameCopies).
+                w.start.bag.shuffle(&w.rng);
+            } else {
+                w.start.bag = workers[0].start.bag;
+            }
+        }
         return sim;
     }
 
-    pub fn deinit(self: *Sim) void {
-        self.cross_cache.deinit(self.gpa);
-        self.gpa.destroy(self.cross_cache);
-        self.carry.deinit();
-        self.gpa.destroy(self.carry);
-        self.gen.deinit();
-        self.gpa.destroy(self.gen);
-        self.gpa.free(self.stat_buf);
-        self.gpa.free(self.plays);
-        self.* = undefined;
+    pub fn destroy(self: *Sim) void {
+        const gpa = self.gpa;
+        for (self.workers) |*w| w.deinit();
+        gpa.free(self.workers);
+        gpa.free(self.stat_buf);
+        gpa.free(self.plays);
+        gpa.destroy(self);
     }
 
-    /// One iteration: a new opponent rack, then a rollout of every play
-    /// not ignored.
+    /// Moves made (candidate plays and rollout plies), as Go counts nodes.
+    /// Safe to call while the sim runs.
+    pub fn nodes(self: *const Sim) u64 {
+        var n: u64 = 0;
+        for (self.workers) |*w| n += w.nodes.load(.monotonic);
+        return n;
+    }
+
+    /// One iteration on worker 0, on the calling thread (a plain run).
     pub fn iterate(self: *Sim) Allocator.Error!void {
-        self.dealOpponent();
-        for (self.plays) |*p| {
-            if (p.ignored) continue;
-            _ = try self.rollout(p);
-        }
+        try self.workers[0].iterate(null);
         self.iterations += 1;
+        self.collect(null);
     }
 
-    /// Throws the opponent's rack in and deals a new one (SetRandomRack
-    /// with nothing known: Bag.Redraw).
-    fn dealOpponent(self: *Sim) void {
-        const g = &self.start;
-        const opp = 1 - self.initial_player;
-        var old: [tiles.max_alphabet_size]MachineLetter = undefined;
-        const n = g.pos.racks[opp].tiles(&old);
-        g.rng = self.rng;
-        g.putBack(old[0..n]);
-        var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
-        const k = g.drawAtMost(&drawn);
-        g.pos.racks[opp] = .fromLetters(drawn[0..k]);
-        self.rng = g.rng;
+    /// A plain run: each worker takes iterations (a new opponent rack,
+    /// then a rollout of every play not ignored) until `opts` says to
+    /// stop. The plays' statistics are then the workers' merged.
+    pub fn run(self: *Sim, io: std.Io, opts: RunOptions) Allocator.Error!void {
+        self.claimed.store(self.iterations, .monotonic);
+        self.finished.store(self.iterations, .monotonic);
+        var err: ?Allocator.Error = null;
+        if (self.workers.len == 1) {
+            self.workers[0].loop(io, opts, &err);
+        } else {
+            var group: std.Io.Group = .init;
+            for (self.workers[1..]) |*w| group.concurrent(io, Worker.loop, .{ w, io, opts, &err }) catch break;
+            self.workers[0].loop(io, opts, &err);
+            group.await(io) catch {};
+        }
+        self.iterations = self.finished.load(.monotonic);
+        self.collect(io);
+        if (err) |e| return e;
     }
 
-    /// A best-arm sim: samples are single rollouts of one play, and the
+    /// Makes the plays' statistics those of every worker merged. With
+    /// `io` it locks what it reads and writes, so that it can run during a
+    /// plain run, for a progress report.
+    pub fn collect(self: *Sim, io: ?std.Io) void {
+        if (io) |i| self.stats_mutex.lockUncancelable(i);
+        defer if (io) |i| self.stats_mutex.unlock(i);
+        for (self.plays) |*p| p.stats.reset();
+        for (self.workers) |*w| {
+            if (io) |i| w.mutex.lockUncancelable(i);
+            for (self.plays, w.stats) |*p, *ws| p.stats.merge(ws);
+            if (io) |i| w.mutex.unlock(i);
+        }
+    }
+
+    /// What a progress report says: rollouts so far, and the best play by
+    /// the statistics as they stand. Safe to call while the sim runs.
+    pub const Progress = struct { rollouts: u64, best: ?Move, win: f64, equity: f64 };
+
+    pub fn progress(self: *Sim, io: std.Io, order: []*const Play) Progress {
+        var res: Progress = .{ .rollouts = 0, .best = null, .win = 0, .equity = 0 };
+        if (self.bai_runner) |r| {
+            // The plays' statistics change at folds, under the runner's
+            // lock.
+            r.mutex.lockUncancelable(io);
+            defer r.mutex.unlock(io);
+            res.rollouts = r.total;
+            self.fillProgress(&res, order);
+        } else {
+            self.collect(io);
+            self.stats_mutex.lockUncancelable(io);
+            defer self.stats_mutex.unlock(io);
+            for (self.plays) |*p| res.rollouts += p.stats.win.n;
+            self.fillProgress(&res, order);
+        }
+        return res;
+    }
+
+    fn fillProgress(self: *const Sim, res: *Progress, order: []*const Play) void {
+        self.ranked(order);
+        if (order.len == 0 or order[0].stats.win.n == 0) return;
+        res.best = order[0].move;
+        res.win = order[0].stats.win.mean();
+        res.equity = order[0].stats.equity.mean();
+    }
+
+    /// A best-arm run: samples are single rollouts of one play, and the
     /// runner picks which plays to roll out (mostly the leader and its
     /// closest challenger) and when the leader is told apart from the rest
-    /// (Go's simBAI with one thread). Sample n of every play deals the
-    /// opponent the same rack and the bag the same draws.
-    pub fn runBai(self: *Sim, opts: BaiOptions) !bai.Result {
-        var runner = try bai.Runner.init(self.gpa, self.plays.len);
+    /// (Go's simBAI). Sample n of every play deals the opponent the same
+    /// rack and the bag the same draws, on whichever worker it is drawn.
+    pub fn runBai(self: *Sim, io: std.Io, opts: BaiOptions) !bai.Result {
+        var runner = try bai.Runner(Rollout).init(self.gpa, self.plays.len);
         defer runner.deinit();
+        self.bai_runner = &runner;
+        defer self.bai_runner = null;
+        self.bai_stop = opts.stop;
         const n: u64 = self.plays.len;
-        const cb: bai.Callbacks(*Sim) = .{ .ctx = self, .sample = baiSample, .similar = baiSimilar, .stop = opts.stop };
-        const res = try runner.run(.{
+        const cb: bai.Callbacks(*Sim, Rollout) = .{
+            .ctx = self,
+            .sample = baiSample,
+            .commit = baiCommit,
+            .similar = baiSimilar,
+            .stop = if (opts.stop != null) baiStop else null,
+        };
+        const res = try runner.run(io, self.workers.len, .{
             .delta = opts.delta,
             .sample_minimum = opts.min_samples,
             .cutoff = bai_cutoff,
@@ -378,99 +517,29 @@ pub const Sim = struct {
         return res;
     }
 
-    fn baiSample(self: *Sim, arm: usize, ordinal: u64) anyerror!f64 {
+    fn baiSample(self: *Sim, worker: usize, arm: usize, ordinal: u64, held: *Rollout) anyerror!f64 {
+        const w = &self.workers[worker];
         var buf: [40]u8 = undefined;
         buf[0..32].* = self.bai_seed;
         std.mem.writeInt(u64, buf[32..40], ordinal, .big);
         var seed: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(&buf, &seed, .{});
-        self.dealSeeded(.init(seed));
-        const r = try self.rollout(&self.plays[arm]);
-        return baiReward(r.win, r.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
+        w.dealSeeded(.init(seed));
+        held.* = try w.rollout(arm);
+        return baiReward(held.win, held.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
     }
 
-    /// Deals the opponent a rack from the unseen tiles put in order and
-    /// shuffled with `rng`, which the bag then draws with
-    /// (SetRandomRackSeeded with nothing known).
-    fn dealSeeded(self: *Sim, rng: chacha8.Rng) void {
-        const g = &self.start;
-        const opp = 1 - self.initial_player;
-        var old: [tiles.max_alphabet_size]MachineLetter = undefined;
-        const n = g.pos.racks[opp].tiles(&old);
-        // Go puts them back with the last sample's source, but sorts the
-        // bag next, which undoes any order that gave.
-        g.bag.putBack(old[0..n]);
-        std.mem.sort(MachineLetter, g.bag.tiles[0..g.bag.len], {}, std.sort.asc(MachineLetter));
-        g.rng = rng;
-        g.bag.shuffle(&g.rng);
-        var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
-        const k = g.drawAtMost(&drawn);
-        g.pos.racks[opp] = .fromLetters(drawn[0..k]);
-        self.rng = g.rng;
+    fn baiCommit(self: *Sim, r: *const Rollout) void {
+        self.plays[r.play].stats.add(r);
     }
 
     fn baiSimilar(self: *Sim, a: usize, b: usize) bool {
         return similarPlays(&self.plays[a].move, &self.plays[b].move);
     }
 
-    fn rollout(self: *Sim, p: *Play) Allocator.Error!struct { win: f64, equity: f64 } {
-        const g = &self.work;
-        g.* = self.start;
-        g.rng = self.rng;
-        defer self.rng = g.rng;
-        self.gen.board = &g.pos.board;
-
-        g.play(&p.move);
-        self.nodes += 1;
-        var leftover: f64 = 0;
-        for (0..self.plies) |ply| {
-            const on_turn = g.on_turn;
-            if (!g.playing) break;
-            const rack = g.pos.racks[on_turn];
-            const best = try self.bestStaticTurn(g);
-            if (ply + 1 == self.plies) g.playLast(&best.move) else g.play(&best.move);
-            self.nodes += 1;
-            if (ply + 2 >= self.plies) {
-                // Our last turn or the opponent's: count what they keep.
-                const leave = best.move.leave(&rack);
-                var buf: [tiles.max_alphabet_size]MachineLetter = undefined;
-                const v = if (g.pos.leaves) |klv| klv.leaveValue(buf[0..leave.tiles(&buf)]) else 0;
-                if (on_turn == self.initial_player) leftover += v else leftover -= v;
-            }
-            p.scores[ply].push(@floatFromInt(best.move.score));
-            const bingo = best.move.kind == .play and best.move.tiles_played == game_mod.rack_tile_limit;
-            p.bingos[ply].push(if (bingo) 1 else 0);
-        }
-        const ip = self.initial_player;
-        const spread = g.pos.scores[ip] - g.pos.scores[1 - ip];
-        const eq = @as(f64, @floatFromInt(spread - self.initial_spread)) + leftover;
-        p.equity.push(eq);
-        p.leftover.push(leftover);
-        const unseen = g.tilesInBag() + g.pos.racks[1 - ip].num_tiles;
-        const win = self.win_table.rolloutWin(spread, leftover, !g.playing, unseen, self.plies % 2 == 0);
-        p.win.push(win);
-        return .{ .win = win, .equity = eq };
-    }
-
-    /// The best static move for the player on turn (GenBestStaticTurn).
-    fn bestStaticTurn(self: *Sim, g: *Game) Allocator.Error!movegen.Generator.Best {
-        const ex = g.exchangeRules();
-        self.gen.max_can_exchange = ex.max;
-        const ctx = g.equityContext();
-        var rack = g.pos.racks[g.on_turn];
-        const best = try self.gen.genBest(&rack, ex.allowed, &ctx);
-        if (self.check) |check| {
-            check.board = &g.pos.board;
-            check.max_can_exchange = ex.max;
-            var r = g.pos.racks[g.on_turn];
-            const want = try check.genBest(&r, ex.allowed, &ctx);
-            const eq = @import("equity.zig");
-            if (want.equity != best.equity or eq.tiebreaksBetter(&want.move, &best.move) or eq.tiebreaksBetter(&best.move, &want.move)) {
-                std.debug.print("carry found {any} ({d}), plain generation {any} ({d})\n", .{ best.move, best.equity, want.move, want.equity });
-                @panic("best-move memory changed the best move");
-            }
-        }
-        return best;
+    fn baiStop(self: *Sim) bai.Status {
+        const s = self.bai_stop orelse return .none;
+        return if (s.load(.monotonic)) .canceled else .none;
     }
 
     /// The plays best first (sortPlaysByWinRate with the ignored plays
@@ -506,6 +575,208 @@ pub const Sim = struct {
         const i = std.mem.indexOfScalar(*const Play, out, w).?;
         std.mem.copyBackwards(*const Play, out[1 .. i + 1], out[0..i]);
         out[0] = w;
+    }
+};
+
+/// One of a sim's workers: its game copies, generator and random source.
+pub const Worker = struct {
+    sim: *Sim,
+    /// The position after this iteration's opponent rack was dealt: where
+    /// every rollout starts.
+    start: Game,
+    /// The game a rollout is played on.
+    work: Game,
+    /// The worker's random source. It carries on from rollout to rollout
+    /// (the games are reset, it isn't).
+    rng: chacha8.Rng,
+    gen: *movegen.Generator,
+    /// The rollout generator's memory of best plays by rack.
+    carry: *carry_mod.Carry,
+    /// The rollout games' memory of cross-sets by the words beside a
+    /// square.
+    cross_cache: *cross_set.Cache,
+    /// Tests: a generator without the memory that checks every rollout
+    /// move the memory helped find.
+    check: ?*movegen.Generator = null,
+    /// Plain runs: this worker's statistics, merged into the plays' when
+    /// they are read, and the lock that keeps a reader out of them.
+    stats: []PlayStats,
+    stat_buf: []Stat,
+    mutex: std.Io.Mutex = .init,
+    nodes: std.atomic.Value(u64) = .init(0),
+
+    fn init(self: *Worker, sim: *Sim, g: *const Game, seed: [32]u8) Allocator.Error!void {
+        const gpa = sim.gpa;
+        const a = try allocStats(gpa, sim.plays.len, sim.plies);
+        errdefer {
+            gpa.free(a.buf);
+            gpa.free(a.stats);
+        }
+        const gen = try gpa.create(movegen.Generator);
+        errdefer gpa.destroy(gen);
+        // Each rollout points the generator at its own board first.
+        gen.* = .init(gpa, @constCast(&g.pos.board), g.pos.lexicon.kwg, g.pos.dist);
+        gen.word_map = g.pos.word_map;
+        gen.rit = g.pos.rit;
+        errdefer gen.deinit();
+        const carry = try gpa.create(carry_mod.Carry);
+        errdefer gpa.destroy(carry);
+        carry.* = .init(gpa);
+        gen.carry = carry;
+        errdefer carry.deinit();
+        const cross_cache = try gpa.create(cross_set.Cache);
+        errdefer gpa.destroy(cross_cache);
+        cross_cache.* = try .init(gpa, cross_set.Cache.default_index_bits);
+        self.* = .{
+            .sim = sim,
+            .start = g.*,
+            .work = undefined,
+            .rng = .init(seed),
+            .gen = gen,
+            .carry = carry,
+            .cross_cache = cross_cache,
+            .stats = a.stats,
+            .stat_buf = a.buf,
+        };
+        self.start.paired = false;
+        self.start.cross_cache = cross_cache;
+        self.start.bag.fixed_order = true;
+    }
+
+    fn deinit(self: *Worker) void {
+        const gpa = self.sim.gpa;
+        self.cross_cache.deinit(gpa);
+        gpa.destroy(self.cross_cache);
+        self.carry.deinit();
+        gpa.destroy(self.carry);
+        self.gen.deinit();
+        gpa.destroy(self.gen);
+        gpa.free(self.stat_buf);
+        gpa.free(self.stats);
+        self.* = undefined;
+    }
+
+    /// Plain runs: iterations until the options say to stop.
+    fn loop(self: *Worker, io: ?std.Io, opts: RunOptions, err: *?Allocator.Error) void {
+        const sim = self.sim;
+        while (true) {
+            if (opts.stop) |s| if (s.load(.monotonic)) return;
+            if (err.* != null) return;
+            const n = sim.claimed.fetchAdd(1, .monotonic);
+            if (opts.iterations > 0 and n >= opts.iterations) return;
+            self.iterate(io) catch |e| {
+                err.* = e;
+                return;
+            };
+            _ = sim.finished.fetchAdd(1, .monotonic);
+        }
+    }
+
+    /// One iteration into this worker's statistics (locked as each
+    /// rollout's result goes in, when there is `io`).
+    fn iterate(self: *Worker, io: ?std.Io) Allocator.Error!void {
+        self.dealOpponent();
+        for (self.sim.plays, self.stats, 0..) |*p, *ws, i| {
+            if (p.ignored) continue;
+            const r = try self.rollout(i);
+            if (io) |x| self.mutex.lockUncancelable(x);
+            ws.add(&r);
+            if (io) |x| self.mutex.unlock(x);
+        }
+    }
+
+    /// Throws the opponent's rack in and deals a new one (SetRandomRack
+    /// with nothing known: Bag.Redraw).
+    fn dealOpponent(self: *Worker) void {
+        const g = &self.start;
+        const opp = 1 - self.sim.initial_player;
+        var old: [tiles.max_alphabet_size]MachineLetter = undefined;
+        const n = g.pos.racks[opp].tiles(&old);
+        g.rng = self.rng;
+        g.putBack(old[0..n]);
+        var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
+        const k = g.drawAtMost(&drawn);
+        g.pos.racks[opp] = .fromLetters(drawn[0..k]);
+        self.rng = g.rng;
+    }
+
+    /// Deals the opponent a rack from the unseen tiles put in order and
+    /// shuffled with `rng`, which the bag then draws with
+    /// (SetRandomRackSeeded with nothing known).
+    fn dealSeeded(self: *Worker, rng: chacha8.Rng) void {
+        const g = &self.start;
+        const opp = 1 - self.sim.initial_player;
+        var old: [tiles.max_alphabet_size]MachineLetter = undefined;
+        const n = g.pos.racks[opp].tiles(&old);
+        // Go puts them back with the last sample's source, but sorts the
+        // bag next, which undoes any order that gave.
+        g.bag.putBack(old[0..n]);
+        std.mem.sort(MachineLetter, g.bag.tiles[0..g.bag.len], {}, std.sort.asc(MachineLetter));
+        g.rng = rng;
+        g.bag.shuffle(&g.rng);
+        var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
+        const k = g.drawAtMost(&drawn);
+        g.pos.racks[opp] = .fromLetters(drawn[0..k]);
+        self.rng = g.rng;
+    }
+
+    /// Plays play `index` from the start position and rolls the game out.
+    fn rollout(self: *Worker, index: usize) Allocator.Error!Rollout {
+        const sim = self.sim;
+        const g = &self.work;
+        g.* = self.start;
+        g.rng = self.rng;
+        defer self.rng = g.rng;
+        self.gen.board = &g.pos.board;
+
+        var r: Rollout = .{ .play = @intCast(index) };
+        g.play(&sim.plays[index].move);
+        _ = self.nodes.fetchAdd(1, .monotonic);
+        for (0..sim.plies) |ply| {
+            const on_turn = g.on_turn;
+            if (!g.playing) break;
+            const rack = g.pos.racks[on_turn];
+            const best = try self.bestStaticTurn(g);
+            if (ply + 1 == sim.plies) g.playLast(&best.move) else g.play(&best.move);
+            _ = self.nodes.fetchAdd(1, .monotonic);
+            if (ply + 2 >= sim.plies) {
+                // Our last turn or the opponent's: count what they keep.
+                const leave = best.move.leave(&rack);
+                var buf: [tiles.max_alphabet_size]MachineLetter = undefined;
+                const v = if (g.pos.leaves) |klv| klv.leaveValue(buf[0..leave.tiles(&buf)]) else 0;
+                if (on_turn == sim.initial_player) r.leftover += v else r.leftover -= v;
+            }
+            r.scores[ply] = best.move.score;
+            if (best.move.kind == .play and best.move.tiles_played == game_mod.rack_tile_limit) r.bingos |= @as(u32, 1) << @intCast(ply);
+            r.plies += 1;
+        }
+        const ip = sim.initial_player;
+        const spread = g.pos.scores[ip] - g.pos.scores[1 - ip];
+        r.equity = @as(f64, @floatFromInt(spread - sim.initial_spread)) + r.leftover;
+        const unseen = g.tilesInBag() + g.pos.racks[1 - ip].num_tiles;
+        r.win = sim.win_table.rolloutWin(spread, r.leftover, !g.playing, unseen, sim.plies % 2 == 0);
+        return r;
+    }
+
+    /// The best static move for the player on turn (GenBestStaticTurn).
+    fn bestStaticTurn(self: *Worker, g: *Game) Allocator.Error!movegen.Generator.Best {
+        const ex = g.exchangeRules();
+        self.gen.max_can_exchange = ex.max;
+        const ctx = g.equityContext();
+        var rack = g.pos.racks[g.on_turn];
+        const best = try self.gen.genBest(&rack, ex.allowed, &ctx);
+        if (self.check) |check| {
+            check.board = &g.pos.board;
+            check.max_can_exchange = ex.max;
+            var r = g.pos.racks[g.on_turn];
+            const want = try check.genBest(&r, ex.allowed, &ctx);
+            const eq = @import("equity.zig");
+            if (want.equity != best.equity or eq.tiebreaksBetter(&want.move, &best.move) or eq.tiebreaksBetter(&best.move, &want.move)) {
+                std.debug.print("carry found {any} ({d}), plain generation {any} ({d})\n", .{ best.move, best.equity, want.move, want.equity });
+                @panic("best-move memory changed the best move");
+            }
+        }
+        return best;
     }
 };
 
@@ -597,15 +868,15 @@ test "sim ranks a clearly better play first and repeats with a seed" {
 
     var results: [2][2]f64 = undefined;
     for (&results) |*r| {
-        var sim = try Sim.init(testing.allocator, &g, @splat(3), 0, &moves, 2, wt);
-        defer sim.deinit();
+        var sim = try Sim.create(testing.allocator, &g, @splat(3), 0, &moves, 2, wt, 1);
+        defer sim.destroy();
         for (0..40) |_| try sim.iterate();
         var order: [2]*const Play = undefined;
         sim.ranked(&order);
         try testing.expectEqual(.play, order[0].move.kind);
-        try testing.expectEqual(40, sim.plays[1].win.n);
-        try testing.expectEqual(2 * 40 * 3, sim.nodes);
-        r.* = .{ sim.plays[0].equity.mean(), sim.plays[1].win.mean() };
+        try testing.expectEqual(40, sim.plays[1].stats.win.n);
+        try testing.expectEqual(2 * 40 * 3, sim.nodes());
+        r.* = .{ sim.plays[0].stats.equity.mean(), sim.plays[1].stats.win.mean() };
     }
     try testing.expectEqual(results[0], results[1]);
 }
@@ -645,13 +916,13 @@ test "the best-move memory finds the moves a plain generation finds" {
                 // Any eight plays will do.
                 @memcpy(ranked, gen.plays.items[0..ranked.len]);
                 _ = ctx;
-                var sim = try Sim.init(testing.allocator, &g, @splat(5), turn, ranked, 3, wt);
-                defer sim.deinit();
-                sim.check = &check;
+                var sim = try Sim.create(testing.allocator, &g, @splat(5), turn, ranked, 3, wt, 1);
+                defer sim.destroy();
+                sim.workers[0].check = &check;
                 for (0..12) |_| try sim.iterate();
-                hits += sim.carry.rack_hits;
-                skipped += sim.carry.lanes_skipped;
-                seeded += sim.carry.seeded;
+                hits += sim.workers[0].carry.rack_hits;
+                skipped += sim.workers[0].carry.lanes_skipped;
+                seeded += sim.workers[0].carry.seeded;
             }
             gen.board = &g.pos.board;
             _ = try game_mod.playStaticTurn(&g, &gen);
@@ -660,4 +931,116 @@ test "the best-move memory finds the moves a plain generation finds" {
         try testing.expect(skipped > 100);
         try testing.expect(seeded > 10);
     }
+}
+
+/// A midgame NWL20 position, its 8 best plays by static equity and the
+/// win table, for the multi-worker tests.
+const MidgameFixture = struct {
+    store: @import("data.zig").Store,
+    pos: @import("position.zig").Position,
+    game: Game,
+    moves: [8]Move,
+    wt: *WinTable,
+
+    fn init(self: *MidgameFixture) !void {
+        self.store = testdata.store();
+        errdefer self.store.deinit();
+        self.pos = try testdata.position(&self.store, "15/15/15/15/15/15/15/5TURnERY3/15/15/15/15/15/15/15 BEIMOQS/ 0/76 0 lex NWL20;");
+        self.pos.word_map = try self.store.wordMap(@import("build_options").data_path, "NWL20", self.pos.lexicon, self.pos.dist);
+        self.wt = try testing.allocator.create(WinTable);
+        errdefer testing.allocator.destroy(self.wt);
+        const csv = try testdata.loadFile("strategy/default/winpct.csv");
+        defer testing.allocator.free(csv);
+        try self.wt.parse(csv);
+        self.game = try Game.fromPosition(&self.pos, @splat(7));
+        var gen = movegen.Generator.init(testing.allocator, &self.pos.board, self.pos.lexicon.kwg, self.pos.dist);
+        defer gen.deinit();
+        var rack = self.pos.racks[0];
+        try gen.genAll(&rack, false);
+        const ctx = self.pos.equityContext();
+        const Scored = struct { m: Move, eq: f64 };
+        const all = try testing.allocator.alloc(Scored, gen.plays.items.len);
+        defer testing.allocator.free(all);
+        for (gen.plays.items, all) |m, *x| {
+            const lv = m.leave(&rack);
+            x.* = .{ .m = m, .eq = ctx.equity(&m, &lv) };
+        }
+        std.mem.sort(Scored, all, {}, struct {
+            fn lt(_: void, a: Scored, b: Scored) bool {
+                return @import("equity.zig").better(&a.m, a.eq, &b.m, b.eq);
+            }
+        }.lt);
+        for (&self.moves, all[0..8]) |*d, x| d.* = x.m;
+    }
+
+    fn deinit(self: *MidgameFixture) void {
+        testing.allocator.destroy(self.wt);
+        self.store.deinit();
+    }
+};
+
+test "a best-arm sim is the same on any number of workers" {
+    var f: MidgameFixture = undefined;
+    try f.init();
+    defer f.deinit();
+    var want: ?[8][3]f64 = null;
+    var want_res: bai.Result = undefined;
+    for ([_]usize{ 1, 2, 4 }) |threads| {
+        var sim = try Sim.create(testing.allocator, &f.game, @splat(7), 0, &f.moves, 2, f.wt, threads);
+        defer sim.destroy();
+        const res = try sim.runBai(testing.io, .{ .delta = 0.01, .cap_per_play = 300, .min_samples = 32 });
+        var got: [8][3]f64 = undefined;
+        for (&got, sim.plays) |*g, *p| g.* = .{ @floatFromInt(p.stats.win.n), p.stats.win.mean(), p.stats.equity.mean() };
+        if (want) |w| {
+            try testing.expectEqual(want_res, res);
+            try testing.expectEqual(w, got);
+        } else {
+            want = got;
+            want_res = res;
+            try testing.expect(res.samples >= 8 * 32);
+        }
+    }
+}
+
+test "a plain sim on several workers agrees with one, and stops when told" {
+    var f: MidgameFixture = undefined;
+    try f.init();
+    defer f.deinit();
+    var means: [2][8]f64 = undefined;
+    for ([_]usize{ 1, 4 }, 0..) |threads, k| {
+        var sim = try Sim.create(testing.allocator, &f.game, @splat(7), 0, &f.moves, 2, f.wt, threads);
+        defer sim.destroy();
+        try sim.run(testing.io, .{ .iterations = 400 });
+        try testing.expectEqual(400, sim.iterations);
+        for (sim.plays, 0..) |*p, i| {
+            try testing.expectEqual(400, p.stats.win.n);
+            means[k][i] = p.stats.equity.mean();
+        }
+        // Several workers shared the iterations (the Io may run fewer
+        // than asked for at once, but not one).
+        if (threads > 1) {
+            var busy: usize = 0;
+            for (sim.workers) |*w| busy += @intFromBool(w.stats[0].win.n > 0);
+            try testing.expect(busy >= 2);
+        }
+    }
+    // The same plays, measured on different draws: equal within a few
+    // standard errors (equities spread by ~25 points: 400 rollouts give
+    // a standard error of about 1.3 a play).
+    for (means[0], means[1]) |a, b| try testing.expect(@abs(a - b) < 10);
+
+    // No limit but a stop flag.
+    var sim = try Sim.create(testing.allocator, &f.game, @splat(7), 0, &f.moves, 2, f.wt, 3);
+    defer sim.destroy();
+    var stop: std.atomic.Value(bool) = .init(false);
+    const Stopper = struct {
+        fn go(s: *std.atomic.Value(bool), sm: *Sim) void {
+            while (sm.finished.load(.monotonic) < 50) std.Thread.yield() catch {};
+            s.store(true, .monotonic);
+        }
+    };
+    var t = try std.Thread.spawn(.{}, Stopper.go, .{ &stop, sim });
+    try sim.run(testing.io, .{ .stop = &stop });
+    t.join();
+    try testing.expect(sim.iterations >= 50);
 }
