@@ -47,6 +47,35 @@ Rules for the layers:
   and reports progress through a callback the engine turns into `info` lines.
 - **Determinism:** with one thread and a fixed seed, every search must give
   the same result as the Go code. This is what the cross-checks rely on.
+  Matching Go bit for bit takes Go's own algorithms where they decide a
+  result: its sort (pdqsort's order of equal elements), math/rand, the
+  ChaCha8 stream of its frand, its amd64 `exp`/`log` and `Lgamma`. These
+  live apart from the engine (see Source layout) and go once Go is no
+  longer the reference (step 13).
+
+### Source layout
+
+`src/` is grouped by subsystem, as the Go code is by package:
+
+| Folder | What |
+|---|---|
+| `src/` | `root.zig` (the module's exports), `ucgi.zig` (the engine) |
+| `src/adapter/` | the native adapter: `main.zig`, `files.zig`, `bench.zig` |
+| `src/data/` | `tiles.zig`, `kwg.zig`, `data.zig` (loading), `wmp.zig`, `wmp_maker.zig`, `rit.zig` |
+| `src/board/` | `board.zig`, `cross_set.zig`, `move.zig`, `cgp.zig`, `position.zig` |
+| `src/movegen/` | `movegen.zig`, `shadow.zig`, `wmp_movegen.zig`, `wordmap_gen.zig`, `leavemap.zig`, `carry.zig` |
+| `src/equity/` | `equity.zig` |
+| `src/game/` | `game.zig` (bag, turns, autoplay) |
+| `src/montecarlo/` | `sim.zig`, `bai.zig`, `classic.zig` |
+| `src/rangefinder/` | `infer.zig` |
+| `src/endgame/` | `endgame.zig`, `ttable.zig`, `zobrist.zig`, `pathlists.zig`, `wordprune.zig` |
+| `src/gocompat/` | Go-exact algorithms and their golden files: `gosort.zig`, `gorand.zig`, `gomath.zig`, the frand-compatible parts of `chacha8.zig` |
+| `src/testing/` | `testdata.zig` |
+
+A folder is only grouping: Zig's privacy is per file (a declaration
+without `pub` is private to its file) and its package boundary is the
+module `build.zig` declares, so there is no folder-level `internal` as in
+Go. New subsystems (pre-endgame, WordSmog, ML) get a folder of their own.
 
 ## What moves to Zig and what stays in Go
 
@@ -193,7 +222,13 @@ as they land.
       engine stays available until the Zig core has covered a release.
       Challenge rules (single, double, void, five-point) come here, with
       games played through the interface.
-- [ ] **13. ML.** Feature extraction, `Evaluator` interface, `ort` and
+- [ ] **13. Drop the Go-exact code.** Once the Go engine is no longer the
+      reference: the engine uses Zig's own sort, `std.Random` (ChaCha) and
+      `std.math` instead of `src/gocompat/`, which goes with its golden
+      files and `tools/gogolden`. Seeded results change, so the tests that
+      pin them are re-baselined in the same step against the engine's own
+      results, and the Go cross-checks are retired.
+- [ ] **14. ML.** Feature extraction, `Evaluator` interface, `ort` and
       `remote` backends.
 
 ## Testing
