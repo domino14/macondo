@@ -38,7 +38,7 @@ pub const huge: i16 = 32000;
 pub const max_variant = 25;
 const max_playout = max_variant;
 const aspiration_window = 25;
-const stuck_memo_size = 1024;
+const stuck_memo_size = 1 << 14;
 const StuckEntry = struct { key: u64 = 0, frac: f32 = 0 };
 /// What a play that goes out adds to its value for the first reply (see
 /// negamax): enough to put every such play first.
@@ -582,6 +582,7 @@ const Frame = struct {
     /// Where this move's record in the board's journal starts.
     saved_start: usize,
     lane_keys: [max_lanes]u64,
+    occ: [board_mod.max_dim]u32,
 };
 
 pub const Result = struct {
@@ -598,25 +599,11 @@ pub const Error = Allocator.Error || error{ BagNotEmpty, NoOpponentTiles, Stoppe
 
 pub const LoneTile = struct { score: i32, r: usize, c: usize };
 
-fn occupancyOf(b: *const Board, occ: *[board_mod.max_dim]u32) void {
-    for (0..b.dim) |r| {
-        var mask: u32 = 0;
-        for (0..b.dim) |c| {
-            if (b.squares[r * b.dim + c] != 0) mask |= @as(u32, 1) << @intCast(c);
-        }
-        occ[r] = mask;
-    }
-}
-
 /// The best square for `tile` played alone, the first in row order of the
 /// best score (scanLoneTile).
-pub fn scanLoneTile(b: *const Board, ld: *const tiles.LetterDistribution, tile: MachineLetter) ?LoneTile {
-    return scanLoneTileOn(b, ld, tile);
-}
-
-fn scanLoneTileOn(b: *const Board, ld: *const tiles.LetterDistribution, tile: MachineLetter) ?LoneTile {
-    var occ: [board_mod.max_dim]u32 = undefined;
-    occupancyOf(b, &occ);
+/// `occ` is the board's occupancy, a mask a row (bit c: column c holds a
+/// tile).
+pub fn scanLoneTileOn(b: *const Board, occ: *const [board_mod.max_dim]u32, ld: *const tiles.LetterDistribution, tile: MachineLetter) ?LoneTile {
     const face: i32 = if (tile == 0) 0 else ld.score_table[tile];
     const full = (@as(u32, 1) << @intCast(b.dim)) - 1;
     var found = false;
@@ -692,6 +679,8 @@ pub const Solver = struct {
     stuck_memo: [stuck_memo_size]StuckEntry = @splat(.{}),
     /// Each lane's key (bestsmall.laneKey), kept up as moves are played.
     lane_keys: [max_lanes]u64 = undefined,
+    /// The board's occupancy, a mask a row, kept up as moves are played.
+    occ: [board_mod.max_dim]u32 = @splat(0),
     sort_keys: std.ArrayList(u64) = .empty,
     bc_values: std.ArrayList(i32) = .empty,
     bc_order: std.ArrayList(usize) = .empty,
@@ -726,7 +715,7 @@ pub const Solver = struct {
         errdefer s.journal.deinit(gpa);
         s.board.journal = &s.journal;
         if (opts.lists and s.dist.size + 1 <= 48) {
-            s.lists = .init(gpa, .{ .board = &s.board, .racks = &s.racks, .on_turn = &s.on_turn, .gen = &s.gen, .dist = s.dist });
+            s.lists = .init(gpa, .{ .board = &s.board, .occ = &s.occ, .racks = &s.racks, .on_turn = &s.on_turn, .gen = &s.gen, .dist = s.dist });
             s.lists.?.check = opts.check_lists;
         }
 
@@ -782,6 +771,7 @@ pub const Solver = struct {
             .tiles_played = self.board.tiles_played,
             .saved_start = saved_start,
             .lane_keys = self.lane_keys,
+            .occ = self.occ,
         });
         if (m.isPass()) {
             self.last_scoreless = self.scoreless;
@@ -802,6 +792,7 @@ pub const Solver = struct {
                 } else {
                     const ml = m.tile(t);
                     b.setLetter(r, c, ml);
+                    self.occ[r] |= @as(u32, 1) << @intCast(c);
                     self.racks[p].take(m.rackTile(t));
                     placed[i] = ml;
                     t += 1;
@@ -836,6 +827,7 @@ pub const Solver = struct {
         self.racks = f.racks;
         self.scores = f.scores;
         self.lane_keys = f.lane_keys;
+        self.occ = f.occ;
         self.on_turn = f.on_turn;
         self.scoreless = f.scoreless;
         self.playing = f.playing;
@@ -1067,7 +1059,7 @@ pub const Solver = struct {
         return @as(f32, @floatFromInt(stuck)) / @as(f32, @floatFromInt(total));
     }
 
-    fn occupancy(self: *const Solver, occ: *[board_mod.max_dim]u32) void {
+    fn occupancyFromBoard(self: *const Solver, occ: *[board_mod.max_dim]u32) void {
         const b = &self.board;
         for (0..b.dim) |r| {
             var mask: u32 = 0;
@@ -1083,8 +1075,7 @@ pub const Solver = struct {
     fn playableTiles(self: *const Solver, target: u64) u64 {
         const b = &self.board;
         if (b.tiles_played == 0) return board_mod.trivial_cross_set;
-        var occ: [board_mod.max_dim]u32 = undefined;
-        self.occupancy(&occ);
+        const occ = &self.occ;
         const full = (@as(u32, 1) << @intCast(b.dim)) - 1;
         var playable: u64 = 0;
         for (0..b.dim) |r| {
@@ -1109,8 +1100,14 @@ pub const Solver = struct {
     /// oppStuckFraction remembered by position key (`key`; 0: not
     /// remembered), as Go's stuck-fraction memo: a node asks for it for
     /// its first reply, its move ordering and its leaves.
-    fn oppStuckFraction(self: *Solver, key: u64) Allocator.Error!f32 {
-        if (key == 0) return self.oppStuckFractionFresh();
+    fn oppStuckFraction(self: *Solver, node_key: u64) Allocator.Error!f32 {
+        if (node_key == 0) return self.oppStuckFractionFresh();
+        // The fraction depends on the board and the opponent's rack only:
+        // the node's key less the solving player's rack, the side to move
+        // and the scoreless count (as MAGPIE keys its stuck-tiles cache).
+        var key = node_key ^ self.zobrist.scoreless_turns[self.scoreless];
+        if (self.on_turn != 0) key ^= self.zobrist.their_turn;
+        for (0..self.numLetters()) |ml| key ^= self.zobrist.our_rack[ml][self.racks[0].counts[ml]];
         const slot = &self.stuck_memo[key & (stuck_memo_size - 1)];
         if (slot.key == key) return slot.frac;
         const frac = try self.oppStuckFractionFresh();
@@ -1172,7 +1169,7 @@ pub const Solver = struct {
     }
 
     fn scanLoneTile(self: *const Solver, tile: MachineLetter) ?LoneTile {
-        return scanLoneTileOn(&self.board, self.dist, tile);
+        return scanLoneTileOn(&self.board, &self.occ, self.dist, tile);
     }
 
     pub fn loneTileMove(self: *const Solver, tile: MachineLetter, r: usize, c: usize, score: i32) SmallMove {
@@ -1636,6 +1633,7 @@ pub const Solver = struct {
         if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
         self.stuck_memo = @splat(.{});
         for (0..2 * self.board.dim) |lane| self.lane_keys[lane] = bestsmall.laneKey(&self.board, lane);
+        self.occupancyFromBoard(&self.occ);
         if (self.opts.pruned_kwg and self.pruned == null) {
             if (try wordprune.generate(self.gpa, &self.board, &self.racks[0], &self.racks[1], self.numLetters(), self.kwg)) |pr| {
                 self.pruned = pr;

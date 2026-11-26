@@ -142,6 +142,8 @@ const Level = struct {
 /// The solver's view the lists need: its board, racks and move generator.
 pub const Host = struct {
     board: *Board,
+    /// The board's occupancy, a mask a row.
+    occ: *const [board_mod.max_dim]u32,
     racks: *[2]Rack,
     on_turn: *const u1,
     gen: *movegen.Generator,
@@ -329,7 +331,7 @@ pub const PathLists = struct {
                 return c;
             }
         }
-        if (endgame.scanLoneTile(b, p.host.dist, tile)) |f| {
+        if (endgame.scanLoneTileOn(b, p.host.occ, p.host.dist, tile)) |f| {
             c.found = true;
             c.row = @intCast(f.r);
             c.col = @intCast(f.c);

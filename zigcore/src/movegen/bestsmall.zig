@@ -180,37 +180,39 @@ pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_ke
     const dim = gen.board.dim;
     // Each lane's key with the rack's, and which lanes are loaded. The
     // keys first, their entries asked for, then the entries read.
+    // (The lane keys cover the anchors, so a lane the cache knows, with
+    // anchors or none, needs no look at the board.)
     var keys: [2][board_mod.max_dim]u64 = undefined;
-    var masks: [2][board_mod.max_dim]u32 = undefined;
     var loaded: [2]u32 = .{ 0, 0 };
-    inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, side| {
-        if (dir == .vertical) gen.board.transpose();
+    for (0..2) |side| {
         for (0..dim) |row| {
-            const mask = shadow.anchorMask(gen, row, dir);
-            masks[side][row] = mask;
-            if (mask == 0) continue;
             const key = finish(mix(lane_keys[side * dim + row], rack_key));
             keys[side][row] = key;
             @prefetch(&cache.lanes[key >> cache.lane_shift], .{});
         }
-        if (dir == .vertical) gen.board.transpose();
     }
     inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, side| {
         if (dir == .vertical) gen.board.transpose();
         gen.vertical = dir == .vertical;
         for (0..dim) |row| {
-            const mask = masks[side][row];
-            if (mask == 0) continue;
             const lane = &s.lanes[side][row];
             const key = keys[side][row];
             const e = &cache.lanes[key >> cache.lane_shift];
             if (e.key == key) {
                 cache.lane_hits += 1;
                 for (0..e.count) |i| {
+                    // Its best play will be wanted if it is taken.
+                    @prefetch(&cache.plays[finish(mix(key, @as(u64, e.cols[i]) << 8 | e.lasts[i])) >> cache.play_shift], .{});
                     s.heap.anchors.appendBounded(.{ .highest_equity = @floatFromInt(e.bounds[i]), .highest_score = 0, .row = @intCast(row), .col = e.cols[i], .last_anchor_col = e.lasts[i], .dir = dir }) catch {
                         gen.out_of_memory = true;
                     };
                 }
+                continue;
+            }
+            const mask = shadow.anchorMask(gen, row, dir);
+            if (mask == 0) {
+                e.key = key;
+                e.count = 0;
                 continue;
             }
             cache.lane_misses += 1;
