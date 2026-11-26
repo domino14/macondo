@@ -571,16 +571,6 @@ const KeepOne = struct {
     }
 };
 
-/// What a square holds that a play can change (its extension sets aside:
-/// the solver doesn't keep them).
-const SavedSquare = struct {
-    idx: u16,
-    letter: MachineLetter,
-    anchors: [2]bool,
-    cross_sets: [2]u64,
-    cross_scores: [2]i32,
-};
-
 /// What a play or pass changed besides the board, to put back.
 const Frame = struct {
     racks: [2]Rack,
@@ -589,7 +579,7 @@ const Frame = struct {
     scoreless: u32,
     playing: bool,
     tiles_played: u32,
-    /// Where this move's saved squares start.
+    /// Where this move's record in the board's journal starts.
     saved_start: usize,
     lane_keys: [max_lanes]u64,
 };
@@ -682,10 +672,8 @@ pub const Solver = struct {
     tt: *ttable.Table,
 
     frames: std.ArrayList(Frame) = .empty,
-    saved: std.ArrayList(SavedSquare) = .empty,
-    /// Which frame last saved each square (frames are numbered from 1).
-    saved_by: []u32 = &.{},
-    frame_serial: u32 = 0,
+    /// The board's undo record (attached while the solver lives).
+    journal: board_mod.Journal = .{},
     /// The moves of the nodes on the search path, a block per node.
     arena: std.ArrayList(SmallMove) = .empty,
     stack_len: usize = 0,
@@ -734,15 +722,14 @@ pub const Solver = struct {
         errdefer s.best_cache.deinit(gpa);
         s.gen = .init(gpa, &s.board, s.kwg, s.dist);
         s.gen.gen_pass = true;
-        // Unplay does not restore extension sets; frozen at "any letter",
-        // the shadow pass's bounds (the playout's best-play search) hold.
-        s.board.freezeTrivialExtSets(true);
+        s.journal = try .init(gpa, s.board.dim * s.board.dim);
+        errdefer s.journal.deinit(gpa);
+        s.board.journal = &s.journal;
         if (opts.lists and s.dist.size + 1 <= 48) {
             s.lists = .init(gpa, .{ .board = &s.board, .racks = &s.racks, .on_turn = &s.on_turn, .gen = &s.gen, .dist = s.dist });
             s.lists.?.check = opts.check_lists;
         }
-        s.saved_by = try gpa.alloc(u32, s.board.dim * s.board.dim);
-        @memset(s.saved_by, 0);
+
         // Endgame mode (Game.SetEndgameMode): two scoreless turns end the
         // game, so the count is put relative to that.
         s.scoreless = if (p.scoreless_turns + 1 >= p.max_scoreless_turns) 1 else 0;
@@ -758,13 +745,13 @@ pub const Solver = struct {
         self.gen.deinit();
         self.cross_cache.deinit(gpa);
         self.frames.deinit(gpa);
-        self.saved.deinit(gpa);
+        self.journal.deinit(gpa);
         self.arena.deinit(gpa);
         self.sort_keys.deinit(gpa);
         self.bc_values.deinit(gpa);
         self.bc_order.deinit(gpa);
         self.sort_moves.deinit(gpa);
-        gpa.free(self.saved_by);
+
         gpa.destroy(self);
     }
 
@@ -778,76 +765,14 @@ pub const Solver = struct {
 
     // ---- playing and unplaying ----
 
-    fn saveSquare(self: *Solver, r: usize, c: usize) void {
-        const n = self.board.dim;
-        if (r >= n or c >= n) return;
-        const idx = r * n + c;
-        if (self.saved_by[idx] == self.frame_serial) return;
-        self.saved_by[idx] = self.frame_serial;
-        const b = &self.board;
-        self.saved.appendAssumeCapacity(.{
-            .idx = @intCast(idx),
-            .letter = b.squares[idx],
-            .anchors = .{ b.anchors[0][idx], b.anchors[1][idx] },
-            .cross_sets = .{ b.cross_sets[0][idx], b.cross_sets[1][idx] },
-            .cross_scores = .{ b.cross_scores[0][idx], b.cross_scores[1][idx] },
-        });
-    }
-
-    /// Saves every square a play of `m` (tiles at the empty squares of
-    /// `placed`) can change: its lane from the square before it to the one
-    /// after, and for each tile placed, the squares around it and the ends
-    /// of the word it makes across.
-    fn saveSquaresFor(self: *Solver, m: SmallMove) Allocator.Error!void {
-        try self.saved.ensureUnusedCapacity(self.gpa, 4 * board_mod.max_dim + 6 * movegen.rack_tile_limit);
-        const r0 = m.row();
-        const c0 = m.col();
-        const v = m.vertical();
-        const b = &self.board;
-        var i: isize = -1;
-        while (i <= m.len) : (i += 1) {
-            const r = if (v) @as(isize, @intCast(r0)) + i else @as(isize, @intCast(r0));
-            const c = if (v) @as(isize, @intCast(c0)) else @as(isize, @intCast(c0)) + i;
-            if (r >= 0 and c >= 0) self.saveSquare(@intCast(r), @intCast(c));
-        }
-        for (0..m.len) |k| {
-            const r = if (v) r0 + k else r0;
-            const c = if (v) c0 else c0 + k;
-            if (b.hasLetter(r, c)) continue;
-            // Across the play: the squares beside it, and past the tiles
-            // there, the squares that end the word it makes.
-            const dr: usize = if (v) 0 else 1;
-            const dc: usize = 1 - dr;
-            var rr = r;
-            var cc = c;
-            while (rr >= dr and cc >= dc and b.hasLetter(rr - dr, cc - dc)) {
-                rr -= dr;
-                cc -= dc;
-            }
-            if (rr >= dr and cc >= dc) self.saveSquare(rr - dr, cc - dc);
-            if (r >= dr and c >= dc) self.saveSquare(r - dr, c - dc);
-            rr = r;
-            cc = c;
-            while (rr + dr < b.dim and cc + dc < b.dim and b.hasLetter(rr + dr, cc + dc)) {
-                rr += dr;
-                cc += dc;
-            }
-            self.saveSquare(rr + dr, cc + dc);
-            self.saveSquare(r + dr, c + dc);
-        }
-    }
-
     /// Plays `m` for the player on turn (Game.PlaySmallMove in endgame
     /// mode). Writes the tiles placed by position along the play into
     /// `placed` (0 where it played through).
     fn play(self: *Solver, m: SmallMove, placed: *[board_mod.max_dim]MachineLetter) Allocator.Error!void {
         if (self.lists) |*l| try l.onMove(self.frames.items.len, m);
         const p = self.on_turn;
-        self.frame_serial +%= 1;
-        if (self.frame_serial == 0) {
-            @memset(self.saved_by, 0);
-            self.frame_serial = 1;
-        }
+        try self.journal.reserve(self.gpa);
+        const saved_start = self.journal.mark();
         try self.frames.append(self.gpa, .{
             .racks = self.racks,
             .scores = self.scores,
@@ -855,20 +780,16 @@ pub const Solver = struct {
             .scoreless = self.scoreless,
             .playing = self.playing,
             .tiles_played = self.board.tiles_played,
-            .saved_start = self.saved.items.len,
+            .saved_start = saved_start,
             .lane_keys = self.lane_keys,
         });
         if (m.isPass()) {
             self.last_scoreless = self.scoreless;
             self.scoreless += 1;
         } else {
-            // The squares whose part of their lane's key the move changes:
-            // out with the old parts now, in with the new once it is made.
-            var lane_hits: [max_lanes]u32 = undefined;
-            const changed = moveHits(&self.board, m, &lane_hits);
-            bestsmall.xorSquares(&self.board, &self.lane_keys, changed, &lane_hits);
-            defer bestsmall.xorSquares(&self.board, &self.lane_keys, changed, &lane_hits);
-            try self.saveSquaresFor(m);
+            // Each square the move changes is in the journal as it was:
+            // its two lanes' keys trade its old part for its new.
+            defer for (self.journal.saved.items[saved_start..]) |*sq| bestsmall.updateKeys(&self.board, &self.lane_keys, sq);
             const b = &self.board;
             var mv: Move = .{ .kind = .play, .vertical = m.vertical(), .row = @intCast(m.row()), .col = @intCast(m.col()), .len = m.len, .tiles_played = m.tiles_played, .score = m.score };
             var t: usize = 0;
@@ -910,16 +831,7 @@ pub const Solver = struct {
     fn unplay(self: *Solver) void {
         const f = self.frames.pop().?;
         const b = &self.board;
-        for (self.saved.items[f.saved_start..]) |sq| {
-            b.squares[sq.idx] = sq.letter;
-            b.anchors[0][sq.idx] = sq.anchors[0];
-            b.anchors[1][sq.idx] = sq.anchors[1];
-            b.cross_sets[0][sq.idx] = sq.cross_sets[0];
-            b.cross_sets[1][sq.idx] = sq.cross_sets[1];
-            b.cross_scores[0][sq.idx] = sq.cross_scores[0];
-            b.cross_scores[1][sq.idx] = sq.cross_scores[1];
-        }
-        self.saved.shrinkRetainingCapacity(f.saved_start);
+        self.journal.restore(b, f.saved_start);
         b.tiles_played = f.tiles_played;
         self.racks = f.racks;
         self.scores = f.scores;
@@ -927,12 +839,6 @@ pub const Solver = struct {
         self.on_turn = f.on_turn;
         self.scoreless = f.scoreless;
         self.playing = f.playing;
-        // A later play must save the squares again.
-        self.frame_serial +%= 1;
-        if (self.frame_serial == 0) {
-            @memset(self.saved_by, 0);
-            self.frame_serial = 1;
-        }
     }
 
     fn stackRemaining(self: *const Solver) usize {
@@ -1900,6 +1806,8 @@ fn sameSquares(a: *const Board, b: *const Board) bool {
         if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
         if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
         if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
+        if (!std.mem.eql(u64, a.left_ext[d][0..n], b.left_ext[d][0..n])) return false;
+        if (!std.mem.eql(u64, a.right_ext[d][0..n], b.right_ext[d][0..n])) return false;
     }
     return a.tiles_played == b.tiles_played;
 }

@@ -11,8 +11,7 @@
 //! anchor whose key is known generated again.
 //!
 //! Ties go to the larger move code, so the play found does not depend on
-//! the order anchors are taken in. The board's extension sets must allow
-//! every letter (the endgame keeps them so): they are not part of the keys.
+//! the order anchors are taken in.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -97,11 +96,11 @@ inline fn finish(k_in: u64) u64 {
 /// Lanes are rows 0..dim (horizontal plays), then columns dim..2*dim.
 pub const max_lanes = Generator.max_lanes;
 
-/// The key of what a lane's plays depend on, the rack aside: its squares'
-/// tiles, the cross-sets and cross-scores of the other direction, and its
-/// anchors, each square's part (squareKey) xored in, so that a move
-/// changes only its squares'. A board's lanes keep theirs (see the
-/// endgame's solver).
+/// The key of what a lane's plays and shadow bounds depend on, the rack
+/// aside: its squares' tiles, the cross-sets, cross-scores and extension
+/// sets of the direction across, and its anchors, each square's part
+/// (squareKey) xored in, so that a move changes only its squares'. A
+/// board's lanes keep theirs (see the endgame's solver).
 pub fn laneKey(b: *const board_mod.Board, lane: usize) u64 {
     var k: u64 = finish(lane +% 1);
     for (0..b.dim) |i| k ^= squareKey(b, lane, i);
@@ -113,28 +112,45 @@ pub fn squareKey(b: *const board_mod.Board, lane: usize, i: usize) u64 {
     const dim = b.dim;
     const vertical = lane >= dim;
     const fixed = if (vertical) lane - dim else lane;
-    // The cross-sets of the direction across the lane's plays.
-    const cs: usize = if (vertical) @backingInt(Direction.horizontal) else @backingInt(Direction.vertical);
-    const an: usize = if (vertical) @backingInt(Direction.vertical) else @backingInt(Direction.horizontal);
     const idx = if (vertical) i * dim + fixed else fixed * dim + i;
+    const cs = acrossIndex(vertical);
+    const an = alongIndex(vertical);
+    return squarePart(lane, i, b.squares[idx], b.anchors[an][idx], b.cross_sets[cs][idx], b.cross_scores[cs][idx], b.left_ext[cs][idx], b.right_ext[cs][idx]);
+}
+
+/// The direction of the cross-sets (and extension sets) a lane's plays
+/// read, and of its anchors.
+inline fn acrossIndex(vertical: bool) usize {
+    return if (vertical) @backingInt(Direction.horizontal) else @backingInt(Direction.vertical);
+}
+inline fn alongIndex(vertical: bool) usize {
+    return if (vertical) @backingInt(Direction.vertical) else @backingInt(Direction.horizontal);
+}
+
+fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set: u64, cross_score: i32, left_ext: u64, right_ext: u64) u64 {
     // The square's place hashed on its own first: xored straight into its
     // contents, two squares could trade contents (cross-sets 2 and 0 at
     // places 1 and 3, say) and leave the lane's key as it was.
-    var k = mix(finish(@as(u64, lane) << 8 | i), b.cross_sets[cs][idx]);
-    k = mix(k, @as(u64, b.squares[idx]) | @as(u64, @intFromBool(b.anchors[an][idx])) << 8 | @as(u64, @as(u32, @bitCast(b.cross_scores[cs][idx]))) << 16);
+    var k = mix(finish(@as(u64, lane) << 8 | i), cross_set);
+    k = mix(k, @as(u64, letter) | @as(u64, @intFromBool(anchor)) << 8 | @as(u64, @as(u32, @bitCast(cross_score))) << 16);
+    k = mix(k, left_ext);
+    k = mix(k, right_ext);
     return finish(k);
 }
 
-/// Xors into `keys` the parts of the squares `lane_hits` marks in the
-/// lanes of `lanes` (pathlists' moveHits): before a move and after it,
-/// to bring the keys up to date.
-pub fn xorSquares(b: *const board_mod.Board, keys: *[max_lanes]u64, lanes: u64, lane_hits: *const [max_lanes]u32) void {
-    var ls = lanes;
-    while (ls != 0) : (ls &= ls - 1) {
-        const lane = @ctz(ls);
-        // (A lane's record can have a bit past the board's edge.)
-        var sq = lane_hits[lane] & ((@as(u32, 1) << @intCast(b.dim)) - 1);
-        while (sq != 0) : (sq &= sq - 1) keys[lane] ^= squareKey(b, lane, @ctz(sq));
+/// Updates the keys of the two lanes through a square the journal saved
+/// (`sq`, as it was) to the board's square as it is.
+pub fn updateKeys(b: *const board_mod.Board, keys: *[max_lanes]u64, sq: *const board_mod.SavedSquare) void {
+    const dim = b.dim;
+    const r = sq.idx / dim;
+    const c = sq.idx % dim;
+    inline for (.{ false, true }) |vertical| {
+        const lane = if (vertical) dim + c else r;
+        const i = if (vertical) r else c;
+        const cs = acrossIndex(vertical);
+        const an = alongIndex(vertical);
+        keys[lane] ^= squarePart(lane, i, sq.letter, sq.anchors[an], sq.cross_sets[cs], sq.cross_scores[cs], sq.left_ext[cs], sq.right_ext[cs]);
+        keys[lane] ^= squareKey(b, lane, i);
     }
 }
 

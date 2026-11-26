@@ -162,10 +162,14 @@ func BenchmarkSim(b *testing.B) {
 	b.ReportMetric(float64(b.Elapsed().Microseconds())/rollouts, "us/rollout")
 }
 
-var benchEndgamePlies = flag.Int("crosscheck.egplies", 4, "plies BenchmarkEndgame solves to")
+var (
+	benchEndgamePlies = flag.Int("crosscheck.egplies", 4, "plies BenchmarkEndgame solves to")
+	endgameSkip       = flag.Int("crosscheck.egskip", 0, "moves TestWriteEndgames plays after the bag empties, for smaller endgames")
+)
 
 // TestWriteEndgames writes the first endgame position (bag empty) of games
-// the Go static player plays against itself, -crosscheck.posgames of them,
+// the Go static player plays against itself, -crosscheck.posgames of them
+// (or the position -crosscheck.egskip moves later, if the game lasts),
 // for timing the endgame solver in each engine on the same positions
 // (BenchmarkEndgame here, BENCH_MODE=endgame for `zig build bench`).
 func TestWriteEndgames(t *testing.T) {
@@ -196,11 +200,15 @@ func TestWriteEndgames(t *testing.T) {
 		g.SeedBag(seed)
 		g.StartGame()
 		p := staticPlayer(t, cfg, g)
+		skip := *endgameSkip
 		for g.Playing() == pb.PlayState_PLAYING {
 			if g.Bag().TilesRemaining() == 0 {
-				fmt.Fprintln(w, g.ToCGP(false))
-				n++
-				break
+				if skip == 0 {
+					fmt.Fprintln(w, g.ToCGP(false))
+					n++
+					break
+				}
+				skip--
 			}
 			m := turnplayer.GenBestStaticTurn(g, p, g.PlayerOnTurn())
 			chosen := new(move.Move)
