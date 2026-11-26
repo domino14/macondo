@@ -299,3 +299,109 @@ test "exp and log are Go's" {
         };
     }
 }
+
+/// Go's math.Lgamma(x) for x > 0 (the log of the gamma function), with
+/// Go's arithmetic (its Log): the leave prior's binomial coefficients.
+pub fn lgamma(x: f64) f64 {
+    const ymin = 1.461632144968362245;
+    const two58 = 1 << 58;
+    const tiny = 1.0 / @as(f64, 1 << 70);
+    const tc = 1.46163214496836224576e+00;
+    const tf = -1.21486290535849611461e-01;
+    const tt = -3.63867699703950536541e-18;
+    std.debug.assert(x > 0);
+    if (std.math.isNan(x) or std.math.isInf(x)) return x;
+    if (x < tiny) return -log(x);
+    if (x == 1 or x == 2) return 0;
+    if (x < 2) {
+        var lg: f64 = 0;
+        var y: f64 = undefined;
+        var i: u2 = undefined;
+        if (x <= 0.9) {
+            lg = -log(x);
+            if (x >= (ymin - 1 + 0.27)) {
+                y = 1 - x;
+                i = 0;
+            } else if (x >= (ymin - 1 - 0.27)) {
+                y = x - (tc - 1);
+                i = 1;
+            } else {
+                y = x;
+                i = 2;
+            }
+        } else {
+            if (x >= (ymin + 0.27)) {
+                y = 2 - x;
+                i = 0;
+            } else if (x >= (ymin - 0.27)) {
+                y = x - tc;
+                i = 1;
+            } else {
+                y = x - 1;
+                i = 2;
+            }
+        }
+        switch (i) {
+            0 => {
+                const zz = y * y;
+                const p1 = lgam_a[0] + zz * (lgam_a[2] + zz * (lgam_a[4] + zz * (lgam_a[6] + zz * (lgam_a[8] + zz * lgam_a[10]))));
+                const p2 = zz * (lgam_a[1] + zz * (lgam_a[3] + zz * (lgam_a[5] + zz * (lgam_a[7] + zz * (lgam_a[9] + zz * lgam_a[11])))));
+                const p = y * p1 + p2;
+                lg += (p - 0.5 * y);
+            },
+            1 => {
+                const zz = y * y;
+                const w = zz * y;
+                const p1 = lgam_t[0] + w * (lgam_t[3] + w * (lgam_t[6] + w * (lgam_t[9] + w * lgam_t[12])));
+                const p2 = lgam_t[1] + w * (lgam_t[4] + w * (lgam_t[7] + w * (lgam_t[10] + w * lgam_t[13])));
+                const p3 = lgam_t[2] + w * (lgam_t[5] + w * (lgam_t[8] + w * (lgam_t[11] + w * lgam_t[14])));
+                const p = zz * p1 - (tt - w * (p2 + y * p3));
+                lg += (tf + p);
+            },
+            else => {
+                const p1 = y * (lgam_u[0] + y * (lgam_u[1] + y * (lgam_u[2] + y * (lgam_u[3] + y * (lgam_u[4] + y * lgam_u[5])))));
+                const p2 = 1 + y * (lgam_v[1] + y * (lgam_v[2] + y * (lgam_v[3] + y * (lgam_v[4] + y * lgam_v[5]))));
+                lg += (-0.5 * y + p1 / p2);
+            },
+        }
+        return lg;
+    }
+    if (x < 8) {
+        const i: u32 = @intFromFloat(x);
+        const y = x - @as(f64, @floatFromInt(i));
+        const p = y * (lgam_s[0] + y * (lgam_s[1] + y * (lgam_s[2] + y * (lgam_s[3] + y * (lgam_s[4] + y * (lgam_s[5] + y * lgam_s[6]))))));
+        const q = 1 + y * (lgam_r[1] + y * (lgam_r[2] + y * (lgam_r[3] + y * (lgam_r[4] + y * (lgam_r[5] + y * lgam_r[6])))));
+        var lg = 0.5 * y + p / q;
+        var zz: f64 = 1.0;
+        if (i >= 7) zz *= (y + 6);
+        if (i >= 6) zz *= (y + 5);
+        if (i >= 5) zz *= (y + 4);
+        if (i >= 4) zz *= (y + 3);
+        if (i >= 3) {
+            zz *= (y + 2);
+            lg += log(zz);
+        }
+        return lg;
+    }
+    if (x < two58) {
+        const t = log(x);
+        const zz = 1 / x;
+        const y = zz * zz;
+        const w = lgam_w[0] + zz * (lgam_w[1] + y * (lgam_w[2] + y * (lgam_w[3] + y * (lgam_w[4] + y * (lgam_w[5] + y * lgam_w[6])))));
+        return (x - 0.5) * (t - 1) + w;
+    }
+    return x * (log(x) - 1);
+}
+
+const lgam_a = [_]f64{ @bitCast(@as(u64, 0x3fb3c467e37db0c8)), @bitCast(@as(u64, 0x3fd4a34cc4a60fad)), @bitCast(@as(u64, 0x3fb13e001a5562a7)), @bitCast(@as(u64, 0x3f951322ac92547b)), @bitCast(@as(u64, 0x3f7e404fb68fefe8)), @bitCast(@as(u64, 0x3f67add8ccb7926b)), @bitCast(@as(u64, 0x3f538a94116f3f5d)), @bitCast(@as(u64, 0x3f40b6c689b99c00)), @bitCast(@as(u64, 0x3f2cf2eced10e54d)), @bitCast(@as(u64, 0x3f1c5088987dfb07)), @bitCast(@as(u64, 0x3efa7074428cfa52)), @bitCast(@as(u64, 0x3f07858e90a45837)) };
+const lgam_r = [_]f64{ 1.0, @bitCast(@as(u64, 0x3ff645a762c4ab74)), @bitCast(@as(u64, 0x3fe71a1893d3dcdc)), @bitCast(@as(u64, 0x3fc601edccfbdf27)), @bitCast(@as(u64, 0x3f9317ea742ed475)), @bitCast(@as(u64, 0x3f497ddaca41a95b)), @bitCast(@as(u64, 0x3edebaf7a5b38140)) };
+const lgam_s = [_]f64{ @bitCast(@as(u64, 0xbfb3c467e37db0c8)), @bitCast(@as(u64, 0x3fcb848b36e20878)), @bitCast(@as(u64, 0x3fd4d98f4f139f59)), @bitCast(@as(u64, 0x3fc2bb9cbee5f2f7)), @bitCast(@as(u64, 0x3f9b481c7e939961)), @bitCast(@as(u64, 0x3f5e26b67368f239)), @bitCast(@as(u64, 0x3f00bfecdd17e945)) };
+const lgam_t = [_]f64{ @bitCast(@as(u64, 0x3fdef72bc8ee38a2)), @bitCast(@as(u64, 0xbfc2e4278dc6c509)), @bitCast(@as(u64, 0x3fb08b4294d5419b)), @bitCast(@as(u64, 0xbfa0c9a8df35b713)), @bitCast(@as(u64, 0x3f9266e7970af9ec)), @bitCast(@as(u64, 0xbf851f9fba91ec6a)), @bitCast(@as(u64, 0x3f78fce0e370e344)), @bitCast(@as(u64, 0xbf6e2effb3e914d7)), @bitCast(@as(u64, 0x3f6282d32e15c915)), @bitCast(@as(u64, 0xbf56fe8ebf2d1af1)), @bitCast(@as(u64, 0x3f4cdf0cef61a8e9)), @bitCast(@as(u64, 0xbf41a6109c73e0ec)), @bitCast(@as(u64, 0x3f34af6d6c0ebbf7)), @bitCast(@as(u64, 0xbf347f24ecc38c38)), @bitCast(@as(u64, 0x3f35fd3ee8c2d3f4)) };
+const lgam_u = [_]f64{ @bitCast(@as(u64, 0xbfb3c467e37db0c8)), @bitCast(@as(u64, 0x3fe4401e8b005dff)), @bitCast(@as(u64, 0x3ff7475cd119bd6f)), @bitCast(@as(u64, 0x3fef497644ea8450)), @bitCast(@as(u64, 0x3fcd4eaef6010924)), @bitCast(@as(u64, 0x3f8b678bbf2bab09)) };
+const lgam_v = [_]f64{ 1.0, @bitCast(@as(u64, 0x4003a5d7c2bd619c)), @bitCast(@as(u64, 0x40010725a42b18f5)), @bitCast(@as(u64, 0x3fe89dfbe45050af)), @bitCast(@as(u64, 0x3fbaae55d6537c88)), @bitCast(@as(u64, 0x3f6a5abb57d0cf61)) };
+const lgam_w = [_]f64{ @bitCast(@as(u64, 0x3fdacfe390c97d69)), @bitCast(@as(u64, 0x3fb555555555553b)), @bitCast(@as(u64, 0xbf66c16c16b02e5c)), @bitCast(@as(u64, 0x3f4a019f98cf38b6)), @bitCast(@as(u64, 0xbf4380cb8c0fe741)), @bitCast(@as(u64, 0x3f4b67ba4cdad5d1)), @bitCast(@as(u64, 0xbf5ab89d0b9e43e4)) };
+
+test "lgamma matches Go" {
+    // math.Lgamma from Go, bit for bit.
+    for (@import("golgamma_golden.zig").cases) |c| try std.testing.expectEqual(c[1], lgamma(c[0]));
+}

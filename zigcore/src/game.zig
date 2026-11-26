@@ -195,6 +195,55 @@ pub const Game = struct {
         if (self.bag.fixed_order) self.bag.shuffle(&self.rng);
     }
 
+    /// Takes `letters` out of the bag (designated blanks as blanks), which
+    /// is then rebuilt in machine-letter order and shuffled: Bag.RemoveTiles.
+    pub fn removeTiles(self: *Game, letters: []const MachineLetter) error{NotInBag}!void {
+        var counts: [tiles.max_alphabet_size]u32 = @splat(0);
+        for (self.bag.tiles[0..self.bag.len]) |ml| counts[ml] += 1;
+        for (letters) |ml| {
+            const t = if (tiles.isBlanked(ml)) 0 else ml;
+            if (counts[t] == 0) return error.NotInBag;
+            counts[t] -= 1;
+        }
+        self.bag.len = 0;
+        for (counts, 0..) |n, ml| {
+            for (0..n) |_| {
+                self.bag.tiles[self.bag.len] = @intCast(ml);
+                self.bag.len += 1;
+            }
+        }
+        self.bag.shuffle(&self.rng);
+    }
+
+    /// Gives seat `p` a random rack holding `known` (Game.SetRandomRack):
+    /// its rack goes back in the bag, then without `known` it redraws
+    /// seven, and with `known` those come out of the bag (which is rebuilt
+    /// and shuffled) and the rest of the rack is drawn. Returns how many
+    /// were drawn besides `known`, which are written to `extra`.
+    pub fn setRandomRack(self: *Game, p: u1, known: []const MachineLetter, extra: *[rack_tile_limit]MachineLetter) error{NotInBag}!usize {
+        var old: [rack_tile_limit * 4]MachineLetter = undefined;
+        const n = self.pos.racks[p].tiles(&old);
+        if (known.len == 0) {
+            self.putBack(old[0..n]);
+            var drawn: [rack_tile_limit]MachineLetter = undefined;
+            const k = self.drawAtMost(&drawn);
+            self.pos.racks[p] = .fromLetters(drawn[0..k]);
+            return 0;
+        }
+        self.putBack(old[0..n]);
+        self.removeTiles(known) catch |err| {
+            self.removeTiles(old[0..n]) catch unreachable;
+            return err;
+        };
+        const want = @max(n, rack_tile_limit) - known.len;
+        var rack: [rack_tile_limit * 4]MachineLetter = undefined;
+        @memcpy(rack[0..known.len], known);
+        const k = self.drawAtMost(rack[known.len..][0..@min(want, rack_tile_limit)]);
+        @memcpy(extra[0..k], rack[known.len..][0..k]);
+        self.pos.racks[p] = .fromLetters(rack[0 .. known.len + k]);
+        return k;
+    }
+
     /// Draws at most `out.len` tiles for the player on turn's seat (not
     /// paired), returning how many.
     pub fn drawAtMost(self: *Game, out: []MachineLetter) usize {
