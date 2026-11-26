@@ -37,7 +37,7 @@ pub fn generateAll(b: *Board, kwg: Kwg, ld: *const LetterDistribution) void {
 /// own squares and one on each side; across it, for each new tile, its
 /// square and the squares just past each end of the word it makes.
 /// Anchors look only at a square's neighbours.
-pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld: *const LetterDistribution, was_empty: bool) void {
+pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld: *const LetterDistribution, was_empty: bool, cache: ?*Cache) void {
     const along: Direction = if (m.vertical) .vertical else .horizontal;
     const lane: isize = if (m.vertical) m.col else m.row;
     const start: isize = if (m.vertical) m.row else m.col;
@@ -45,7 +45,7 @@ pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld
 
     if (along == .vertical) b.transpose();
     var col = start - 1;
-    while (col <= start + len) : (col += 1) generate(b, lane, col, along, kwg, ld);
+    while (col <= start + len) : (col += 1) generateCached(b, lane, col, along, kwg, ld, cache);
     if (along == .vertical) b.transpose();
 
     const across = along.other();
@@ -55,9 +55,9 @@ pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld
         const row: usize = @intCast(start + @as(isize, @intCast(i)));
         const right = b.wordEdge(row, lane, 1);
         const left = b.wordEdge(row, lane, -1);
-        generate(b, @intCast(row), right + 1, across, kwg, ld);
-        generate(b, @intCast(row), left - 1, across, kwg, ld);
-        generate(b, @intCast(row), lane, across, kwg, ld);
+        generateCached(b, @intCast(row), right + 1, across, kwg, ld, cache);
+        generateCached(b, @intCast(row), left - 1, across, kwg, ld, cache);
+        generateCached(b, @intCast(row), lane, across, kwg, ld, cache);
     }
     if (across == .vertical) b.transpose();
 
@@ -103,6 +103,82 @@ inline fn withBlank(es: u64) u64 {
 /// that `dir`'s cross words run along rows). Out-of-range squares are
 /// ignored.
 pub fn generate(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg, ld: *const LetterDistribution) void {
+    generateCached(b, row_s, col_s, dir, kwg, ld, null);
+}
+
+/// What generate works out for an empty square with tiles on at least
+/// one side: its cross-set and cross-score, and the extension sets of the
+/// words on its left and right (with the blank where not empty).
+const Values = struct {
+    cross_set: u64 = 0,
+    leftside_leftx: u64 = 0,
+    leftside_rightx: u64 = 0,
+    rightside_leftx: u64 = 0,
+    rightside_rightx: u64 = 0,
+    score: i32 = 0,
+};
+
+/// A memory of Values by the words beside the square (MAGPIE's
+/// CrossSetCache): they depend on nothing else, and the games of a sim or
+/// an autoplay run meet the same words again and again. Direct-mapped by
+/// the top bits of a 64-bit key, each 64-byte entry holding the whole key.
+pub const Cache = struct {
+    entries: []Entry,
+    /// 64 less the index bits: the key's top bits pick the entry.
+    shift: u6,
+
+    const Entry = extern struct {
+        key: u64 align(64) = 0,
+        cross_set: u64 = 0,
+        leftside_leftx: u64 = 0,
+        leftside_rightx: u64 = 0,
+        rightside_leftx: u64 = 0,
+        rightside_rightx: u64 = 0,
+        score: i32 = 0,
+    };
+
+    /// MAGPIE's size on machines with memory to spare: 2^14 entries, 1 MB.
+    pub const default_index_bits = 14;
+
+    pub fn init(gpa: std.mem.Allocator, index_bits: u6) std.mem.Allocator.Error!Cache {
+        std.debug.assert(index_bits >= 1);
+        const entries = try gpa.alloc(Entry, @as(usize, 1) << index_bits);
+        @memset(entries, .{});
+        return .{ .entries = entries, .shift = @intCast(@as(u7, 64) - index_bits) };
+    }
+
+    pub fn deinit(self: *Cache, gpa: std.mem.Allocator) void {
+        gpa.free(self.entries);
+        self.* = undefined;
+    }
+
+    fn entry(self: *Cache, k: u64) *Entry {
+        return &self.entries[k >> self.shift];
+    }
+
+    /// The key of the words from left_col to right_col beside the empty
+    /// square at col, with the lexicon: a multiply-add per letter (blank
+    /// flag included), a separator for the square, then MurmurHash3's
+    /// finalizer. Never 0, which marks an empty entry.
+    fn key(b: *const Board, row: usize, col: usize, left_col: usize, right_col: usize, kwg: Kwg) u64 {
+        const multiplier: u64 = 0x9E3779B97F4A7C15;
+        var k: u64 = @intFromPtr(kwg.nodes.ptr);
+        for (left_col..right_col + 1) |c| {
+            const symbol: u64 = if (c == col) 0x101 else @as(u64, b.getLetter(row, c)) + 1;
+            k = k *% multiplier +% symbol;
+        }
+        k ^= k >> 33;
+        k *%= 0xFF51AFD7ED558CCD;
+        k ^= k >> 33;
+        k *%= 0xC4CEB9FE1A85EC53;
+        k ^= k >> 33;
+        return k | 1;
+    }
+};
+
+/// generate, taking the square's values from `cache` (if any) when it
+/// has seen the words beside it.
+pub fn generateCached(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg, ld: *const LetterDistribution, cache: ?*Cache) void {
     if (!b.posExists(row_s, col_s)) return;
     const row: usize = @intCast(row_s);
     const col: usize = @intCast(col_s);
@@ -129,50 +205,91 @@ pub fn generate(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg,
     const nonempty_left = left_col < col_s;
     const nonempty_right = right_col > col_s;
 
-    var score_l: i32 = 0;
-    var score_r: i32 = 0;
+    var v: Values = undefined;
+    if (cache) |c| {
+        const k = Cache.key(b, row, col, @intCast(left_col), @intCast(right_col), kwg);
+        const e = c.entry(k);
+        if (e.key == k) {
+            v = .{
+                .cross_set = e.cross_set,
+                .leftside_leftx = e.leftside_leftx,
+                .leftside_rightx = e.leftside_rightx,
+                .rightside_leftx = e.rightside_leftx,
+                .rightside_rightx = e.rightside_rightx,
+                .score = e.score,
+            };
+        } else {
+            v = computeValues(b, row, col_s, left_col, right_col, kwg, ld);
+            e.* = .{
+                .key = k,
+                .cross_set = v.cross_set,
+                .leftside_leftx = v.leftside_leftx,
+                .leftside_rightx = v.leftside_rightx,
+                .rightside_leftx = v.rightside_leftx,
+                .rightside_rightx = v.rightside_rightx,
+                .score = v.score,
+            };
+        }
+    } else {
+        v = computeValues(b, row, col_s, left_col, right_col, kwg, ld);
+    }
+
+    if (nonempty_left) {
+        // On the last tile of the word to the left...
+        b.setLeftExtSet(row, col - 1, t_dir, v.leftside_leftx);
+        b.setRightExtSet(row, col - 1, t_dir, v.leftside_rightx);
+        // ...and on the square before that word.
+        if (left_col > 0) b.setLeftExtSet(row, @intCast(left_col - 1), t_dir, v.leftside_leftx);
+    }
+    if (nonempty_right) {
+        // On the last tile of the word to the right (as in MAGPIE), and on
+        // this square.
+        b.setLeftExtSet(row, @intCast(right_col), t_dir, v.rightside_leftx);
+        b.setRightExtSet(row, @intCast(right_col), t_dir, v.rightside_rightx);
+        b.setLeftExtSet(row, col, t_dir, v.rightside_leftx);
+    }
+    b.setCrossScore(row, col, v.score, dir);
+    b.setCrossSet(row, col, v.cross_set, dir);
+}
+
+/// The values of the empty square at col, with words from left_col to
+/// col - 1 and from col + 1 to right_col (either may be empty).
+fn computeValues(b: *const Board, row: usize, col_s: isize, left_col: isize, right_col: isize, kwg: Kwg, ld: *const LetterDistribution) Values {
+    const nonempty_left = left_col < col_s;
+    const nonempty_right = right_col > col_s;
+    var v: Values = .{};
     var left: Traversal = .{ .node = 0, .valid = false };
     var right: Traversal = .{ .node = 0, .valid = false };
-    var leftside_leftx: u64 = 0;
     var leftside_rightx: u64 = 0;
-    var rightside_leftx: u64 = 0;
-    var rightside_rightx: u64 = 0;
 
     if (nonempty_left) {
         left = traverseBackwards(b, row, col_s - 1, kwg.gaddagRoot(), false, 0, kwg);
-        score_l = b.traverseBackwardsForScore(row, col_s - 1, ld);
+        v.score += b.traverseBackwardsForScore(row, col_s - 1, ld);
+        var leftside_leftx: u64 = 0;
         if (left.valid) {
             leftside_leftx = kwg.letterSets(left.node).extensions;
             const s = kwg.nextNodeIdx(left.node, 0);
             if (s != 0) leftside_rightx = kwg.letterSets(s).extensions;
         }
-        // On the last tile of the word to the left...
-        b.setLeftExtSet(row, col - 1, t_dir, withBlank(leftside_leftx));
-        b.setRightExtSet(row, col - 1, t_dir, withBlank(leftside_rightx));
-        // ...and on the square before that word.
-        if (left_col > 0) b.setLeftExtSet(row, @intCast(left_col - 1), t_dir, withBlank(leftside_leftx));
+        v.leftside_leftx = withBlank(leftside_leftx);
+        v.leftside_rightx = withBlank(leftside_rightx);
     }
-
     if (nonempty_right) {
         right = traverseBackwards(b, row, right_col, kwg.gaddagRoot(), false, 0, kwg);
-        score_r = b.traverseBackwardsForScore(row, right_col, ld);
+        v.score += b.traverseBackwardsForScore(row, right_col, ld);
+        var rightside_leftx: u64 = 0;
+        var rightside_rightx: u64 = 0;
         if (right.valid) {
             rightside_leftx = kwg.letterSets(right.node).extensions;
             const s = kwg.nextNodeIdx(right.node, 0);
             if (s != 0) rightside_rightx = kwg.letterSets(s).extensions;
         }
-        // On the last tile of the word to the right (as in MAGPIE), and on
-        // this square.
-        b.setLeftExtSet(row, @intCast(right_col), t_dir, withBlank(rightside_leftx));
-        b.setRightExtSet(row, @intCast(right_col), t_dir, withBlank(rightside_rightx));
-        b.setLeftExtSet(row, col, t_dir, withBlank(rightside_leftx));
+        v.rightside_leftx = withBlank(rightside_leftx);
+        v.rightside_rightx = withBlank(rightside_rightx);
     }
 
-    b.setCrossScore(row, col, score_l + score_r, dir);
-
     if (nonempty_left and nonempty_right) {
-        b.setCrossSet(row, col, 0, dir);
-        if (!left.valid or !right.valid) return;
+        if (!left.valid or !right.valid) return v;
         // Try each letter that continues the right-hand word leftward and
         // can also follow the left-hand word, and check it joins them.
         var i = right.node;
@@ -180,17 +297,16 @@ pub fn generate(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg: Kwg,
             const t = kwg.tile(i);
             if (t != 0 and leftside_rightx & (@as(u64, 1) << @intCast(t)) != 0) {
                 const joined = traverseBackwards(b, row, col_s - 1, kwg.arcIndex(i), true, left_col, kwg);
-                if (joined.valid) b.addToCrossSet(row, col, t, dir);
+                if (joined.valid) v.cross_set |= @as(u64, 1) << @intCast(t);
             }
             if (kwg.isEnd(i)) break;
         }
     } else if (nonempty_left) {
-        if (!left.valid) return b.setCrossSet(row, col, 0, dir);
-        b.setCrossSet(row, col, kwg.letterSet(kwg.nextNodeIdx(left.node, 0)), dir);
+        if (left.valid) v.cross_set = kwg.letterSet(kwg.nextNodeIdx(left.node, 0));
     } else {
-        if (!right.valid) return b.setCrossSet(row, col, 0, dir);
-        b.setCrossSet(row, col, kwg.letterSet(right.node), dir);
+        if (right.valid) v.cross_set = kwg.letterSet(right.node);
     }
+    return v;
 }
 
 // Tests ----------------------------------------------------------------------

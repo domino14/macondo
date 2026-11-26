@@ -224,9 +224,12 @@ pub const Engine = struct {
         defer gen.deinit();
         gen.word_map = p.word_map;
         gen.rit = p.rit;
+        var cross_cache: @import("cross_set.zig").Cache = try .init(self.gpa, @import("cross_set.zig").Cache.default_index_bits);
+        defer cross_cache.deinit(self.gpa);
         for (0..games) |gi| {
             const seed = game_mod.deriveSeed(master, if (pairs) gi / 2 else gi);
             var g: game_mod.Game = .start(p, seed, pairs);
+            g.cross_cache = &cross_cache;
             gen.board = &g.pos.board;
             while (g.playing) {
                 const best = try game_mod.playStaticTurn(&g, gen);

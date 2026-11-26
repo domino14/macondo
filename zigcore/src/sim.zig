@@ -241,6 +241,9 @@ pub const Sim = struct {
     gen: *movegen.Generator,
     /// The rollout generator's memory of best plays by rack.
     carry: *carry_mod.Carry,
+    /// The rollout games' memory of cross-sets by the words beside a
+    /// square.
+    cross_cache: *@import("cross_set.zig").Cache,
     /// Tests: a generator without the memory that checks every rollout
     /// move the memory helped find.
     check: ?*movegen.Generator = null,
@@ -280,6 +283,11 @@ pub const Sim = struct {
         errdefer gpa.destroy(carry);
         carry.* = .init(gpa);
         gen.carry = carry;
+        errdefer carry.deinit();
+        const cross_cache = try gpa.create(@import("cross_set.zig").Cache);
+        errdefer gpa.destroy(cross_cache);
+        cross_cache.* = try .init(gpa, @import("cross_set.zig").Cache.default_index_bits);
+        errdefer cross_cache.deinit(gpa);
 
         var sim: Sim = .{
             .gpa = gpa,
@@ -291,6 +299,7 @@ pub const Sim = struct {
             .rng = .init(threadSeed(seed, turn, 0)),
             .gen = gen,
             .carry = carry,
+            .cross_cache = cross_cache,
             .initial_player = g.on_turn,
             .initial_spread = g.pos.scores[g.on_turn] - g.pos.scores[1 - g.on_turn],
             .stat_buf = stat_buf,
@@ -303,12 +312,15 @@ pub const Sim = struct {
         // The copies draw the bag as it lies, after one shuffle from the
         // thread's source (makeGameCopies).
         sim.start.paired = false;
+        sim.start.cross_cache = cross_cache;
         sim.start.bag.fixed_order = true;
         sim.start.bag.shuffle(&sim.rng);
         return sim;
     }
 
     pub fn deinit(self: *Sim) void {
+        self.cross_cache.deinit(self.gpa);
+        self.gpa.destroy(self.cross_cache);
         self.carry.deinit();
         self.gpa.destroy(self.carry);
         self.gen.deinit();

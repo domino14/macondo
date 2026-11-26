@@ -112,6 +112,10 @@ pub const Game = struct {
     /// seats swapped deals each seat the same tiles. Port of pairedbag.go.
     paired: bool = false,
     exchange_limit: i32,
+    /// Remembers cross-sets by the words beside a square, for the
+    /// incremental updates after each play (a sim's or autoplay's own;
+    /// copies of a game share it).
+    cross_cache: ?*cross_set.Cache = null,
 
     /// A game on an empty board of `pos`'s layout and lexicon, seeded with
     /// `seed`, with the racks dealt (StartGame after SeedBag). `pos`
@@ -320,7 +324,7 @@ pub const Game = struct {
             b.setLetter(r, c, ml);
         }
         b.tiles_played += m.tiles_played;
-        if (update_board) cross_set.updateForPlay(b, m, self.pos.lexicon.kwg, self.pos.dist, was_empty);
+        if (update_board) cross_set.updateForPlay(b, m, self.pos.lexicon.kwg, self.pos.dist, was_empty, self.cross_cache);
     }
 
     fn refreshBoard(self: *Game) void {
@@ -482,8 +486,12 @@ test "incremental cross-set updates match regenerating everything" {
         defer testing.allocator.destroy(gen);
         gen.* = .init(testing.allocator, &pos.board, pos.lexicon.kwg, pos.dist);
         defer gen.deinit();
+        var cache: cross_set.Cache = try .init(testing.allocator, 6);
+        defer cache.deinit(testing.allocator);
         for (0..20) |seed| {
             var g: Game = .start(&pos, @splat(@intCast(seed)), seed % 2 == 1);
+            // Half the games with a (small, so often overwritten) cache.
+            if (seed % 4 >= 2) g.cross_cache = &cache;
             gen.board = &g.pos.board;
             while (g.playing) {
                 _ = try playStaticTurn(&g, gen);
