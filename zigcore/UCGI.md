@@ -104,6 +104,21 @@ line per play, best first by win probability (then equity), and `bestmove`:
 < bestmove 8D.QUIZ
 ```
 
+With `stop <90|95|98|99|999>` the sim is a best-arm identification run, as
+Macondo's elite bot runs its sims: each play gets 128 rollouts, then the
+rollouts go mostly to the leader and its closest challenger, and the sim
+stops when the leader is told apart from every other play with that
+confidence (999 is 99.9%), when it has `bestcap` rollouts (default 10000),
+when the sim has spent `cap` rollouts per play (default 1000), or when the
+game is decided. `iterations` doesn't apply. Each play's line gives its own
+rollouts, the best-arm pick comes first, and a line before them says why the
+sim stopped (`threshold`, `cutoff`, `sample-limit`, `best-arm-limit`) and how
+many rollouts it made:
+
+```
+< info sim status threshold rollouts 4213
+```
+
 Progress, as often as the engine likes:
 
 ```

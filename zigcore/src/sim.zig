@@ -16,6 +16,8 @@ const game_mod = @import("game.zig");
 const movegen = @import("movegen.zig");
 const chacha8 = @import("chacha8.zig");
 const carry_mod = @import("carry.zig");
+const bai = @import("bai.zig");
+const gomath = @import("gomath.zig");
 const Move = @import("move.zig").Move;
 const Game = game_mod.Game;
 const MachineLetter = tiles.MachineLetter;
@@ -147,6 +149,70 @@ pub fn ranksAbove(a: *const Play, b: *const Play) bool {
     return a.equity.mean() > b.equity.mean();
 }
 
+pub const BaiOptions = struct {
+    /// The error probability the stopping rule allows (0.01 for 99%).
+    delta: f64,
+    /// Rollouts every play gets before any is preferred.
+    min_samples: u32 = default_bai_min_samples,
+    /// The sim's budget, in rollouts per play on average.
+    cap_per_play: u64 = default_bai_cap_per_play,
+    /// Stops once the leading play has this many rollouts; 0 for never.
+    best_play_cap: u64 = 0,
+    /// Checked between rounds: why to stop now (time, a stop command), or
+    /// .none.
+    stop: ?*const fn (*Sim) bai.Status = null,
+};
+
+pub const default_bai_min_samples = 128;
+pub const default_bai_cap_per_play = 1500;
+/// The weight of the spread term in a best-arm sim's reward (the win
+/// probability's is 1), and the spread its sigmoid is scaled by.
+const default_bai_spread_weight = 0.1;
+const bai_spread_scale = 100.0;
+/// A best-arm sim stops once the best play's reward is this close to 0 or
+/// 1: a decided game.
+const bai_cutoff = 0.005 / 100.0;
+
+/// The delta of a stopping condition given as a confidence percentage:
+/// 90, 95, 98, 99 or 999 (99.9).
+pub fn stopDelta(condition: u32) ?f64 {
+    return switch (condition) {
+        90 => 0.10,
+        95 => 0.05,
+        98 => 0.02,
+        99 => 0.01,
+        999 => 0.001,
+        else => null,
+    };
+}
+
+/// What a rollout is worth to a best-arm sim: its win probability blended
+/// with a sigmoid of the final spread, which ranks the plays of a decided
+/// game and breaks near-ties toward spread (baiReward).
+pub fn baiReward(win: f64, final_spread: f64, spread_weight: f64) f64 {
+    if (spread_weight <= 0) return win;
+    const x = final_spread / bai_spread_scale;
+    const sig = if (x >= 0) 1 / (1 + gomath.exp(-x)) else blk: {
+        const e = gomath.exp(x);
+        break :blk e / (1 + e);
+    };
+    return (win + spread_weight * sig) / (1 + spread_weight);
+}
+
+/// Whether two plays count as the same to the stopping rules: from the
+/// same square in the same direction with the same tiles (similarPlayKey).
+pub fn similarPlays(a: *const Move, b: *const Move) bool {
+    if (a.kind != b.kind or a.row != b.row or a.col != b.col or a.vertical != b.vertical or
+        a.tiles_played != b.tiles_played or a.len != b.len) return false;
+    var x: [@import("board.zig").max_dim]MachineLetter = undefined;
+    var y: [@import("board.zig").max_dim]MachineLetter = undefined;
+    @memcpy(x[0..a.len], a.tileSlice());
+    @memcpy(y[0..b.len], b.tileSlice());
+    std.mem.sort(MachineLetter, x[0..a.len], {}, std.sort.asc(MachineLetter));
+    std.mem.sort(MachineLetter, y[0..b.len], {}, std.sort.asc(MachineLetter));
+    return std.mem.eql(MachineLetter, x[0..a.len], y[0..b.len]);
+}
+
 /// The random source of sim thread `thread` for a game seeded with `seed`
 /// at turn `turn`: SHA-256 of the three (makeRNGs).
 pub fn threadSeed(seed: [32]u8, turn: u64, thread: u64) [32]u8 {
@@ -184,6 +250,11 @@ pub const Sim = struct {
     /// Moves made (candidate plays and rollout plies), as Go counts nodes.
     nodes: u64 = 0,
     stat_buf: []Stat,
+    /// What best-arm sims draw their samples from: SHA-256 of the game's
+    /// seed and turn (startBAI).
+    bai_seed: [32]u8,
+    /// The play a best-arm run picked, which ranks first.
+    winner: ?usize = null,
 
     /// A sim of `moves` from `g` (whose seed is `seed` at turn `turn`),
     /// rolling each out `plies` plies. Single-threaded: thread 0 of Go's
@@ -222,7 +293,12 @@ pub const Sim = struct {
             .initial_player = g.on_turn,
             .initial_spread = g.pos.scores[g.on_turn] - g.pos.scores[1 - g.on_turn],
             .stat_buf = stat_buf,
+            .bai_seed = undefined,
         };
+        var buf: [40]u8 = undefined;
+        buf[0..32].* = seed;
+        std.mem.writeInt(u64, buf[32..40], turn, .big);
+        std.crypto.hash.sha2.Sha256.hash(&buf, &sim.bai_seed, .{});
         // The copies draw the bag as it lies, after one shuffle from the
         // thread's source (makeGameCopies).
         sim.start.paired = false;
@@ -247,7 +323,7 @@ pub const Sim = struct {
         self.dealOpponent();
         for (self.plays) |*p| {
             if (p.ignored) continue;
-            try self.rollout(p);
+            _ = try self.rollout(p);
         }
         self.iterations += 1;
     }
@@ -267,7 +343,64 @@ pub const Sim = struct {
         self.rng = g.rng;
     }
 
-    fn rollout(self: *Sim, p: *Play) Allocator.Error!void {
+    /// A best-arm sim: samples are single rollouts of one play, and the
+    /// runner picks which plays to roll out (mostly the leader and its
+    /// closest challenger) and when the leader is told apart from the rest
+    /// (Go's simBAI with one thread). Sample n of every play deals the
+    /// opponent the same rack and the bag the same draws.
+    pub fn runBai(self: *Sim, opts: BaiOptions) !bai.Result {
+        var runner = try bai.Runner.init(self.gpa, self.plays.len);
+        defer runner.deinit();
+        const n: u64 = self.plays.len;
+        const cb: bai.Callbacks(*Sim) = .{ .ctx = self, .sample = baiSample, .similar = baiSimilar, .stop = opts.stop };
+        const res = try runner.run(.{
+            .delta = opts.delta,
+            .sample_minimum = opts.min_samples,
+            .cutoff = bai_cutoff,
+            .sample_limit = opts.cap_per_play * n,
+            .best_arm_limit = opts.best_play_cap,
+        }, cb);
+        self.winner = res.best;
+        self.iterations = res.samples / @max(n, 1);
+        return res;
+    }
+
+    fn baiSample(self: *Sim, arm: usize, ordinal: u64) anyerror!f64 {
+        var buf: [40]u8 = undefined;
+        buf[0..32].* = self.bai_seed;
+        std.mem.writeInt(u64, buf[32..40], ordinal, .big);
+        var seed: [32]u8 = undefined;
+        std.crypto.hash.sha2.Sha256.hash(&buf, &seed, .{});
+        self.dealSeeded(.init(seed));
+        const r = try self.rollout(&self.plays[arm]);
+        return baiReward(r.win, r.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
+    }
+
+    /// Deals the opponent a rack from the unseen tiles put in order and
+    /// shuffled with `rng`, which the bag then draws with
+    /// (SetRandomRackSeeded with nothing known).
+    fn dealSeeded(self: *Sim, rng: chacha8.Rng) void {
+        const g = &self.start;
+        const opp = 1 - self.initial_player;
+        var old: [tiles.max_alphabet_size]MachineLetter = undefined;
+        const n = g.pos.racks[opp].tiles(&old);
+        // Go puts them back with the last sample's source, but sorts the
+        // bag next, which undoes any order that gave.
+        g.bag.putBack(old[0..n]);
+        std.mem.sort(MachineLetter, g.bag.tiles[0..g.bag.len], {}, std.sort.asc(MachineLetter));
+        g.rng = rng;
+        g.bag.shuffle(&g.rng);
+        var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
+        const k = g.drawAtMost(&drawn);
+        g.pos.racks[opp] = .fromLetters(drawn[0..k]);
+        self.rng = g.rng;
+    }
+
+    fn baiSimilar(self: *Sim, a: usize, b: usize) bool {
+        return similarPlays(&self.plays[a].move, &self.plays[b].move);
+    }
+
+    fn rollout(self: *Sim, p: *Play) Allocator.Error!struct { win: f64, equity: f64 } {
         const g = &self.work;
         g.* = self.start;
         g.rng = self.rng;
@@ -297,10 +430,13 @@ pub const Sim = struct {
         }
         const ip = self.initial_player;
         const spread = g.pos.scores[ip] - g.pos.scores[1 - ip];
-        p.equity.push(@as(f64, @floatFromInt(spread - self.initial_spread)) + leftover);
+        const eq = @as(f64, @floatFromInt(spread - self.initial_spread)) + leftover;
+        p.equity.push(eq);
         p.leftover.push(leftover);
         const unseen = g.tilesInBag() + g.pos.racks[1 - ip].num_tiles;
-        p.win.push(self.win_table.rolloutWin(spread, leftover, !g.playing, unseen, self.plies % 2 == 0));
+        const win = self.win_table.rolloutWin(spread, leftover, !g.playing, unseen, self.plies % 2 == 0);
+        p.win.push(win);
+        return .{ .win = win, .equity = eq };
     }
 
     /// The best static move for the player on turn (GenBestStaticTurn).
@@ -349,6 +485,14 @@ pub const Sim = struct {
         };
         std.sort.insertion(*const Play, out[0..active], {}, S.lt);
         std.sort.insertion(*const Play, out[active..], {}, S.lt);
+        // A best-arm run's pick goes first: the best by the reward it ran
+        // on, which can differ from the order above between plays it
+        // could not tell apart.
+        const w = &self.plays[self.winner orelse return];
+        if (w.ignored) return;
+        const i = std.mem.indexOfScalar(*const Play, out, w).?;
+        std.mem.copyBackwards(*const Play, out[1 .. i + 1], out[0..i]);
+        out[0] = w;
     }
 };
 

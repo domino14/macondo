@@ -278,6 +278,9 @@ pub const Engine = struct {
         var iterations: u64 = 1000;
         var num_plays: usize = 15;
         var seed: u64 = 1;
+        var stop: ?u32 = null;
+        var cap: u64 = default_sim_cap;
+        var best_cap: u64 = default_sim_best_cap;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             const v = tokens.next() orelse return out.writeAll("error bad-go\n");
@@ -290,6 +293,12 @@ pub const Engine = struct {
                 num_plays = @intCast(n);
             } else if (std.mem.eql(u8, key, "seed")) {
                 seed = n;
+            } else if (std.mem.eql(u8, key, "stop") and sim_mod.stopDelta(@intCast(@min(n, 1000))) != null) {
+                stop = @intCast(n);
+            } else if (std.mem.eql(u8, key, "cap") and n >= 1) {
+                cap = n;
+            } else if (std.mem.eql(u8, key, "bestcap")) {
+                best_cap = n;
             } else return out.print("error bad-go {s}\n", .{key});
         }
         if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
@@ -309,7 +318,17 @@ pub const Engine = struct {
         defer self.gpa.destroy(sim);
         sim.* = try .init(self.gpa, g, game_seed, 0, moves, plies, win_table);
         defer sim.deinit();
-        if (g.playing) {
+        if (stop) |condition| {
+            const res = sim.runBai(.{
+                .delta = sim_mod.stopDelta(condition).?,
+                .cap_per_play = cap,
+                .best_play_cap = best_cap,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return out.print("error sim-failed {t}\n", .{err}),
+            };
+            try out.print("info sim status {s} rollouts {d}\n", .{ res.status.name(), res.samples });
+        } else if (g.playing) {
             for (0..iterations) |_| try sim.iterate();
         }
 
@@ -317,7 +336,7 @@ pub const Engine = struct {
         defer self.gpa.free(order);
         sim.ranked(order);
         for (order) |play| {
-            try out.print("info sim iterations {d} play ", .{sim.iterations});
+            try out.print("info sim iterations {d} play ", .{play.win.n});
             try play.move.format(p.dist, out);
             try out.print(" win {d} equity {d} stderr {d}\n", .{ play.win.mean(), play.equity.mean(), play.equity.stdErr() });
         }
@@ -362,6 +381,11 @@ pub const Engine = struct {
 };
 
 /// Writes "TooManyTiles" as "too-many-tiles", for error tokens.
+/// A best-arm sim's budget in rollouts per play, and the rollouts after
+/// which it settles for the leading play: the elite bot's.
+const default_sim_cap = 1000;
+const default_sim_best_cap = 10000;
+
 pub const Ranked = struct { m: Move, eq: f64 };
 
 /// Every move for the player on turn with its static equity (a pass gets

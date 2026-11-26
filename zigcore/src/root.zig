@@ -25,6 +25,8 @@ pub const wmp_movegen = @import("wmp_movegen.zig");
 pub const wordmap_gen = @import("wordmap_gen.zig");
 pub const sim = @import("sim.zig");
 pub const carry = @import("carry.zig");
+pub const gomath = @import("gomath.zig");
+pub const bai = @import("bai.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

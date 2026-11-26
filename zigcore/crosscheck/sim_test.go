@@ -1,6 +1,7 @@
 package crosscheck
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -25,6 +26,21 @@ var (
 	simPositions  = flag.Int("crosscheck.sims", 4, "positions per case in the sim cross-check")
 	simIterations = flag.Int("crosscheck.simiters", 60, "iterations per sim in the sim cross-check")
 )
+
+// simCase is how a position is simmed: a fixed number of iterations, or
+// with stop set, best-arm identification (the elite bot's stop rule) with
+// a budget of cap rollouts per play.
+type simCase struct {
+	plies, iters, stop, cap, bestCap int
+	seed                             uint64
+}
+
+func (c simCase) command() string {
+	if c.stop > 0 {
+		return fmt.Sprintf("go sim plies %d plays 10 seed %d stop %d cap %d bestcap %d", c.plies, c.seed, c.stop, c.cap, c.bestCap)
+	}
+	return fmt.Sprintf("go sim plies %d iterations %d plays 10 seed %d", c.plies, c.iters, c.seed)
+}
 
 // simResult is one play's sim statistics as both engines report them.
 type simResult struct {
@@ -58,47 +74,86 @@ func TestSimCrossCheck(t *testing.T) {
 				t.Skipf("no %s word graph", bc.lexicon)
 			}
 			positions := simPositionsFrom(t, cfg, bc, automatic.DeriveSeed(master, 0), *simPositions)
+			sims := 0
 			for i, cgpStr := range positions {
 				plies := 2 + i%3
-				seed := uint64(i + 1)
-				cmd := fmt.Sprintf("go sim plies %d iterations %d plays 10 seed %d", plies, *simIterations, seed)
-				if err := e.Send("position cgp " + cgpStr); err != nil {
-					t.Fatal(err)
-				}
-				lines, err := e.Command(cmd, "bestmove")
-				if err != nil {
-					t.Fatal(err)
-				}
-				zig := map[string]simResult{}
-				for _, l := range lines[:len(lines)-1] {
-					f := strings.Fields(l)
-					if len(f) != 12 || f[0] != "info" || f[1] != "sim" {
-						t.Fatalf("bad sim line %q", l)
-					}
-					var r simResult
-					r.iters, _ = strconv.Atoi(f[3])
-					r.win, _ = strconv.ParseFloat(f[7], 64)
-					r.equity, _ = strconv.ParseFloat(f[9], 64)
-					zig[f[5]] = r
-				}
-				want := goSim(t, cfg, cgpStr, automatic.DeriveSeed(seed, 0), plies, *simIterations, 10)
-				if len(want) != len(zig) {
-					t.Fatalf("%s: Go simmed %d plays, Zig %d", cgpStr, len(want), len(zig))
-				}
-				for m, w := range want {
-					z, ok := zig[m]
-					if !ok {
-						t.Fatalf("%s: Zig did not sim %s", cgpStr, m)
-					}
-					if w != z {
-						t.Fatalf("%s (%s): %s: Go %+v, Zig %+v", cgpStr, cmd, m, w, z)
-					}
+				for _, c := range []simCase{
+					{plies: plies, iters: *simIterations, seed: uint64(i + 1)},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1)},
+				} {
+					compareSim(t, e, cfg, cgpStr, c)
+					sims++
 				}
 			}
-			t.Logf("%d sims match", len(positions))
+			t.Logf("%d sims match", sims)
 		})
 	}
+	t.Logf("%d best-arm sims sampled adaptively", adaptiveSims)
+	if adaptiveSims == 0 {
+		t.Error("no best-arm sim got past its round-robin phase")
+	}
 }
+
+// compareSim sims a position in both engines and compares every play's
+// statistics, and for a best-arm sim the play picked and why it stopped.
+func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c simCase) {
+	t.Helper()
+	cmd := c.command()
+	if err := e.Send("position cgp " + cgpStr); err != nil {
+		t.Fatal(err)
+	}
+	lines, err := e.Command(cmd, "bestmove")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zig := map[string]simResult{}
+	zigStatus := ""
+	for _, l := range lines[:len(lines)-1] {
+		f := strings.Fields(l)
+		if len(f) == 6 && f[1] == "sim" && f[2] == "status" {
+			zigStatus = f[3]
+			continue
+		}
+		if len(f) != 12 || f[0] != "info" || f[1] != "sim" {
+			t.Fatalf("bad sim line %q", l)
+		}
+		var r simResult
+		r.iters, _ = strconv.Atoi(f[3])
+		r.win, _ = strconv.ParseFloat(f[7], 64)
+		r.equity, _ = strconv.ParseFloat(f[9], 64)
+		zig[f[5]] = r
+	}
+	zigBest := strings.TrimPrefix(lines[len(lines)-1], "bestmove ")
+	want, best, status := goSim(t, cfg, cgpStr, automatic.DeriveSeed(c.seed, 0), c, 10)
+	if len(want) != len(zig) {
+		t.Fatalf("%s: Go simmed %d plays, Zig %d", cgpStr, len(want), len(zig))
+	}
+	for m, w := range want {
+		z, ok := zig[m]
+		if !ok {
+			t.Fatalf("%s: Zig did not sim %s", cgpStr, m)
+		}
+		if w != z {
+			t.Fatalf("%s (%s): %s: Go %+v, Zig %+v", cgpStr, cmd, m, w, z)
+		}
+	}
+	if c.stop > 0 && (best != zigBest || status != zigStatus) {
+		t.Fatalf("%s (%s): Go picked %s (%s), Zig %s (%s)", cgpStr, cmd, best, status, zigBest, zigStatus)
+	}
+	if c.stop > 0 {
+		counts := map[int]bool{}
+		for _, r := range zig {
+			counts[r.iters] = true
+		}
+		if len(counts) > 1 {
+			adaptiveSims++
+		}
+	}
+}
+
+// adaptiveSims counts the best-arm sims that got past the round-robin
+// phase, where every play has the same number of rollouts.
+var adaptiveSims int
 
 // simPositionsFrom plays a seeded static game and returns up to n of its
 // positions, as CGPs with the opponent's rack hidden, spread over the turns
@@ -146,7 +201,7 @@ func simPositionsFrom(t *testing.T, cfg *config.Config, bc boardCase, seed [32]b
 // play's statistics by UCGI move. The bag is sorted first: Go leaves it in
 // whatever order building the game left it, the Zig engine in machine
 // letter order, and the sim shuffles that order.
-func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, plies, iters, nplays int) map[string]simResult {
+func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, c simCase, nplays int) (map[string]simResult, string, string) {
 	t.Helper()
 	g := parseCGP(t, cfg, cgpStr)
 	slices.Sort(g.Bag().Tiles())
@@ -165,17 +220,31 @@ func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, plies
 	s.Init(g, []equity.EquityCalculator{calc}, calc, cfg)
 	s.SetThreads(1)
 	s.SetEndgameLeaves(false)
-	if err := s.PrepareSim(plies, plays); err != nil {
+	if err := s.PrepareSim(c.plies, plays); err != nil {
 		t.Fatal(err)
 	}
-	s.SimSingleThread(iters, plies)
+	if c.stop > 0 {
+		if c.stop != 99 {
+			t.Fatalf("stop %d not set up", c.stop)
+		}
+		s.SetStoppingCondition(montecarlo.Stop99)
+		s.SetStopRule(montecarlo.StopRuleBAI)
+		s.SetStopCapPerPlay(c.cap)
+		s.SetBAIBestPlayCap(c.bestCap)
+		if err := s.Simulate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		s.SimSingleThread(c.iters, c.plies)
+	}
 	out := map[string]simResult{}
-	for _, sp := range s.PlaysByWinProb().PlaysNoLock() {
+	ranked := s.PlaysByWinProb().PlaysNoLock()
+	for _, sp := range ranked {
 		out[ucgiMove(sp.Move(), g.Alphabet())] = simResult{
 			win:    sp.WinProb(),
 			equity: sp.EquityMean(),
 			iters:  sp.WinProbIterations(),
 		}
 	}
-	return out
+	return out, ucgiMove(ranked[0].Move(), g.Alphabet()), s.BAIStatus()
 }
