@@ -482,7 +482,7 @@ test "incremental cross-set updates match regenerating everything" {
         defer testing.allocator.destroy(gen);
         gen.* = .init(testing.allocator, &pos.board, pos.lexicon.kwg, pos.dist);
         defer gen.deinit();
-        for (0..6) |seed| {
+        for (0..20) |seed| {
             var g: Game = .start(&pos, @splat(@intCast(seed)), seed % 2 == 1);
             gen.board = &g.pos.board;
             while (g.playing) {
@@ -495,5 +495,5 @@ test "incremental cross-set updates match regenerating everything" {
             }
         }
     }
-    try testing.expect(moves > 100);
+    try testing.expect(moves > 1000);
 }
