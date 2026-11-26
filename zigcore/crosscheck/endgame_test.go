@@ -60,7 +60,9 @@ func TestEndgameCrossCheck(t *testing.T) {
 			for i := 0; i < *endgamesFlag; i++ {
 				cgpStr := endgamePosition(t, cfg, bc, uint64(i))
 				plies := 1 + i%*endgamePlies
-				compareEndgame(t, e, cfg, cgpStr, plies)
+				for _, v := range endgameVariants {
+					compareEndgame(t, e, cfg, cgpStr, plies, v)
+				}
 				if t.Failed() {
 					return
 				}
@@ -131,9 +133,8 @@ func endgamePosition(t *testing.T, cfg *config.Config, bc boardCase, seed uint64
 
 // goEndgameSolver sets up Go's solver as the cross-check compares it: one
 // thread and a table of 2^24 entries. Its other options are the defaults;
-// the speed-only ones the Zig port lacks (incremental move lists, the cache
-// of playout tails) change neither values nor the count of positions
-// searched.
+// the cache of playout tails, which the Zig engine lacks, changes neither
+// values nor the count of positions searched.
 func goEndgameSolver(t testing.TB, cfg *config.Config, cgpStr string) (*negamax.Solver, *negamax.TranspositionTable) {
 	t.Helper()
 	g := parseCGP(t, cfg, cgpStr)
@@ -152,13 +153,30 @@ func goEndgameSolver(t testing.TB, cfg *config.Config, cgpStr string) (*negamax.
 	tt.Reset(1e-12, g.Board().Dim())
 	s.SetTTable(tt)
 	s.SetTTableFraction(1e-12)
-	s.SetPrunedKWGOptim(false)
 	return s, tt
 }
 
-func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int) {
+// An endgame configuration to compare: the Go solver's settings and the
+// Zig engine's go endgame options. With nodes set the searches must be the
+// same node for node; otherwise (the Zig engine's own defaults, which take
+// MAGPIE's aspiration windows) only the value and the depth reached.
+type endgameVariant struct {
+	name   string
+	goSet  func(*negamax.Solver)
+	zigOpt string
+	nodes  bool
+}
+
+var endgameVariants = []endgameVariant{
+	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration", true},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration", true},
+	{"zig-defaults", func(*negamax.Solver) {}, "", false},
+}
+
+func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int, v endgameVariant) {
 	t.Helper()
 	s, tt := goEndgameSolver(t, cfg, cgpStr)
+	v.goSet(s)
 	keys := filepath.Join(t.TempDir(), "zobrist.json")
 	f, err := os.Create(keys)
 	if err != nil {
@@ -183,7 +201,7 @@ func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, 
 	if err := e.Send("position cgp " + cgpStr); err != nil {
 		t.Fatal(err)
 	}
-	lines, err := e.Command(fmt.Sprintf("go endgame plies %d", plies), "bestmove")
+	lines, err := e.Command(fmt.Sprintf("go endgame plies %d %s", plies, v.zigOpt), "bestmove")
 	if err != nil {
 		t.Fatalf("%s: %v", cgpStr, err)
 	}
@@ -196,11 +214,16 @@ func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, 
 	}
 	got := fmt.Sprintf("value %s nodes %s", f2[5], f2[7])
 	gotBest := strings.TrimPrefix(lines[len(lines)-1], "bestmove ")
+	if !v.nodes {
+		// Only the value: equal values can come with other best moves.
+		want = fmt.Sprintf("value %d", val)
+		got = "value " + f2[5]
+		wantBest, gotBest = "", ""
+	}
 	if got != want || gotBest != wantBest {
-		t.Errorf("%s, %d plies: Go %s best %s (%s), Zig %s best %s\n  %s", cgpStr, plies, want, wantBest,
+		t.Errorf("%s, %d plies, %s: Go %s best %s (%s), Zig %s best %s\n  %s", cgpStr, plies, v.name, want, wantBest,
 			s.ShortDetails(), got, gotBest, strings.Join(lines, "\n  "))
 	}
-	t.Logf("%d plies: %s best %s", plies, got, gotBest)
 	if d, _ := strconv.Atoi(f2[3]); d != plies {
 		t.Errorf("%s: Zig reached depth %d of %d", cgpStr, d, plies)
 	}

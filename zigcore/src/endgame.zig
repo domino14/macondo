@@ -27,6 +27,7 @@ const zobrist_mod = @import("zobrist.zig");
 const ttable = @import("ttable.zig");
 const gosort = @import("gosort.zig");
 const pathlists = @import("pathlists.zig");
+const wordprune = @import("wordprune.zig");
 const MachineLetter = tiles.MachineLetter;
 const Rack = tiles.Rack;
 const Board = board_mod.Board;
@@ -35,6 +36,7 @@ const Move = move_mod.Move;
 pub const huge: i16 = 32000;
 pub const max_variant = 25;
 const max_playout = max_variant;
+const aspiration_window = 25;
 const early_pass_bf: i16 = 1 << 13;
 const hash_move_bf: i16 = 1 << 12;
 const going_out_bf: i16 = 1 << 11;
@@ -149,6 +151,24 @@ pub const Options = struct {
     lists: bool = true,
     /// Compare every derived list with a full generation (tests).
     check_lists: bool = false,
+    /// Order moves by MAGPIE's estimate (assignEstimatesHeuristic): the
+    /// score less the face value of the tiles played, and when the
+    /// opponent has stuck tiles the conservation bonus and build chains.
+    /// Go's default is its own ordering, which searches more positions
+    /// on typical endgames (a third more at 6 plies on 100 from static
+    /// games) though fewer on some deep, wide ones.
+    magpie_ordering: bool = true,
+    /// Generate moves and cross-sets over a word graph of only the words
+    /// this endgame's tiles can make (speed only).
+    pruned_kwg: bool = true,
+    /// Search each depth after the first in a window around the last
+    /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
+    /// single-threaded search has none). The value is the same; the
+    /// positions searched differ.
+    aspiration: bool = true,
+    /// Clear the table (to `tt_bytes`) before solving; off when the
+    /// caller has just done so (benchmarks time the solve alone).
+    clear_tt: bool = true,
 };
 
 const max_lanes = 2 * board_mod.max_dim;
@@ -568,6 +588,11 @@ pub const Solver = struct {
     playout_nodes: u64 = 0,
     stop: ?*const std.atomic.Value(bool) = null,
     lists: ?pathlists.PathLists = null,
+    pruned: ?wordprune.Pruned = null,
+    sort_keys: std.ArrayList(u64) = .empty,
+    bc_values: std.ArrayList(i32) = .empty,
+    bc_order: std.ArrayList(usize) = .empty,
+    sort_moves: std.ArrayList(SmallMove) = .empty,
 
     /// A solver for `p`'s position, the player on turn solving. `zobrist`
     /// and `tt` are shared with the caller, who sizes the table (Solve
@@ -607,11 +632,16 @@ pub const Solver = struct {
     pub fn deinit(self: *Solver) void {
         const gpa = self.gpa;
         if (self.lists) |*l| l.deinit();
+        if (self.pruned) |*pr| pr.deinit(gpa);
         self.gen.deinit();
         self.cross_cache.deinit(gpa);
         self.frames.deinit(gpa);
         self.saved.deinit(gpa);
         self.arena.deinit(gpa);
+        self.sort_keys.deinit(gpa);
+        self.bc_values.deinit(gpa);
+        self.bc_order.deinit(gpa);
+        self.sort_moves.deinit(gpa);
         gpa.free(self.saved_by);
         gpa.destroy(self);
     }
@@ -802,7 +832,8 @@ pub const Solver = struct {
         return self.arena.items[start..];
     }
 
-    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64) void {
+    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64) Allocator.Error!void {
+        if (self.opts.heuristics and self.opts.magpie_ordering) return self.assignEstimatesMagpie(moves, tt_move);
         const on = self.on_turn;
         const num_tiles = self.racks[on].num_tiles;
         const last_was_pass = self.scoreless > self.last_scoreless;
@@ -818,17 +849,159 @@ pub const Solver = struct {
             if (m.tm == tt_move) m.est +%= hash_move_bf;
             if (last_was_pass and m.isPass()) m.est +%= early_pass_bf;
         }
-        sortByEstimate(moves);
+        try self.sortByEstimate(moves);
     }
 
-    /// Best estimate first, ties in the order they came (a stable sort).
-    fn sortByEstimate(moves: []SmallMove) void {
-        if (moves.len < 2) return;
-        std.mem.sort(SmallMove, moves, {}, struct {
-            fn f(_: void, a: SmallMove, b: SmallMove) bool {
+    const max_non_going_out_estimate: i32 = going_out_bf - 1;
+
+    /// MAGPIE's move ordering, as Go's assignEstimatesHeuristic has it.
+    fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64) Allocator.Error!void {
+        const on = self.on_turn;
+        const num_tiles = self.racks[on].num_tiles;
+        const last_was_pass = self.scoreless > self.last_scoreless;
+        const frac = try self.oppStuckFraction();
+        const build = try self.buildChainValues(moves, frac);
+        const other_score = self.racks[1 - on].scoreOn(self.dist);
+        for (moves, 0..) |*m, i| {
+            const tp = m.tiles_played;
+            const partial = !m.isPass() and tp < num_tiles;
+            var bonus: i32 = 0;
+            if (frac > 0 and partial) bonus = self.conservationBonus(m.*, frac);
+            if (tp == num_tiles) {
+                m.est = @as(i16, @truncate(@as(i32, m.score) + 2 * other_score)) +% going_out_bf;
+            } else {
+                var estimate: i32 = m.score;
+                if (build) |bv| {
+                    if (bv[i] > estimate) estimate += @intFromFloat(frac * @as(f32, @floatFromInt(bv[i] - estimate)));
+                    estimate -= bonus;
+                } else {
+                    estimate -= bonus;
+                    if (partial) estimate -= self.playedTilesFace(m.*);
+                }
+                estimate = std.math.clamp(estimate, -max_non_going_out_estimate, max_non_going_out_estimate);
+                m.est = @intCast(estimate);
+            }
+            if (m.tm == tt_move) m.est +%= hash_move_bf;
+            if (last_was_pass and m.isPass()) m.est +%= early_pass_bf;
+        }
+        gosort.slice(SmallMove, moves, {}, struct {
+            fn less(_: void, a: SmallMove, b: SmallMove) bool {
                 return a.est > b.est;
             }
-        }.f);
+        }.less);
+    }
+
+    /// Rewards moves that build toward longer plays when the opponent is
+    /// stuck (computeBuildChainValues): a play contained in a longer one
+    /// of the same tiles is worth its score plus the best containing
+    /// play's value. Null unless the opponent has stuck tiles.
+    fn buildChainValues(self: *Solver, moves: []const SmallMove, frac: f32) Allocator.Error!?[]i32 {
+        if (frac <= 0 or moves.len <= 1) return null;
+        const n = moves.len;
+        try self.bc_values.resize(self.gpa, n);
+        try self.bc_order.resize(self.gpa, n);
+        const values = self.bc_values.items;
+        const order = self.bc_order.items;
+        for (order, 0..) |*o, i| o.* = i;
+        // By tiles played, most first (an insertion sort, as Go's).
+        var i: usize = 1;
+        while (i < n) : (i += 1) {
+            const key = order[i];
+            const tp = moves[key].tiles_played;
+            var j = i;
+            while (j > 0 and moves[order[j - 1]].tiles_played < tp) : (j -= 1) order[j] = order[j - 1];
+            order[j] = key;
+        }
+        var tiles_a: [board_mod.max_dim]MachineLetter = undefined;
+        var tiles_b: [board_mod.max_dim]MachineLetter = undefined;
+        for (0..n) |oi| {
+            const ia = order[oi];
+            const a = moves[ia];
+            values[ia] = a.score;
+            if (a.isPass()) continue;
+            var a_ready = false;
+            var best_ext: i32 = 0;
+            for (0..oi) |oj| {
+                const jb = order[oj];
+                const b = moves[jb];
+                if (b.isPass() or b.tiles_played <= a.tiles_played) continue;
+                if (b.vertical() != a.vertical()) continue;
+                var contained: bool = undefined;
+                var offset: usize = 0;
+                if (a.vertical()) {
+                    contained = a.col() == b.col() and a.row() >= b.row() and a.row() + a.len <= b.row() + b.len;
+                    if (contained) offset = a.row() - b.row();
+                } else {
+                    contained = a.row() == b.row() and a.col() >= b.col() and a.col() + a.len <= b.col() + b.len;
+                    if (contained) offset = a.col() - b.col();
+                }
+                if (!contained) continue;
+                if (!a_ready) {
+                    self.moveTiles(a, &tiles_a);
+                    a_ready = true;
+                }
+                self.moveTiles(b, &tiles_b);
+                var match = true;
+                for (0..a.len) |ti| {
+                    if (tiles_a[ti] == 0) continue;
+                    const bi = ti + offset;
+                    if (bi >= b.len or tiles_a[ti] != tiles_b[bi]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (!match) continue;
+                best_ext = @max(best_ext, values[jb]);
+            }
+            if (best_ext > 0) values[ia] += best_ext;
+        }
+        return values;
+    }
+
+    /// Best estimate first, ties in the order they came (Go sorts the
+    /// estimate above the index): a stable sort, by insertion for a few
+    /// moves and otherwise by two counting passes over the estimate's
+    /// bytes.
+    fn sortByEstimate(self: *Solver, moves: []SmallMove) Allocator.Error!void {
+        const n = moves.len;
+        if (n < 2) return;
+        if (n <= 24) {
+            var i: usize = 1;
+            while (i < n) : (i += 1) {
+                const m = moves[i];
+                var j = i;
+                while (j > 0 and moves[j - 1].est < m.est) : (j -= 1) moves[j] = moves[j - 1];
+                moves[j] = m;
+            }
+            return;
+        }
+        try self.sort_moves.resize(self.gpa, n);
+        const tmp = self.sort_moves.items;
+        // The key: larger estimates first.
+        const key = struct {
+            inline fn f(m: SmallMove) u16 {
+                return @intCast(32767 - @as(i32, m.est));
+            }
+        }.f;
+        var counts: [2][257]u32 = @splat(@splat(0));
+        for (moves) |m| {
+            const k = key(m);
+            counts[0][(k & 0xff) + 1] += 1;
+            counts[1][(k >> 8) + 1] += 1;
+        }
+        for (0..2) |pass| {
+            for (1..257) |b| counts[pass][b] += counts[pass][b - 1];
+        }
+        for (moves) |m| {
+            const b = key(m) & 0xff;
+            tmp[counts[0][b]] = m;
+            counts[0][b] += 1;
+        }
+        for (tmp) |m| {
+            const b = key(m) >> 8;
+            moves[counts[1][b]] = m;
+            counts[1][b] += 1;
+        }
     }
 
     // ---- the greedy playout ----
@@ -1205,7 +1378,7 @@ pub const Solver = struct {
         const at_root = self.current_depth == depth;
         const num_children = if (at_root) self.root_moves.len else blk: {
             const children = try self.generate();
-            self.assignEstimates(children, depth, tt_move);
+            try self.assignEstimates(children, depth, tt_move);
             break :blk children.len;
         };
 
@@ -1326,7 +1499,14 @@ pub const Solver = struct {
     /// depth's result.
     pub fn solve(self: *Solver, plies: u32, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Result {
         if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
-        try self.tt.reset(self.gpa, self.opts.tt_bytes);
+        if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
+        if (self.opts.pruned_kwg and self.pruned == null) {
+            if (try wordprune.generate(self.gpa, &self.board, &self.racks[0], &self.racks[1], self.numLetters(), self.kwg)) |pr| {
+                self.pruned = pr;
+                self.kwg = self.pruned.?.kwg();
+                self.gen.kwg = self.kwg;
+            }
+        }
         if (self.lists) |*l| l.reset(self.frames.items.len);
         self.initial_spread = self.spreadFor(0);
         self.stack_len = plies + 2 + max_playout;
@@ -1345,19 +1525,46 @@ pub const Solver = struct {
         self.root_moves = try self.gpa.dupe(SmallMove, root);
         defer self.gpa.free(self.root_moves);
         self.arena.clearRetainingCapacity();
-        self.assignEstimates(self.root_moves, 0, ttable.invalid_move);
+        try self.assignEstimates(self.root_moves, 0, ttable.invalid_move);
 
         var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
         var reported = true;
-        var p: u32 = if (self.opts.iterative_deepening) 1 else plies;
+        const start: u32 = if (self.opts.iterative_deepening) 1 else plies;
+        var p = start;
+        var prev_value: i32 = 0;
         while (p <= plies) : (p = nextDepth(p, plies)) {
             self.current_depth = @intCast(p);
             var pv: Line = .{};
-            const impure_before = self.impure;
-            const val = self.negamax(key, @intCast(p), alpha, beta, &pv, true) catch |err| switch (err) {
-                error.Stopped => break,
-                else => |e| return e,
-            };
+            var impure_before = self.impure;
+            var val: i16 = undefined;
+            if (self.opts.aspiration and p > start and !self.opts.first_win) {
+                // MAGPIE's: 25 points either side, doubled each failure.
+                var window: i32 = aspiration_window;
+                var a: i32 = prev_value - window;
+                var b: i32 = prev_value + window;
+                while (true) {
+                    pv = .{};
+                    impure_before = self.impure;
+                    val = self.negamax(key, @intCast(p), @intCast(std.math.clamp(a, -huge, huge)), @intCast(std.math.clamp(b, -huge, huge)), &pv, true) catch |err| switch (err) {
+                        error.Stopped => break,
+                        else => |e| return e,
+                    };
+                    if (val <= a) {
+                        a = if (window >= huge / 2) -huge else prev_value - 2 * window;
+                        window *= 2;
+                    } else if (val >= b) {
+                        b = if (window >= huge / 2) huge else prev_value + 2 * window;
+                        window *= 2;
+                    } else break;
+                }
+                if (self.stop) |st| if (st.load(.monotonic)) break;
+            } else {
+                val = self.negamax(key, @intCast(p), alpha, beta, &pv, true) catch |err| switch (err) {
+                    error.Stopped => break,
+                    else => |e| return e,
+                };
+            }
+            prev_value = val;
             const root_pure = self.impure == impure_before;
             gosort.slice(SmallMove, self.root_moves, {}, struct {
                 fn less(_: void, a: SmallMove, b: SmallMove) bool {

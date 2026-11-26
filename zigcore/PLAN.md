@@ -176,8 +176,12 @@ as they land.
       Done: the single-threaded search (`go endgame`), with Go's keys handed
       over (`zobrist-file`) and the same table size identical to Go's in
       value, best move and positions searched (`TestEndgameCrossCheck`),
-      incremental move lists, keep-one and out-reply bounds included. Left:
-      PV split and ABDADA, the pruned word graph and the playout-tail cache.
+      incremental move lists, keep-one and out-reply bounds and the pruned
+      word graph included. From MAGPIE: its move ordering (Go's
+      magpieOrdering, the default here) and aspiration windows; the
+      cross-check runs Go's ordering and MAGPIE's node for node, and the
+      defaults by value. Left: PV split and ABDADA, and MAGPIE's speed
+      (its leaf playouts take their first move from the move lists).
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
 - [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.

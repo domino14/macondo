@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
         const profile = init.environ_map.get("BENCH_PROFILE");
         if (profile != null) Profiler.start();
         defer if (profile) |path| Profiler.stop(io, path) catch {};
-        return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, &w.interface);
+        return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, init.environ_map.get("BENCH_GO_ORDER") != null, &w.interface);
     }
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "sim")) {
         const profile = init.environ_map.get("BENCH_PROFILE");
@@ -204,9 +204,9 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
 
 /// BENCH_MODE=endgame: solves each position's endgame to `plies` plies
 /// (the second argument) on one thread, with a table of 2^24 entries
-/// cleared before each (`go endgame plies <n>`). With BENCH_ROWS, a line
-/// per position.
-fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, plies: u32, rows: bool, w: *Io.Writer) !void {
+/// cleared before each, outside the timing (`go endgame plies <n>`). With BENCH_ROWS, a line
+/// per position; with BENCH_GO_ORDER, Go's move ordering.
+fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, plies: u32, rows: bool, go_order: bool, w: *Io.Writer) !void {
     var tt: macondo.ttable.Table = .{};
     defer tt.deinit(gpa);
     var zobrist: ?macondo.zobrist.Zobrist = null;
@@ -219,8 +219,10 @@ fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Po
             if (zobrist) |*z| z.deinit(gpa);
             zobrist = try .init(gpa, p.board.dim, @splat(0x5a));
         }
+        // As MAGPIE's benchmark: the table is cleared before the clock starts.
+        try tt.reset(gpa, 256 << 20);
         const start = Io.Timestamp.now(io, .awake);
-        const solver = try macondo.endgame.Solver.init(gpa, p, &zobrist.?, &tt, .{});
+        const solver = try macondo.endgame.Solver.init(gpa, p, &zobrist.?, &tt, .{ .clear_tt = false, .magpie_ordering = !go_order });
         defer solver.deinit();
         const r = try solver.solve(plies, null, null);
         const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;

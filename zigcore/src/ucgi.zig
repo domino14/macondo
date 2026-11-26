@@ -500,7 +500,9 @@ pub const Engine = struct {
     }
 
     /// `go endgame plies <n> [firstwin] [noid] [noheur] [nolists]
-    /// [nooutreply] [nokeepone] [noshortcuts] [checklists]`: solves the
+    /// [magpieorder|goorder] [nopruned] [noaspiration] [nooutreply] [nokeepone]
+    /// [noshortcuts] [checklists]`:
+    /// solves the
     /// endgame (the bag must be empty) to n plies on one thread, writing
     /// `info endgame depth <d> value <v> nodes <n> pv <moves>` after each
     /// depth (v: the change in the spread of the player on turn), then
@@ -521,6 +523,14 @@ pub const Engine = struct {
                 opts.heuristics = false;
             } else if (std.mem.eql(u8, key, "nolists")) {
                 opts.lists = false;
+            } else if (std.mem.eql(u8, key, "magpieorder")) {
+                opts.magpie_ordering = true;
+            } else if (std.mem.eql(u8, key, "goorder")) {
+                opts.magpie_ordering = false;
+            } else if (std.mem.eql(u8, key, "nopruned")) {
+                opts.pruned_kwg = false;
+            } else if (std.mem.eql(u8, key, "noaspiration")) {
+                opts.aspiration = false;
             } else if (std.mem.eql(u8, key, "nooutreply")) {
                 opts.out_reply = false;
             } else if (std.mem.eql(u8, key, "nokeepone")) {

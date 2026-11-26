@@ -35,6 +35,8 @@ pub const infer = @import("infer.zig");
 pub const zobrist = @import("zobrist.zig");
 pub const ttable = @import("ttable.zig");
 pub const endgame = @import("endgame.zig");
+pub const wordprune = @import("wordprune.zig");
+pub const pathlists = @import("pathlists.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

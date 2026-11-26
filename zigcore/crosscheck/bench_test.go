@@ -235,7 +235,6 @@ func BenchmarkEndgame(b *testing.B) {
 		for _, line := range lines {
 			b.StopTimer()
 			s, _ := goEndgameSolver(b, cfg, line)
-			s.SetPrunedKWGOptim(true)
 			b.StartTimer()
 			v, _, err := s.Solve(context.Background(), *benchEndgamePlies)
 			if err != nil {
