@@ -678,8 +678,8 @@ fn record(gen: *Generator, comptime W: bool) void {
             use_wmp_leaves = s.tiles_in_bag > 0;
         }
     }
-    var tiles_played_score: i32 = 0;
-    for (s.desc_tile_scores, s.desc_eff_letter_muls) |t, m| tiles_played_score += t * m;
+    const V = @Vector(rack_tile_limit, i32);
+    const tiles_played_score = @reduce(.Add, @as(V, s.desc_tile_scores) * @as(V, s.desc_eff_letter_muls));
     const bingo: i32 = if (gen.tiles_played == rack_tile_limit) movegen.bingo_bonus else 0;
     const score = tiles_played_score + s.mainword_restricted_score * s.word_multiplier + s.perp_additional_score + bingo;
 
@@ -691,8 +691,9 @@ fn record(gen: *Generator, comptime W: bool) void {
         if (word_length >= @import("wmp.zig").minimum_word_length) {
             // The tiles this bound places: the rack's, less those past its
             // unrestricted squares' multipliers.
-            var shadow_tile_score_sum = s.rack_tile_score_sum;
-            for (s.num_unrestricted_muls..rack_tile_limit) |i| shadow_tile_score_sum -= s.desc_tile_scores[i];
+            const lanes = std.simd.iota(u8, rack_tile_limit);
+            const past: @Vector(rack_tile_limit, bool) = lanes >= @as(@Vector(rack_tile_limit, u8), @splat(@intCast(s.num_unrestricted_muls)));
+            const shadow_tile_score_sum = s.rack_tile_score_sum - @reduce(.Add, @select(i32, past, @as(V, s.desc_tile_scores), @as(V, @splat(0))));
             const smallest_mul: i32 = if (s.num_unrestricted_muls > 0) s.desc_eff_letter_muls[s.num_unrestricted_muls - 1] else wmp_movegen.score_base_count;
             gen.wmp_gen.recordPlacement(gen.tiles_played, word_length, s.left_col, score, eq, shadow_tile_score_sum, smallest_mul);
         }
