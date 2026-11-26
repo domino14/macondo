@@ -69,7 +69,7 @@ Rules for the layers:
 | `src/montecarlo/` | `sim.zig`, `bai.zig`, `classic.zig` |
 | `src/rangefinder/` | `infer.zig` |
 | `src/endgame/` | `endgame.zig`, `ttable.zig`, `zobrist.zig`, `pathlists.zig`, `wordprune.zig` |
-| `src/gocompat/` | Go-exact algorithms and their golden files: `gosort.zig`, `gorand.zig`, `gomath.zig`, the frand-compatible parts of `chacha8.zig` |
+| `src/gocompat/` | Go-exact algorithms and their golden files: `gosort.zig`, `gorand.zig`, `gomath.zig`, `chacha8.zig` (frand's generator, which the bag draws with) |
 | `src/testing/` | `testdata.zig` |
 
 A folder is only grouping: Zig's privacy is per file (a declaration

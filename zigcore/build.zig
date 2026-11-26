@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "macondo-zig",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("src/adapter/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
     const bench = b.addExecutable(.{
         .name = "macondo-zig-bench",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bench.zig"),
+            .root_source_file = b.path("src/adapter/bench.zig"),
             .target = target,
             .optimize = optimize,
             .link_libc = bench_libc,

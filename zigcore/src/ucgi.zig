@@ -6,23 +6,23 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const data = @import("data.zig");
-const tiles = @import("tiles.zig");
-const board_mod = @import("board.zig");
-const cross_set = @import("cross_set.zig");
-const move_mod = @import("move.zig");
-const Position = @import("position.zig").Position;
-const movegen = @import("movegen.zig");
-const Move = @import("move.zig").Move;
-const equity = @import("equity.zig");
-const game_mod = @import("game.zig");
-const sim_mod = @import("sim.zig");
-const classic = @import("classic.zig");
-const infer_mod = @import("infer.zig");
-const endgame = @import("endgame.zig");
-const zobrist_mod = @import("zobrist.zig");
-const ttable = @import("ttable.zig");
-const bai_mod = @import("bai.zig");
+const data = @import("data/data.zig");
+const tiles = @import("data/tiles.zig");
+const board_mod = @import("board/board.zig");
+const cross_set = @import("board/cross_set.zig");
+const move_mod = @import("board/move.zig");
+const Position = @import("board/position.zig").Position;
+const movegen = @import("movegen/movegen.zig");
+const Move = @import("board/move.zig").Move;
+const equity = @import("equity/equity.zig");
+const game_mod = @import("game/game.zig");
+const sim_mod = @import("montecarlo/sim.zig");
+const classic = @import("montecarlo/classic.zig");
+const infer_mod = @import("rangefinder/infer.zig");
+const endgame = @import("endgame/endgame.zig");
+const zobrist_mod = @import("endgame/zobrist.zig");
+const ttable = @import("endgame/ttable.zig");
+const bai_mod = @import("montecarlo/bai.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -319,7 +319,7 @@ pub const Engine = struct {
         defer gen.deinit();
         gen.word_map = p.word_map;
         gen.rit = p.rit;
-        var cross_cache: @import("cross_set.zig").Cache = try .init(self.gpa, @import("cross_set.zig").Cache.default_index_bits);
+        var cross_cache: @import("board/cross_set.zig").Cache = try .init(self.gpa, @import("board/cross_set.zig").Cache.default_index_bits);
         defer cross_cache.deinit(self.gpa);
         for (0..games) |gi| {
             const seed = game_mod.deriveSeed(master, if (pairs) gi / 2 else gi);
@@ -748,7 +748,7 @@ pub const Engine = struct {
     fn printCgp(self: *Engine, out: *Writer) Writer.Error!void {
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         try out.writeAll("cgp ");
-        try @import("cgp.zig").writeFields(&p.board, p.dist, p.racks, p.scores, p.scoreless_turns, out);
+        try @import("board/cgp.zig").writeFields(&p.board, p.dist, p.racks, p.scores, p.scoreless_turns, out);
         try out.writeAll("\n");
     }
 
@@ -1086,7 +1086,7 @@ test "setoption" {
 }
 
 test "go static and gen with equities" {
-    const testdata = @import("testdata.zig");
+    const testdata = @import("testing/testdata.zig");
     const build_options = @import("build_options");
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
@@ -1116,7 +1116,7 @@ test "go static and gen with equities" {
 }
 
 test "go sim runs in the background" {
-    const testdata = @import("testdata.zig");
+    const testdata = @import("testing/testdata.zig");
     const build_options = @import("build_options");
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
