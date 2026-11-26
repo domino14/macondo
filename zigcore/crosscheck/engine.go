@@ -192,3 +192,23 @@ func (e *Engine) quit() error {
 		return errors.New("engine did not exit after quit; killed")
 	}
 }
+
+// RSS is the engine process's resident anonymous memory in kB: what it
+// allocated, not files it mapped (Linux only: from /proc; an error
+// elsewhere).
+func (e *Engine) RSS() (int, error) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", e.cmd.Process.Pid))
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "RssAnon:") {
+			var kb int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(line, "RssAnon:"), "%d", &kb); err != nil {
+				return 0, err
+			}
+			return kb, nil
+		}
+	}
+	return 0, fmt.Errorf("no RssAnon in /proc status")
+}

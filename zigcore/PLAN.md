@@ -184,7 +184,9 @@ as they land.
   the engine report leaks at exit, and the cross-check harness fails a test
   whose engine reports one (CI runs it on a ReleaseSafe build). Long
   searches (sims, endgames) also get a soak test that watches the
-  process's memory over many runs.
+  process's memory over many runs (`TestSoak`, `-crosscheck.soak <n>`:
+  resident anonymous memory must stop growing after warm-up; mapped files
+  don't count).
 - **Determinism first:** compare single-threaded, fixed-seed results exactly.
   Multithreaded results are compared statistically.
 - **Benchmarks:** keep a `zig build bench` with movegen-per-second,
