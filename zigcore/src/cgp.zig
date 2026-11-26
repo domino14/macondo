@@ -75,13 +75,10 @@ pub const Cgp = struct {
         for (score_text, 0..) |s, i| c.scores[i] = std.fmt.parseInt(i32, s, 10) catch return error.BadNumber;
         c.scoreless_turns = std.fmt.parseInt(u32, fields[3], 10) catch return error.BadNumber;
 
-        var it = std.mem.splitScalar(u8, ops, ';');
-        while (it.next()) |raw| {
-            const op = std.mem.trim(u8, raw, " ");
-            if (op.len == 0) continue;
-            const sp = std.mem.indexOfScalar(u8, op, ' ');
-            const name = if (sp) |i| op[0..i] else op;
-            const arg = if (sp) |i| op[i + 1 ..] else "";
+        var it: Operations = .init(ops);
+        while (it.next()) |op| {
+            const name = op.name;
+            const arg = op.arg;
             if (std.mem.eql(u8, name, "bdn")) {
                 c.board_layout = try required(arg);
             } else if (std.mem.eql(u8, name, "gid")) {
@@ -152,6 +149,63 @@ pub fn writeFields(b: *const board.Board, ld: *const tiles.LetterDistribution, r
     }
     try w.print(" {d}/{d} {d}", .{ scores[0], scores[1], scoreless_turns });
 }
+
+/// The operations of a CGP's fifth field, in either form: `-lex CSW24 -lm
+/// 8G.S(CAT)TER 10` (an operation runs to the next token that is a dash
+/// and a letter; a stray trailing semicolon is ignored, as MAGPIE ignores
+/// it), or the deprecated `lex CSW24; lm 8G.S(CAT)TER 10;`.
+const Operations = struct {
+    rest: []const u8,
+    dashed: bool,
+
+    const Op = struct { name: []const u8, arg: []const u8 };
+
+    fn init(text: []const u8) Operations {
+        const t = std.mem.trim(u8, text, " \t");
+        return .{ .rest = t, .dashed = startsOperation(t) };
+    }
+
+    /// Whether `t` starts with a dash and a letter (a negative number has
+    /// a digit after its dash).
+    fn startsOperation(t: []const u8) bool {
+        return t.len >= 2 and t[0] == '-' and std.ascii.isAlphabetic(t[1]);
+    }
+
+    fn next(self: *Operations) ?Op {
+        while (true) {
+            self.rest = std.mem.trimStart(u8, self.rest, " \t");
+            if (self.rest.len == 0) return null;
+            const op_text = if (self.dashed) self.takeDashed() else self.takeSemicolon();
+            const op = std.mem.trim(u8, op_text, " \t;");
+            if (op.len == 0) continue;
+            const sp = std.mem.indexOfAny(u8, op, " \t");
+            return .{
+                .name = if (sp) |i| op[0..i] else op,
+                .arg = if (sp) |i| std.mem.trim(u8, op[i + 1 ..], " \t") else "",
+            };
+        }
+    }
+
+    fn takeSemicolon(self: *Operations) []const u8 {
+        const end = std.mem.indexOfScalar(u8, self.rest, ';') orelse self.rest.len;
+        const op = self.rest[0..end];
+        self.rest = if (end < self.rest.len) self.rest[end + 1 ..] else "";
+        return op;
+    }
+
+    /// From the dash to the next token that starts an operation.
+    fn takeDashed(self: *Operations) []const u8 {
+        const t = self.rest;
+        // A token without its dash is taken as an operation all the same.
+        const start: usize = if (t[0] == '-') 1 else 0;
+        var i = start;
+        while (i < t.len) : (i += 1) {
+            if ((t[i] == ' ' or t[i] == '\t') and startsOperation(std.mem.trimStart(u8, t[i..], " \t"))) break;
+        }
+        self.rest = t[i..];
+        return t[start..i];
+    }
+};
 
 pub const RowError = error{ UnknownLetter, BadRow, NoSpaceLeft };
 
@@ -227,6 +281,23 @@ test "parse fields and options" {
     try testing.expectError(error.NotTwoPlayers, Cgp.parse("15 A/B/C 0/0/0 0"));
     try testing.expectError(error.BadNumber, Cgp.parse("15 A/B 0/x 0"));
     try testing.expectError(error.BadOption, Cgp.parse("15 A/B 0/0 0 lex"));
+}
+
+test "parse options in the dash form" {
+    const c = try Cgp.parse("15/15/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 -lex NWL23 -ld english -tmr -2500/10000 -oru -lm 8G.S(CAT)TER 10 -mcnz 4");
+    try testing.expectEqualStrings("NWL23", c.lexicon);
+    try testing.expectEqualStrings("english", c.letter_distribution);
+    try testing.expectEqualStrings("8G.S(CAT)TER", c.last_move);
+    try testing.expectEqual(10, c.last_move_score.?);
+    try testing.expectEqual(4, c.max_scoreless_turns);
+    // As MAGPIE writes it in places: a semicolon after a dashed operation.
+    const d = try Cgp.parse("15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 -lex CSW24;");
+    try testing.expectEqualStrings("CSW24", d.lexicon);
+    const e = try Cgp.parse("15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 -lm ex.2 -lex CSW24");
+    try testing.expectEqualStrings("ex.2", e.last_move);
+    try testing.expectEqual(null, e.last_move_score);
+    try testing.expectError(error.BadOption, Cgp.parse("15 A/B 0/0 0 -lex"));
+    try testing.expectError(error.BadOption, Cgp.parse("15 A/B 0/0 0 -lm 8G.A 1 2"));
 }
 
 test "decode rows" {
