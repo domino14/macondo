@@ -329,20 +329,35 @@ pub inline fn active(gen: *const Generator) bool {
 }
 
 /// Hashes a lane's contents: its anchors, and each square's tile,
-/// cross-set and cross-score. Never 0.
+/// cross-set and cross-score. Never 0. Each square's terms are multiplied
+/// by constants of its own and summed, so that the multiplies don't wait
+/// on one another; a hash only finds a remembered lane, which is then
+/// compared whole, so collisions cost time, not correctness.
 fn hashLane(squares: []const CachedSquare, anchors: u32) u64 {
-    var h1: u64 = 0x9E3779B97F4A7C15 ^ @as(u64, anchors);
-    var h2: u64 = 0xC2B2AE3D27D4EB4F;
-    for (squares) |*sq| {
-        h1 = (h1 ^ sq.cross_set) *% 0xFF51AFD7ED558CCD;
-        h1 ^= h1 >> 29;
-        h2 = (h2 ^ (@as(u64, @as(u32, @bitCast(sq.cross_score))) | @as(u64, sq.letter) << 32)) *% 0xFF51AFD7ED558CCD;
-        h2 ^= h2 >> 29;
+    var a: u64 = anchors;
+    var b: u64 = 0;
+    for (squares, 0..) |*sq, i| {
+        a +%= sq.cross_set *% lane_hash_keys[2 * i];
+        b +%= (@as(u64, @as(u32, @bitCast(sq.cross_score))) | @as(u64, sq.letter) << 32) *% lane_hash_keys[2 * i + 1];
     }
-    var h = (h1 ^ (h2 >> 32) ^ (h2 << 32)) *% 0xC4CEB9FE1A85EC53;
+    var h = (a ^ std.math.rotl(u64, b, 32)) *% 0xC4CEB9FE1A85EC53;
     h ^= h >> 32;
     return h | 1;
 }
+
+/// Odd constants for hashLane, two per square (splitmix64's outputs).
+const lane_hash_keys = blk: {
+    var keys: [2 * max_dim]u64 = undefined;
+    var x: u64 = 0x9E3779B97F4A7C15;
+    for (&keys) |*k| {
+        x +%= 0x9E3779B97F4A7C15;
+        var z = x;
+        z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9;
+        z = (z ^ (z >> 27)) *% 0x94D049BB133111EB;
+        k.* = (z ^ (z >> 31)) | 1;
+    }
+    break :blk keys;
+};
 
 /// Notes lane (dir, lane) for the generation, loaded into the shadow
 /// state's lanes if it has anchors, and finds its remembered bound.
