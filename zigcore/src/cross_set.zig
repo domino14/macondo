@@ -19,6 +19,10 @@ const MachineLetter = tiles.MachineLetter;
 /// transposed board).
 pub fn generateAll(b: *Board, kwg: Kwg, ld: *const LetterDistribution) void {
     const n = b.dim;
+    // From scratch: a square's extension sets are written by the empty
+    // squares beside its word, and where there is no longer a word (tiles
+    // taken off) nothing would overwrite them.
+    b.setAllCrosses();
     for (0..n) |i| {
         for (0..n) |j| generate(b, @intCast(i), @intCast(j), .horizontal, kwg, ld);
     }

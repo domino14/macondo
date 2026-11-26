@@ -503,15 +503,29 @@ test "an exchange keeps the bag and racks whole" {
 
 /// Whether two boards' squares, cross-sets, cross-scores, extension sets
 /// and anchors are the same.
+/// Whether two boards agree on everything move generation reads: the
+/// tiles, cross-sets, cross-scores and anchors, and the extension sets
+/// where they are read (empty squares, and the last tile of a word along
+/// the extension sets' lane). Elsewhere an incremental update can leave
+/// the sets a tile had when it ended a word that has since grown.
 fn sameBoards(a: *const board_mod.Board, b: *const board_mod.Board) bool {
     const n = a.dim * a.dim;
     if (!std.mem.eql(MachineLetter, a.squares[0..n], b.squares[0..n])) return false;
     for (0..2) |d| {
         if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
         if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
-        if (!std.mem.eql(u64, a.left_ext[d][0..n], b.left_ext[d][0..n])) return false;
-        if (!std.mem.eql(u64, a.right_ext[d][0..n], b.right_ext[d][0..n])) return false;
         if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
+        for (0..n) |i| {
+            if (a.squares[i] != 0) {
+                // Slot 0's sets serve plays down a column.
+                const r = i / a.dim;
+                const c = i % a.dim;
+                const nr = if (d == 0) r + 1 else r;
+                const nc = if (d == 0) c else c + 1;
+                if (nr < a.dim and nc < a.dim and a.squares[nr * a.dim + nc] != 0) continue;
+            }
+            if (a.left_ext[d][i] != b.left_ext[d][i] or a.right_ext[d][i] != b.right_ext[d][i]) return false;
+        }
     }
     return true;
 }
@@ -594,4 +608,48 @@ test "the last move in a CGP takes back to the position before it" {
         }
     }
     try testing.expect(checked > 300 and through > 100);
+}
+
+test "taking a move back regenerates the board from scratch" {
+    // The board of the position before a CGP's last move must be the board
+    // that position's own CGP gives, extension sets and all: a square that
+    // held a tile of the move can't keep the sets it had then.
+    const cgp = @import("cgp.zig");
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const base = try testdata.position(&store, "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex NWL20;");
+    var checked: usize = 0;
+    for (0..10) |i| {
+        var g = Game.start(&base, deriveSeed(11, i), false);
+        var gen = movegen.Generator.init(testing.allocator, &g.pos.board, g.pos.lexicon.kwg, g.pos.dist);
+        defer gen.deinit();
+        while (g.playing) {
+            const mover = g.on_turn;
+            var before_buf: [512]u8 = undefined;
+            var bw: std.Io.Writer = .fixed(&before_buf);
+            try cgp.writeFields(&g.pos.board, g.pos.dist, .{ .{}, g.pos.racks[1 - mover] }, .{ g.pos.scores[mover], g.pos.scores[1 - mover] }, 0, &bw);
+            try bw.writeAll(" lex NWL20;");
+            const best = try playStaticTurn(&g, &gen);
+            if (!g.playing) break;
+            if (best.move.kind != .play) continue;
+            var buf: [512]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&buf);
+            try cgp.writeFields(&g.pos.board, g.pos.dist, .{ g.pos.racks[1 - mover], .{} }, .{ g.pos.scores[1 - mover], g.pos.scores[mover] }, g.scoreless_turns, &w);
+            try w.writeAll(" lex NWL20; lm ");
+            try move_mod.formatLastMove(&best.move, &g.pos.board, g.pos.dist, false, &w);
+            try w.writeByte(';');
+            const p = try testdata.position(&store, w.buffered());
+            const back = p.beforeLastMove().?;
+            const fresh = try testdata.position(&store, bw.buffered());
+            const n = fresh.board.dim * fresh.board.dim;
+            for (0..2) |d| {
+                try testing.expectEqualSlices(u64, fresh.board.left_ext[d][0..n], back.board.left_ext[d][0..n]);
+                try testing.expectEqualSlices(u64, fresh.board.right_ext[d][0..n], back.board.right_ext[d][0..n]);
+            }
+            try testing.expect(sameBoards(&fresh.board, &back.board));
+            checked += 1;
+        }
+    }
+    try testing.expect(checked > 100);
 }
