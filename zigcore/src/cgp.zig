@@ -133,7 +133,9 @@ pub fn writeFields(b: *const board.Board, ld: *const tiles.LetterDistribution, r
             if (empties > 0) try w.print("{d}", .{empties});
             empties = 0;
             const text = ld.letter(ml, true);
-            const multi = (std.unicode.utf8CountCodepoints(text) catch 1) > 1;
+            // Spanish spells its digraphs with brackets ([RR]), Catalan
+            // without (L·L).
+            const multi = (std.unicode.utf8CountCodepoints(text) catch 1) > 1 and text[0] != '[';
             if (multi) try w.writeByte('[');
             try w.writeAll(text);
             if (multi) try w.writeByte(']');
@@ -313,6 +315,30 @@ test "decode rows" {
     n = try decodeRow("15", &ld, &out);
     try testing.expectEqual(15, n);
     try testing.expectError(error.UnknownLetter, decodeRow("3#", &ld, &out));
+}
+
+test "write rows with tiles of more than one letter" {
+    for ([_][2][]const u8{
+        .{ "catalan", "2[L·L]A[l·l]10" },
+        .{ "spanish", "2[RR]A[rr]3[CH]6" },
+    }) |c| {
+        const path = try std.fmt.allocPrint(testing.allocator, "letterdistributions/{s}", .{c[0]});
+        defer testing.allocator.free(path);
+        const bytes = try testdata.loadFile(path);
+        defer testing.allocator.free(bytes);
+        var ld = try tiles.LetterDistribution.parse(testing.allocator, c[0], bytes);
+        defer ld.deinit(testing.allocator);
+        var b: board.Board = .init(&board.crossword_game);
+        var row: [board.max_dim]MachineLetter = undefined;
+        const n = try decodeRow(c[1], &ld, &row);
+        for (row[0..n], 0..) |ml, col| b.setLetter(0, col, ml);
+        var buf: [256]u8 = undefined;
+        var w: std.Io.Writer = .fixed(&buf);
+        try writeFields(&b, &ld, .{ .{}, .{} }, .{ 0, 0 }, 0, &w);
+        const want = try std.fmt.allocPrint(testing.allocator, "{s}/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0", .{c[1]});
+        defer testing.allocator.free(want);
+        try testing.expectEqualStrings(want, w.buffered());
+    }
 }
 
 test "decode catalan rows with bracketed tiles" {
