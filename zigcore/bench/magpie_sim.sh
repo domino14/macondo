@@ -51,7 +51,7 @@ fi
 wall() { local s e; s=$(date +%s%N); "$bin" < "$1" > "$2" 2>&1; e=$(date +%s%N); echo $(( (e - s) / 1000 )); }
 for rit in $rits; do
   {
-    echo "set -lex NWL23 -rit $rit -threads 1 -numplays 15 -plies 2 -sr rr -threshold none -iterations 3000 -minplayiterations 1 -seed 1 -pfrequency 0 -savesettings false"
+    echo "set -lex NWL23 -rit $rit -threads 1 -numplays 15 -plies 2 -sr rr -threshold none -iterations 3000 -minplayiterations 1 -seed 1 -pfrequency 0 -pat none -savesettings false"
     while read -r p; do
       echo "cgp ${p% lex*}"
       echo "gen"

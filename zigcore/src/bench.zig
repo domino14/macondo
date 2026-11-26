@@ -146,6 +146,8 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
     var rollouts: u64 = 0;
     var nodes: u64 = 0;
     var total_ns: i96 = 0;
+    var gens: u64 = 0;
+    var hits: u64 = 0;
     for (positions) |*p| {
         p.racks[1] = .{};
         const ranked = try macondo.ucgi.rankedMoves(gpa, p);
@@ -166,11 +168,14 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         total_ns += start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
         rollouts += iterations * moves.len;
         nodes += sim.nodes;
+        gens += sim.carry.generations;
+        hits += sim.carry.rack_hits;
     }
     try w.print("sim: {d} positions, {d} rollouts, {d:.2} us/rollout, {d:.0} nodes/s\n", .{
         positions.len,                                                                rollouts,
         @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(rollouts)) / 1000, @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
     });
+    try w.print("best-move memory: {d} generations, {d:.1}% found their rack\n", .{ gens, 100 * @as(f64, @floatFromInt(hits)) / @as(f64, @floatFromInt(@max(gens, 1))) });
     try w.flush();
 }
 
