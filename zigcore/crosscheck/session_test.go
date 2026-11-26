@@ -18,6 +18,12 @@ func startEngine(t *testing.T) *Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Quit at the end of the test, failing it if the engine leaked memory.
+	t.Cleanup(func() {
+		if err := e.Quit(); err != nil {
+			t.Error(err)
+		}
+	})
 	return e
 }
 

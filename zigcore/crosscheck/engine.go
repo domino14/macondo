@@ -9,6 +9,7 @@ package crosscheck
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,12 @@ const DefaultTimeout = 10 * time.Second
 
 // Engine is a UCGI session with a child engine process.
 type Engine struct {
+	// stderr keeps what the engine writes to stderr (it also goes to
+	// ours), to look for leak reports when it quits.
+	stderr   lockedBuffer
+	quitOnce sync.Once
+	quitErr  error
+
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	lines   chan string
@@ -52,6 +60,25 @@ func BinaryPath() (string, error) {
 	return p, nil
 }
 
+// lockedBuffer is a bytes.Buffer safe to write from the process's stderr
+// copier and read from the test.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 // Start launches the engine at path. The engine's stderr goes to stderr.
 func Start(path string, args ...string) (*Engine, error) {
 	cmd := exec.Command(path, args...)
@@ -63,16 +90,16 @@ func Start(path string, args ...string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
 	e := &Engine{
 		cmd:     cmd,
 		stdin:   stdin,
 		lines:   make(chan string, 1024),
 		readErr: make(chan error, 1),
 		Timeout: DefaultTimeout,
+	}
+	cmd.Stderr = io.MultiWriter(os.Stderr, &e.stderr)
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
 	go e.readLoop(stdout)
 	return e, nil
@@ -137,15 +164,28 @@ func (e *Engine) Command(line, final string) ([]string, error) {
 }
 
 // Quit sends `quit` and waits for the process to exit, killing it if it
-// doesn't within the timeout.
+// doesn't within the timeout. A build with Zig's safe allocator (Debug and
+// ReleaseSafe) reports leaked memory on stderr at exit, and Quit returns
+// that as an error. Calling Quit again returns the first result.
 func (e *Engine) Quit() error {
+	e.quitOnce.Do(func() { e.quitErr = e.quit() })
+	return e.quitErr
+}
+
+func (e *Engine) quit() error {
 	_ = e.Send("quit")
 	_ = e.stdin.Close()
 	done := make(chan error, 1)
 	go func() { done <- e.cmd.Wait() }()
 	select {
 	case err := <-done:
-		return err
+		if err != nil {
+			return err
+		}
+		if out := e.stderr.String(); strings.Contains(out, "leaked") {
+			return fmt.Errorf("engine reported memory leaks:\n%s", out)
+		}
+		return nil
 	case <-time.After(e.Timeout):
 		_ = e.cmd.Process.Kill()
 		<-done

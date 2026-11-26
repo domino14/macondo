@@ -26,7 +26,6 @@ var autoplayGames = flag.Int("crosscheck.autoplay", 10, "seeded games per case i
 // plays them from a paired bag (each seat drawing from its own end).
 func TestAutoplayCrossCheck(t *testing.T) {
 	e := startEngine(t)
-	defer e.Quit()
 	cfg := config.DefaultConfig()
 	dataPath := cfg.GetString(config.ConfigDataPath)
 	if dataPath == "" {

@@ -57,7 +57,6 @@ var boardCases = []boardCase{
 // It does the same on boards of random tiles with random racks.
 func TestPositionCrossCheck(t *testing.T) {
 	e := startEngine(t)
-	defer e.Quit()
 	cfg := config.DefaultConfig()
 	dataPath := cfg.GetString(config.ConfigDataPath)
 	if dataPath == "" {
