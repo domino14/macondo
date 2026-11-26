@@ -122,7 +122,8 @@ Commands (from `zigcore/`): `zig build` (engine binary at
 `go test ./zigcore/crosscheck/ -run TestWritePositions -crosscheck.positions
 <file>`, then time them with `zig build bench -Doptimize=ReleaseFast --
 <file>` and `go test ./zigcore/crosscheck/ -run XXX -bench BenchmarkStatic
--crosscheck.positions <file>`.
+-crosscheck.positions <file>`; sims with `BENCH_MODE=sim` (iterations as the
+second argument), `-bench BenchmarkSim` and `zigcore/bench/magpie_sim.sh`.
 
 ## Development Notes
 

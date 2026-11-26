@@ -188,7 +188,10 @@ as they land.
   times them with `BenchmarkStatic` and MAGPIE with
   `bench/magpie_bench.sh`; `zig build bench` can also break the search into
   phases (`BENCH_MODE=phases`) and sample a profile
-  (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`).
+  (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`). Sims
+  are timed on the same kind of file (midgame positions): `BENCH_MODE=sim`
+  (the second argument is the iterations), Go's `BenchmarkSim` and
+  `bench/magpie_sim.sh`.
 
 ## Zig version policy
 
