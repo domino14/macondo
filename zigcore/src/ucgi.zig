@@ -9,6 +9,8 @@ const Writer = std.Io.Writer;
 const data = @import("data.zig");
 const tiles = @import("tiles.zig");
 const board_mod = @import("board.zig");
+const cross_set = @import("cross_set.zig");
+const move_mod = @import("move.zig");
 const Position = @import("position.zig").Position;
 const movegen = @import("movegen.zig");
 const Move = @import("move.zig").Move;
@@ -54,6 +56,9 @@ pub const Engine = struct {
     out: *Writer,
     out_mutex: std.Io.Mutex = .init,
     search: ?*Search = null,
+    /// The cross-set cache `play` updates the board with (made on first
+    /// use; its keys include the word graph, so positions can share it).
+    cross_cache: ?cross_set.Cache = null,
 
     /// `source` is how the engine reads data files; see data.Source.
     /// Responses are written to `out`, and flushed after each command and
@@ -71,6 +76,7 @@ pub const Engine = struct {
 
     pub fn deinit(self: *Engine) void {
         self.stopSearch();
+        if (self.cross_cache) |*c| c.deinit(self.gpa);
         self.store.deinit();
         self.gpa.free(self.options.data_path);
         self.* = undefined;
@@ -153,6 +159,12 @@ pub const Engine = struct {
             try self.printLeave(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "minisim")) {
             try self.miniSim(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "play")) {
+            try self.playMove(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "takeback")) {
+            try self.takeBack(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "cgp")) {
+            try self.printCgp(out);
         } else {
             try out.print("error unknown-command {s}\n", .{cmd});
         }
@@ -545,6 +557,63 @@ pub const Engine = struct {
         try out.writeAll("bestmove ");
         if (order.len > 0) try order[0].move.format(p.dist, out) else try out.writeAll("pass");
         try out.writeAll("\n");
+    }
+
+    /// Debug: `play <move> [rack <tiles>]` plays a tile play for the player
+    /// on turn the way games and sims do, the cross-sets brought up to
+    /// date incrementally rather than worked out again; with `rack`, the
+    /// mover's rack afterwards (what they drew). Writes `playok score <s>`.
+    fn playMove(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        const text = tokens.next() orelse return out.writeAll("error bad-play\n");
+        const parsed = move_mod.parse(text, p.dist, p.board.dim) catch return out.writeAll("error bad-play\n");
+        var rack: ?tiles.Rack = null;
+        if (tokens.next()) |key| {
+            if (!std.mem.eql(u8, key, "rack")) return out.writeAll("error bad-play\n");
+            rack = parseRack(p.dist, tokens.next() orelse "") orelse return out.writeAll("error bad-play\n");
+        }
+        if (tokens.next() != null) return out.writeAll("error bad-play\n");
+        if (self.cross_cache == null) self.cross_cache = try .init(self.gpa, cross_set.Cache.default_index_bits);
+        var next = p.*;
+        const score = next.playMove(&parsed, &self.cross_cache.?) orelse return out.writeAll("error bad-play\n");
+        if (rack) |r| next.racks[1] = r;
+        p.* = next;
+        try out.print("playok score {d}\n", .{score});
+    }
+
+    /// Debug: `takeback [rack <tiles>]` takes the last move back (from the
+    /// CGP's lm or the last `play`), as inference does; with `rack`, the
+    /// rack of the player then on turn, which is otherwise unknown. Writes
+    /// `takebackok`.
+    fn takeBack(self: *Engine, args: []const u8, out: *Writer) Writer.Error!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        var rack: ?tiles.Rack = null;
+        if (tokens.next()) |key| {
+            if (!std.mem.eql(u8, key, "rack")) return out.writeAll("error bad-takeback\n");
+            rack = parseRack(p.dist, tokens.next() orelse "") orelse return out.writeAll("error bad-takeback\n");
+        }
+        if (tokens.next() != null) return out.writeAll("error bad-takeback\n");
+        var before = p.beforeLastMove() orelse return out.writeAll("error no-last-move\n");
+        if (rack) |r| before.racks[0] = r;
+        p.* = before;
+        try out.writeAll("takebackok\n");
+    }
+
+    /// Debug: `cgp` writes the position's first four CGP fields (board,
+    /// racks, scores, turns without a score) as `cgp <fields>`.
+    fn printCgp(self: *Engine, out: *Writer) Writer.Error!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        try out.writeAll("cgp ");
+        try @import("cgp.zig").writeFields(&p.board, p.dist, p.racks, p.scores, p.scoreless_turns, out);
+        try out.writeAll("\n");
+    }
+
+    fn parseRack(ld: *const tiles.LetterDistribution, text: []const u8) ?tiles.Rack {
+        var mls: [movegen.rack_tile_limit]tiles.MachineLetter = undefined;
+        const n = ld.toMachineLetters(text, &mls) catch return null;
+        return .fromLetters(mls[0..n]);
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension

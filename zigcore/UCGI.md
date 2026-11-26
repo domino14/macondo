@@ -238,7 +238,23 @@ Used by the cross-check harness; engines may omit them.
 > minisim plies 2 plays 10 iterations 200 seed 7
 < info sim iterations 192 play 8D.QUIZ win 0.61 equity 12.5 stderr 1.9
 < bestmove 8D.QUIZ
+> play 8D.QUIZ rack AEFNST?
+< playok score 32
+> takeback rack ADIQSUZ
+< takebackok
+> cgp
+< cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 ADIQSUZ/AEINRST 0/0 0
 ```
+
+`play` plays a tile play for the player on turn as a game does: the tiles
+go on the board, the cross-sets are brought up to date incrementally rather
+than worked out again, the tiles come off the mover's rack (those it
+holds), and the turn passes; nothing is drawn, and `rack` gives the mover's
+rack afterwards. `takeback` takes the last move back (the CGP's `lm`, or
+the last `play`), as inference does; `rack` gives the rack of the player
+then on turn, which the position doesn't know. `cgp` writes the position's
+first four CGP fields. The cross-checks use them to reach boards other
+than by loading a CGP.
 
 `minisim` runs the inference's mini-sim on the position: the top plays by
 static equity, simmed on one thread for at most `iterations` iterations

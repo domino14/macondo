@@ -148,8 +148,12 @@ func (e *Engine) ReadUntil(final string) ([]string, error) {
 			return got, fmt.Errorf("waiting for %q: %w", final, err)
 		}
 		got = append(got, line)
-		if first, _, _ := strings.Cut(line, " "); first == final {
+		first, _, _ := strings.Cut(line, " ")
+		if first == final {
 			return got, nil
+		}
+		if first == "error" {
+			return got, fmt.Errorf("waiting for %q: %s", final, line)
 		}
 	}
 }

@@ -239,6 +239,51 @@ pub const Position = struct {
         return lm;
     }
 
+    /// Plays the tile play `m` for the player on turn as a game does: the
+    /// tiles go on the board and the cross-sets and anchors are brought up
+    /// to date incrementally (with `cache` if given), the tiles come off the
+    /// mover's rack (those it holds), and the turn passes, the move becoming
+    /// the last move. Nothing is drawn. Returns the score, or null if the
+    /// move doesn't fit: a tile on a filled square, a played-through square
+    /// empty or holding another letter than the text gave, or a word that
+    /// goes on past either end.
+    pub fn playMove(self: *Position, parsed: *const move_mod.Parsed, cache: ?*cross_set.Cache) ?i32 {
+        const m = &parsed.move;
+        if (m.kind != .play or parsed.phony or m.len == 0) return null;
+        const b = &self.board;
+        const dr: usize = if (m.vertical) 1 else 0;
+        const dc: usize = 1 - dr;
+        if (m.col * dc + m.row * dr > 0 and b.hasLetter(m.row - dr, m.col - dc)) return null;
+        const end_r = m.row + dr * m.len;
+        const end_c = m.col + dc * m.len;
+        if (end_r >= b.dim + dr or end_c >= b.dim + dc) return null;
+        if (end_r < b.dim and end_c < b.dim and b.hasLetter(end_r, end_c)) return null;
+        for (m.tileSlice(), 0..) |ml, i| {
+            const on = b.getLetter(m.row + dr * i, m.col + dc * i);
+            if ((ml != 0) == (on != 0)) return null;
+            if (ml == 0 and parsed.through[i] != 0 and parsed.through[i] != on) return null;
+        }
+        const score = m.scoreOn(b, self.dist);
+        const was_empty = b.tiles_played == 0;
+        var mover = self.racks[0];
+        for (m.tileSlice(), 0..) |ml, i| {
+            if (ml == 0) continue;
+            b.setLetter(m.row + dr * i, m.col + dc * i, ml);
+            const t: MachineLetter = if (tiles.isBlanked(ml)) 0 else ml;
+            if (mover.has(t)) mover.take(t);
+        }
+        b.tiles_played += m.tiles_played;
+        cross_set.updateForPlay(b, m, self.lexicon.kwg, self.dist, was_empty, cache);
+        // (Not `.{ self.scores[1], self.scores[0] + score }`: the result
+        // is built in place, so the second element would read the first.)
+        const scores = self.scores;
+        self.racks = .{ self.racks[1], mover };
+        self.scores = .{ scores[1], scores[0] + score };
+        self.scoreless_turns = 0;
+        self.last_move = .{ .move = m.*, .score = score };
+        return score;
+    }
+
     /// The position before the last move, with its mover on turn: its
     /// tiles off the board, its score off the mover's, and the racks and
     /// scores swapped. The mover's rack is unknown (empty); the other
@@ -303,4 +348,38 @@ test "last move: read, checked and taken back" {
     }
     // A play touching none of the tiles there were.
     try std.testing.expectError(error.BadLastMove, testdata.position(&store, "15/QI13/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 lex NWL23; lm 2A.QI;"));
+}
+
+test "a play made on the board and taken back" {
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    var p = try testdata.position(&store, "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEINRST/DEIOQU? 0/0 0 lex NWL23;");
+    const retains = try move_mod.parse("8H.RETAINS", p.dist, p.board.dim);
+    try std.testing.expectEqual(66, p.playMove(&retains, null).?);
+    try std.testing.expectEqual([2]i32{ 0, 66 }, p.scores);
+    try std.testing.expectEqual(0, p.racks[1].num_tiles);
+    try std.testing.expectEqual(7, p.racks[0].num_tiles);
+    try std.testing.expectEqual(66, p.last_move.?.score);
+    // Moves that don't fit the board leave it as it is.
+    for ([_][]const u8{
+        "8H.RETAINS", // on filled squares
+        "8D.QUOD", // the word would run on into RETAINS
+        "H8.(E)QUID", // the played-through square holds R
+        "H6.DO", // ends on the board's R: the word goes on
+        "pass",
+    }) |text| {
+        const parsed = try move_mod.parse(text, p.dist, p.board.dim);
+        try std.testing.expectEqual(null, p.playMove(&parsed, null));
+    }
+    try std.testing.expectEqual(7, p.board.tiles_played);
+    const require = try move_mod.parse("H8.(R)EQUIRE", p.dist, p.board.dim);
+    try std.testing.expectEqual(17, p.playMove(&require, null).?);
+    try std.testing.expectEqual([2]i32{ 66, 17 }, p.scores);
+    // DEIOQU? holds one E and no R: D, O and the blank are left.
+    try std.testing.expectEqual(3, p.racks[1].num_tiles);
+    const back = p.beforeLastMove().?;
+    try std.testing.expectEqual([2]i32{ 0, 66 }, back.scores);
+    try std.testing.expectEqual(7, back.board.tiles_played);
+    try std.testing.expect(!back.board.hasLetter(8, 7));
 }

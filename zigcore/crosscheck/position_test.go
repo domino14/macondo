@@ -440,13 +440,24 @@ func comparePosition(t *testing.T, e *Engine, cfg *config.Config, cgpStr string)
 	if err := e.Send("position cgp " + cgpStr); err != nil {
 		t.Fatal(err)
 	}
+	compareBoard(t, e, b, cgpStr, false)
+}
+
+// compareBoard compares every square of the engine's board with b. With
+// readSites, extension sets are compared only where move generation reads
+// them: on empty squares and on the last tile of a word along the lane
+// that uses them (the horizontal slot serves plays down a column). Inside a
+// word, an incrementally updated board may keep the sets a tile had when
+// it ended a shorter word.
+func compareBoard(t *testing.T, e *Engine, b *board.GameBoard, label string, readSites bool) {
+	t.Helper()
 	lines, err := e.Command("crosssets", "crosssetsok")
 	if err != nil {
 		t.Fatal(err)
 	}
 	dim := b.Dim()
 	if want := 2*dim*dim + 1; len(lines) != want {
-		t.Fatalf("%s\ngot %d lines, want %d; first: %q", cgpStr, len(lines), want, lines[0])
+		t.Fatalf("%s\ngot %d lines, want %d; first: %q", label, len(lines), want, lines[0])
 	}
 	mismatches := 0
 	for _, line := range lines[:len(lines)-1] {
@@ -464,9 +475,21 @@ func comparePosition(t *testing.T, e *Engine, cfg *config.Config, cgpStr string)
 			uint64(b.GetCrossSet(row, col, dir)), b.GetCrossScore(row, col, dir),
 			boolInt(b.IsAnchor(row, col, dir)),
 			b.GetLeftExtSet(row, col, dir), b.GetRightExtSet(row, col, dir))
-		if got := strings.Join(f[4:], " "); got != want {
+		got := strings.Join(f[4:], " ")
+		if readSites && b.HasLetter(row, col) {
+			nr, nc := row+1, col
+			if dir == board.VerticalDirection {
+				nr, nc = row, col+1
+			}
+			if nr < dim && nc < dim && b.HasLetter(nr, nc) {
+				// Not a read site: compare all but the extension sets.
+				got = strings.Join(f[4:10], " ")
+				want = strings.Join(strings.Fields(want)[:6], " ")
+			}
+		}
+		if got != want {
 			if mismatches == 0 {
-				t.Errorf("position %s", cgpStr)
+				t.Errorf("position %s", label)
 			}
 			t.Errorf("square %d,%d %s:\n  zig %s\n  go  %s", row, col, f[3], got, want)
 			mismatches++

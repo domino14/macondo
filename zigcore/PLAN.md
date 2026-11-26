@@ -195,6 +195,14 @@ as they land.
   positions with the Go engine, sends them to the Zig binary over UCGI and
   compares results. Runs in CI on a fixed number of positions and can be run
   longer locally.
+- **Every way to reach a board:** a board the engine reaches without
+  loading it (moves played on with incremental cross-set updates, a move
+  played and taken back, a position loaded with its last move and taken
+  back, as inference does) must give the same squares, moves, scores and
+  best move as Go's board loaded from scratch (`TestBoardPathsCrossCheck`,
+  `-crosscheck.pathgames`, `-crosscheck.takebacks`, using the debug
+  commands `play`, `takeback` and `cgp`). Any new way of changing a board
+  joins this test.
 - **Memory:** unit tests allocate through `std.testing.allocator`, which
   fails a test that leaks or frees twice. Debug and ReleaseSafe builds of
   the engine report leaks at exit, and the cross-check harness fails a test
