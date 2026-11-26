@@ -165,9 +165,10 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         const g = try gpa.create(macondo.game.Game);
         defer gpa.destroy(g);
         g.* = try .fromPosition(p, seed);
+        // Timed from the sim's creation (its workers' set-up counts).
+        const start = Io.Timestamp.now(io, .awake);
         const sim = try macondo.sim.Sim.create(gpa, g, seed, 0, moves, plies, win_table, threads);
         defer sim.destroy();
-        const start = Io.Timestamp.now(io, .awake);
         if (bai) {
             // A best-arm run to 99% with a budget of `iterations` rollouts
             // a play.

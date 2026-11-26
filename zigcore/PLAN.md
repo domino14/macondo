@@ -199,7 +199,9 @@ as they land.
   (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`). Sims
   are timed on the same kind of file (midgame positions): `BENCH_MODE=sim`
   (the second argument is the iterations; BENCH_PLIES, BENCH_THREADS,
-  BENCH_BAI, BENCH_RIT), Go's `BenchmarkSim` and `bench/magpie_sim.sh`.
+  BENCH_BAI, BENCH_RIT), Go's `BenchmarkSim` and `bench/magpie_sim.sh`
+  (a driver timing MAGPIE's own commands by wall clock: the sim time
+  MAGPIE's CLI prints leaves part of the work out).
   `zig build test -Dtsan=true` runs the tests under ThreadSanitizer.
 
 ## Zig version policy
