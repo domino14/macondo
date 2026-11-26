@@ -1103,3 +1103,34 @@ test "max tile usage (America)" {
     try gen.genAll(&rack, false);
     try testing.expectEqual(2, gen.plays.items.len);
 }
+
+test "Move.scoreOn scores every generated play as the generator did" {
+    var store = testdata.store();
+    defer store.deinit();
+    const boards = [_][]const u8{
+        "6AAL2CERE/5WINO4ET/1V2QI6ODA/1U1AIT1PINTADAS/1G1D5OI1ER1/1HER1C7G1/2XI1OHM5U1/3FUZEES1JOYED/3T1Y2N1E4/8IFS4/8BAT4/9R5/2KOEL2WRUNG2/1bIPLANE1O5/VITA1BERMS5",
+        "15/10N4/2ARROZ3O4/3U6V4/3SHA4A4/3KEX4T4/4JETLINER3/3PILEI2DEMOI/4R10/4AW9/4sO9/5W9/5I9/5N2OVERDO1/3BIGOTS2EASY",
+        "15/15/15/15/15/15/1PROTEAN7/3WINDY7/15/15/15/15/15/15/15",
+    };
+    var checked: usize = 0;
+    for (boards) |fen| {
+        for ([_][]const u8{ "?AEINST", "AEIRSTZ", "DGLOPRU" }) |rack_text| {
+            var buf: [256]u8 = undefined;
+            // (Skipping racks the board leaves no tiles for.)
+            var p = testdata.position(&store, try std.fmt.bufPrint(&buf, "{s} {s}/ 0/0 0 lex NWL23;", .{ fen, rack_text })) catch |err| switch (err) {
+                error.TooManyTiles => continue,
+                else => |e| return e,
+            };
+            var gen = Generator.init(testing.allocator, &p.board, p.lexicon.kwg, p.dist);
+            defer gen.deinit();
+            var rack = p.racks[0];
+            try gen.genAll(&rack, false);
+            for (gen.plays.items) |*m| {
+                if (m.kind != .play) continue;
+                try testing.expectEqual(m.score, m.scoreOn(&p.board, p.dist));
+                checked += 1;
+            }
+        }
+    }
+    try testing.expect(checked > 10_000);
+}

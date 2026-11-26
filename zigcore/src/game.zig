@@ -505,3 +505,44 @@ test "incremental cross-set updates match regenerating everything" {
     }
     try testing.expect(moves > 1000);
 }
+
+test "the last move in a CGP takes back to the position before it" {
+    // Static games: after every move, the position as a CGP with the move
+    // in lm, read back and taken back, is the position before the move.
+    const cgp = @import("cgp.zig");
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const base = try testdata.position(&store, "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex NWL23;");
+    var checked: usize = 0;
+    var through: usize = 0;
+    for (0..20) |i| {
+        var g = Game.start(&base, deriveSeed(7, i), false);
+        var gen = movegen.Generator.init(testing.allocator, &g.pos.board, g.pos.lexicon.kwg, g.pos.dist);
+        defer gen.deinit();
+        while (g.playing) {
+            const before = g.pos;
+            const mover = g.on_turn;
+            const best = try playStaticTurn(&g, &gen);
+            if (!g.playing) break;
+            const next = g.on_turn;
+            var buf: [512]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&buf);
+            try cgp.writeFields(&g.pos.board, g.pos.dist, .{ g.pos.racks[next], .{} }, .{ g.pos.scores[next], g.pos.scores[mover] }, g.scoreless_turns, &w);
+            try w.writeAll(" lex NWL23; lm ");
+            try move_mod.formatLastMove(&best.move, &g.pos.board, g.pos.dist, checked % 2 == 0, &w);
+            // Every other one without its score, which is worked out.
+            if (checked % 3 != 0) try w.print(" {d}", .{best.move.score});
+            try w.writeByte(';');
+            const p = try testdata.position(&store, w.buffered());
+            try testing.expectEqual(best.move.score, p.last_move.?.score);
+            const back = p.beforeLastMove().?;
+            try testing.expectEqualSlices(MachineLetter, &before.board.squares, &back.board.squares);
+            try testing.expectEqual([2]i32{ before.scores[mover], before.scores[next] }, back.scores);
+            try testing.expectEqual(before.racks[next], back.racks[1]);
+            if (std.mem.indexOfScalar(u8, w.buffered(), '(') != null) through += 1;
+            checked += 1;
+        }
+    }
+    try testing.expect(checked > 300 and through > 100);
+}

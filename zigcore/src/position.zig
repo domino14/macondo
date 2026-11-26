@@ -11,6 +11,7 @@ const data = @import("data.zig");
 const equity = @import("equity.zig");
 const kwg_mod = @import("kwg.zig");
 const wmp = @import("wmp.zig");
+const move_mod = @import("move.zig");
 const MachineLetter = tiles.MachineLetter;
 
 pub const Error = data.Error || cgp_mod.Error || error{
@@ -21,6 +22,20 @@ pub const Error = data.Error || cgp_mod.Error || error{
     UnknownLetter,
     BadRow,
     TooManyTiles,
+    /// The lm opcode's move isn't on the board as written, or its score is
+    /// wrong.
+    BadLastMove,
+};
+
+/// The move that led to a position (CGP's lm opcode), made by the player
+/// not on turn.
+pub const LastMove = struct {
+    /// Tiles along the play (0 where it played through a tile); for an
+    /// exchange the tiles thrown in, 0 each when only their number is known.
+    move: move_mod.Move,
+    score: i32,
+    /// A play challenged off: nothing changed but the turn.
+    phony: bool = false,
 };
 
 pub const Position = struct {
@@ -43,6 +58,7 @@ pub const Position = struct {
     scores: [2]i32,
     scoreless_turns: u32,
     max_scoreless_turns: u32,
+    last_move: ?LastMove = null,
 
     /// Tiles player `who` can't see: the bag and the other rack.
     pub fn unseenBy(self: *const Position, who: usize) i32 {
@@ -160,6 +176,131 @@ pub const Position = struct {
         p.board.countTiles();
         cross_set.generateAll(&p.board, lex.kwg, dist);
         p.board.updateAllAnchors();
+        if (c.last_move.len > 0) p.last_move = try p.readLastMove(c.last_move, c.last_move_score);
         self.* = p;
     }
+
+    /// Reads the lm opcode's move against the board (which shows it) and
+    /// works out or checks its score.
+    fn readLastMove(self: *const Position, text: []const u8, given_score: ?i32) Error!LastMove {
+        const parsed = move_mod.parse(text, self.dist, self.board.dim) catch |err| switch (err) {
+            error.UnknownLetter => return error.UnknownLetter,
+            else => return error.BadLastMove,
+        };
+        var lm: LastMove = .{ .move = parsed.move, .score = 0, .phony = parsed.phony };
+        if (lm.move.kind == .play) {
+            const m = &lm.move;
+            const b = &self.board;
+            const dr: usize = if (m.vertical) 1 else 0;
+            const dc: usize = 1 - dr;
+            // The whole main word: empty (or the edge) on either side.
+            if (m.col * dc + m.row * dr > 0) {
+                const before_r = m.row - dr;
+                const before_c = m.col - dc;
+                if (b.hasLetter(before_r, before_c)) return error.BadLastMove;
+            }
+            const end_r = m.row + dr * m.len;
+            const end_c = m.col + dc * m.len;
+            if (end_r < b.dim and end_c < b.dim and b.hasLetter(end_r, end_c)) return error.BadLastMove;
+            var before = b.*;
+            for (m.tileSlice(), 0..) |ml, i| {
+                const r = m.row + dr * i;
+                const col = m.col + dc * i;
+                const on = b.getLetter(r, col);
+                if (on == 0) return error.BadLastMove;
+                if (ml != 0) {
+                    if (on != ml) return error.BadLastMove;
+                    before.setLetter(r, col, 0);
+                } else if (parsed.through[i] != 0 and parsed.through[i] != on) return error.BadLastMove;
+            }
+            before.countTiles();
+            cross_set.generateAll(&before, self.lexicon.kwg, self.dist);
+            // A legal play touches the tiles there were (plays through one,
+            // or puts a tile next to one), or is the first and covers the
+            // centre.
+            var touches = false;
+            const mid = b.dim / 2;
+            for (m.tileSlice(), 0..) |ml, i| {
+                const r = m.row + dr * i;
+                const col = m.col + dc * i;
+                if (ml == 0) touches = true;
+                if (before.tiles_played == 0 and r == mid and col == mid) touches = true;
+                if (r > 0 and before.hasLetter(r - 1, col)) touches = true;
+                if (r + 1 < b.dim and before.hasLetter(r + 1, col)) touches = true;
+                if (col > 0 and before.hasLetter(r, col - 1)) touches = true;
+                if (col + 1 < b.dim and before.hasLetter(r, col + 1)) touches = true;
+            }
+            if (!touches) return error.BadLastMove;
+            lm.score = m.scoreOn(&before, self.dist);
+        }
+        if (given_score) |sc| {
+            if (sc != lm.score) return error.BadLastMove;
+        }
+        return lm;
+    }
+
+    /// The position before the last move, with its mover on turn: its
+    /// tiles off the board, its score off the mover's, and the racks and
+    /// scores swapped. The mover's rack is unknown (empty); the other
+    /// player's is kept. Without a last move, null. The turns without a
+    /// score before a scoring move aren't known; they are taken as 0.
+    pub fn beforeLastMove(self: *const Position) ?Position {
+        const lm = self.last_move orelse return null;
+        var p = self.*;
+        p.last_move = null;
+        if (lm.move.kind == .play and !lm.phony) {
+            const m = &lm.move;
+            for (m.tileSlice(), 0..) |ml, i| {
+                if (ml == 0) continue;
+                p.board.setLetter(m.row + if (m.vertical) i else 0, m.col + if (m.vertical) 0 else i, 0);
+            }
+            p.board.countTiles();
+            cross_set.generateAll(&p.board, p.lexicon.kwg, p.dist);
+            p.board.updateAllAnchors();
+        }
+        p.racks = .{ .{}, self.racks[0] };
+        p.scores = .{ self.scores[1] - lm.score, self.scores[0] };
+        p.scoreless_turns = if (lm.score == 0) self.scoreless_turns -| 1 else 0;
+        return p;
+    }
 };
+
+test "last move: read, checked and taken back" {
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgp_text = "15/15/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 lex NWL23; lm 8G.S(CAT)TER 10;";
+    const p = try testdata.position(&store, cgp_text);
+    const lm = p.last_move.?;
+    try std.testing.expectEqual(4, lm.move.tiles_played);
+    try std.testing.expectEqual(10, lm.score);
+    const before = p.beforeLastMove().?;
+    try std.testing.expectEqual([2]i32{ 10, 0 }, before.scores);
+    try std.testing.expectEqual(0, before.racks[0].num_tiles);
+    try std.testing.expectEqual(7, before.racks[1].num_tiles);
+    try std.testing.expect(!before.board.hasLetter(7, 6) and before.board.hasLetter(7, 7) and !before.board.hasLetter(7, 10));
+    // Through squares as dots, and no score: worked out.
+    const q = try testdata.position(&store, "15/15/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 lex NWL23; lm 8G.S...TER;");
+    try std.testing.expectEqual(10, q.last_move.?.score);
+    // A bingo through nothing.
+    const r = try testdata.position(&store, "15/15/15/15/15/15/15/4RETINAS4/15/15/15/15/15/15/15 / 0/64 0 lex NWL23; lm 8E.RETINAS 64;");
+    try std.testing.expectEqual(64, r.last_move.?.score);
+    try std.testing.expectEqual(0, r.beforeLastMove().?.board.tiles_played);
+    const x = try testdata.position(&store, "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 1 lex NWL18; lm ex.2;");
+    try std.testing.expectEqual(.exchange, x.last_move.?.move.kind);
+    try std.testing.expectEqual(0, x.beforeLastMove().?.scoreless_turns);
+    for ([_][]const u8{
+        "lm 8G.S(CAT)TER 11;", // wrong score
+        "lm 8G.SCATTER 10;", // CAT not marked: read as placed, it scores 70
+        "lm 8H.(CAT)TER;", // not the whole word
+        "lm 8G.S(COT)TER;", // wrong through letters
+        "lm H8.S(CAT)TER;", // wrong direction
+        "lm 8G.s(CAT)TER;", // S is not a blank
+    }) |op| {
+        var buf: [160]u8 = undefined;
+        const t = try std.fmt.bufPrint(&buf, "15/15/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 lex NWL23; {s}", .{op});
+        try std.testing.expectError(error.BadLastMove, testdata.position(&store, t));
+    }
+    // A play touching none of the tiles there were.
+    try std.testing.expectError(error.BadLastMove, testdata.position(&store, "15/QI13/15/15/15/15/15/6SCATTER2/15/15/15/15/15/15/15 AEINRST/ 0/20 0 lex NWL23; lm 2A.QI;"));
+}

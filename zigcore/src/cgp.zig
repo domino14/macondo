@@ -34,6 +34,10 @@ pub const Cgp = struct {
     variant: []const u8 = "classic",
     max_scoreless_turns: u32 = 6,
     gid: []const u8 = "",
+    /// The lm opcode: the move that led to the position, and its score if
+    /// given.
+    last_move: []const u8 = "",
+    last_move_score: ?i32 = null,
 
     pub fn parse(text: []const u8) Error!Cgp {
         var fields: [5][]const u8 = undefined;
@@ -90,6 +94,12 @@ pub const Cgp = struct {
                 c.max_scoreless_turns = std.fmt.parseInt(u32, try required(arg), 10) catch return error.BadNumber;
             } else if (std.mem.eql(u8, name, "var")) {
                 c.variant = try required(arg);
+            } else if (std.mem.eql(u8, name, "lm")) {
+                const a = try required(arg);
+                var parts = std.mem.tokenizeScalar(u8, a, ' ');
+                c.last_move = parts.next().?;
+                if (parts.next()) |sc| c.last_move_score = std.fmt.parseInt(i32, sc, 10) catch return error.BadNumber;
+                if (parts.next() != null) return error.BadOption;
             }
             // Other opcodes (tmr, ...) are ignored.
         }
@@ -109,6 +119,39 @@ pub const Cgp = struct {
         return true;
     }
 };
+
+/// Writes a CGP's first four fields: `b`'s rows, the racks and scores (the
+/// player to move first) and the turns without a score. Tiles of more than
+/// one character are bracketed.
+pub fn writeFields(b: *const board.Board, ld: *const tiles.LetterDistribution, racks: [2]tiles.Rack, scores: [2]i32, scoreless_turns: u32, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    for (0..b.dim) |r| {
+        if (r > 0) try w.writeByte('/');
+        var empties: usize = 0;
+        for (0..b.dim) |c| {
+            const ml = b.getLetter(r, c);
+            if (ml == 0) {
+                empties += 1;
+                continue;
+            }
+            if (empties > 0) try w.print("{d}", .{empties});
+            empties = 0;
+            const text = ld.letter(ml, true);
+            const multi = (std.unicode.utf8CountCodepoints(text) catch 1) > 1;
+            if (multi) try w.writeByte('[');
+            try w.writeAll(text);
+            if (multi) try w.writeByte(']');
+        }
+        if (empties > 0) try w.print("{d}", .{empties});
+    }
+    try w.writeByte(' ');
+    for (racks, 0..) |rack, i| {
+        if (i > 0) try w.writeByte('/');
+        for (0..ld.size) |ml| {
+            for (0..rack.counts[ml]) |_| try w.writeAll(ld.letter(@intCast(ml), false));
+        }
+    }
+    try w.print(" {d}/{d} {d}", .{ scores[0], scores[1], scoreless_turns });
+}
 
 pub const RowError = error{ UnknownLetter, BadRow, NoSpaceLeft };
 

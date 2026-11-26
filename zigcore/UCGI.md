@@ -66,6 +66,17 @@ without the file the engine makes it from the word graph in memory, which
 takes a second or two the first time. `setoption name word-maps value
 false` turns them off.
 
+The CGP's `lm` opcode gives the move that led to the position, by the
+player not on turn, in the open-protocols notation: through tiles in
+parentheses (`lm 8G.S(CAT)TER 10;`), `ex.ABC` or `ex.3`, `pass`, and
+optionally its score. Inference reads the opponent from it. The engine
+checks it against the board: its new tiles must be there, the word whole,
+the play touching what was on the board before it, and the score (when
+given) right; otherwise `position` fails with `BadLastMove`. Through tiles
+written as `.` are accepted too. A record that leaves through tiles
+unmarked reads as if the move placed them, and is rejected only if that
+reading breaks one of those checks.
+
 With word maps, the best-play search can also use a rack info table,
 `lexica/<lexicon>.<leaves>.zrit`: what it works out for each full rack before
 it looks at the board (leave values, the best exchange, which words the
