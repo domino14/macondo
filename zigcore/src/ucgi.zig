@@ -19,6 +19,9 @@ const game_mod = @import("game.zig");
 const sim_mod = @import("sim.zig");
 const classic = @import("classic.zig");
 const infer_mod = @import("infer.zig");
+const endgame = @import("endgame.zig");
+const zobrist_mod = @import("zobrist.zig");
+const ttable = @import("ttable.zig");
 const bai_mod = @import("bai.zig");
 
 pub const engine_name = "MacondoZig";
@@ -59,6 +62,10 @@ pub const Engine = struct {
     /// The cross-set cache `play` updates the board with (made on first
     /// use; its keys include the word graph, so positions can share it).
     cross_cache: ?cross_set.Cache = null,
+    /// The endgame's position keys (made for the board's size on first
+    /// use, or loaded with the zobrist-file option) and table.
+    zobrist: ?zobrist_mod.Zobrist = null,
+    tt: ttable.Table = .{},
 
     /// `source` is how the engine reads data files; see data.Source.
     /// Responses are written to `out`, and flushed after each command and
@@ -77,6 +84,8 @@ pub const Engine = struct {
     pub fn deinit(self: *Engine) void {
         self.stopSearch();
         if (self.cross_cache) |*c| c.deinit(self.gpa);
+        if (self.zobrist) |*z| z.deinit(self.gpa);
+        self.tt.deinit(self.gpa);
         self.store.deinit();
         self.gpa.free(self.options.data_path);
         self.* = undefined;
@@ -152,7 +161,7 @@ pub const Engine = struct {
         } else if (std.mem.eql(u8, cmd, "go")) {
             try self.go(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "gen")) {
-            try self.printMoves(out);
+            if (std.mem.eql(u8, tokens.rest(), "raw")) try self.printRawMoves(out) else try self.printMoves(out);
         } else if (std.mem.eql(u8, cmd, "crosssets")) {
             try self.printCrossSets(out);
         } else if (std.mem.eql(u8, cmd, "leave")) {
@@ -214,6 +223,17 @@ pub const Engine = struct {
             } else if (std.mem.eql(u8, value, "false")) {
                 self.options.rack_tables = .never;
             } else return out.print("error bad-value {s}\n", .{name});
+        } else if (std.mem.eql(u8, name, "zobrist-file")) {
+            // Debug: the endgame's position keys from a file (the Go
+            // engine's Zobrist.Dump), for comparing searches node for node.
+            const bytes = self.store.source.load(self.gpa, "", value) catch return out.print("error data-not-found {s}\n", .{value});
+            defer self.gpa.free(bytes);
+            const z = zobrist_mod.Zobrist.fromJson(self.gpa, bytes) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.BadZobrist => return out.print("error data-invalid {s}\n", .{value}),
+            };
+            if (self.zobrist) |*old| old.deinit(self.gpa);
+            self.zobrist = z;
         } else if (std.mem.eql(u8, name, "data-path")) {
             const copy = try self.gpa.dupe(u8, value);
             self.gpa.free(self.options.data_path);
@@ -326,8 +346,10 @@ pub const Engine = struct {
         const kind = tokens.next() orelse return out.writeAll("error bad-go\n");
         const is_sim = std.mem.eql(u8, kind, "sim");
         const is_infer = std.mem.eql(u8, kind, "infer");
-        if (!is_sim and !is_infer and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
+        const is_endgame = std.mem.eql(u8, kind, "endgame");
+        if (!is_sim and !is_infer and !is_endgame and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        if (is_endgame) return self.goEndgame(p, tokens.rest(), out);
         if (is_sim) return self.goSim(p, tokens.rest(), out);
         if (is_infer) return self.goInfer(p, tokens.rest(), out);
         var rack = p.racks[0];
@@ -352,6 +374,27 @@ pub const Engine = struct {
     /// Debug: every move for the player on turn with its score and static
     /// equity (a pass gets the static pass penalty, as in the Go static
     /// player's move list), best first, then `genok count <n>`.
+    /// Debug: `gen raw` lists every tile play for the player on turn in
+    /// the order the move generator makes them (rows, then columns; anchor
+    /// by anchor), with their scores, then `genok count <n>`. Searches that
+    /// keep the first of equal moves depend on this order.
+    fn printRawMoves(self: *Engine, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        var rack = p.racks[0];
+        try gen.genAll(&rack, false);
+        var n: usize = 0;
+        for (gen.plays.items) |*m| {
+            if (m.kind != .play) continue;
+            try out.writeAll("move ");
+            try m.format(p.dist, out);
+            try out.print(" score {d}\n", .{m.score});
+            n += 1;
+        }
+        try out.print("genok count {d}\n", .{n});
+    }
+
     fn printMoves(self: *Engine, out: *Writer) (Writer.Error || Allocator.Error)!void {
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         const ranked = try rankedMoves(self.gpa, p);
@@ -454,6 +497,91 @@ pub const Engine = struct {
             search.run();
             self.waitSearch();
         }
+    }
+
+    /// `go endgame plies <n> [firstwin] [noid] [noheur] [nolists]
+    /// [nooutreply] [nokeepone] [noshortcuts] [checklists]`: solves the
+    /// endgame (the bag must be empty) to n plies on one thread, writing
+    /// `info endgame depth <d> value <v> nodes <n> pv <moves>` after each
+    /// depth (v: the change in the spread of the player on turn), then
+    /// `bestmove`.
+    fn goEndgame(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        var plies: u32 = 0;
+        var opts: endgame.Options = .{ .tt_bytes = @as(u64, self.options.hash_mb) << 20 };
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            if (std.mem.eql(u8, key, "plies")) {
+                const v = tokens.next() orelse return out.writeAll("error bad-endgame\n");
+                plies = std.fmt.parseInt(u32, v, 10) catch return out.writeAll("error bad-endgame\n");
+            } else if (std.mem.eql(u8, key, "firstwin")) {
+                opts.first_win = true;
+            } else if (std.mem.eql(u8, key, "noid")) {
+                opts.iterative_deepening = false;
+            } else if (std.mem.eql(u8, key, "noheur")) {
+                opts.heuristics = false;
+            } else if (std.mem.eql(u8, key, "nolists")) {
+                opts.lists = false;
+            } else if (std.mem.eql(u8, key, "nooutreply")) {
+                opts.out_reply = false;
+            } else if (std.mem.eql(u8, key, "nokeepone")) {
+                opts.keep_one = false;
+            } else if (std.mem.eql(u8, key, "noshortcuts")) {
+                opts.child_shortcuts = false;
+            } else if (std.mem.eql(u8, key, "checklists")) {
+                opts.check_lists = true;
+            } else return out.print("error bad-endgame {s}\n", .{key});
+        }
+        if (plies == 0 or plies > endgame.max_variant) return out.writeAll("error bad-endgame\n");
+        if (p.unseenBy(0) != p.racks[1].num_tiles) return out.writeAll("error bag-not-empty\n");
+        if (self.zobrist == null or self.zobrist.?.dim != p.board.dim) {
+            if (self.zobrist) |*z| z.deinit(self.gpa);
+            self.zobrist = null;
+            self.zobrist = try .init(self.gpa, p.board.dim, @splat(0x5a));
+        }
+        const solver = endgame.Solver.init(self.gpa, p, &self.zobrist.?, &self.tt, opts) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return out.print("error endgame {s}\n", .{@errorName(e)}),
+        };
+        defer solver.deinit();
+        const Progress = struct {
+            out: *Writer,
+            solver: *endgame.Solver,
+            dist: *const tiles.LetterDistribution,
+            failed: ?anyerror = null,
+
+            fn report(ctx: ?*anyopaque, r: *const endgame.Result) void {
+                const self_: *@This() = @ptrCast(@alignCast(ctx.?));
+                self_.write(r) catch |err| {
+                    self_.failed = err;
+                };
+            }
+            fn write(self_: *@This(), r: *const endgame.Result) !void {
+                try self_.out.print("info endgame depth {d} value {d} nodes {d} pv", .{ r.depth, r.value, r.nodes });
+                var moves: [endgame.max_variant]Move = undefined;
+                const n = try self_.solver.lineMoves(&r.line, &moves);
+                for (moves[0..n], 0..) |*m, i| {
+                    try self_.out.writeAll(if (i == r.line.searched) " | " else " ");
+                    try m.format(self_.dist, self_.out);
+                }
+                try self_.out.writeAll("\n");
+                try self_.out.flush();
+            }
+        };
+        var progress: Progress = .{ .out = out, .solver = solver, .dist = p.dist };
+        const result = solver.solve(plies, Progress.report, &progress) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return out.print("error endgame {s}\n", .{@errorName(e)}),
+        };
+        if (progress.failed) |err| {
+            if (err == error.OutOfMemory) return error.OutOfMemory;
+            return error.WriteFailed;
+        }
+        try out.writeAll("bestmove ");
+        if (result.line.len == 0) return out.writeAll("pass\n");
+        var moves: [endgame.max_variant]Move = undefined;
+        const n = try solver.lineMoves(&result.line, &moves);
+        if (n == 0) try out.writeAll("pass") else try moves[0].format(p.dist, out);
+        try out.writeAll("\n");
     }
 
     /// `go infer`: what the opponent kept after the position's last move

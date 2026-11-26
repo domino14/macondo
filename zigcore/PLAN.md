@@ -173,6 +173,11 @@ as they land.
       hashes are compared by property, e.g. incremental = from scratch.)
       Check: identical values (not PVs; ties can differ) on the endgame
       test suite.
+      Done: the single-threaded search (`go endgame`), with Go's keys handed
+      over (`zobrist-file`) and the same table size identical to Go's in
+      value, best move and positions searched (`TestEndgameCrossCheck`),
+      incremental move lists, keep-one and out-reply bounds included. Left:
+      PV split and ABDADA, the pruned word graph and the playout-tail cache.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
 - [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.

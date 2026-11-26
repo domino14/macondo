@@ -90,6 +90,12 @@ pub fn main(init: std.process.Init) !void {
     var out_buf: [512]u8 = undefined;
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "phases")) return benchPhases(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_NO_WMP") != null);
+    if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "endgame")) {
+        const profile = init.environ_map.get("BENCH_PROFILE");
+        if (profile != null) Profiler.start();
+        defer if (profile) |path| Profiler.stop(io, path) catch {};
+        return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, &w.interface);
+    }
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "sim")) {
         const profile = init.environ_map.get("BENCH_PROFILE");
         if (profile != null) Profiler.start();
@@ -193,6 +199,44 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
     });
     try w.print("best-move memory: {d} generations, {d:.1}% found their rack\n", .{ gens, 100 * @as(f64, @floatFromInt(hits)) / @as(f64, @floatFromInt(@max(gens, 1))) });
+    try w.flush();
+}
+
+/// BENCH_MODE=endgame: solves each position's endgame to `plies` plies
+/// (the second argument) on one thread, with a table of 2^24 entries
+/// cleared before each (`go endgame plies <n>`). With BENCH_ROWS, a line
+/// per position.
+fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, plies: u32, rows: bool, w: *Io.Writer) !void {
+    var tt: macondo.ttable.Table = .{};
+    defer tt.deinit(gpa);
+    var zobrist: ?macondo.zobrist.Zobrist = null;
+    defer if (zobrist) |*z| z.deinit(gpa);
+    var nodes: u64 = 0;
+    var value_sum: i64 = 0;
+    var total_ns: i96 = 0;
+    for (positions, 0..) |*p, i| {
+        if (zobrist == null or zobrist.?.dim != p.board.dim) {
+            if (zobrist) |*z| z.deinit(gpa);
+            zobrist = try .init(gpa, p.board.dim, @splat(0x5a));
+        }
+        const start = Io.Timestamp.now(io, .awake);
+        const solver = try macondo.endgame.Solver.init(gpa, p, &zobrist.?, &tt, .{});
+        defer solver.deinit();
+        const r = try solver.solve(plies, null, null);
+        const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+        total_ns += ns;
+        nodes += r.nodes;
+        value_sum += r.value;
+        if (rows) try w.print("{d} value {d} depth {d} nodes {d} time {d:.4}\n", .{ i, r.value, r.depth, r.nodes, @as(f64, @floatFromInt(ns)) / 1e9 });
+    }
+    try w.print("endgame ({d} plies, 1 thread): {d} positions in {d:.3} s, {d} nodes, {d:.0} nodes/s, value sum {d}\n", .{
+        plies,
+        positions.len,
+        @as(f64, @floatFromInt(total_ns)) / 1e9,
+        nodes,
+        @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(@max(total_ns, 1))),
+        value_sum,
+    });
     try w.flush();
 }
 

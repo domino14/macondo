@@ -32,6 +32,9 @@ pub const classic = @import("classic.zig");
 pub const gosort = @import("gosort.zig");
 pub const gorand = @import("gorand.zig");
 pub const infer = @import("infer.zig");
+pub const zobrist = @import("zobrist.zig");
+pub const ttable = @import("ttable.zig");
+pub const endgame = @import("endgame.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

@@ -91,7 +91,7 @@ and saves it; `false` never uses one.
 
 ## Searching
 
-All `go` commands but `go static` and `go infer` run in the background. While a search runs the engine
+All `go` commands but `go static`, `go infer` and `go endgame` run in the background. While a search runs the engine
 accepts `stop`, `isready` and `quit`; any other command gets
 `error busy`. Every search ends with exactly one `bestmove` line, also after
 `stop`.
@@ -200,6 +200,31 @@ measured:
 without a last move, or whose last move was a pass, a phony or a bingo, or
 with an empty bag, gets `error infer` and the reason.
 
+`go endgame plies <n>` solves the endgame (the bag must be empty, so both
+racks are known) to n plies on one thread, deepening iteratively, with a
+transposition table of `hash-mb` (at least 2^24 entries). After each depth
+it writes the value (the change in the spread of the player on turn), the
+positions searched and the line of play, a `|` where the search's moves end
+and its estimate of how the game finishes begins:
+
+```
+> go endgame plies 4
+< info endgame depth 1 value 14 nodes 63 pv 1G.VIG. | 2J..O.DI G7.B...
+< info endgame depth 2 value 11 nodes 1806 pv 1G.VIG. 4A.HOER | G7.B...
+< info endgame depth 4 value 11 nodes 3752 pv 1G.VIG. 4A.HOER 13K.B..
+< bestmove 1G.VIG.
+```
+
+(Depth 3 is skipped: a search to a fixed depth deepens by one ply at first,
+then two at a time, ending on the depth asked for.)
+
+Two scoreless turns in a row end the game in the search, as in Macondo's
+endgame mode. `firstwin` searches only whether the player on turn wins
+(the window -1, 1); `noid`, `noheur` and `nolists` turn off iterative
+deepening, the greedy playout that values the positions the search stops
+at, and the incremental move lists. `go endgame` answers before the engine
+reads the next command.
+
 Progress, as often as the engine likes:
 
 ```
@@ -245,6 +270,11 @@ Used by the cross-check harness; engines may omit them.
 > cgp
 < cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 ADIQSUZ/AEINRST 0/0 0
 ```
+
+`setoption name zobrist-file value <path>` loads the keys the endgame
+hashes positions with from a file in the format of Macondo's Zobrist.Dump
+(JSON), so that a search can be compared with Macondo's node for node;
+otherwise the engine makes its own.
 
 `play` plays a tile play for the player on turn as a game does: the tiles
 go on the board, the cross-sets are brought up to date incrementally rather

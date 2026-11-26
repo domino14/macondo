@@ -1,0 +1,1520 @@
+//! The endgame solver: port of endgame/negamax (the single-threaded
+//! search: iterative deepening, negamax with negascout, the transposition
+//! table and the greedy playout that values the positions the search
+//! stops at).
+//!
+//! It works on a position with the bag empty, the player to move first.
+//! Moves are played and unplayed on one board: a play saves the squares it
+//! changes and an unplay puts them back, as the Go engine's board journal
+//! does. Values are spreads from the side to move's point of view; the
+//! solve reports the change in the solving player's spread.
+//!
+//! Go's endgame mode is kept: two turns in a row without a score end the
+//! game (each player losing their rack's value), and the count the
+//! position comes with is remapped as Game.SetEndgameMode does. So is a
+//! quirk of its undo: taking a move back restores the count of turns
+//! without a score but not the count before it, which move ordering reads.
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const tiles = @import("tiles.zig");
+const board_mod = @import("board.zig");
+const cross_set = @import("cross_set.zig");
+const movegen = @import("movegen.zig");
+const move_mod = @import("move.zig");
+const position = @import("position.zig");
+const zobrist_mod = @import("zobrist.zig");
+const ttable = @import("ttable.zig");
+const gosort = @import("gosort.zig");
+const pathlists = @import("pathlists.zig");
+const MachineLetter = tiles.MachineLetter;
+const Rack = tiles.Rack;
+const Board = board_mod.Board;
+const Move = move_mod.Move;
+
+pub const huge: i16 = 32000;
+pub const max_variant = 25;
+const max_playout = max_variant;
+const early_pass_bf: i16 = 1 << 13;
+const hash_move_bf: i16 = 1 << 12;
+const going_out_bf: i16 = 1 << 11;
+const conservation_tile_weight = 7;
+const conservation_value_weight = 2;
+/// Turns without a score that end the game in endgame mode.
+const max_scoreless = 2;
+
+/// A move as the search keeps it (tinymove.SmallMove): `tm` encodes the
+/// position and the tiles placed (TinyMove; 0 is a pass).
+pub const SmallMove = struct {
+    tm: u64 = 0,
+    score: i16 = 0,
+    est: i16 = 0,
+    tiles_played: u8 = 0,
+    len: u8 = 0,
+
+    pub inline fn isPass(m: SmallMove) bool {
+        return m.tm == 0;
+    }
+    pub inline fn row(m: SmallMove) usize {
+        return @intCast((m.tm & 0b111_1100_0000) >> 6);
+    }
+    pub inline fn col(m: SmallMove) usize {
+        return @intCast((m.tm & 0b11_1110) >> 1);
+    }
+    pub inline fn vertical(m: SmallMove) bool {
+        return m.tm & 1 != 0;
+    }
+    /// The i-th tile placed, a blank with its letter marked.
+    pub inline fn tile(m: SmallMove, i: usize) MachineLetter {
+        const ml: MachineLetter = @intCast((m.tm >> @intCast(20 + 6 * i)) & 63);
+        return if (m.tm & (@as(u64, 1) << @intCast(12 + i)) != 0) tiles.blank(ml) else ml;
+    }
+    /// The rack tile the i-th tile placed came from (0 for a blank).
+    pub inline fn rackTile(m: SmallMove, i: usize) MachineLetter {
+        if (m.tm & (@as(u64, 1) << @intCast(12 + i)) != 0) return 0;
+        return @intCast((m.tm >> @intCast(20 + 6 * i)) & 63);
+    }
+
+    /// The encoding of a move from the move generator (MoveToTinyMove).
+    pub fn fromMove(mv: *const Move) SmallMove {
+        if (mv.kind != .play) return .{};
+        var code: u64 = 0;
+        var t: usize = 0;
+        var blanks: u64 = 0;
+        for (mv.tileSlice()) |ml| {
+            if (ml == 0) continue;
+            if (tiles.isBlanked(ml)) blanks |= @as(u64, 1) << @intCast(t);
+            code |= @as(u64, tiles.unblank(ml)) << @intCast(20 + 6 * t);
+            t += 1;
+        }
+        if (mv.vertical) code |= 1;
+        code |= @as(u64, mv.col) << 1;
+        code |= @as(u64, mv.row) << 6;
+        code |= blanks << 12;
+        return .{ .tm = code, .score = @intCast(mv.score), .tiles_played = mv.tiles_played, .len = mv.len };
+    }
+};
+
+/// A line of play, best first (PVLine).
+pub const Line = struct {
+    moves: [max_variant]SmallMove = undefined,
+    len: usize = 0,
+    /// How many of the leading moves the search found; the rest are the
+    /// greedy playout's.
+    searched: usize = 0,
+    score: i16 = 0,
+
+    fn clear(l: *Line) void {
+        l.len = 0;
+        l.searched = 0;
+    }
+
+    fn update(l: *Line, m: SmallMove, child: *const Line, score: i16) void {
+        l.moves[0] = m;
+        const n = @min(child.len, max_variant - 1);
+        @memcpy(l.moves[1..][0..n], child.moves[0..n]);
+        l.len = n + 1;
+        l.searched = @min(child.searched + 1, l.len);
+        l.score = score;
+    }
+
+    fn setPlayout(l: *Line, ms: []const SmallMove) void {
+        const n = @min(ms.len, max_variant);
+        @memcpy(l.moves[0..n], ms[0..n]);
+        l.len = n;
+        l.searched = 0;
+    }
+};
+
+pub const Options = struct {
+    /// Value the positions the search stops at by playing them out
+    /// greedily (else by their spread).
+    heuristics: bool = true,
+    iterative_deepening: bool = true,
+    negascout: bool = true,
+    /// Search the window (-1, 1) only: whether the solving player wins.
+    first_win: bool = false,
+    /// The transposition table's size in bytes (rounded down to a power
+    /// of two entries, at least 2^24).
+    tt_bytes: u64 = 256 << 20,
+    /// Value a child that goes out, or that the table answers, without
+    /// playing it (speed only).
+    child_shortcuts: bool = true,
+    /// Skip moves that keep one tile and can't beat alpha (speed only).
+    keep_one: bool = true,
+    /// Skip moves the opponent can answer by going out for a result that
+    /// doesn't beat alpha (speed only).
+    out_reply: bool = true,
+    /// Derive move lists from the ancestors' (speed only).
+    lists: bool = true,
+    /// Compare every derived list with a full generation (tests).
+    check_lists: bool = false,
+};
+
+const max_lanes = 2 * board_mod.max_dim;
+
+/// The lanes (rows 0..dim, then columns dim..2*dim) whose plays a tile
+/// play changes, and in each which squares (pathLists.moveHits): the
+/// move's own lane from the square before it to the one after; for each
+/// tile placed, its crossing lane around it and the lanes of the squares
+/// past the crossing run through it; and the crossing lanes of the squares
+/// at the two ends of the word.
+pub fn moveHits(b: *const Board, m: SmallMove, lane_hits: *[max_lanes]u32) u64 {
+    if (m.isPass()) return 0;
+    lane_hits.* = @splat(0);
+    const dim = b.dim;
+    const v = m.vertical();
+    const fixed: usize = if (v) m.col() else m.row();
+    const start: usize = if (v) m.row() else m.col();
+    const own_base: usize = if (v) dim else 0;
+    const cross_base: usize = if (v) 0 else dim;
+    const len: usize = m.len;
+    const has = struct {
+        fn f(bb: *const Board, vert: bool, lane: usize, pos: usize) bool {
+            return if (vert) bb.hasLetter(pos, lane) else bb.hasLetter(lane, pos);
+        }
+    }.f;
+    var hits = @as(u64, 1) << @intCast(own_base + fixed);
+    const lo: usize = if (start == 0) 0 else start - 1;
+    const hi: usize = @min(start + len, dim - 1);
+    lane_hits[own_base + fixed] = ((@as(u32, 2) << @intCast(hi)) -% 1) & ~((@as(u32, 1) << @intCast(lo)) - 1);
+    for (0..len) |i| {
+        const pos = start + i;
+        if (has(b, v, fixed, pos)) continue;
+        hits |= @as(u64, 1) << @intCast(cross_base + pos);
+        lane_hits[cross_base + pos] |= (@as(u32, 7) << @intCast(fixed)) >> 1;
+        var above: isize = @as(isize, @intCast(fixed)) - 1;
+        while (above >= 0 and has(b, v, @intCast(above), pos)) above -= 1;
+        if (above >= 0) {
+            hits |= @as(u64, 1) << @intCast(own_base + @as(usize, @intCast(above)));
+            lane_hits[own_base + @as(usize, @intCast(above))] |= @as(u32, 1) << @intCast(pos);
+        }
+        var below = fixed + 1;
+        while (below < dim and has(b, v, below, pos)) below += 1;
+        if (below < dim) {
+            hits |= @as(u64, 1) << @intCast(own_base + below);
+            lane_hits[own_base + below] |= @as(u32, 1) << @intCast(pos);
+        }
+    }
+    if (start > 0) {
+        hits |= @as(u64, 1) << @intCast(cross_base + start - 1);
+        lane_hits[cross_base + start - 1] |= @as(u32, 1) << @intCast(fixed);
+    }
+    if (start + len < dim) {
+        hits |= @as(u64, 1) << @intCast(cross_base + start + len);
+        lane_hits[cross_base + start + len] |= @as(u32, 1) << @intCast(fixed);
+    }
+    return hits;
+}
+
+/// The out-reply bound (outreply.go). A move that doesn't go out is worth,
+/// to its player, at most what is left if the opponent goes out in reply:
+/// its score, less the reply's score and twice the tiles it keeps. Any of
+/// the opponent's going-out plays will do that the move leaves standing,
+/// which it does when the play covers none of the squares the move changes
+/// in the play's lane. A node keeps the opponent's best few.
+const OutReply = struct {
+    const max_plays = 8;
+    ready: bool = false,
+    count: usize = 0,
+    score: [max_plays]i32 = undefined,
+    lane: [max_plays]u8 = undefined,
+    span: [max_plays]u32 = undefined,
+    single: [max_plays]bool = undefined,
+    base: i32 = 0,
+    dim: usize = 0,
+    lane_hits: [max_lanes]u32 = undefined,
+
+    fn init(o: *OutReply, s: *Solver, on: u1, our_spread: i32) Allocator.Error!void {
+        o.ready = true;
+        o.count = 0;
+        o.base = our_spread - 2 * s.racks[on].scoreOn(s.dist);
+        o.dim = s.board.dim;
+        const opp = &s.racks[1 - on];
+        const opp_tiles = opp.num_tiles;
+        if (opp_tiles == 0) return;
+        if (opp_tiles == 1) {
+            const lone = if (s.lists) |*l| try l.bestLoneTilePlay(s.frames.items.len, 1 - on, s) else s.bestLoneTilePlay(opp);
+            if (lone == null) return;
+        }
+        if (s.lists) |*l| {
+            for ((try l.get(s.frames.items.len, 1 - on)).moves.items) |mv| o.add(mv, opp_tiles);
+        } else {
+            try s.gen.genAll(opp, false);
+            for (s.gen.plays.items) |*mv| o.add(.fromMove(mv), opp_tiles);
+        }
+    }
+
+    fn add(o: *OutReply, mv: SmallMove, opp_tiles: u8) void {
+        {
+            if (mv.isPass() or mv.tiles_played != opp_tiles) return;
+            const score: i32 = mv.score;
+            var slot = o.count;
+            if (slot == max_plays) {
+                if (score <= o.score[slot - 1]) return;
+                slot -= 1;
+            } else {
+                o.count += 1;
+            }
+            while (slot > 0 and o.score[slot - 1] < score) : (slot -= 1) {
+                o.score[slot] = o.score[slot - 1];
+                o.lane[slot] = o.lane[slot - 1];
+                o.span[slot] = o.span[slot - 1];
+                o.single[slot] = o.single[slot - 1];
+            }
+            const lane: usize = if (mv.vertical()) o.dim + mv.col() else mv.row();
+            const start: usize = if (mv.vertical()) mv.row() else mv.col();
+            o.score[slot] = score;
+            o.lane[slot] = @intCast(lane);
+            o.span[slot] = ((@as(u32, 1) << @intCast(mv.len)) - 1) << @intCast(start);
+            o.single[slot] = opp_tiles == 1;
+        }
+    }
+
+    /// A bound on the value of `m` (which doesn't go out) to the player on
+    /// turn, if a going-out reply is known to stand and the bound doesn't
+    /// beat alpha.
+    fn bound(o: *OutReply, s: *const Solver, m: SmallMove, alpha: i32) ?i32 {
+        if (o.count == 0) return null;
+        const after_move = o.base + m.score + 2 * s.playedTilesFace(m);
+        if (after_move - o.score[0] > alpha) return null;
+        const hits = moveHits(&s.board, m, &o.lane_hits);
+        for (0..o.count) |i| {
+            const value = after_move - o.score[i];
+            if (value > alpha) break;
+            const lane: usize = o.lane[i];
+            const span = o.span[i];
+            if (hits & (@as(u64, 1) << @intCast(lane)) != 0 and o.lane_hits[lane] & span != 0) continue;
+            if (o.single[i]) {
+                // As Go has it, the square checked across is the last of
+                // the reply's word, not necessarily the tile's own (MAGPIE
+                // checks the tile's). Either way the check only passes over
+                // replies: the lane check catches every change at the
+                // tile's square, so the bound stays sound.
+                const pos: usize = 31 - @clz(span);
+                const cross: usize = if (lane < o.dim) o.dim + pos else pos;
+                const cross_pos: usize = if (lane < o.dim) lane else lane - o.dim;
+                if (hits & (@as(u64, 1) << @intCast(cross)) != 0 and o.lane_hits[cross] & (@as(u32, 1) << @intCast(cross_pos)) != 0) continue;
+            }
+            return value;
+        }
+        return null;
+    }
+};
+
+/// The keep-one bound (keepone.go). A move that leaves one tile y on the
+/// rack is worth, to its player, at most its score plus the most y can
+/// score played alone afterwards plus the going-out bonus: the opponent
+/// can always pass. Where a node has alpha to beat, a move whose bound
+/// doesn't beat it needs no search. After the move y drops where it could
+/// before, for the same score, or on a square the move changes, bounded
+/// from the tiles the move puts next to it.
+const KeepOne = struct {
+    rack_sum: usize,
+    rack_size: u8,
+    base: i32,
+    scanned: u64 = 0,
+    best_drop: [tiles.max_alphabet_size + 1]i32 = undefined,
+
+    fn init(s: *const Solver, on: u1, our_spread: i32) KeepOne {
+        const rack = &s.racks[on];
+        var sum: usize = 0;
+        for (0..s.numLetters()) |ml| sum += ml * rack.counts[ml];
+        return .{ .rack_sum = sum, .rack_size = rack.num_tiles, .base = our_spread + 2 * s.racks[1 - on].scoreOn(s.dist) };
+    }
+
+    fn bound(k: *KeepOne, s: *Solver, m: SmallMove, alpha: i32) Allocator.Error!i32 {
+        const b = &s.board;
+        const ld = s.dist;
+        const n = m.tiles_played;
+        var kept_sum = k.rack_sum;
+        var placed: [movegen.rack_tile_limit]MachineLetter = undefined;
+        for (0..@min(n, placed.len)) |i| {
+            const ml = m.rackTile(i);
+            kept_sum -= ml;
+            placed[i] = ml;
+        }
+        const kept: MachineLetter = @intCast(kept_sum);
+        if (k.scanned & (@as(u64, 1) << @intCast(kept)) == 0) {
+            if (s.lists) |*lists| {
+                const t = (try lists.get(s.frames.items.len, s.on_turn)).soloPlays(&s.board);
+                k.best_drop[kept] = if (t.found & (@as(u64, 1) << @intCast(kept)) != 0) t.score[kept] else -1;
+            } else {
+                k.best_drop[kept] = if (s.scanLoneTile(kept)) |found| found.score else -1;
+            }
+            k.scanned |= @as(u64, 1) << @intCast(kept);
+        }
+        const move_bound = k.base + m.score;
+        var next_drop = @max(k.best_drop[kept], 0);
+        if (move_bound + next_drop > alpha) return move_bound + next_drop;
+
+        const kept_face: i32 = if (kept == 0) 0 else ld.score_table[kept];
+        const row = m.row();
+        const col = m.col();
+        const len: usize = m.len;
+        const v = m.vertical();
+        const dr: isize = if (v) 1 else 0;
+        const dc: isize = if (v) 0 else 1;
+        // Go's direction names: a horizontal play's cross words are
+        // vertical.
+        const main_dir: u1 = if (v) 1 else 0;
+        const cross_dir: u1 = 1 - main_dir;
+        var word_score: i32 = 0;
+        var placed_face: [board_mod.max_dim]i32 = @splat(0);
+        var is_placed: [board_mod.max_dim]bool = @splat(false);
+        var t: usize = 0;
+        for (0..len) |i| {
+            const r: usize = @intCast(@as(isize, @intCast(row)) + dr * @as(isize, @intCast(i)));
+            const c: usize = @intCast(@as(isize, @intCast(col)) + dc * @as(isize, @intCast(i)));
+            const on_board = b.getLetter(r, c);
+            if (on_board != 0) {
+                word_score += ld.score_table[on_board];
+                continue;
+            }
+            var face: i32 = 0;
+            if (t < n and placed[t] != 0) face = ld.score_table[placed[t]];
+            t += 1;
+            placed_face[i] = face;
+            is_placed[i] = true;
+            word_score += face;
+        }
+        const r0: isize = @intCast(row);
+        const c0: isize = @intCast(col);
+        const ilen: isize = @intCast(len);
+        next_drop = @max(next_drop, k.dropBeside(s, r0 - dr, c0 - dc, -dr, -dc, word_score, cross_dir, kept, kept_face), k.dropBeside(s, r0 + dr * ilen, c0 + dc * ilen, dr, dc, word_score, cross_dir, kept, kept_face));
+        const dim: isize = @intCast(b.dim);
+        for (0..len) |i| {
+            if (!is_placed[i]) continue;
+            const r = r0 + dr * @as(isize, @intCast(i));
+            const c = c0 + dc * @as(isize, @intCast(i));
+            const run = placed_face[i] + b.cross_scores[cross_dir][@intCast(r * dim + c)];
+            var sign: isize = -1;
+            while (sign <= 1) : (sign += 2) {
+                const sr = sign * dc;
+                const sc = sign * dr;
+                var er = r + sr;
+                var ec = c + sc;
+                while (er >= 0 and er < dim and ec >= 0 and ec < dim and b.hasLetter(@intCast(er), @intCast(ec))) {
+                    er += sr;
+                    ec += sc;
+                }
+                next_drop = @max(next_drop, k.dropBeside(s, er, ec, sr, sc, run, main_dir, kept, kept_face));
+            }
+        }
+        return move_bound + next_drop;
+    }
+
+    /// Bounds what the kept tile scores alone on the empty square (r, c)
+    /// at the end of a run of tiles worth `run_score` that the move makes
+    /// or extends; (sr, sc) steps from the run through the square.
+    fn dropBeside(k: *const KeepOne, s: *const Solver, r: isize, c: isize, sr: isize, sc: isize, run_score_in: i32, other_dir: u1, kept: MachineLetter, kept_face: i32) i32 {
+        _ = k;
+        const b = &s.board;
+        const dim: isize = @intCast(b.dim);
+        if (r < 0 or r >= dim or c < 0 or c >= dim) return 0;
+        const idx: usize = @intCast(r * dim + c);
+        const other_set = b.cross_sets[other_dir][idx];
+        if (kept == 0) {
+            if (other_set >> 1 == 0) return 0;
+        } else if (other_set & (@as(u64, 1) << @intCast(kept)) == 0) return 0;
+        var run_score = run_score_in;
+        var fr = r + sr;
+        var fc = c + sc;
+        while (fr >= 0 and fr < dim and fc >= 0 and fc < dim and b.hasLetter(@intCast(fr), @intCast(fc))) {
+            run_score += s.dist.score_table[b.getLetter(@intCast(fr), @intCast(fc))];
+            fr += sr;
+            fc += sc;
+        }
+        const tile = kept_face * b.letter_muls[idx];
+        const wm: i32 = b.word_muls[idx];
+        var score = (run_score + tile) * wm;
+        var orr = sc;
+        var oc = sr;
+        if (orr < 0 or oc < 0) {
+            orr = -orr;
+            oc = -oc;
+        }
+        const has_other = (r - orr >= 0 and c - oc >= 0 and b.hasLetter(@intCast(r - orr), @intCast(c - oc))) or
+            (r + orr < dim and c + oc < dim and b.hasLetter(@intCast(r + orr), @intCast(c + oc)));
+        if (has_other) score += (b.cross_scores[other_dir][idx] + tile) * wm;
+        return score;
+    }
+};
+
+/// What a square holds that a play can change (its extension sets aside:
+/// the solver doesn't keep them).
+const SavedSquare = struct {
+    idx: u16,
+    letter: MachineLetter,
+    anchors: [2]bool,
+    cross_sets: [2]u64,
+    cross_scores: [2]i32,
+};
+
+/// What a play or pass changed besides the board, to put back.
+const Frame = struct {
+    racks: [2]Rack,
+    scores: [2]i32,
+    on_turn: u1,
+    scoreless: u32,
+    playing: bool,
+    tiles_played: u32,
+    /// Where this move's saved squares start.
+    saved_start: usize,
+};
+
+pub const Result = struct {
+    /// The change in the solving player's spread.
+    value: i16,
+    line: Line,
+    /// The last depth searched to the end.
+    depth: u32,
+    /// Positions searched, without the moves of the greedy playouts.
+    nodes: u64,
+};
+
+pub const Error = Allocator.Error || error{ BagNotEmpty, NoOpponentTiles, Stopped };
+
+pub const LoneTile = struct { score: i32, r: usize, c: usize };
+
+fn occupancyOf(b: *const Board, occ: *[board_mod.max_dim]u32) void {
+    for (0..b.dim) |r| {
+        var mask: u32 = 0;
+        for (0..b.dim) |c| {
+            if (b.squares[r * b.dim + c] != 0) mask |= @as(u32, 1) << @intCast(c);
+        }
+        occ[r] = mask;
+    }
+}
+
+/// The best square for `tile` played alone, the first in row order of the
+/// best score (scanLoneTile).
+pub fn scanLoneTile(b: *const Board, ld: *const tiles.LetterDistribution, tile: MachineLetter) ?LoneTile {
+    return scanLoneTileOn(b, ld, tile);
+}
+
+fn scanLoneTileOn(b: *const Board, ld: *const tiles.LetterDistribution, tile: MachineLetter) ?LoneTile {
+    var occ: [board_mod.max_dim]u32 = undefined;
+    occupancyOf(b, &occ);
+    const face: i32 = if (tile == 0) 0 else ld.score_table[tile];
+    const full = (@as(u32, 1) << @intCast(b.dim)) - 1;
+    var found = false;
+    var best_score: i32 = 0;
+    var best_r: usize = 0;
+    var best_c: usize = 0;
+    for (0..b.dim) |r| {
+        const h_nbr = (occ[r] << 1 | occ[r] >> 1) & full;
+        var v_nbr: u32 = 0;
+        if (r > 0) v_nbr |= occ[r - 1];
+        if (r < b.dim - 1) v_nbr |= occ[r + 1];
+        var cand = (h_nbr | v_nbr) & ~occ[r];
+        while (cand != 0) {
+            const c = @ctz(cand);
+            cand &= cand - 1;
+            const idx = r * b.dim + c;
+            const combined = b.cross_sets[0][idx] & b.cross_sets[1][idx];
+            if (tile == 0) {
+                if (combined >> 1 == 0) continue;
+            } else if (combined & (@as(u64, 1) << @intCast(tile)) == 0) continue;
+            const ls = face * b.letter_muls[idx];
+            const wm: i32 = b.word_muls[idx];
+            var score: i32 = 0;
+            if (h_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.cross_scores[0][idx]) * wm;
+            if (v_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.cross_scores[1][idx]) * wm;
+            if (found and score <= best_score) continue;
+            found = true;
+            best_score = score;
+            best_r = r;
+            best_c = c;
+        }
+    }
+    if (!found) return null;
+    return .{ .score = best_score, .r = best_r, .c = best_c };
+}
+
+pub const Solver = struct {
+    gpa: Allocator,
+    opts: Options,
+    board: Board,
+    dist: *const tiles.LetterDistribution,
+    kwg: @import("kwg.zig").Kwg,
+    racks: [2]Rack,
+    scores: [2]i32,
+    on_turn: u1 = 0,
+    scoreless: u32 = 0,
+    last_scoreless: u32 = 0,
+    playing: bool = true,
+
+    gen: movegen.Generator,
+    cross_cache: cross_set.Cache,
+    zobrist: *const zobrist_mod.Zobrist,
+    tt: *ttable.Table,
+
+    frames: std.ArrayList(Frame) = .empty,
+    saved: std.ArrayList(SavedSquare) = .empty,
+    /// Which frame last saved each square (frames are numbered from 1).
+    saved_by: []u32 = &.{},
+    frame_serial: u32 = 0,
+    /// The moves of the nodes on the search path, a block per node.
+    arena: std.ArrayList(SmallMove) = .empty,
+    stack_len: usize = 0,
+
+    initial_spread: i32 = 0,
+    root_moves: []SmallMove = &.{},
+    current_depth: i32 = -1,
+    impure: u64 = 0,
+    reach: u64 = 0,
+    nodes: u64 = 0,
+    playout_nodes: u64 = 0,
+    stop: ?*const std.atomic.Value(bool) = null,
+    lists: ?pathlists.PathLists = null,
+
+    /// A solver for `p`'s position, the player on turn solving. `zobrist`
+    /// and `tt` are shared with the caller, who sizes the table (Solve
+    /// clears it).
+    pub fn init(gpa: Allocator, p: *const position.Position, zobrist: *const zobrist_mod.Zobrist, tt: *ttable.Table, opts: Options) Error!*Solver {
+        const s = try gpa.create(Solver);
+        errdefer gpa.destroy(s);
+        s.* = .{
+            .gpa = gpa,
+            .opts = opts,
+            .board = p.board,
+            .dist = p.dist,
+            .kwg = p.lexicon.kwg,
+            .racks = p.racks,
+            .scores = p.scores,
+            .gen = undefined,
+            .cross_cache = try .init(gpa, 14),
+            .zobrist = zobrist,
+            .tt = tt,
+        };
+        errdefer s.cross_cache.deinit(gpa);
+        s.gen = .init(gpa, &s.board, s.kwg, s.dist);
+        s.gen.gen_pass = true;
+        if (opts.lists and s.dist.size + 1 <= 48) {
+            s.lists = .init(gpa, .{ .board = &s.board, .racks = &s.racks, .on_turn = &s.on_turn, .gen = &s.gen, .dist = s.dist });
+            s.lists.?.check = opts.check_lists;
+        }
+        s.saved_by = try gpa.alloc(u32, s.board.dim * s.board.dim);
+        @memset(s.saved_by, 0);
+        // Endgame mode (Game.SetEndgameMode): two scoreless turns end the
+        // game, so the count is put relative to that.
+        s.scoreless = if (p.scoreless_turns + 1 >= p.max_scoreless_turns) 1 else 0;
+        s.last_scoreless = 0;
+        return s;
+    }
+
+    pub fn deinit(self: *Solver) void {
+        const gpa = self.gpa;
+        if (self.lists) |*l| l.deinit();
+        self.gen.deinit();
+        self.cross_cache.deinit(gpa);
+        self.frames.deinit(gpa);
+        self.saved.deinit(gpa);
+        self.arena.deinit(gpa);
+        gpa.free(self.saved_by);
+        gpa.destroy(self);
+    }
+
+    inline fn spreadFor(self: *const Solver, p: u1) i32 {
+        return self.scores[p] - self.scores[1 - p];
+    }
+
+    inline fn numLetters(self: *const Solver) usize {
+        return self.dist.size;
+    }
+
+    // ---- playing and unplaying ----
+
+    fn saveSquare(self: *Solver, r: usize, c: usize) void {
+        const n = self.board.dim;
+        if (r >= n or c >= n) return;
+        const idx = r * n + c;
+        if (self.saved_by[idx] == self.frame_serial) return;
+        self.saved_by[idx] = self.frame_serial;
+        const b = &self.board;
+        self.saved.appendAssumeCapacity(.{
+            .idx = @intCast(idx),
+            .letter = b.squares[idx],
+            .anchors = .{ b.anchors[0][idx], b.anchors[1][idx] },
+            .cross_sets = .{ b.cross_sets[0][idx], b.cross_sets[1][idx] },
+            .cross_scores = .{ b.cross_scores[0][idx], b.cross_scores[1][idx] },
+        });
+    }
+
+    /// Saves every square a play of `m` (tiles at the empty squares of
+    /// `placed`) can change: its lane from the square before it to the one
+    /// after, and for each tile placed, the squares around it and the ends
+    /// of the word it makes across.
+    fn saveSquaresFor(self: *Solver, m: SmallMove) Allocator.Error!void {
+        try self.saved.ensureUnusedCapacity(self.gpa, 4 * board_mod.max_dim + 6 * movegen.rack_tile_limit);
+        const r0 = m.row();
+        const c0 = m.col();
+        const v = m.vertical();
+        const b = &self.board;
+        var i: isize = -1;
+        while (i <= m.len) : (i += 1) {
+            const r = if (v) @as(isize, @intCast(r0)) + i else @as(isize, @intCast(r0));
+            const c = if (v) @as(isize, @intCast(c0)) else @as(isize, @intCast(c0)) + i;
+            if (r >= 0 and c >= 0) self.saveSquare(@intCast(r), @intCast(c));
+        }
+        for (0..m.len) |k| {
+            const r = if (v) r0 + k else r0;
+            const c = if (v) c0 else c0 + k;
+            if (b.hasLetter(r, c)) continue;
+            // Across the play: the squares beside it, and past the tiles
+            // there, the squares that end the word it makes.
+            const dr: usize = if (v) 0 else 1;
+            const dc: usize = 1 - dr;
+            var rr = r;
+            var cc = c;
+            while (rr >= dr and cc >= dc and b.hasLetter(rr - dr, cc - dc)) {
+                rr -= dr;
+                cc -= dc;
+            }
+            if (rr >= dr and cc >= dc) self.saveSquare(rr - dr, cc - dc);
+            if (r >= dr and c >= dc) self.saveSquare(r - dr, c - dc);
+            rr = r;
+            cc = c;
+            while (rr + dr < b.dim and cc + dc < b.dim and b.hasLetter(rr + dr, cc + dc)) {
+                rr += dr;
+                cc += dc;
+            }
+            self.saveSquare(rr + dr, cc + dc);
+            self.saveSquare(r + dr, c + dc);
+        }
+    }
+
+    /// Plays `m` for the player on turn (Game.PlaySmallMove in endgame
+    /// mode). Writes the tiles placed by position along the play into
+    /// `placed` (0 where it played through).
+    fn play(self: *Solver, m: SmallMove, placed: *[board_mod.max_dim]MachineLetter) Allocator.Error!void {
+        if (self.lists) |*l| try l.onMove(self.frames.items.len, m);
+        const p = self.on_turn;
+        self.frame_serial +%= 1;
+        if (self.frame_serial == 0) {
+            @memset(self.saved_by, 0);
+            self.frame_serial = 1;
+        }
+        try self.frames.append(self.gpa, .{
+            .racks = self.racks,
+            .scores = self.scores,
+            .on_turn = p,
+            .scoreless = self.scoreless,
+            .playing = self.playing,
+            .tiles_played = self.board.tiles_played,
+            .saved_start = self.saved.items.len,
+        });
+        if (m.isPass()) {
+            self.last_scoreless = self.scoreless;
+            self.scoreless += 1;
+        } else {
+            try self.saveSquaresFor(m);
+            const b = &self.board;
+            var mv: Move = .{ .kind = .play, .vertical = m.vertical(), .row = @intCast(m.row()), .col = @intCast(m.col()), .len = m.len, .tiles_played = m.tiles_played, .score = m.score };
+            var t: usize = 0;
+            const was_empty = b.tiles_played == 0;
+            for (0..m.len) |i| {
+                const r = if (mv.vertical) mv.row + i else mv.row;
+                const c = if (mv.vertical) mv.col else mv.col + i;
+                if (b.hasLetter(r, c)) {
+                    placed[i] = 0;
+                } else {
+                    const ml = m.tile(t);
+                    b.setLetter(r, c, ml);
+                    self.racks[p].take(m.rackTile(t));
+                    placed[i] = ml;
+                    t += 1;
+                }
+                mv.tiles[i] = placed[i];
+            }
+            b.tiles_played += m.tiles_played;
+            cross_set.updateForPlay(b, &mv, self.kwg, self.dist, was_empty, &self.cross_cache);
+            self.last_scoreless = self.scoreless;
+            self.scoreless = 0;
+            self.scores[p] += m.score;
+            if (self.racks[p].num_tiles == 0) {
+                self.playing = false;
+                self.scores[p] += 2 * self.racks[1 - p].scoreOn(self.dist);
+            }
+        }
+        if (self.scoreless == max_scoreless) {
+            self.playing = false;
+            self.scores[p] -= self.racks[p].scoreOn(self.dist);
+            self.scores[1 - p] -= self.racks[1 - p].scoreOn(self.dist);
+        }
+        self.on_turn = 1 - p;
+    }
+
+    /// Takes the last move back. Like Game.UnplayLastMove, it leaves the
+    /// count of scoreless turns before that move as it was.
+    fn unplay(self: *Solver) void {
+        const f = self.frames.pop().?;
+        const b = &self.board;
+        for (self.saved.items[f.saved_start..]) |sq| {
+            b.squares[sq.idx] = sq.letter;
+            b.anchors[0][sq.idx] = sq.anchors[0];
+            b.anchors[1][sq.idx] = sq.anchors[1];
+            b.cross_sets[0][sq.idx] = sq.cross_sets[0];
+            b.cross_sets[1][sq.idx] = sq.cross_sets[1];
+            b.cross_scores[0][sq.idx] = sq.cross_scores[0];
+            b.cross_scores[1][sq.idx] = sq.cross_scores[1];
+        }
+        self.saved.shrinkRetainingCapacity(f.saved_start);
+        b.tiles_played = f.tiles_played;
+        self.racks = f.racks;
+        self.scores = f.scores;
+        self.on_turn = f.on_turn;
+        self.scoreless = f.scoreless;
+        self.playing = f.playing;
+        // A later play must save the squares again.
+        self.frame_serial +%= 1;
+        if (self.frame_serial == 0) {
+            @memset(self.saved_by, 0);
+            self.frame_serial = 1;
+        }
+    }
+
+    fn stackRemaining(self: *const Solver) usize {
+        return self.stack_len -| self.frames.items.len;
+    }
+
+    // ---- move generation and ordering ----
+
+    /// Every move for the player on turn, a pass last, onto the arena.
+    /// The slice lasts until the arena grows: a node keeps its moves' place
+    /// in it rather than the slice.
+    fn generate(self: *Solver) Allocator.Error![]SmallMove {
+        if (self.current_depth >= 0) {
+            if (self.lists) |*lists| {
+                const l = try lists.get(self.frames.items.len, self.on_turn);
+                const start = self.arena.items.len;
+                try self.arena.ensureUnusedCapacity(self.gpa, l.moves.items.len + 1);
+                self.arena.appendSliceAssumeCapacity(l.moves.items);
+                self.arena.appendAssumeCapacity(.{});
+                return self.arena.items[start..];
+            }
+        }
+        try self.gen.genAll(&self.racks[self.on_turn], false);
+        const start = self.arena.items.len;
+        try self.arena.ensureUnusedCapacity(self.gpa, self.gen.plays.items.len);
+        for (self.gen.plays.items) |*mv| self.arena.appendAssumeCapacity(.fromMove(mv));
+        return self.arena.items[start..];
+    }
+
+    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64) void {
+        const on = self.on_turn;
+        const num_tiles = self.racks[on].num_tiles;
+        const last_was_pass = self.scoreless > self.last_scoreless;
+        const out_bonus = 2 * self.racks[1 - on].scoreOn(self.dist);
+        for (moves) |*m| {
+            if (m.tiles_played == num_tiles) {
+                m.est = @as(i16, @truncate(@as(i32, m.score) + out_bonus)) +% going_out_bf;
+            } else if (depth > 2) {
+                m.est = @truncate(@as(i32, m.score) - 5 * @as(i32, m.tiles_played));
+            } else {
+                m.est = m.score;
+            }
+            if (m.tm == tt_move) m.est +%= hash_move_bf;
+            if (last_was_pass and m.isPass()) m.est +%= early_pass_bf;
+        }
+        sortByEstimate(moves);
+    }
+
+    /// Best estimate first, ties in the order they came (a stable sort).
+    fn sortByEstimate(moves: []SmallMove) void {
+        if (moves.len < 2) return;
+        std.mem.sort(SmallMove, moves, {}, struct {
+            fn f(_: void, a: SmallMove, b: SmallMove) bool {
+                return a.est > b.est;
+            }
+        }.f);
+    }
+
+    // ---- the greedy playout ----
+
+    fn playedTilesFace(self: *const Solver, m: SmallMove) i32 {
+        var face: i32 = 0;
+        for (0..m.tiles_played) |i| face += self.dist.score_table[m.rackTile(i)];
+        return face;
+    }
+
+    fn conservationBonus(self: *const Solver, m: SmallMove, frac: f32) i32 {
+        const x: f32 = @floatFromInt(conservation_tile_weight * @as(i32, m.tiles_played) + conservation_value_weight * self.playedTilesFace(m));
+        return @intFromFloat(x * frac);
+    }
+
+    fn stuckFractionFromBV(self: *const Solver, rack: *const Rack, bv: u64) f32 {
+        var total: i32 = 0;
+        var stuck: i32 = 0;
+        for (0..self.numLetters()) |ml| {
+            const count = rack.counts[ml];
+            if (count == 0) continue;
+            const s = @as(i32, count) * self.dist.score_table[ml];
+            total += s;
+            if (bv & (@as(u64, 1) << @intCast(ml)) == 0) stuck += s;
+        }
+        if (total == 0) return 0;
+        return @as(f32, @floatFromInt(stuck)) / @as(f32, @floatFromInt(total));
+    }
+
+    fn occupancy(self: *const Solver, occ: *[board_mod.max_dim]u32) void {
+        const b = &self.board;
+        for (0..b.dim) |r| {
+            var mask: u32 = 0;
+            for (0..b.dim) |c| {
+                if (b.squares[r * b.dim + c] != 0) mask |= @as(u32, 1) << @intCast(c);
+            }
+            occ[r] = mask;
+        }
+    }
+
+    /// Every letter with a legal play of that tile alone somewhere
+    /// (boardPlayableTilesBV); stops once it has all of `target`.
+    fn playableTiles(self: *const Solver, target: u64) u64 {
+        const b = &self.board;
+        if (b.tiles_played == 0) return board_mod.trivial_cross_set;
+        var occ: [board_mod.max_dim]u32 = undefined;
+        self.occupancy(&occ);
+        const full = (@as(u32, 1) << @intCast(b.dim)) - 1;
+        var playable: u64 = 0;
+        for (0..b.dim) |r| {
+            var cand = occ[r] << 1 | occ[r] >> 1;
+            if (r > 0) cand |= occ[r - 1];
+            if (r < b.dim - 1) cand |= occ[r + 1];
+            cand &= ~occ[r];
+            cand &= full;
+            while (cand != 0) {
+                const c = @ctz(cand);
+                cand &= cand - 1;
+                const idx = r * b.dim + c;
+                playable |= b.cross_sets[0][idx] & b.cross_sets[1][idx];
+                if (target != 0 and playable & target == target) return playable;
+            }
+        }
+        return playable;
+    }
+
+    /// The opponent's (the player not solving) share of rack score with no
+    /// play anywhere (oppStuckFraction).
+    fn oppStuckFraction(self: *Solver) Allocator.Error!f32 {
+        const opp = &self.racks[1];
+        if (opp.num_tiles == 0) return 0;
+        var rack_bv: u64 = 0;
+        for (0..self.numLetters()) |ml| {
+            if (opp.counts[ml] > 0) rack_bv |= @as(u64, 1) << @intCast(ml);
+        }
+        if (opp.num_tiles == 1) {
+            if (self.lists) |*lists| {
+                // One tile: stuck exactly when it has no play alone.
+                if (try lists.bestLoneTilePlay(self.frames.items.len, 1, self) == null) return self.stuckFractionFromBV(opp, 0);
+                return 0;
+            }
+        }
+        const playable = self.playableTiles(rack_bv & ~@as(u64, 1));
+        var tiles_bv = playable & rack_bv;
+        if (rack_bv & 1 != 0 and playable >> 1 != 0) tiles_bv |= 1;
+        if (tiles_bv == rack_bv) return 0;
+        if (opp.num_tiles == 1) return self.stuckFractionFromBV(opp, tiles_bv);
+        if (self.lists) |*lists| {
+            const l = try lists.get(self.frames.items.len, 1);
+            for (l.moves.items) |m| {
+                for (0..m.tiles_played) |i| tiles_bv |= @as(u64, 1) << @intCast(m.rackTile(i));
+                if (tiles_bv & rack_bv == rack_bv) break;
+            }
+            return self.stuckFractionFromBV(opp, tiles_bv);
+        }
+        try self.gen.genAll(opp, false);
+        for (self.gen.plays.items) |*mv| {
+            if (mv.kind != .play) continue;
+            for (mv.tileSlice()) |ml| {
+                if (ml == 0) continue;
+                tiles_bv |= @as(u64, 1) << @intCast(if (tiles.isBlanked(ml)) 0 else ml);
+            }
+            if (tiles_bv & rack_bv == rack_bv) break;
+        }
+        return self.stuckFractionFromBV(opp, tiles_bv);
+    }
+
+    /// The best play of a one-tile rack, the first square in row order of
+    /// the best score (bestSingleTilePlay), or null.
+    fn bestLoneTilePlay(self: *const Solver, rack: *const Rack) ?SmallMove {
+        var tile: MachineLetter = 0;
+        for (0..self.numLetters()) |ml| {
+            if (rack.counts[ml] > 0) {
+                tile = @intCast(ml);
+                break;
+            }
+        }
+        const found = self.scanLoneTile(tile) orelse return null;
+        return self.loneTileMove(tile, found.r, found.c, found.score);
+    }
+
+    fn scanLoneTile(self: *const Solver, tile: MachineLetter) ?LoneTile {
+        return scanLoneTileOn(&self.board, self.dist, tile);
+    }
+
+    pub fn loneTileMove(self: *const Solver, tile: MachineLetter, r: usize, c: usize, score: i32) SmallMove {
+        const b = &self.board;
+        const has_h = (c > 0 and b.hasLetter(r, c - 1)) or (c + 1 < b.dim and b.hasLetter(r, c + 1));
+        const vert = !has_h;
+        var start: usize = undefined;
+        var end: usize = undefined;
+        if (!vert) {
+            start = c;
+            end = c;
+            while (start > 0 and b.hasLetter(r, start - 1)) start -= 1;
+            while (end + 1 < b.dim and b.hasLetter(r, end + 1)) end += 1;
+        } else {
+            start = r;
+            end = r;
+            while (start > 0 and b.hasLetter(start - 1, c)) start -= 1;
+            while (end + 1 < b.dim and b.hasLetter(end + 1, c)) end += 1;
+        }
+        var chosen = tile;
+        if (tile == 0) {
+            const idx = r * b.dim + c;
+            const combined = b.cross_sets[0][idx] & b.cross_sets[1][idx];
+            var ml: usize = 1;
+            while (ml < self.numLetters()) : (ml += 1) {
+                if (combined & (@as(u64, 1) << @intCast(ml)) != 0) {
+                    chosen = @intCast(ml);
+                    break;
+                }
+            }
+        }
+        var code: u64 = @as(u64, chosen) << 20;
+        if (tile == 0) code |= 1 << 12;
+        var mr = r;
+        var mc = start;
+        if (vert) {
+            code |= 1;
+            mr = start;
+            mc = c;
+        }
+        code |= @as(u64, mc) << 1;
+        code |= @as(u64, mr) << 6;
+        return .{ .tm = code, .score = @intCast(score), .tiles_played = 1, .len = @intCast(end - start + 1) };
+    }
+
+    /// Values a leaf by playing the game out greedily (greedyPlayout): the
+    /// spread for the player on turn there.
+    fn greedyPlayout(self: *Solver, pv: *Line) Allocator.Error!i16 {
+        const leaf_player = self.on_turn;
+        const budget = @min(max_playout, self.stackRemaining());
+        if (budget == 0) {
+            pv.clear();
+            return @intCast(self.spreadFor(leaf_player));
+        }
+        var moves: [max_playout]SmallMove = undefined;
+        const frac = try self.oppStuckFraction();
+        var rack_scores = [2]i32{ self.racks[0].scoreOn(self.dist), self.racks[1].scoreOn(self.dist) };
+        var played: usize = 0;
+        var on_board: usize = 0;
+        var went_out = false;
+        var out_gain: i32 = 0;
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        if (self.lists) |*l| l.in_playout = true;
+        defer if (self.lists) |*l| {
+            l.in_playout = false;
+        };
+        while (played < budget and self.playing) {
+            const on = self.on_turn;
+            const rack = &self.racks[on];
+            var buf: [2]SmallMove = undefined;
+            var plays: []SmallMove = undefined;
+            const arena_mark = self.arena.items.len;
+            if (rack.num_tiles == 1) {
+                var n: usize = 0;
+                const lone = if (self.lists) |*l| try l.bestLoneTilePlay(self.frames.items.len, on, self) else self.bestLoneTilePlay(rack);
+                if (lone) |m| {
+                    buf[n] = m;
+                    n += 1;
+                }
+                buf[n] = .{};
+                n += 1;
+                plays = buf[0..n];
+            } else {
+                plays = try self.generate();
+            }
+            const conserve = frac > 0 and on == 0;
+            var pass_penalty: i32 = 0;
+            if (conserve) pass_penalty = @intFromFloat(@as(f32, @floatFromInt(rack_scores[0] + rack_scores[1])) * frac);
+            var best_idx: usize = 0;
+            var best_adj: i32 = std.math.minInt(i32);
+            for (plays, 0..) |m, idx| {
+                var adj: i32 = m.score;
+                if (conserve) {
+                    if (m.isPass()) adj -= pass_penalty else adj -= self.conservationBonus(m, frac);
+                }
+                if (adj > best_adj) {
+                    best_adj = adj;
+                    best_idx = idx;
+                }
+            }
+            const m = plays[best_idx];
+            self.arena.shrinkRetainingCapacity(arena_mark);
+            moves[played] = m;
+            if (!m.isPass() and m.tiles_played == rack.num_tiles) {
+                out_gain = @as(i32, m.score) + 2 * rack_scores[1 - on];
+                if (on != leaf_player) out_gain = -out_gain;
+                went_out = true;
+                played += 1;
+                break;
+            }
+            if (rack.num_tiles >= 2 and m.tiles_played == rack.num_tiles - 1) {
+                if (self.lists) |*l| try l.noteLonePlay(self.frames.items.len, on, pathlists.keptTile(rack, m, self.numLetters()));
+            }
+            if (!m.isPass()) rack_scores[on] -= self.playedTilesFace(m);
+            try self.play(m, &placed);
+            played += 1;
+            on_board += 1;
+        }
+        pv.setPlayout(moves[0..played]);
+        var spread = self.spreadFor(leaf_player) + out_gain;
+        if (!went_out and self.playing) {
+            spread -= 2 * self.racks[leaf_player].scoreOn(self.dist);
+            spread += 2 * self.racks[1 - leaf_player].scoreOn(self.dist);
+        }
+        for (0..on_board) |_| self.unplay();
+        self.playout_nodes += played;
+        self.nodes += played;
+        return @intCast(spread);
+    }
+
+    // ---- the search ----
+
+    /// The tiles `m` puts down by position along it, 0 where it plays
+    /// through (smallMoveTiles), without playing it.
+    fn moveTiles(self: *const Solver, m: SmallMove, out: *[board_mod.max_dim]MachineLetter) void {
+        var t: usize = 0;
+        for (0..m.len) |i| {
+            const r = if (m.vertical()) m.row() + i else m.row();
+            const c = if (m.vertical()) m.col() else m.col() + i;
+            if (self.board.hasLetter(r, c)) {
+                out[i] = 0;
+            } else {
+                out[i] = m.tile(t);
+                t += 1;
+            }
+        }
+    }
+
+    /// Values a child as searching it would, without playing it
+    /// (valueChildUnplayed): a play of the whole rack ends the game, and a
+    /// child whose node would answer from the table gets that answer.
+    /// The value is from the child's side.
+    fn valueChildUnplayed(self: *Solver, m: SmallMove, node_key: u64, depth: i32, alpha: i16, beta: i16, first_or_full: bool, pv_node: bool, our_spread: i32, on: u1, stm_tiles: u8, out_bonus: i32) ?i16 {
+        if (!self.opts.child_shortcuts or m.isPass()) return null;
+        if (m.tiles_played == stm_tiles) {
+            self.reach = 0;
+            return @intCast(-(our_spread + m.score + out_bonus));
+        }
+        if (node_key == 0) return null;
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        self.moveTiles(m, &placed);
+        const child_key = self.zobrist.addTilePlayUnplayed(node_key, m.row(), m.col(), m.vertical(), placed[0..m.len], &self.racks[on], on == 0, self.scoreless);
+        const e = self.tt.lookup(child_key);
+        const child_depth: u8 = @intCast(depth - 1);
+        const ed = e.depth();
+        if (!e.valid() or !(ed == child_depth or (e.pure() and ed <= child_depth))) return null;
+        const score = e.score() -% @as(i16, @intCast(our_spread + m.score));
+        var ca = -beta;
+        var cb = -alpha;
+        var cpv = pv_node;
+        if (!first_or_full) {
+            ca = -alpha - 1;
+            cb = -alpha;
+            cpv = false;
+        }
+        switch (e.flag()) {
+            ttable.exact => if (cpv) return null,
+            ttable.lower => if (@max(ca, score) < cb) return null,
+            ttable.upper => if (ca < @min(cb, score)) return null,
+            else => {},
+        }
+        if (!first_or_full and alpha < -score and -score < beta) return null;
+        if (e.pure()) {
+            self.reach = ed;
+        } else {
+            self.impure += 1;
+            self.reach = 0;
+        }
+        return score;
+    }
+
+    fn negamax(self: *Solver, node_key: u64, depth: i32, alpha_in: i16, beta_in: i16, pv: *Line, pv_node: bool) Error!i16 {
+        if (self.stop) |st| {
+            if (st.load(.monotonic)) return error.Stopped;
+        }
+        var alpha = alpha_in;
+        var beta = beta_in;
+        const on = self.on_turn;
+        const our_spread = self.spreadFor(on);
+        const alpha_orig = alpha;
+        var tt_move: u64 = ttable.invalid_move;
+        const impure_at_entry = self.impure;
+        var max_reach: u64 = 0;
+        {
+            const e = self.tt.lookup(node_key);
+            const ed = e.depth();
+            const d: u8 = @intCast(depth);
+            const usable = e.valid() and (ed == d or (e.pure() and ed <= d));
+            if (!usable and e.valid() and ed > d) {
+                tt_move = e.play();
+            } else if (usable) {
+                if (e.pure()) max_reach = @max(max_reach, ed) else self.impure += 1;
+                const score = e.score() +% @as(i16, @intCast(our_spread));
+                const flag = e.flag();
+                if (!pv_node) {
+                    if (flag == ttable.exact) {
+                        self.reach = max_reach;
+                        return score;
+                    }
+                    if (flag == ttable.lower) alpha = @max(alpha, score) else if (flag == ttable.upper) beta = @min(beta, score);
+                    if (alpha >= beta) {
+                        self.reach = max_reach;
+                        return score;
+                    }
+                }
+                tt_move = e.play();
+            }
+        }
+
+        if (depth == 0 or !self.playing) {
+            if (self.playing) self.impure += 1;
+            if (self.opts.heuristics and self.playing) {
+                const val = try self.greedyPlayout(pv);
+                if (node_key != 0) {
+                    const existing = self.tt.lookup(node_key);
+                    if (!existing.valid() or existing.depth() == 0) {
+                        self.tt.store(node_key, val -% @as(i16, @intCast(our_spread)), ttable.exact << 6, ttable.invalid_move, false);
+                    }
+                }
+                self.reach = 0;
+                return val;
+            }
+            pv.clear();
+            self.reach = 0;
+            return @intCast(self.spreadFor(self.on_turn));
+        }
+
+        var child_pv: Line = .{};
+        const arena_mark = self.arena.items.len;
+        defer self.arena.shrinkRetainingCapacity(arena_mark);
+        const at_root = self.current_depth == depth;
+        const num_children = if (at_root) self.root_moves.len else blk: {
+            const children = try self.generate();
+            self.assignEstimates(children, depth, tt_move);
+            break :blk children.len;
+        };
+
+        var best_value: i16 = -huge;
+        var best_move: SmallMove = .{};
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        const stm_tiles = self.racks[on].num_tiles;
+        const out_bonus = 2 * self.racks[1 - on].scoreOn(self.dist);
+        const keep_one_active = self.opts.keep_one and depth >= 2 and !at_root and stm_tiles >= 2;
+        var keep_one: KeepOne = if (keep_one_active) .init(self, on, our_spread) else undefined;
+        // As in Go, only with the move lists, which it reads.
+        const out_reply_active = self.opts.out_reply and self.lists != null and depth >= 2 and !at_root;
+        var leaves_played: usize = 0;
+        var out_reply: OutReply = .{};
+        for (0..num_children) |idx| {
+            // (Deeper nodes may move the arena.)
+            const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
+            if (out_reply_active and idx > 0) {
+                if (!out_reply.ready) try out_reply.init(self, on, our_spread);
+                if (m.tiles_played != stm_tiles and (!m.isPass() or self.scoreless == 0)) {
+                    if (out_reply.bound(self, m, alpha)) |bound| {
+                        if (@as(i16, @truncate(bound)) > best_value) {
+                            best_value = @truncate(bound);
+                            best_move = m;
+                        }
+                        self.nodes += 1;
+                        continue;
+                    }
+                }
+            }
+            if (keep_one_active and !m.isPass() and m.tiles_played == keep_one.rack_size - 1) {
+                const bound = try keep_one.bound(self, m, alpha);
+                if (bound <= alpha) {
+                    if (@as(i16, @truncate(bound)) > best_value) {
+                        best_value = @truncate(bound);
+                        best_move = m;
+                    }
+                    self.nodes += 1;
+                    continue;
+                }
+            }
+            var value: i16 = undefined;
+            if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, idx == 0 or !self.opts.negascout, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
+                value = v;
+                self.nodes += 1;
+                child_pv.clear();
+                max_reach = @max(max_reach, self.reach + 1);
+                if (-value > best_value) {
+                    best_value = -value;
+                    best_move = m;
+                    pv.update(best_move, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+                }
+                if (at_root) self.root_moves[idx].est = -value;
+                alpha = @max(alpha, best_value);
+                if (best_value >= beta) break;
+                child_pv.clear();
+                continue;
+            }
+            if (depth == 1 and self.opts.heuristics) {
+                // The children are leaves, each played out starting with
+                // the other player's best play: once a second needs it,
+                // build that player's list here for the others to derive
+                // theirs from.
+                leaves_played += 1;
+                if (leaves_played == 2 and self.racks[1 - on].num_tiles > 1) {
+                    if (self.lists) |*l| _ = try l.get(self.frames.items.len, 1 - on);
+                }
+            }
+            try self.play(m, &placed);
+            self.nodes += 1;
+            const leave = &self.racks[on];
+            const child_key = self.zobrist.addMove(node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], leave, self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+            if (idx == 0 or !self.opts.negascout) {
+                value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
+                    self.unplay();
+                    return err;
+                };
+            } else {
+                value = self.negamax(child_key, depth - 1, -alpha - 1, -alpha, &child_pv, false) catch |err| {
+                    self.unplay();
+                    return err;
+                };
+                if (alpha < -value and -value < beta) {
+                    value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
+                        self.unplay();
+                        return err;
+                    };
+                }
+            }
+            self.unplay();
+            max_reach = @max(max_reach, self.reach + 1);
+            if (-value > best_value) {
+                best_value = -value;
+                best_move = m;
+                pv.update(best_move, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+            }
+            if (at_root) self.root_moves[idx].est = -value;
+            alpha = @max(alpha, best_value);
+            if (best_value >= beta) break;
+            child_pv.clear();
+        }
+
+        const score = best_value -% @as(i16, @intCast(our_spread));
+        const flag: u8 = if (best_value <= alpha_orig) ttable.upper else if (best_value >= beta) ttable.lower else ttable.exact;
+        const pure = self.impure == impure_at_entry;
+        const stored_depth: u8 = if (pure) @intCast(max_reach) else @intCast(@min(depth, ttable.depth_mask));
+        self.tt.store(node_key, score, (flag << 6) +% stored_depth, best_move.tm, pure);
+        self.reach = max_reach;
+        return best_value;
+    }
+
+    /// The root position's key.
+    fn rootKey(self: *const Solver) u64 {
+        return self.zobrist.hash(self.board.squares[0 .. self.board.dim * self.board.dim], &self.racks[0], &self.racks[1], self.numLetters(), false, self.scoreless);
+    }
+
+    /// Solves to `plies` (iterativelyDeepen), calling `progress` with each
+    /// depth's result.
+    pub fn solve(self: *Solver, plies: u32, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Result {
+        if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
+        try self.tt.reset(self.gpa, self.opts.tt_bytes);
+        if (self.lists) |*l| l.reset(self.frames.items.len);
+        self.initial_spread = self.spreadFor(0);
+        self.stack_len = plies + 2 + max_playout;
+        self.nodes = 0;
+        self.playout_nodes = 0;
+        self.impure = 0;
+        const key = self.rootKey();
+        var alpha: i16 = -huge;
+        var beta: i16 = huge;
+        if (self.opts.first_win) {
+            alpha = -1;
+            beta = 1;
+        }
+        self.current_depth = -1;
+        const root = try self.generate();
+        self.root_moves = try self.gpa.dupe(SmallMove, root);
+        defer self.gpa.free(self.root_moves);
+        self.arena.clearRetainingCapacity();
+        self.assignEstimates(self.root_moves, 0, ttable.invalid_move);
+
+        var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
+        var reported = true;
+        var p: u32 = if (self.opts.iterative_deepening) 1 else plies;
+        while (p <= plies) : (p = nextDepth(p, plies)) {
+            self.current_depth = @intCast(p);
+            var pv: Line = .{};
+            const impure_before = self.impure;
+            const val = self.negamax(key, @intCast(p), alpha, beta, &pv, true) catch |err| switch (err) {
+                error.Stopped => break,
+                else => |e| return e,
+            };
+            const root_pure = self.impure == impure_before;
+            gosort.slice(SmallMove, self.root_moves, {}, struct {
+                fn less(_: void, a: SmallMove, b: SmallMove) bool {
+                    return a.est > b.est;
+                }
+            }.less);
+            result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.nodes - self.playout_nodes };
+            if (root_pure) result.depth = plies;
+            reported = false;
+            // The last depth is reported once its line is complete.
+            if (root_pure or nextDepth(p, plies) > plies) break;
+            if (progress) |f| f(ctx, &result);
+            reported = true;
+        }
+        if (result.depth > 0) {
+            self.stop = null;
+            try self.completeLine(&result.line, result.depth, plies);
+            result.nodes = self.nodes - self.playout_nodes;
+        }
+        if (!reported) {
+            if (progress) |f| f(ctx, &result);
+        }
+        return result;
+    }
+
+    /// The key of the position the solver is at, from scratch.
+    fn positionKey(self: *const Solver) u64 {
+        return self.zobrist.hash(self.board.squares[0 .. self.board.dim * self.board.dim], &self.racks[0], &self.racks[1], self.numLetters(), self.on_turn != 0, self.scoreless);
+    }
+
+    /// Extends a line that stops before the game is over (completeLine): a
+    /// table hit at a node off the principal variation returns its value
+    /// without the moves behind it. From where the line stops, search again
+    /// with the depth the search had left there, until the line reaches the
+    /// horizon, then play it out greedily as a leaf would.
+    fn completeLine(self: *Solver, line: *Line, last_depth: u32, plies: u32) Error!void {
+        if (line.len == 0 or line.searched < line.len) return;
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        var played: usize = 0;
+        defer for (0..played) |_| self.unplay();
+        for (0..line.len) |i| {
+            if (!self.playing or self.stackRemaining() == 0) return;
+            try self.play(line.moves[i], &placed);
+            played += 1;
+        }
+        const horizon: usize = if (last_depth != 0) last_depth else plies;
+        const saved_depth = self.current_depth;
+        self.current_depth = max_variant + 1;
+        defer self.current_depth = saved_depth;
+        while (self.playing and line.len < max_variant and line.searched == line.len and (line.len < horizon or self.opts.heuristics)) {
+            const depth: usize = if (horizon > line.len) horizon - line.len else 0;
+            var sub: Line = .{};
+            _ = try self.negamax(self.positionKey(), @intCast(depth), -huge, huge, &sub, true);
+            if (sub.len == 0) break;
+            const start = line.len;
+            const n = @min(sub.len, max_variant - start);
+            @memcpy(line.moves[start..][0..n], sub.moves[0..n]);
+            line.len += n;
+            line.searched += @min(sub.searched, n);
+            for (start..line.len) |i| {
+                if (!self.playing or self.stackRemaining() == 0) break;
+                try self.play(line.moves[i], &placed);
+                played += 1;
+            }
+        }
+    }
+
+    fn nextDepth(p: u32, plies: u32) u32 {
+        if (p + 1 >= plies or (plies - (p + 1)) % 2 == 0) return p + 1;
+        return p + 2;
+    }
+
+    /// The moves of `line` as moves on the root position's board, for
+    /// display: each is played to find the squares it plays through.
+    pub fn lineMoves(self: *Solver, line: *const Line, out: []Move) Allocator.Error!usize {
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        var n: usize = 0;
+        while (n < line.len and n < out.len and self.playing) : (n += 1) {
+            const m = line.moves[n];
+            if (m.isPass()) {
+                out[n] = .pass();
+            } else {
+                out[n] = .{ .kind = .play, .vertical = m.vertical(), .row = @intCast(m.row()), .col = @intCast(m.col()), .len = m.len, .tiles_played = m.tiles_played, .score = m.score };
+            }
+            try self.play(m, &placed);
+            if (!m.isPass()) @memcpy(out[n].tiles[0..m.len], placed[0..m.len]);
+        }
+        for (0..n) |_| self.unplay();
+        return n;
+    }
+};
+
+const testing = std.testing;
+
+/// Go's TestSolveStandard (VsCanik, 2019 Nationals), also MAGPIE's
+/// test_solve_standard.
+const standard_cgp = "9A1PIXY/9S1L3/2ToWNLETS1O3/9U1DA1R/3GERANIAL1U1I/9g2T1C/8WE2OBI/6EMU4ON/6AID3GO1/5HUN4ET1/4ZA1T4ME1/1Q1FAKEY3JOES/FIVE1E5IT1C/5SPORRAN2A/6ORE2N2D BGIV/DEHILOR 384/389 0 lex NWL20;";
+
+fn sameSquares(a: *const Board, b: *const Board) bool {
+    const n = a.dim * a.dim;
+    if (!std.mem.eql(MachineLetter, a.squares[0..n], b.squares[0..n])) return false;
+    for (0..2) |d| {
+        if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
+        if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
+        if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
+    }
+    return a.tiles_played == b.tiles_played;
+}
+
+test "playing and unplaying moves two deep puts the board back" {
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const p = try testdata.position(&store, standard_cgp);
+    var z = try zobrist_mod.Zobrist.init(testing.allocator, p.board.dim, @splat(1));
+    defer z.deinit(testing.allocator);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(testing.allocator);
+    const s = try Solver.init(testing.allocator, &p, &z, &tt, .{});
+    defer s.deinit();
+    const original = s.board;
+    var placed: [board_mod.max_dim]MachineLetter = undefined;
+    const firsts = try testing.allocator.dupe(SmallMove, try s.generate());
+    defer testing.allocator.free(firsts);
+    s.arena.clearRetainingCapacity();
+    try testing.expect(firsts.len > 10);
+    for (firsts) |m| {
+        try s.play(m, &placed);
+        const after = s.board;
+        const replies = try testing.allocator.dupe(SmallMove, try s.generate());
+        defer testing.allocator.free(replies);
+        s.arena.clearRetainingCapacity();
+        for (replies) |r| {
+            try s.play(r, &placed);
+            s.unplay();
+            try testing.expect(sameSquares(&after, &s.board));
+        }
+        s.unplay();
+        try testing.expect(sameSquares(&original, &s.board));
+        try testing.expectEqual(p.racks, s.racks);
+        try testing.expectEqual(p.scores, s.scores);
+        try testing.expectEqual(0, s.on_turn);
+    }
+}
+
+test "the standard endgame is worth 11 at 4 plies" {
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const p = try testdata.position(&store, standard_cgp);
+    var z = try zobrist_mod.Zobrist.init(testing.allocator, p.board.dim, @splat(1));
+    defer z.deinit(testing.allocator);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(testing.allocator);
+    const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 0 });
+    defer s.deinit();
+    const r = try s.solve(4, null, null);
+    try testing.expectEqual(11, r.value);
+    try testing.expectEqual(4, r.depth);
+}

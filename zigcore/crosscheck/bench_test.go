@@ -2,6 +2,7 @@ package crosscheck
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -159,4 +160,93 @@ func BenchmarkSim(b *testing.B) {
 	}
 	rollouts := float64(b.N * len(lines) * *simIterations * 15)
 	b.ReportMetric(float64(b.Elapsed().Microseconds())/rollouts, "us/rollout")
+}
+
+var benchEndgamePlies = flag.Int("crosscheck.egplies", 4, "plies BenchmarkEndgame solves to")
+
+// TestWriteEndgames writes the first endgame position (bag empty) of games
+// the Go static player plays against itself, -crosscheck.posgames of them,
+// for timing the endgame solver in each engine on the same positions
+// (BenchmarkEndgame here, BENCH_MODE=endgame for `zig build bench`).
+func TestWriteEndgames(t *testing.T) {
+	if *positionsFlag == "" {
+		t.Skip("no -crosscheck.positions file")
+	}
+	cfg := config.DefaultConfig()
+	rules, err := game.NewBasicGameRules(cfg, *positionsLexicon, board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(*positionsFlag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	defer w.Flush()
+	players := []*pb.PlayerInfo{{Nickname: "a", RealName: "a"}, {Nickname: "b", RealName: "b"}}
+	n := 0
+	for gi := 0; gi < *positionsGames; gi++ {
+		g, err := game.NewGame(rules, players)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seed [32]byte
+		copy(seed[:], fmt.Sprintf("endgames-%s-%d", *positionsLexicon, gi))
+		g.SeedBag(seed)
+		g.StartGame()
+		p := staticPlayer(t, cfg, g)
+		for g.Playing() == pb.PlayState_PLAYING {
+			if g.Bag().TilesRemaining() == 0 {
+				fmt.Fprintln(w, g.ToCGP(false))
+				n++
+				break
+			}
+			m := turnplayer.GenBestStaticTurn(g, p, g.PlayerOnTurn())
+			chosen := new(move.Move)
+			chosen.CopyFrom(m)
+			if err := g.PlayMove(chosen, false, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Logf("%d endgames written to %s", n, *positionsFlag)
+}
+
+// BenchmarkEndgame solves every endgame of the -crosscheck.positions file
+// to -crosscheck.egplies plies on one thread, with the solver's defaults
+// and a table of 2^24 entries, as `zig build bench` with BENCH_MODE=endgame
+// does. Set-up is outside the timing.
+func BenchmarkEndgame(b *testing.B) {
+	if *positionsFlag == "" {
+		b.Skip("no -crosscheck.positions file")
+	}
+	cfg := config.DefaultConfig()
+	text, err := os.ReadFile(*positionsFlag)
+	if err != nil {
+		b.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(text)), "\n")
+	var nodes uint64
+	valueSum := 0
+	b.ResetTimer()
+	for b.Loop() {
+		nodes, valueSum = 0, 0
+		for _, line := range lines {
+			b.StopTimer()
+			s, _ := goEndgameSolver(b, cfg, line)
+			s.SetPrunedKWGOptim(true)
+			b.StartTimer()
+			v, _, err := s.Solve(context.Background(), *benchEndgamePlies)
+			if err != nil {
+				b.Fatal(err)
+			}
+			nodes += s.SearchedNodes()
+			valueSum += int(v)
+		}
+	}
+	perPos := float64(b.Elapsed().Nanoseconds()) / float64(b.N*len(lines))
+	b.ReportMetric(perPos/1e6, "ms/position")
+	b.ReportMetric(float64(nodes)*1e9/(perPos*float64(len(lines))), "nodes/s")
+	b.Logf("%d endgames at %d plies, %d nodes, value sum %d", len(lines), *benchEndgamePlies, nodes, valueSum)
 }

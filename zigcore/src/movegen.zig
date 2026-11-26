@@ -143,6 +143,62 @@ pub const Generator = struct {
         if (self.out_of_memory) return error.OutOfMemory;
     }
 
+    /// Lanes are rows 0..dim (horizontal plays) then columns dim..2*dim
+    /// (vertical plays), the order genAll makes plays in.
+    pub const max_lanes = 2 * board_mod.max_dim;
+
+    /// Generates the plays of some anchors of some lanes into `plays`
+    /// (cleared first), as genAll would make them: for each lane in
+    /// `lanes`, the plays of the anchors in `wanted[lane]`, out of all the
+    /// lane's anchors `anchors[lane]` (an anchor's plays start after the one
+    /// before it). `anchor_of` gets each play's anchor (its index along the
+    /// lane) and `ends[lane]` the count of plays after the lane. No pass or
+    /// exchanges. The endgame's incremental move lists use it.
+    pub fn genLanes(self: *Generator, rack: *Rack, lanes: u64, wanted: *const [max_lanes]u32, anchors: *const [max_lanes]u32, ends: *[max_lanes]i32, anchor_of: *std.ArrayList(u8)) Allocator.Error!void {
+        self.plays.clearRetainingCapacity();
+        anchor_of.clearRetainingCapacity();
+        self.out_of_memory = false;
+        self.best_only = false;
+        self.leave_map.initialized = false;
+        self.tiles_played = 0;
+        self.setRackBits(rack);
+        const dim = self.board.dim;
+        const row_lanes = lanes & ((@as(u64, 1) << @intCast(dim)) - 1);
+        if (row_lanes != 0) {
+            self.vertical = false;
+            try self.genLaneSet(rack, .horizontal, row_lanes, 0, wanted, anchors, ends, anchor_of);
+        }
+        const col_lanes = lanes >> @intCast(dim);
+        if (col_lanes != 0) {
+            self.board.transpose();
+            defer self.board.transpose();
+            self.vertical = true;
+            try self.genLaneSet(rack, .vertical, col_lanes, dim, wanted, anchors, ends, anchor_of);
+        }
+        if (self.out_of_memory) return error.OutOfMemory;
+    }
+
+    fn genLaneSet(self: *Generator, rack: *Rack, dir: Direction, rows: u64, offset: usize, wanted: *const [max_lanes]u32, anchors: *const [max_lanes]u32, ends: *[max_lanes]i32, anchor_of: *std.ArrayList(u8)) Allocator.Error!void {
+        for (0..self.board.dim) |row| {
+            if (rows & (@as(u64, 1) << @intCast(row)) == 0) continue;
+            const lane_anchors = anchors[offset + row];
+            var want = wanted[offset + row] & lane_anchors;
+            if (want != 0) {
+                self.cur_row = row;
+                self.loadRow(row, dir.other());
+            }
+            while (want != 0) : (want &= want - 1) {
+                const col: usize = @ctz(want);
+                const before = lane_anchors & ((@as(u32, 1) << @intCast(col)) - 1);
+                self.last_anchor_col = if (before != 0) 31 - @clz(before) else 100;
+                self.cur_anchor_col = col;
+                self.genForAnchor(rack);
+                try anchor_of.appendNTimes(self.gpa, @intCast(col), self.plays.items.len - anchor_of.items.len);
+            }
+            ends[offset + row] = @intCast(self.plays.items.len);
+        }
+    }
+
     pub const Best = struct { move: Move, equity: f64 };
 
     /// The best move for `rack` by static equity (see equity.Context), as
