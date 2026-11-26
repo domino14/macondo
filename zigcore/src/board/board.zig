@@ -120,6 +120,8 @@ pub const Board = struct {
     /// in the direction of play (see cross_set.zig).
     left_ext: PerDir,
     right_ext: PerDir,
+    /// See freezeTrivialExtSets.
+    ext_sets_frozen: bool = false,
 
     pub fn init(layout: *const Layout) Board {
         const dim = layout.rows.len;
@@ -243,11 +245,27 @@ pub const Board = struct {
     }
 
     pub inline fn setLeftExtSet(self: *Board, row: usize, col: usize, dir: Direction, es: u64) void {
+        if (self.ext_sets_frozen) return;
         self.left_ext[@backingInt(dir)][self.sqIdx(row, col)] = es;
     }
 
     pub inline fn setRightExtSet(self: *Board, row: usize, col: usize, dir: Direction, es: u64) void {
+        if (self.ext_sets_frozen) return;
         self.right_ext[@backingInt(dir)][self.sqIdx(row, col)] = es;
+    }
+
+    /// Sets every extension set to allow every letter and keeps them so
+    /// (on) or lets updates write them again (off). A search that unplays
+    /// moves without restoring extension sets freezes them: the shadow
+    /// pass's bounds then hold, only looser.
+    pub fn freezeTrivialExtSets(self: *Board, on: bool) void {
+        if (on) {
+            for (0..2) |d| {
+                @memset(&self.left_ext[d], trivial_cross_set);
+                @memset(&self.right_ext[d], trivial_cross_set);
+            }
+        }
+        self.ext_sets_frozen = on;
     }
 
     /// Whether the squares left and right of (row, col) are empty or off

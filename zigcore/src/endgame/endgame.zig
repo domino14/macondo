@@ -28,6 +28,7 @@ const ttable = @import("ttable.zig");
 const gosort = @import("../gocompat/gosort.zig");
 const pathlists = @import("pathlists.zig");
 const wordprune = @import("wordprune.zig");
+const bestsmall = @import("../movegen/bestsmall.zig");
 const MachineLetter = tiles.MachineLetter;
 const Rack = tiles.Rack;
 const Board = board_mod.Board;
@@ -37,6 +38,11 @@ pub const huge: i16 = 32000;
 pub const max_variant = 25;
 const max_playout = max_variant;
 const aspiration_window = 25;
+const stuck_memo_size = 1024;
+const StuckEntry = struct { key: u64 = 0, frac: f32 = 0 };
+/// What a play that goes out adds to its value for the first reply (see
+/// negamax): enough to put every such play first.
+const first_reply_out_priority = 100000;
 const early_pass_bf: i16 = 1 << 13;
 const hash_move_bf: i16 = 1 << 12;
 const going_out_bf: i16 = 1 << 11;
@@ -170,6 +176,11 @@ pub const Options = struct {
     /// alone). It changes the values of searches that stop short of the
     /// end of the game.
     playout_out_bonus: bool = true,
+    /// One ply above the leaves, search the best play by score first and
+    /// make the move list only if it does not cut off (MAGPIE's; speed
+    /// only, but the search's order changes, and with it the positions
+    /// searched).
+    first_reply: bool = true,
     /// Search each depth after the first in a window around the last
     /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
     /// single-threaded search has none). The value is the same; the
@@ -580,6 +591,7 @@ const Frame = struct {
     tiles_played: u32,
     /// Where this move's saved squares start.
     saved_start: usize,
+    lane_keys: [max_lanes]u64,
 };
 
 pub const Result = struct {
@@ -688,6 +700,10 @@ pub const Solver = struct {
     stop: ?*const std.atomic.Value(bool) = null,
     lists: ?pathlists.PathLists = null,
     pruned: ?wordprune.Pruned = null,
+    best_cache: bestsmall.Cache,
+    stuck_memo: [stuck_memo_size]StuckEntry = @splat(.{}),
+    /// Each lane's key (bestsmall.laneKey), kept up as moves are played.
+    lane_keys: [max_lanes]u64 = undefined,
     sort_keys: std.ArrayList(u64) = .empty,
     bc_values: std.ArrayList(i32) = .empty,
     bc_order: std.ArrayList(usize) = .empty,
@@ -709,12 +725,18 @@ pub const Solver = struct {
             .scores = p.scores,
             .gen = undefined,
             .cross_cache = try .init(gpa, 14),
+            .best_cache = undefined,
             .zobrist = zobrist,
             .tt = tt,
         };
         errdefer s.cross_cache.deinit(gpa);
+        s.best_cache = try .init(gpa, 18, 19);
+        errdefer s.best_cache.deinit(gpa);
         s.gen = .init(gpa, &s.board, s.kwg, s.dist);
         s.gen.gen_pass = true;
+        // Unplay does not restore extension sets; frozen at "any letter",
+        // the shadow pass's bounds (the playout's best-play search) hold.
+        s.board.freezeTrivialExtSets(true);
         if (opts.lists and s.dist.size + 1 <= 48) {
             s.lists = .init(gpa, .{ .board = &s.board, .racks = &s.racks, .on_turn = &s.on_turn, .gen = &s.gen, .dist = s.dist });
             s.lists.?.check = opts.check_lists;
@@ -732,6 +754,7 @@ pub const Solver = struct {
         const gpa = self.gpa;
         if (self.lists) |*l| l.deinit();
         if (self.pruned) |*pr| pr.deinit(gpa);
+        self.best_cache.deinit(gpa);
         self.gen.deinit();
         self.cross_cache.deinit(gpa);
         self.frames.deinit(gpa);
@@ -833,11 +856,18 @@ pub const Solver = struct {
             .playing = self.playing,
             .tiles_played = self.board.tiles_played,
             .saved_start = self.saved.items.len,
+            .lane_keys = self.lane_keys,
         });
         if (m.isPass()) {
             self.last_scoreless = self.scoreless;
             self.scoreless += 1;
         } else {
+            // The squares whose part of their lane's key the move changes:
+            // out with the old parts now, in with the new once it is made.
+            var lane_hits: [max_lanes]u32 = undefined;
+            const changed = moveHits(&self.board, m, &lane_hits);
+            bestsmall.xorSquares(&self.board, &self.lane_keys, changed, &lane_hits);
+            defer bestsmall.xorSquares(&self.board, &self.lane_keys, changed, &lane_hits);
             try self.saveSquaresFor(m);
             const b = &self.board;
             var mv: Move = .{ .kind = .play, .vertical = m.vertical(), .row = @intCast(m.row()), .col = @intCast(m.col()), .len = m.len, .tiles_played = m.tiles_played, .score = m.score };
@@ -893,6 +923,7 @@ pub const Solver = struct {
         b.tiles_played = f.tiles_played;
         self.racks = f.racks;
         self.scores = f.scores;
+        self.lane_keys = f.lane_keys;
         self.on_turn = f.on_turn;
         self.scoreless = f.scoreless;
         self.playing = f.playing;
@@ -931,8 +962,8 @@ pub const Solver = struct {
         return self.arena.items[start..];
     }
 
-    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64) Allocator.Error!void {
-        if (self.opts.heuristics and self.opts.magpie_ordering) return self.assignEstimatesMagpie(moves, tt_move);
+    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64, node_key: u64) Allocator.Error!void {
+        if (self.opts.heuristics and self.opts.magpie_ordering) return self.assignEstimatesMagpie(moves, tt_move, node_key);
         const on = self.on_turn;
         const num_tiles = self.racks[on].num_tiles;
         const last_was_pass = self.scoreless > self.last_scoreless;
@@ -954,11 +985,11 @@ pub const Solver = struct {
     const max_non_going_out_estimate: i32 = going_out_bf - 1;
 
     /// MAGPIE's move ordering, as Go's assignEstimatesHeuristic has it.
-    fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64) Allocator.Error!void {
+    fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64, node_key: u64) Allocator.Error!void {
         const on = self.on_turn;
         const num_tiles = self.racks[on].num_tiles;
         const last_was_pass = self.scoreless > self.last_scoreless;
-        const frac = try self.oppStuckFraction();
+        const frac = try self.oppStuckFraction(node_key);
         const build = try self.buildChainValues(moves, frac);
         const other_score = self.racks[1 - on].scoreOn(self.dist);
         for (moves, 0..) |*m, i| {
@@ -1169,7 +1200,19 @@ pub const Solver = struct {
 
     /// The opponent's (the player not solving) share of rack score with no
     /// play anywhere (oppStuckFraction).
-    fn oppStuckFraction(self: *Solver) Allocator.Error!f32 {
+    /// oppStuckFraction remembered by position key (`key`; 0: not
+    /// remembered), as Go's stuck-fraction memo: a node asks for it for
+    /// its first reply, its move ordering and its leaves.
+    fn oppStuckFraction(self: *Solver, key: u64) Allocator.Error!f32 {
+        if (key == 0) return self.oppStuckFractionFresh();
+        const slot = &self.stuck_memo[key & (stuck_memo_size - 1)];
+        if (slot.key == key) return slot.frac;
+        const frac = try self.oppStuckFractionFresh();
+        slot.* = .{ .key = key, .frac = frac };
+        return frac;
+    }
+
+    fn oppStuckFractionFresh(self: *Solver) Allocator.Error!f32 {
         const opp = &self.racks[1];
         if (opp.num_tiles == 0) return 0;
         var rack_bv: u64 = 0;
@@ -1269,9 +1312,30 @@ pub const Solver = struct {
         return .{ .tm = code, .score = @intCast(score), .tiles_played = 1, .len = @intCast(end - start + 1) };
     }
 
+    /// Checks a best play against the best of the full move list (tests).
+    fn checkBestPlay(self: *Solver, found: ?SmallMove, rack: *Rack, out_bonus: i32) Allocator.Error!void {
+        for (0..2 * self.board.dim) |lane| {
+            if (self.lane_keys[lane] != bestsmall.laneKey(&self.board, lane)) std.debug.panic("lane {d}'s key is stale", .{lane});
+        }
+        try self.gen.genAll(rack, false);
+        var want: ?SmallMove = null;
+        var want_v: i32 = 0;
+        for (self.gen.plays.items) |*mv| {
+            if (mv.kind != .play) continue;
+            const m: SmallMove = .fromMove(mv);
+            const v: i32 = m.score + (if (m.tiles_played == rack.num_tiles) out_bonus else 0);
+            if (want == null or v > want_v or (v == want_v and m.tm > want.?.tm)) {
+                want = m;
+                want_v = v;
+            }
+        }
+        if ((want == null) != (found == null) or (want != null and want.?.tm != found.?.tm))
+            std.debug.panic("best play search differs from the best of the full list", .{});
+    }
+
     /// Values a leaf by playing the game out greedily (greedyPlayout): the
     /// spread for the player on turn there.
-    fn greedyPlayout(self: *Solver, pv: *Line) Allocator.Error!i16 {
+    fn greedyPlayout(self: *Solver, pv: *Line, node_key: u64) Allocator.Error!i16 {
         const leaf_player = self.on_turn;
         const budget = @min(max_playout, self.stackRemaining());
         if (budget == 0) {
@@ -1279,7 +1343,7 @@ pub const Solver = struct {
             return @intCast(self.spreadFor(leaf_player));
         }
         var moves: [max_playout]SmallMove = undefined;
-        const frac = try self.oppStuckFraction();
+        const frac = try self.oppStuckFraction(node_key);
         var rack_scores = [2]i32{ self.racks[0].scoreOn(self.dist), self.racks[1].scoreOn(self.dist) };
         var played: usize = 0;
         var on_board: usize = 0;
@@ -1295,6 +1359,7 @@ pub const Solver = struct {
             const rack = &self.racks[on];
             var buf: [2]SmallMove = undefined;
             var plays: []SmallMove = undefined;
+            var picked_alone = false;
             const arena_mark = self.arena.items.len;
             if (rack.num_tiles == 1) {
                 var n: usize = 0;
@@ -1306,6 +1371,21 @@ pub const Solver = struct {
                 buf[n] = .{};
                 n += 1;
                 plays = buf[0..n];
+            } else if (self.opts.playout_out_bonus and !(frac > 0 and on == 0)) {
+                // MAGPIE's pick wants only the best play: a best-first
+                // search for it, with MAGPIE's caches of lane bounds and
+                // anchors' best plays.
+                var n: usize = 0;
+                const found = try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], &self.best_cache, &self.lane_keys);
+                if (self.opts.check_lists) try self.checkBestPlay(found, rack, 2 * rack_scores[1 - on]);
+                if (found) |m| {
+                    buf[n] = m;
+                    n += 1;
+                }
+                buf[n] = .{};
+                n += 1;
+                plays = buf[0..n];
+                picked_alone = true;
             } else {
                 plays = try self.generate();
             }
@@ -1338,7 +1418,7 @@ pub const Solver = struct {
                 played += 1;
                 break;
             }
-            if (rack.num_tiles >= 2 and m.tiles_played == rack.num_tiles - 1) {
+            if (!picked_alone and rack.num_tiles >= 2 and m.tiles_played == rack.num_tiles - 1) {
                 if (self.lists) |*l| try l.noteLonePlay(self.frames.items.len, on, pathlists.keptTile(rack, m, self.numLetters()));
             }
             if (!m.isPass()) rack_scores[on] -= self.playedTilesFace(m);
@@ -1460,7 +1540,7 @@ pub const Solver = struct {
         if (depth == 0 or !self.playing) {
             if (self.playing) self.impure += 1;
             if (self.opts.heuristics and self.playing) {
-                const val = try self.greedyPlayout(pv);
+                const val = try self.greedyPlayout(pv, node_key);
                 if (node_key != 0) {
                     const existing = self.tt.lookup(node_key);
                     if (!existing.valid() or existing.depth() == 0) {
@@ -1479,15 +1559,47 @@ pub const Solver = struct {
         const arena_mark = self.arena.items.len;
         defer self.arena.shrinkRetainingCapacity(arena_mark);
         const at_root = self.current_depth == depth;
-        const num_children = if (at_root) self.root_moves.len else blk: {
-            const children = try self.generate();
-            try self.assignEstimates(children, depth, tt_move);
-            break :blk children.len;
-        };
-
         var best_value: i16 = -huge;
         var best_move: SmallMove = .{};
         var placed: [board_mod.max_dim]MachineLetter = undefined;
+
+        // One ply above the leaves a node nearly always cuts off on its
+        // first move, yet making its list costs far more than searching
+        // that move. So, as MAGPIE does, its best play by score (going out
+        // first) is searched first, and the list made only if it does not
+        // cut off. Not where the opponent has stuck tiles (the ordering
+        // then weighs conservation), nor after a pass.
+        var first_reply: ?SmallMove = null;
+        if (self.opts.first_reply and self.opts.heuristics and depth == 1 and !at_root and tt_move == ttable.invalid_move and
+            self.scoreless == 0 and self.racks[on].num_tiles >= 2 and try self.oppStuckFraction(node_key) == 0)
+        {
+            if (try bestsmall.best(&self.gen, &self.racks[on], first_reply_out_priority, &self.best_cache, &self.lane_keys)) |fr| {
+                try self.play(fr, &placed);
+                self.nodes += 1;
+                const child_key = self.zobrist.addMove(node_key, false, fr.row(), fr.col(), fr.vertical(), placed[0..fr.len], &self.racks[on], self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+                const value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
+                    self.unplay();
+                    return err;
+                };
+                self.unplay();
+                max_reach = @max(max_reach, self.reach + 1);
+                first_reply = fr;
+                best_value = -value;
+                best_move = fr;
+                pv.update(fr, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+                if (best_value >= beta) return self.storeNode(node_key, depth, best_value, alpha_orig, beta, our_spread, best_move, impure_at_entry, max_reach);
+                alpha = @max(alpha, best_value);
+                child_pv.clear();
+            }
+        }
+        // Whether the first move of the list gets the full window.
+        const first_full = first_reply == null;
+
+        const num_children = if (at_root) self.root_moves.len else blk: {
+            const children = try self.generate();
+            try self.assignEstimates(children, depth, tt_move, node_key);
+            break :blk children.len;
+        };
         const stm_tiles = self.racks[on].num_tiles;
         const out_bonus = 2 * self.racks[1 - on].scoreOn(self.dist);
         const keep_one_active = self.opts.keep_one and depth >= 2 and !at_root and stm_tiles >= 2;
@@ -1506,7 +1618,8 @@ pub const Solver = struct {
         for (0..num_children) |idx| {
             // (Deeper nodes may move the arena.)
             const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
-            if (out_reply_active and idx > 0) {
+            if (first_reply) |fr| if (m.tm == fr.tm) continue;
+            if (out_reply_active and (idx > 0 or !first_full)) {
                 if (!out_reply.ready) try out_reply.init(self, on, our_spread);
                 if (m.tiles_played != stm_tiles and (!m.isPass() or self.scoreless == 0)) {
                     if (out_reply.bound(self, m, alpha)) |bound| {
@@ -1531,7 +1644,7 @@ pub const Solver = struct {
                 }
             }
             var value: i16 = undefined;
-            if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, idx == 0 or !self.opts.negascout, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
+            if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, (idx == 0 and first_full) or !self.opts.negascout, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
                 value = v;
                 self.nodes += 1;
                 child_pv.clear();
@@ -1561,7 +1674,7 @@ pub const Solver = struct {
             self.nodes += 1;
             const leave = &self.racks[on];
             const child_key = self.zobrist.addMove(node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], leave, self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
-            if (idx == 0 or !self.opts.negascout) {
+            if ((idx == 0 and first_full) or !self.opts.negascout) {
                 value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
                     self.unplay();
                     return err;
@@ -1591,6 +1704,11 @@ pub const Solver = struct {
             child_pv.clear();
         }
 
+        return self.storeNode(node_key, depth, best_value, alpha_orig, beta, our_spread, best_move, impure_at_entry, max_reach);
+    }
+
+    /// Stores a node's result in the table and returns its value.
+    fn storeNode(self: *Solver, node_key: u64, depth: i32, best_value: i16, alpha_orig: i16, beta: i16, our_spread: i32, best_move: SmallMove, impure_at_entry: u64, max_reach: u64) i16 {
         const score = best_value -% @as(i16, @intCast(our_spread));
         const flag: u8 = if (best_value <= alpha_orig) ttable.upper else if (best_value >= beta) ttable.lower else ttable.exact;
         const pure = self.impure == impure_at_entry;
@@ -1610,6 +1728,8 @@ pub const Solver = struct {
     pub fn solve(self: *Solver, plies: u32, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Result {
         if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
         if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
+        self.stuck_memo = @splat(.{});
+        for (0..2 * self.board.dim) |lane| self.lane_keys[lane] = bestsmall.laneKey(&self.board, lane);
         if (self.opts.pruned_kwg and self.pruned == null) {
             if (try wordprune.generate(self.gpa, &self.board, &self.racks[0], &self.racks[1], self.numLetters(), self.kwg)) |pr| {
                 self.pruned = pr;
@@ -1635,7 +1755,7 @@ pub const Solver = struct {
         self.root_moves = try self.gpa.dupe(SmallMove, root);
         defer self.gpa.free(self.root_moves);
         self.arena.clearRetainingCapacity();
-        try self.assignEstimates(self.root_moves, 0, ttable.invalid_move);
+        try self.assignEstimates(self.root_moves, 0, ttable.invalid_move, key);
 
         var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
         var reported = true;

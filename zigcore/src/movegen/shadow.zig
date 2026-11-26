@@ -79,7 +79,7 @@ pub const AnchorHeap = struct {
     /// sentinels (0, below every key) for the sifts to read.
     const arity = 4;
 
-    fn heapifyAll(self: *AnchorHeap, gpa: std.mem.Allocator) error{OutOfMemory}!void {
+    pub fn heapifyAll(self: *AnchorHeap, gpa: std.mem.Allocator) error{OutOfMemory}!void {
         const n = self.anchors.items.len;
         std.debug.assert(n <= idx_mask + 1);
         try self.keys.ensureTotalCapacity(gpa, n + arity);
@@ -118,7 +118,7 @@ pub const AnchorHeap = struct {
     }
 
     /// Removes the anchor with the highest key; returns it with its key.
-    fn extractMax(self: *AnchorHeap) struct { anchor: *const Anchor, key: u64 } {
+    pub fn extractMax(self: *AnchorHeap) struct { anchor: *const Anchor, key: u64 } {
         const keys = self.keys.allocatedSlice();
         const max = keys[0];
         const n = self.keys.items.len - 1;
@@ -230,7 +230,7 @@ pub fn bestLeavesWithoutMap(s: *State) void {
     s.best_leaves[0] = if (s.tiles_in_bag > 0) 0 else @floatFromInt(2 * s.opp_rack_score);
 }
 
-fn initShadow(gen: *Generator, rack: *const Rack) void {
+pub fn initShadow(gen: *Generator, rack: *const Rack) void {
     const s = &gen.shadow;
     s.heap.reset();
     s.lane_letter_cols_valid = .{ 0, 0 };
@@ -353,7 +353,7 @@ fn genShadowCarried(gen: *Generator, rack: *const Rack) void {
 
 /// The anchors of a row of the board as it stands (transposed for
 /// vertical plays) as a mask: one branch per anchor rather than per square.
-inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direction) u32 {
+pub inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direction) u32 {
     const anchors = &gen.board.anchors[@backingInt(dir)];
     var mask: u32 = 0;
     var sq = gen.board.sqIdx(row, 0);
@@ -365,7 +365,7 @@ inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direction)
 }
 
 /// Bounds the anchors of a lane loaded into the shadow state.
-fn shadowLane(gen: *Generator, row: usize, anchors: u32, comptime dir: Direction) void {
+pub fn shadowLane(gen: *Generator, row: usize, anchors: u32, comptime dir: Direction) void {
     gen.cur_row = row;
     gen.last_anchor_col = 100;
     gen.row = &gen.shadow.lanes[@intFromBool(dir == .vertical)][row];

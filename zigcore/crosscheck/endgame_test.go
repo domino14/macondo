@@ -166,18 +166,33 @@ type endgameVariant struct {
 	goSet  func(*negamax.Solver)
 	zigOpt string
 	nodes  bool
+	// selfCheck runs only the engine, which checks its own shortcuts
+	// against full generations as it goes (checklists) and fails on a
+	// difference: for its defaults, whose values at a depth short of the
+	// end of the game are MAGPIE's rather than Go's.
+	selfCheck bool
 }
 
 var endgameVariants = []endgameVariant{
-	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply", true},
-	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply", true},
+	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply nofirstreply", true, false},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply", true, false},
 	// The engine's defaults but the playout's pick, which changes the
 	// values of searches that stop short of the end of the game.
-	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false},
+	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false, false},
+	{"zig-defaults-selfcheck", nil, "checklists", false, true},
 }
 
 func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int, v endgameVariant) {
 	t.Helper()
+	if v.selfCheck {
+		if err := e.Send("position cgp " + cgpStr); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Command(fmt.Sprintf("go endgame plies %d %s", plies, v.zigOpt), "bestmove"); err != nil {
+			t.Fatalf("%s, %s: %v", cgpStr, v.name, err)
+		}
+		return
+	}
 	s, tt := goEndgameSolver(t, cfg, cgpStr)
 	v.goSet(s)
 	keys := filepath.Join(t.TempDir(), "zobrist.json")

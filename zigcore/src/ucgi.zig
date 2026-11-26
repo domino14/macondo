@@ -500,7 +500,7 @@ pub const Engine = struct {
     }
 
     /// `go endgame plies <n> [firstwin] [noid] [noheur] [nolists]
-    /// [magpieorder|goorder] [goplayout] [gooutreply] [nopruned] [noaspiration] [nooutreply] [nokeepone]
+    /// [magpieorder|goorder] [goplayout] [gooutreply] [nofirstreply] [nopruned] [noaspiration] [nooutreply] [nokeepone]
     /// [noshortcuts] [checklists]`:
     /// solves the
     /// endgame (the bag must be empty) to n plies on one thread, writing
@@ -527,6 +527,8 @@ pub const Engine = struct {
                 opts.magpie_ordering = true;
             } else if (std.mem.eql(u8, key, "goorder")) {
                 opts.magpie_ordering = false;
+            } else if (std.mem.eql(u8, key, "nofirstreply")) {
+                opts.first_reply = false;
             } else if (std.mem.eql(u8, key, "gooutreply")) {
                 opts.go_out_reply = true;
             } else if (std.mem.eql(u8, key, "goplayout")) {
