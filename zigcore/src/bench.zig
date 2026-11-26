@@ -94,7 +94,8 @@ pub fn main(init: std.process.Init) !void {
         const profile = init.environ_map.get("BENCH_PROFILE");
         if (profile != null) Profiler.start();
         defer if (profile) |path| Profiler.stop(io, path) catch {};
-        return benchSim(io, gpa, &store, data_path, positions.items, rounds, &w.interface);
+        const plies: u32 = if (init.environ_map.get("BENCH_PLIES")) |v| try std.fmt.parseInt(u32, v, 10) else 2;
+        return benchSim(io, gpa, &store, data_path, positions.items, rounds, plies, &w.interface);
     }
     // BENCH_MODE=wmp or gaddag times one only (for profiling).
     const only = init.environ_map.get("BENCH_MODE");
@@ -141,9 +142,9 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// BENCH_MODE=sim: a single-threaded sim of each position's 15 best plays
-/// by static equity, two plies, `iterations` iterations (`go sim plies 2
+/// by static equity, two plies (BENCH_PLIES), `iterations` iterations (`go sim plies 2
 /// iterations <n> plays 15`, without the opponent's rack).
-fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_path: []const u8, positions: []macondo.position.Position, iterations: u32, w: *Io.Writer) !void {
+fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_path: []const u8, positions: []macondo.position.Position, iterations: u32, plies: u32, w: *Io.Writer) !void {
     const win_table = try store.winTable(data_path);
     var rollouts: u64 = 0;
     var nodes: u64 = 0;
@@ -163,7 +164,7 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         g.* = try .fromPosition(p, seed);
         const sim = try gpa.create(macondo.sim.Sim);
         defer gpa.destroy(sim);
-        sim.* = try .init(gpa, g, seed, 0, moves, 2, win_table);
+        sim.* = try .init(gpa, g, seed, 0, moves, plies, win_table);
         defer sim.deinit();
         const start = Io.Timestamp.now(io, .awake);
         for (0..iterations) |_| try sim.iterate();
