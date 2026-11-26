@@ -361,6 +361,7 @@ pub const Engine = struct {
         var cap: u64 = default_sim_cap;
         var best_cap: u64 = default_sim_best_cap;
         var time_ms: u64 = 0;
+        var cycle = false;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             const v = tokens.next() orelse return out.writeAll("error bad-go\n");
@@ -381,6 +382,8 @@ pub const Engine = struct {
                 best_cap = n;
             } else if (std.mem.eql(u8, key, "time")) {
                 time_ms = n;
+            } else if (std.mem.eql(u8, key, "cycle") and n <= 1) {
+                cycle = n == 1;
             } else return out.print("error bad-go {s}\n", .{key});
         }
         if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
@@ -405,7 +408,7 @@ pub const Engine = struct {
             .game = g,
             .moves = moves,
             .sim = sim,
-            .bai = if (stop) |c| .{ .delta = sim_mod.stopDelta(c).?, .cap_per_play = cap, .best_play_cap = best_cap } else null,
+            .bai = if (stop) |c| .{ .delta = sim_mod.stopDelta(c).?, .cap_per_play = cap, .best_play_cap = best_cap, .bag_cycle = cycle } else null,
             .iterations = iterations,
             .time_ms = time_ms,
             .started = std.Io.Clock.Timestamp.now(self.io, .awake),

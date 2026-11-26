@@ -36,11 +36,18 @@ type simCase struct {
 	// threads is the Zig engine's: a best-arm sim is the same on any
 	// number, so it is compared with Go's single-threaded sim too.
 	threads int
+	// cycle makes each best-arm sample a bag cycle (the elite bot's
+	// setting).
+	cycle bool
 }
 
 func (c simCase) command() string {
 	if c.stop > 0 {
-		return fmt.Sprintf("go sim plies %d plays 10 seed %d stop %d cap %d bestcap %d", c.plies, c.seed, c.stop, c.cap, c.bestCap)
+		cmd := fmt.Sprintf("go sim plies %d plays 10 seed %d stop %d cap %d bestcap %d", c.plies, c.seed, c.stop, c.cap, c.bestCap)
+		if c.cycle {
+			cmd += " cycle 1"
+		}
+		return cmd
 	}
 	return fmt.Sprintf("go sim plies %d iterations %d plays 10 seed %d", c.plies, c.iters, c.seed)
 }
@@ -84,6 +91,8 @@ func TestSimCrossCheck(t *testing.T) {
 					{plies: plies, iters: *simIterations, seed: uint64(i + 1)},
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1)},
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), threads: 4},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), cycle: true},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), cycle: true, threads: 4},
 				} {
 					compareSim(t, e, cfg, cgpStr, c)
 					sims++
@@ -232,6 +241,7 @@ func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, c sim
 	s.Init(g, []equity.EquityCalculator{calc}, calc, cfg)
 	s.SetThreads(1)
 	s.SetEndgameLeaves(false)
+	s.SetBAIBagCycle(c.cycle)
 	if err := s.PrepareSim(c.plies, plays); err != nil {
 		t.Fatal(err)
 	}

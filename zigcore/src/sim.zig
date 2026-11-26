@@ -251,6 +251,22 @@ pub const BaiOptions = struct {
     best_play_cap: u64 = 0,
     /// Set to stop the run (a stop command, a time limit).
     stop: ?*const std.atomic.Value(bool) = null,
+    /// Each sample a cycle of rollouts (MAGPIE's bag cycling, the elite
+    /// bot's setting): one shuffle of the unseen tiles, rotated a rack
+    /// at a time so that every unseen tile starts on the opponent's rack
+    /// once. A sample's reward is its rollouts' mean; budgets and
+    /// minimums still count rollouts.
+    bag_cycle: bool = false,
+};
+
+/// The most rollouts a bag-cycled sample makes: rotations of 7 tiles over
+/// the unseen tiles of the largest distribution.
+pub const max_cycle = 32;
+
+/// What a best-arm sample holds back until it folds: its rollouts.
+pub const Sample = struct {
+    n: u8 = 0,
+    rollouts: [max_cycle]Rollout = undefined,
 };
 
 pub const RunOptions = struct {
@@ -269,6 +285,9 @@ const bai_spread_scale = 100.0;
 /// A best-arm sim stops once the best play's reward is this close to 0 or
 /// 1: a decided game.
 const bai_cutoff = 0.005 / 100.0;
+/// The fewest samples a play gets in a bag-cycled sim, so that its
+/// variance is never estimated from one.
+const bai_min_cycles = 2;
 
 /// The delta of a stopping condition given as a confidence percentage:
 /// 90, 95, 98, 99 or 999 (99.9).
@@ -343,7 +362,9 @@ pub const Sim = struct {
     /// The play a best-arm run picked, which ranks first.
     winner: ?usize = null,
     /// The best-arm run in progress, for progress reports.
-    bai_runner: ?*bai.Runner(Rollout) = null,
+    bai_runner: ?*bai.Runner(Sample) = null,
+    /// Rollouts a best-arm sample makes (more than one when bag-cycled).
+    rotations: u32 = 1,
     /// Keeps a progress report and a plain run's last merge apart.
     stats_mutex: std.Io.Mutex = .init,
     bai_stop: ?*const std.atomic.Value(bool) = null,
@@ -492,13 +513,25 @@ pub const Sim = struct {
     /// (Go's simBAI). Sample n of every play deals the opponent the same
     /// rack and the bag the same draws, on whichever worker it is drawn.
     pub fn runBai(self: *Sim, io: std.Io, opts: BaiOptions) !bai.Result {
-        var runner = try bai.Runner(Rollout).init(self.gpa, self.plays.len);
+        var runner = try bai.Runner(Sample).init(self.gpa, self.plays.len);
         defer runner.deinit();
         self.bai_runner = &runner;
         defer self.bai_runner = null;
         self.bai_stop = opts.stop;
+        self.rotations = 1;
+        if (opts.bag_cycle) {
+            const g = &self.workers[0].start;
+            const unseen = g.bag.len + g.pos.racks[1 - self.initial_player].num_tiles;
+            if (unseen > game_mod.rack_tile_limit) self.rotations = @intCast((unseen + game_mod.rack_tile_limit - 1) / game_mod.rack_tile_limit);
+            std.debug.assert(self.rotations <= max_cycle);
+        }
+        // Minimums, budgets and round sizes count rollouts; a sample is
+        // `rot` of them.
+        const rot: u64 = self.rotations;
         const n: u64 = self.plays.len;
-        const cb: bai.Callbacks(*Sim, Rollout) = .{
+        var min_samples: u64 = (opts.min_samples + rot - 1) / rot;
+        if (rot > 1 and min_samples < bai_min_cycles) min_samples = bai_min_cycles;
+        const cb: bai.Callbacks(*Sim, Sample) = .{
             .ctx = self,
             .sample = baiSample,
             .commit = baiCommit,
@@ -507,30 +540,39 @@ pub const Sim = struct {
         };
         const res = try runner.run(io, self.workers.len, .{
             .delta = opts.delta,
-            .sample_minimum = opts.min_samples,
+            .sample_minimum = @intCast(min_samples),
             .cutoff = bai_cutoff,
-            .sample_limit = opts.cap_per_play * n,
-            .best_arm_limit = opts.best_play_cap,
+            .sample_limit = (opts.cap_per_play * n + rot - 1) / rot,
+            .best_arm_limit = if (opts.best_play_cap > 0) (opts.best_play_cap + rot - 1) / rot else 0,
+            .round_size = @intCast(@max((bai.default_round_size + rot / 2) / rot, 1)),
         }, cb);
         self.winner = res.best;
-        self.iterations = res.samples / @max(n, 1);
+        self.iterations = res.samples * rot / @max(n, 1);
         return res;
     }
 
-    fn baiSample(self: *Sim, worker: usize, arm: usize, ordinal: u64, held: *Rollout) anyerror!f64 {
+    fn baiSample(self: *Sim, worker: usize, arm: usize, ordinal: u64, held: *Sample) anyerror!f64 {
         const w = &self.workers[worker];
         var buf: [40]u8 = undefined;
         buf[0..32].* = self.bai_seed;
         std.mem.writeInt(u64, buf[32..40], ordinal, .big);
         var seed: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(&buf, &seed, .{});
-        w.dealSeeded(.init(seed));
-        held.* = try w.rollout(arm);
-        return baiReward(held.win, held.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
+        // A cycle: the same shuffle of the unseen tiles, moved round by a
+        // rack for each rollout. The sample is the rollouts' mean.
+        var sum: f64 = 0;
+        held.n = @intCast(self.rotations);
+        for (0..self.rotations) |rotation| {
+            w.dealSeeded(.init(seed), rotation);
+            const r = try w.rollout(arm);
+            held.rollouts[rotation] = r;
+            sum += baiReward(r.win, r.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
+        }
+        return if (self.rotations == 1) sum else sum / @as(f64, @floatFromInt(self.rotations));
     }
 
-    fn baiCommit(self: *Sim, r: *const Rollout) void {
-        self.plays[r.play].stats.add(r);
+    fn baiCommit(self: *Sim, held: *const Sample) void {
+        for (held.rollouts[0..held.n]) |*r| self.plays[r.play].stats.add(r);
     }
 
     fn baiSimilar(self: *Sim, a: usize, b: usize) bool {
@@ -702,8 +744,10 @@ pub const Worker = struct {
 
     /// Deals the opponent a rack from the unseen tiles put in order and
     /// shuffled with `rng`, which the bag then draws with
-    /// (SetRandomRackSeeded with nothing known).
-    fn dealSeeded(self: *Worker, rng: chacha8.Rng) void {
+    /// (SetRandomRackSeeded with nothing known; with a rotation,
+    /// SetRandomRackCycled: the order moved round to the right by that many
+    /// racks first).
+    fn dealSeeded(self: *Worker, rng: chacha8.Rng, rotation: usize) void {
         const g = &self.start;
         const opp = 1 - self.sim.initial_player;
         var old: [tiles.max_alphabet_size]MachineLetter = undefined;
@@ -714,6 +758,15 @@ pub const Worker = struct {
         std.mem.sort(MachineLetter, g.bag.tiles[0..g.bag.len], {}, std.sort.asc(MachineLetter));
         g.rng = rng;
         g.bag.shuffle(&g.rng);
+        if (rotation > 0) {
+            const t = g.bag.tiles[0..g.bag.len];
+            const k = rotation * game_mod.rack_tile_limit % @max(t.len, 1);
+            if (k > 0) {
+                std.mem.reverse(MachineLetter, t);
+                std.mem.reverse(MachineLetter, t[0..k]);
+                std.mem.reverse(MachineLetter, t[k..]);
+            }
+        }
         var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
         const k = g.drawAtMost(&drawn);
         g.pos.racks[opp] = .fromLetters(drawn[0..k]);

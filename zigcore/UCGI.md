@@ -131,6 +131,10 @@ confidence (999 is 99.9%), when it has `bestcap` rollouts (default 10000),
 when the sim has spent `cap` rollouts per play (default 1000), or when the
 game is decided (or at `stop` or `time`). `iterations` doesn't apply. The
 rollouts it makes, and so its result, are the same on any number of threads.
+With `cycle 1` (the elite bot's setting) each sample is a bag cycle: one
+shuffle of the unseen tiles, rotated a rack at a time so that every unseen
+tile starts on the opponent's rack once, and the sample's reward is the mean
+of its rollouts.
 Each play's line gives its own
 rollouts, the best-arm pick comes first, and a line before them says why the
 sim stopped (`threshold`, `cutoff`, `sample-limit`, `best-arm-limit`) and how
