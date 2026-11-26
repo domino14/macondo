@@ -39,9 +39,15 @@ type simCase struct {
 	// cycle makes each best-arm sample a bag cycle (the elite bot's
 	// setting).
 	cycle bool
+	// classic is the inference's mini-sim: the classic Stop99 rule,
+	// checked every 64 iterations, on one thread (Zig's minisim command).
+	classic bool
 }
 
 func (c simCase) command() string {
+	if c.classic {
+		return fmt.Sprintf("minisim plies %d plays 10 iterations %d seed %d", c.plies, c.iters, c.seed)
+	}
 	if c.stop > 0 {
 		cmd := fmt.Sprintf("go sim plies %d plays 10 seed %d stop %d cap %d bestcap %d", c.plies, c.seed, c.stop, c.cap, c.bestCap)
 		if c.cycle {
@@ -93,6 +99,8 @@ func TestSimCrossCheck(t *testing.T) {
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), threads: 4},
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), cycle: true},
 					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), cycle: true, threads: 4},
+					{plies: 2, iters: 200, seed: uint64(i + 1), classic: true},
+					{plies: plies, iters: 1000, seed: uint64(i + 1), classic: true},
 				} {
 					compareSim(t, e, cfg, cgpStr, c)
 					sims++
@@ -102,6 +110,10 @@ func TestSimCrossCheck(t *testing.T) {
 		})
 	}
 	t.Logf("%d best-arm sims sampled adaptively", adaptiveSims)
+	t.Logf("%d mini-sims dropped plays or stopped early", classicStops)
+	if classicStops == 0 {
+		t.Error("the classic rule never acted")
+	}
 	if adaptiveSims == 0 {
 		t.Error("no best-arm sim got past its round-robin phase")
 	}
@@ -158,6 +170,17 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 			t.Fatalf("%s (%s, %d threads): %s: Go %+v, Zig %+v", cgpStr, cmd, threads, m, w, z)
 		}
 	}
+	if c.classic {
+		if best != zigBest {
+			t.Fatalf("%s (%s): Go picked %s, Zig %s", cgpStr, cmd, best, zigBest)
+		}
+		for _, r := range zig {
+			if r.iters < c.iters {
+				classicStops++
+				break
+			}
+		}
+	}
 	if c.stop > 0 && (best != zigBest || status != zigStatus) {
 		t.Fatalf("%s (%s, %d threads): Go picked %s (%s), Zig %s (%s)", cgpStr, cmd, threads, best, status, zigBest, zigStatus)
 	}
@@ -175,6 +198,10 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 // adaptiveSims counts the best-arm sims that got past the round-robin
 // phase, where every play has the same number of rollouts.
 var adaptiveSims int
+
+// classicStops counts mini-sims in which the classic rule dropped a play
+// or stopped early.
+var classicStops int
 
 // simPositionsFrom plays a seeded static game and returns up to n of its
 // positions, as CGPs with the opponent's rack hidden, spread over the turns
@@ -245,7 +272,11 @@ func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, c sim
 	if err := s.PrepareSim(c.plies, plays); err != nil {
 		t.Fatal(err)
 	}
-	if c.stop > 0 {
+	if c.classic {
+		s.SetStoppingCondition(montecarlo.Stop99)
+		s.SetAutostopCheckInterval(64)
+		s.SimSingleThread(c.iters, c.plies)
+	} else if c.stop > 0 {
 		if c.stop != 99 {
 			t.Fatalf("stop %d not set up", c.stop)
 		}

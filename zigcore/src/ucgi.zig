@@ -15,6 +15,7 @@ const Move = @import("move.zig").Move;
 const equity = @import("equity.zig");
 const game_mod = @import("game.zig");
 const sim_mod = @import("sim.zig");
+const classic = @import("classic.zig");
 const bai_mod = @import("bai.zig");
 
 pub const engine_name = "MacondoZig";
@@ -149,6 +150,8 @@ pub const Engine = struct {
             try self.printCrossSets(out);
         } else if (std.mem.eql(u8, cmd, "leave")) {
             try self.printLeave(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "minisim")) {
+            try self.miniSim(tokens.rest(), out);
         } else {
             try out.print("error unknown-command {s}\n", .{cmd});
         }
@@ -424,6 +427,54 @@ pub const Engine = struct {
             search.run();
             self.waitSearch();
         }
+    }
+
+    /// Debug: the inference's mini-sim on the position: the top plays by
+    /// static equity, simmed on one thread under the classic Stop99 rule
+    /// (checked every 64 iterations), reported as `go sim` reports.
+    fn miniSim(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var plies: u32 = 2;
+        var iterations: u64 = 200;
+        var num_plays: usize = 10;
+        var seed: u64 = 1;
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            const v = tokens.next() orelse return out.writeAll("error bad-minisim\n");
+            const n = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-minisim\n");
+            if (std.mem.eql(u8, key, "plies") and n >= 1 and n <= sim_mod.max_plies) {
+                plies = @intCast(n);
+            } else if (std.mem.eql(u8, key, "iterations")) {
+                iterations = n;
+            } else if (std.mem.eql(u8, key, "plays") and n >= 1 and n <= classic.max_plays) {
+                num_plays = @intCast(n);
+            } else if (std.mem.eql(u8, key, "seed")) {
+                seed = n;
+            } else return out.print("error bad-minisim {s}\n", .{key});
+        }
+        if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
+        const win_table = self.store.winTable(self.options.data_path) catch |err| return self.dataError(err, out);
+        const ranked = try rankedMoves(self.gpa, p);
+        defer self.gpa.free(ranked);
+        const moves = try self.gpa.alloc(Move, @min(num_plays, ranked.len));
+        defer self.gpa.free(moves);
+        for (moves, ranked[0..moves.len]) |*m, r| m.* = r.m;
+        const game_seed = game_mod.deriveSeed(seed, 0);
+        var g = game_mod.Game.fromPosition(p, game_seed) catch return out.writeAll("error bad-position\n");
+        const sim = try sim_mod.Sim.create(self.gpa, &g, game_seed, 0, moves, plies, win_table, 1);
+        defer sim.destroy();
+        if (g.playing) try classic.run(sim, iterations, .{});
+        const order = try self.gpa.alloc(*const sim_mod.Play, sim.plays.len);
+        defer self.gpa.free(order);
+        sim.ranked(order);
+        for (order) |play| {
+            try out.print("info sim iterations {d} play ", .{play.stats.win.n});
+            try play.move.format(p.dist, out);
+            try out.print(" win {d} equity {d} stderr {d}\n", .{ play.stats.win.mean(), play.stats.equity.mean(), play.stats.equity.stdErr() });
+        }
+        try out.writeAll("bestmove ");
+        if (order.len > 0) try order[0].move.format(p.dist, out) else try out.writeAll("pass");
+        try out.writeAll("\n");
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension

@@ -190,7 +190,15 @@ Used by the cross-check harness; engines may omit them.
 < move 0 8D.QUIZ score 84 equity 102.5
 < game 0 score 412 388 turns 24
 < autoplayok games 100
+> minisim plies 2 plays 10 iterations 200 seed 7
+< info sim iterations 192 play 8D.QUIZ win 0.61 equity 12.5 stderr 1.9
+< bestmove 8D.QUIZ
 ```
+
+`minisim` runs the inference's mini-sim on the position: the top plays by
+static equity, simmed on one thread for at most `iterations` iterations
+under Macondo's classic Stop99 rule (checked every 64 iterations; it drops
+plays it rules out and stops early), seeded as `go sim` is.
 
 `autoplay` plays games between static players (best move by static
 equity) on the position's board layout and lexicon. Game i is seeded with

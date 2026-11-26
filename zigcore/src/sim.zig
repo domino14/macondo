@@ -204,6 +204,8 @@ pub const Play = struct {
     move: Move,
     stats: PlayStats,
     ignored: bool = false,
+    /// The classic stopping rule never drops it (AvoidPruningMoves).
+    unignorable: bool = false,
 };
 
 /// `n` plays' statistics, `plies` plies each, in one allocation.
@@ -716,7 +718,7 @@ pub const Worker = struct {
 
     /// One iteration into this worker's statistics (locked as each
     /// rollout's result goes in, when there is `io`).
-    fn iterate(self: *Worker, io: ?std.Io) Allocator.Error!void {
+    pub fn iterate(self: *Worker, io: ?std.Io) Allocator.Error!void {
         self.dealOpponent();
         for (self.sim.plays, self.stats, 0..) |*p, *ws, i| {
             if (p.ignored) continue;
