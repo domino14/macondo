@@ -75,11 +75,40 @@ pub const MoveList = struct {
     valid: bool = false,
     solo: SoloTable = .{},
     solo_valid: bool = false,
+    /// The plays by tiles played, most first, and within, by score, best
+    /// first (tiles << 56 | score << 32 | index): made when first wanted
+    /// (aloneBest). The plays of t tiles are
+    /// by_score[tiles_begin[t + 1]..tiles_begin[t]].
+    by_score: std.ArrayList(u64) = .empty,
+    tiles_begin: [max_tiles + 2]u32 = undefined,
+    by_score_valid: bool = false,
+
+    const max_tiles = movegen.rack_tile_limit;
 
     fn deinit(l: *MoveList, gpa: Allocator) void {
         l.moves.deinit(gpa);
         l.used.deinit(gpa);
         l.anchor.deinit(gpa);
+        l.by_score.deinit(gpa);
+    }
+
+    fn orderByScore(l: *MoveList, gpa: Allocator) Allocator.Error!void {
+        if (l.by_score_valid) return;
+        const moves = l.moves.items;
+        try l.by_score.resize(gpa, moves.len);
+        for (moves, l.by_score.items, 0..) |m, *k, i| {
+            k.* = @as(u64, m.tiles_played) << 56 | @as(u64, @as(u24, @intCast(m.score))) << 32 | i;
+        }
+        std.sort.pdq(u64, l.by_score.items, {}, std.sort.desc(u64));
+        // tiles_begin[t] counts the plays of t tiles or more.
+        var i: usize = 0;
+        var t: usize = max_tiles + 1;
+        while (t > 0) {
+            t -= 1;
+            while (i < l.by_score.items.len and l.by_score.items[i] >> 56 > t) i += 1;
+            l.tiles_begin[t + 1] = @intCast(i);
+        }
+        l.by_score_valid = true;
     }
 
     pub fn soloPlays(l: *MoveList, b: *const Board) *const SoloTable {
@@ -265,6 +294,55 @@ pub const PathLists = struct {
         next.stuck_types = null;
         next.sibling[0].valid = 0;
         next.sibling[1].valid = 0;
+    }
+
+    /// The player's best play at stack depth `n` as siblingBest finds it,
+    /// for a position without siblings (MAGPIE's
+    /// path_move_lists_best_play_alone): among the plays of their list two
+    /// moves up that still stand (which their rack holds, covering no
+    /// square either move changed), and those of the lanes the two moves
+    /// changed, which are returned to be searched. Null without that list.
+    pub fn aloneBest(p: *PathLists, n: usize, player: u1, out_bonus: i32) Allocator.Error!?Shared {
+        if (n < p.base + 2 or n > p.levels.items.len) return null;
+        const l = &p.levels.items[n - 2].lists[player];
+        if (!l.valid) return null;
+        try l.orderByScore(p.gpa);
+        const num_lanes = 2 * p.dim;
+        @memset(p.hit[0..num_lanes], 0);
+        var touched: u64 = 0;
+        for (n - 2..n) |j| {
+            const lv = &p.levels.items[j];
+            touched |= lv.hits;
+            var lanes = lv.hits;
+            while (lanes != 0) : (lanes &= lanes - 1) {
+                const lane = @ctz(lanes);
+                p.hit[lane] |= lv.lane_hits[lane];
+            }
+        }
+        const rack = &p.host.racks[player];
+        const n_tiles = rack.num_tiles;
+        const counts = rackTileCounts(rack, p.numLetters());
+        var best: ?SmallMove = null;
+        var best_v: i32 = std.math.minInt(i32);
+        var t: usize = @min(n_tiles, MoveList.max_tiles);
+        while (t >= 1) : (t -= 1) {
+            const bonus: i32 = if (t == n_tiles) out_bonus else 0;
+            for (l.by_score.items[l.tiles_begin[t + 1]..l.tiles_begin[t]]) |key| {
+                const score: i32 = @intCast(key >> 32 & 0xffffff);
+                if (score + bonus < best_v) break;
+                const idx: usize = @intCast(key & 0xffffffff);
+                const m = l.moves.items[idx];
+                const lane = if (m.vertical()) p.dim + m.col() else m.row();
+                if (playSpan(m) & p.hit[lane] != 0) continue;
+                if (!holds(&counts, &l.used.items[idx])) continue;
+                const v = score + bonus;
+                if (best == null or v > best_v or (v == best_v and m.tm > best.?.tm)) {
+                    best = m;
+                    best_v = v;
+                }
+            }
+        }
+        return .{ .best = best, .value = best_v, .own = touched };
     }
 
     /// What siblingBest finds.
@@ -650,6 +728,7 @@ pub const PathLists = struct {
         if (l.valid) return l;
         try p.derive(n, player, ~@as(u64, 0), l);
         l.valid = true;
+        l.by_score_valid = false;
         if (p.check) try p.checkAgainstFullGeneration(l, player);
         return l;
     }

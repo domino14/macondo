@@ -1112,9 +1112,10 @@ pub const Solver = struct {
     /// the lanes it changed.
     fn bestPlay(self: *Solver, player: u1, out_bonus: i32, alone: bool) Allocator.Error!?SmallMove {
         const rack = &self.racks[player];
-        if (self.opts.sibling and !alone) {
+        if (self.opts.sibling) {
             if (self.lists) |*l| {
-                if (try l.siblingBest(self.frames.items.len, player, out_bonus)) |sb| {
+                const found = if (alone) try l.aloneBest(self.frames.items.len, player, out_bonus) else try l.siblingBest(self.frames.items.len, player, out_bonus);
+                if (found) |sb| {
                     return bestsmall.bestIn(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value);
                 }
             }
