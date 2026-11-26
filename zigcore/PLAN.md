@@ -149,8 +149,24 @@ as they land.
       the same on any number; `go sim` in the background with progress,
       `stop` and `time`. Go's other stopping rules (classic, paired) are
       not ported.
-- [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
+- [x] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
+      The opponent's last move comes in the CGP's `lm` opcode (through
+      tiles in parentheses, as open-protocols now specifies); the engine
+      takes it back to get the position before it. Ported: the elite bot's
+      path in budget mode (the deterministic one): mini-sims under the
+      classic Stop99 rule (ported for them only), exhaustive enumeration
+      of small leave spaces, prior sampling, the imputed complete
+      posterior (marginal lifts to order 3, the value-first term for
+      six-tile leaves, cross-fitted calibration), refinement rounds, and
+      exchanges read by leave value. Leaves are dealt in Go's single-thread
+      order and their mini-sims run in parallel, so the read is Go's
+      one-thread read on any number of threads. `go sim ... infer <budget>`
+      deals the opponent's racks from the posterior (best-arm and plain
+      sims). Not ported: time-limited reads (not reproducible in Go
+      either), the exchange sampler modes, order-4 marginals and other
+      tuning knobs the bot leaves at their defaults, and two-turn (carry)
+      reads.
 - [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
       `go endgame`. Of the parallel searches only PV split and ABDADA are
       ported; the others in `endgame/negamax` are slower. (The Go Zobrist keys come from an unseeded RNG, so

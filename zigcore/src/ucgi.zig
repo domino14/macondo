@@ -16,6 +16,7 @@ const equity = @import("equity.zig");
 const game_mod = @import("game.zig");
 const sim_mod = @import("sim.zig");
 const classic = @import("classic.zig");
+const infer_mod = @import("infer.zig");
 const bai_mod = @import("bai.zig");
 
 pub const engine_name = "MacondoZig";
@@ -312,9 +313,11 @@ pub const Engine = struct {
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         const kind = tokens.next() orelse return out.writeAll("error bad-go\n");
         const is_sim = std.mem.eql(u8, kind, "sim");
-        if (!is_sim and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
+        const is_infer = std.mem.eql(u8, kind, "infer");
+        if (!is_sim and !is_infer and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         if (is_sim) return self.goSim(p, tokens.rest(), out);
+        if (is_infer) return self.goInfer(p, tokens.rest(), out);
         var rack = p.racks[0];
         if (rack.num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
 
@@ -365,6 +368,7 @@ pub const Engine = struct {
         var best_cap: u64 = default_sim_best_cap;
         var time_ms: u64 = 0;
         var cycle = false;
+        var infer_budget: u32 = 0;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             const v = tokens.next() orelse return out.writeAll("error bad-go\n");
@@ -387,6 +391,8 @@ pub const Engine = struct {
                 time_ms = n;
             } else if (std.mem.eql(u8, key, "cycle") and n <= 1) {
                 cycle = n == 1;
+            } else if (std.mem.eql(u8, key, "infer") and n <= 1_000_000) {
+                infer_budget = @intCast(n);
             } else return out.print("error bad-go {s}\n", .{key});
         }
         if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
@@ -402,8 +408,16 @@ pub const Engine = struct {
         const g = try self.gpa.create(game_mod.Game);
         errdefer self.gpa.destroy(g);
         g.* = game_mod.Game.fromPosition(p, game_seed) catch return out.writeAll("error bad-position\n");
-        const sim = try sim_mod.Sim.create(self.gpa, g, game_seed, 0, moves, plies, win_table, self.options.threads);
+        const turn = positionTurn(p);
+        const sim = try sim_mod.Sim.create(self.gpa, g, game_seed, turn, moves, plies, win_table, self.options.threads);
         errdefer sim.destroy();
+        var reading: ?Search.Reading = null;
+        if (infer_budget > 0) {
+            const copy = try self.gpa.create(Position);
+            copy.* = p.*;
+            reading = .{ .pos = copy, .seed = game_seed, .turn = turn, .opts = .{ .budget = infer_budget, .threads = self.options.threads }, .win_table = win_table };
+        }
+        errdefer if (reading) |r| self.gpa.destroy(r.pos);
         const search = try self.gpa.create(Search);
         search.* = .{
             .engine = self,
@@ -416,6 +430,7 @@ pub const Engine = struct {
             .time_ms = time_ms,
             .started = std.Io.Clock.Timestamp.now(self.io, .awake),
             .playing = g.playing,
+            .reading = reading,
         };
         self.search = search;
         // Writes happen once this command's lock is released.
@@ -427,6 +442,61 @@ pub const Engine = struct {
             search.run();
             self.waitSearch();
         }
+    }
+
+    /// `go infer`: what the opponent kept after the position's last move
+    /// (CGP lm), as a posterior over every leave they could have kept.
+    fn goInfer(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        var opts: infer_mod.Options = .{};
+        var seed: u64 = 1;
+        var trace = false;
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            const v = tokens.next() orelse return out.writeAll("error bad-go\n");
+            if (std.mem.eql(u8, key, "tau") or std.mem.eql(u8, key, "taucap")) {
+                const x = std.fmt.parseFloat(f64, v) catch return out.writeAll("error bad-go\n");
+                if (!(x >= 0)) return out.writeAll("error bad-go\n");
+                if (key.len == 3) opts.tau = x else opts.tau_cap = x;
+                continue;
+            }
+            const n = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-go\n");
+            if (std.mem.eql(u8, key, "budget") and n >= 1 and n <= 1_000_000) {
+                opts.budget = @intCast(n);
+            } else if (std.mem.eql(u8, key, "seed")) {
+                seed = n;
+            } else if (std.mem.eql(u8, key, "iterations") and n >= 1) {
+                opts.sim_iters = n;
+            } else if (std.mem.eql(u8, key, "plays") and n >= 1 and n < classic.max_plays) {
+                opts.mini_plays = @intCast(n);
+            } else if (std.mem.eql(u8, key, "plies") and n >= 1 and n <= sim_mod.max_plies) {
+                opts.mini_plies = @intCast(n);
+            } else if (std.mem.eql(u8, key, "rounds") and n <= 100) {
+                opts.max_rounds = @intCast(n);
+            } else if (std.mem.eql(u8, key, "trace") and n <= 1) {
+                trace = n == 1;
+            } else return out.print("error bad-go {s}\n", .{key});
+        }
+        const win_table = self.store.winTable(self.options.data_path) catch |err| return self.dataError(err, out);
+        opts.threads = self.options.threads;
+        var res = infer_mod.infer(self.gpa, self.io, p, game_mod.deriveSeed(seed, 0), positionTurn(p), win_table, opts) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return out.print("error infer {t}\n", .{err}),
+        };
+        defer res.deinit(self.gpa);
+        if (trace) {
+            for (res.draws) |*d| {
+                try out.print("info infer draw round {d} leave ", .{d.round});
+                for (d.leave.slice()) |ml| try out.writeAll(p.dist.letter(ml, false));
+                try out.print(" likelihood {d}\n", .{d.likelihood});
+            }
+        }
+        try out.print("info infer leaves {d} kept {d} tau {d} sims {d} measured {d} enumerated {d}\n", .{ res.leaves.len, res.rack_length, res.tau, res.sims, res.measured, @intFromBool(res.enumerated) });
+        for (res.leaves) |*l| {
+            try out.writeAll("info infer leave ");
+            for (l.slice()) |ml| try out.writeAll(p.dist.letter(ml, false));
+            try out.print(" weight {d}\n", .{l.weight});
+        }
+        try out.writeAll("inferok\n");
     }
 
     /// Debug: the inference's mini-sim on the position: the top plays by
@@ -533,6 +603,18 @@ const Search = struct {
     future: ?std.Io.Future(void) = null,
     bai_result: ?bai_mod.Result = null,
     err: ?anyerror = null,
+    /// Inference first, the sim dealing the opponent's racks from what it
+    /// reads.
+    reading: ?Reading = null,
+
+    const Reading = struct {
+        pos: *Position,
+        seed: [32]u8,
+        turn: u64,
+        opts: infer_mod.Options,
+        win_table: *const sim_mod.WinTable,
+        result: ?infer_mod.Result = null,
+    };
 
     /// How often progress lines are written.
     const progress_ms = 1000;
@@ -540,6 +622,10 @@ const Search = struct {
     fn destroy(s: *Search) void {
         const gpa = s.engine.gpa;
         s.sim.destroy();
+        if (s.reading) |*r| {
+            if (r.result) |*res| res.deinit(gpa);
+            gpa.destroy(r.pos);
+        }
         gpa.destroy(s.game);
         gpa.free(s.moves);
         gpa.destroy(s);
@@ -549,6 +635,7 @@ const Search = struct {
         const io = s.engine.io;
         defer s.computed.set(io);
         if (!s.playing) return;
+        if (s.reading) |*r| s.infer(r);
         if (s.bai) |opts_in| {
             var opts = opts_in;
             opts.stop = &s.stop;
@@ -561,6 +648,30 @@ const Search = struct {
                 s.err = e;
             };
         }
+    }
+
+    /// Reads the opponent's leave and has the sim deal from it; a position
+    /// with nothing to read (no last move, a pass, a bingo, an empty bag)
+    /// is simmed with random racks, as the elite bot does.
+    fn infer(s: *Search, r: *Reading) void {
+        const e = s.engine;
+        var line: [160]u8 = undefined;
+        const res = infer_mod.infer(e.gpa, e.io, r.pos, r.seed, r.turn, r.win_table, r.opts) catch |err| {
+            if (err == error.OutOfMemory) {
+                s.err = err;
+                return;
+            }
+            const text = std.fmt.bufPrint(&line, "info infer skipped {t}", .{err}) catch return;
+            e.writeLine(text) catch {};
+            return;
+        };
+        r.result = res;
+        s.sim.setPosterior(res.leaves) catch |err| {
+            s.err = err;
+            return;
+        };
+        const text = std.fmt.bufPrint(&line, "info infer leaves {d} kept {d} tau {d} sims {d} measured {d} enumerated {d}", .{ res.leaves.len, res.rack_length, res.tau, res.sims, res.measured, @intFromBool(res.enumerated) }) catch return;
+        e.writeLine(text) catch {};
     }
 
     fn run(s: *Search) void {
@@ -642,6 +753,13 @@ const Search = struct {
 /// which it settles for the leading play: the elite bot's.
 const default_sim_cap = 1000;
 const default_sim_best_cap = 10000;
+
+/// The turn number a position's seeds use: 1 for one reached by a last
+/// move the CGP gives (lm), as a game of one move from the position before
+/// it counts its turns, otherwise 0.
+fn positionTurn(p: *const Position) u64 {
+    return if (p.last_move != null) 1 else 0;
+}
 
 pub const Ranked = struct { m: Move, eq: f64 };
 
@@ -767,16 +885,16 @@ test "go static and gen with equities" {
     _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
 
     _ = try engine.handle("go static");
-    _ = try engine.handle("go infer");
+    _ = try engine.handle("go mystery");
     // The opening: FERAL and FARLE score 24, but FERAL puts a vowel next
     // to a double-letter square.
     _ = try engine.handle("position cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEFLR/ 0/0 0 lex NWL23;");
-    if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go infer\nerror data-not-found")) return error.SkipZigTest;
+    if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go mystery\nerror data-not-found")) return error.SkipZigTest;
     _ = try engine.handle("go static");
     _ = try engine.handle("gen");
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     try testing.expectEqualStrings("error no-position", lines.next().?);
-    try testing.expectEqualStrings("error bad-go infer", lines.next().?);
+    try testing.expectEqualStrings("error bad-go mystery", lines.next().?);
     try testing.expectEqualStrings("info move 8D.FARLE score 24 equity 24", lines.next().?);
     try testing.expectEqualStrings("bestmove 8D.FARLE", lines.next().?);
     // gen: best first, FARLE before FLARE on the tiebreak (same score,

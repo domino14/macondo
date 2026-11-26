@@ -31,6 +31,7 @@ pub const rit = @import("rit.zig");
 pub const classic = @import("classic.zig");
 pub const gosort = @import("gosort.zig");
 pub const gorand = @import("gorand.zig");
+pub const infer = @import("infer.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

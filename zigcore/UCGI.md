@@ -47,7 +47,9 @@ before it is frozen.
 ```
 
 CGP (Compact Game Position, see `cgp/`) carries the board, racks, scores,
-scoreless turns and options such as the lexicon and letter distribution. The
+scoreless turns and options such as the lexicon and letter distribution,
+written `-lex CSW24 -ld english` (the spec's form, MAGPIE's) or in the
+deprecated form `lex CSW24; ld english;`; the engine reads both. The
 engine loads lexicon data on first use, or ahead of time with:
 
 ```
@@ -68,7 +70,7 @@ false` turns them off.
 
 The CGP's `lm` opcode gives the move that led to the position, by the
 player not on turn, in the open-protocols notation: through tiles in
-parentheses (`lm 8G.S(CAT)TER 10;`), `ex.ABC` or `ex.3`, `pass`, and
+parentheses (`-lm 8G.S(CAT)TER 10`), `ex.ABC` or `ex.3`, `pass`, and
 optionally its score. Inference reads the opponent from it. The engine
 checks it against the board: its new tiles must be there, the word whole,
 the play touching what was on the board before it, and the score (when
@@ -89,7 +91,7 @@ and saves it; `false` never uses one.
 
 ## Searching
 
-All `go` commands run in the background. While a search runs the engine
+All `go` commands but `go static` and `go infer` run in the background. While a search runs the engine
 accepts `stop`, `isready` and `quit`; any other command gets
 `error busy`. Every search ends with exactly one `bestmove` line, also after
 `stop`.
@@ -146,6 +148,15 @@ With `cycle 1` (the elite bot's setting) each sample is a bag cycle: one
 shuffle of the unseen tiles, rotated a rack at a time so that every unseen
 tile starts on the opponent's rack once, and the sample's reward is the mean
 of its rollouts.
+
+With `infer <budget>` the sim first reads the opponent's leave as `go infer`
+does with that budget (an `info infer` line gives the read, or says why it
+was skipped), then deals their racks as a leave drawn from the posterior by
+weight and the rest from the bag, as Macondo's elite bot sims after
+inference (bag cycling is then off). A position whose CGP has a last move
+counts as turn 1 (the position before it as turn 0) and one without as turn
+0; the turn goes into the sim's seeds as the game's turn number goes into
+Macondo's.
 Each play's line gives its own
 rollouts, the best-arm pick comes first, and a line before them says why the
 sim stopped (`threshold`, `cutoff`, `sample-limit`, `best-arm-limit`) and how
@@ -154,6 +165,40 @@ many rollouts it made:
 ```
 < info sim status threshold rollouts 4213
 ```
+
+`go infer [budget <n>] [seed <n>]` reads what the opponent kept after the
+position's last move (the CGP's `lm`), as Macondo's rangefinder does for its
+elite bot: for a candidate leave, a mini-sim of the position before the move
+(the opponent's ten best plays by static equity, and the one they made, 2
+plies, up to 200 iterations under Macondo's classic Stop99 rule) gives the
+likelihood of their play, a softmax with temperature `tau` over the plays'
+log-odds of winning. With few enough leaves (at most `budget`) every one is
+measured; otherwise 40% of the budget measures leaves drawn from the prior,
+a model of how sub-leaves lift the likelihood imputes the rest, and up to six
+rounds of measurement drawn from that posterior refine it. An exchange is
+read from leave values alone: the prior times exp(0.072 (value - best
+value)). `budget` (default 200) is the number of mini-sims, and `seed` seeds
+it as `go sim` is seeded, the position taken as turn 1 and the one before the
+move as turn 0, so on one thread the read is the one Macondo's rangefinder
+makes on one thread in budget mode. `tau` fixes the temperature (default: by
+bag size, Macondo's fitted schedule, doubled for a one-tile play with 21 or
+more in the bag) and `taucap` caps it (default 0.1, the elite bot's);
+`iterations`, `plays`, `plies` and `rounds` shape the mini-sims and the
+refinement. It ends with every leave the opponent could have kept and its
+weight relative to the heaviest, in Macondo's order, then `inferok`; with
+`trace 1`, each mini-sim's leave and likelihood come first, in the order
+measured:
+
+```
+< info infer draw round 0 leave EIRS likelihood 0.41
+< info infer leaves 3469 kept 3 tau 0.023 sims 200 measured 141 enumerated 0
+< info infer leave ?AB weight 0.00085
+< inferok
+```
+
+`go infer` answers before the engine reads the next command. A position
+without a last move, or whose last move was a pass, a phony or a bingo, or
+with an empty bag, gets `error infer` and the reason.
 
 Progress, as often as the engine likes:
 

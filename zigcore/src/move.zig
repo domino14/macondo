@@ -178,7 +178,7 @@ pub fn parse(text_in: []const u8, ld: *const tiles.LetterDistribution, dim: usiz
             return res;
         } else |_| {}
         var buf: [board.max_dim]MachineLetter = undefined;
-        const n = try ld.toMachineLetters(text, &buf);
+        const n = try lettersOf(text, ld, &buf);
         if (n == 0 or n > rack_size) return error.BadMove;
         for (buf[0..n]) |ml| {
             if (ml == 0 or tiles.isBlanked(ml)) return error.BadMove;
@@ -214,7 +214,7 @@ pub fn parse(text_in: []const u8, ld: *const tiles.LetterDistribution, dim: usiz
     while (pos < word.len) {
         if (word[pos] == '(') {
             const close = std.mem.indexOfScalarPos(u8, word, pos, ')') orelse return error.BadMove;
-            const k = try ld.toMachineLetters(word[pos + 1 .. close], &buf);
+            const k = try lettersOf(word[pos + 1 .. close], ld, &buf);
             if (k == 0) return error.BadMove;
             for (buf[0..k]) |ml| {
                 if (n == board.max_dim or ml == 0) return error.BadMove;
@@ -227,7 +227,7 @@ pub fn parse(text_in: []const u8, ld: *const tiles.LetterDistribution, dim: usiz
         }
         const end = std.mem.indexOfScalarPos(u8, word, pos, '(') orelse word.len;
         if (std.mem.indexOfScalar(u8, word[pos..end], ')') != null) return error.BadMove;
-        const k = try ld.toMachineLetters(word[pos..end], &buf);
+        const k = try lettersOf(word[pos..end], ld, &buf);
         for (buf[0..k]) |ml| {
             if (n == board.max_dim) return error.BadMove;
             m.tiles[n] = ml;
@@ -242,6 +242,33 @@ pub fn parse(text_in: []const u8, ld: *const tiles.LetterDistribution, dim: usiz
     m.len = @intCast(n);
     res.move = m;
     return res;
+}
+
+/// Tiles from text, a tile of more than one character in brackets where
+/// it could be read as its letters (`[CH]`), as in CGP rows.
+fn lettersOf(text: []const u8, ld: *const tiles.LetterDistribution, out: []MachineLetter) ParseError!usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < text.len) {
+        if (text[i] == '[') {
+            const close = std.mem.indexOfScalarPos(u8, text, i + 1, ']') orelse return error.BadMove;
+            // The letters inside as one tile, or failing that the whole
+            // thing with its brackets (Spanish writes RR as [RR]), as CGP
+            // rows are read.
+            var one: [8]MachineLetter = undefined;
+            var k: usize = ld.toMachineLetters(text[i + 1 .. close], &one) catch 0;
+            if (k != 1) k = ld.toMachineLetters(text[i .. close + 1], &one) catch return error.UnknownLetter;
+            if (k != 1 or n == out.len) return error.BadMove;
+            out[n] = one[0];
+            n += 1;
+            i = close + 1;
+            continue;
+        }
+        const end = std.mem.indexOfScalarPos(u8, text, i, '[') orelse text.len;
+        n += try ld.toMachineLetters(text[i..end], out[n..]);
+        i = end;
+    }
+    return n;
 }
 
 fn rowNumber(s: []const u8, i: *usize) ParseError!usize {

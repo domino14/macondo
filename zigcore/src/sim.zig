@@ -148,6 +148,9 @@ pub const WinTable = struct {
 /// The most plies a rollout can have.
 pub const max_plies = 32;
 
+/// An inferred leave of the opponent's, with its weight.
+pub const Leave = @import("infer.zig").Leave;
+
 /// What one rollout came to.
 pub const Rollout = struct {
     /// The play rolled out (its index in Sim.plays).
@@ -367,6 +370,9 @@ pub const Sim = struct {
     bai_runner: ?*bai.Runner(Sample) = null,
     /// Rollouts a best-arm sample makes (more than one when bag-cycled).
     rotations: u32 = 1,
+    /// What the opponent kept, read by inference: their rack is dealt as
+    /// one of these leaves (drawn by weight) and tiles from the bag.
+    posterior: ?Posterior = null,
     /// Keeps a progress report and a plain run's last merge apart.
     stats_mutex: std.Io.Mutex = .init,
     bai_stop: ?*const std.atomic.Value(bool) = null,
@@ -420,8 +426,53 @@ pub const Sim = struct {
         return sim;
     }
 
+    /// A complete posterior over the opponent's leave
+    /// (InferenceCompletePosterior), with its cumulative weights.
+    pub const Posterior = struct {
+        leaves: []const Leave,
+        cdf: []f64,
+
+        /// The leave a uniform draw from `rng` picks: the first whose
+        /// cumulative weight is above it (weightedInferredDrawRacks).
+        fn draw(self: *const Posterior, rng: *chacha8.Rng) []const MachineLetter {
+            const r = rng.float64() * self.cdf[self.cdf.len - 1];
+            var lo: usize = 0;
+            var hi: usize = self.cdf.len;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                if (self.cdf[mid] > r) hi = mid else lo = mid + 1;
+            }
+            return self.leaves[@min(lo, self.cdf.len - 1)].slice();
+        }
+    };
+
+    /// Deals the opponent's racks from `leaves` (SetInferences with the
+    /// complete posterior), which must outlive the sim. Leaves of no weight
+    /// in all leave the racks random.
+    pub fn setPosterior(self: *Sim, leaves: []const Leave) Allocator.Error!void {
+        self.clearPosterior();
+        if (leaves.len == 0) return;
+        const cdf = try self.gpa.alloc(f64, leaves.len);
+        var sum: f64 = 0;
+        for (leaves, cdf) |l, *c| {
+            sum += l.weight;
+            c.* = sum;
+        }
+        if (!(sum > 0)) {
+            self.gpa.free(cdf);
+            return;
+        }
+        self.posterior = .{ .leaves = leaves, .cdf = cdf };
+    }
+
+    fn clearPosterior(self: *Sim) void {
+        if (self.posterior) |p| self.gpa.free(p.cdf);
+        self.posterior = null;
+    }
+
     pub fn destroy(self: *Sim) void {
         const gpa = self.gpa;
+        self.clearPosterior();
         for (self.workers) |*w| w.deinit();
         gpa.free(self.workers);
         gpa.free(self.stat_buf);
@@ -521,7 +572,7 @@ pub const Sim = struct {
         defer self.bai_runner = null;
         self.bai_stop = opts.stop;
         self.rotations = 1;
-        if (opts.bag_cycle) {
+        if (opts.bag_cycle and self.posterior == null) {
             const g = &self.workers[0].start;
             const unseen = g.bag.len + g.pos.racks[1 - self.initial_player].num_tiles;
             if (unseen > game_mod.rack_tile_limit) self.rotations = @intCast((unseen + game_mod.rack_tile_limit - 1) / game_mod.rack_tile_limit);
@@ -565,7 +616,10 @@ pub const Sim = struct {
         var sum: f64 = 0;
         held.n = @intCast(self.rotations);
         for (0..self.rotations) |rotation| {
-            w.dealSeeded(.init(seed), rotation);
+            var rng: chacha8.Rng = .init(seed);
+            // An inferred leave is drawn from the sample's source too.
+            const known: []const MachineLetter = if (self.posterior) |*p| p.draw(&rng) else &.{};
+            w.dealSeeded(rng, rotation, known);
             const r = try w.rollout(arm);
             held.rollouts[rotation] = r;
             sum += baiReward(r.win, r.equity + @as(f64, @floatFromInt(self.initial_spread)), default_bai_spread_weight);
@@ -734,6 +788,16 @@ pub const Worker = struct {
     fn dealOpponent(self: *Worker) void {
         const g = &self.start;
         const opp = 1 - self.sim.initial_player;
+        if (self.sim.posterior) |*p| {
+            // An inferred leave, drawn from the worker's source, and the
+            // rest of the rack (SetRandomRack with known tiles).
+            g.rng = self.rng;
+            const known = p.draw(&g.rng);
+            var extra: [game_mod.rack_tile_limit]MachineLetter = undefined;
+            _ = g.setRandomRack(opp, known, &extra) catch unreachable;
+            self.rng = g.rng;
+            return;
+        }
         var old: [tiles.max_alphabet_size]MachineLetter = undefined;
         const n = g.pos.racks[opp].tiles(&old);
         g.rng = self.rng;
@@ -749,7 +813,7 @@ pub const Worker = struct {
     /// (SetRandomRackSeeded with nothing known; with a rotation,
     /// SetRandomRackCycled: the order moved round to the right by that many
     /// racks first).
-    fn dealSeeded(self: *Worker, rng: chacha8.Rng, rotation: usize) void {
+    fn dealSeeded(self: *Worker, rng: chacha8.Rng, rotation: usize, known: []const MachineLetter) void {
         const g = &self.start;
         const opp = 1 - self.sim.initial_player;
         var old: [tiles.max_alphabet_size]MachineLetter = undefined;
@@ -768,6 +832,18 @@ pub const Worker = struct {
                 std.mem.reverse(MachineLetter, t[0..k]);
                 std.mem.reverse(MachineLetter, t[k..]);
             }
+        }
+        if (known.len > 0) {
+            // The known tiles out (the bag rebuilt and shuffled again), then
+            // the rest of the rack from the end as it lies.
+            g.removeTiles(known) catch unreachable;
+            var rack: [game_mod.rack_tile_limit]MachineLetter = undefined;
+            @memcpy(rack[0..known.len], known);
+            const want = @max(n, game_mod.rack_tile_limit) - known.len;
+            const k = g.drawAtMost(rack[known.len..][0..@min(want, game_mod.rack_tile_limit - known.len)]);
+            g.pos.racks[opp] = .fromLetters(rack[0 .. known.len + k]);
+            self.rng = g.rng;
+            return;
         }
         var drawn: [game_mod.rack_tile_limit]MachineLetter = undefined;
         const k = g.drawAtMost(&drawn);
