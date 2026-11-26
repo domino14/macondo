@@ -15,6 +15,7 @@ const move_mod = @import("move.zig");
 const equity = @import("equity.zig");
 const leavemap = @import("leavemap.zig");
 const shadow_mod = @import("shadow.zig");
+const carry_mod = @import("carry.zig");
 const wmp = @import("wmp.zig");
 const wmp_movegen = @import("wmp_movegen.zig");
 const Board = board_mod.Board;
@@ -97,6 +98,10 @@ pub const Generator = struct {
     wmp_gen: wmp_movegen.MoveGen = .{},
     /// The rack genBest started with.
     full_rack: Rack = .{},
+    /// The memory of best plays by rack (carry.zig), if genBest is to use
+    /// it. It changes how fast genBest runs, not what it finds; it must be
+    /// forgotten when the lexicon, leaves or word map change.
+    carry: ?*carry_mod.Carry = null,
 
     pub fn init(gpa: Allocator, b: *Board, kwg: Kwg, ld: *const tiles.LetterDistribution) Generator {
         return .{ .gpa = gpa, .board = b, .kwg = kwg, .ld = ld };
@@ -162,11 +167,24 @@ pub const Generator = struct {
         self.shadow.tiles_in_bag = ctx.tiles_in_bag;
         self.shadow.opp_rack_score = ctx.opp_rack_score;
         self.shadow.anchor_floor = -std.math.inf(f64);
+        if (self.carry) |c| c.cur = null;
         self.leave_map.init(rack);
         if (self.leave_map.initialized) {
             self.full_rack = rack.*;
-            const visitor: ?leavemap.Visitor = if (add_exchange) .{ .ctx = self, .visit = visitExchange } else null;
-            leavemap.populateVisiting(&self.leave_map, rack, ctx.klv, ctx, &self.shadow.best_leaves, visitor);
+            carry_mod.begin(self, rack);
+            if (carry_mod.loadSetup(self, rack)) {
+                // The rack's leave values are remembered, and its best
+                // exchange if as many tiles can be exchanged as then.
+                if (add_exchange and !carry_mod.loadExchange(self, self.max_can_exchange)) {
+                    self.exchangesFromLeaveMap(rack);
+                    carry_mod.saveExchange(self, self.max_can_exchange);
+                }
+            } else {
+                const visitor: ?leavemap.Visitor = if (add_exchange) .{ .ctx = self, .visit = visitExchange } else null;
+                leavemap.populateVisiting(&self.leave_map, rack, ctx.klv, ctx, &self.shadow.best_leaves, visitor);
+                carry_mod.saveSetup(self);
+                if (add_exchange) carry_mod.saveExchange(self, self.max_can_exchange);
+            }
         } else {
             shadow_mod.bestLeavesWithoutMap(&self.shadow);
             if (add_exchange) self.genExchanges(rack, 0, 0);
@@ -178,12 +196,16 @@ pub const Generator = struct {
     /// map's values).
     pub fn bestSubracks(self: *Generator, rack: *const Rack) void {
         self.wmp_gen.init(self.ld, rack, if (self.leave_map.initialized) self.word_map else null);
-        if (self.wmp_gen.isActive()) self.wmp_gen.checkNonplaythroughExistence(self.ctx.tiles_in_bag > 0, &self.leave_map);
+        if (self.wmp_gen.isActive() and !carry_mod.loadWmp(self)) {
+            self.wmp_gen.checkNonplaythroughExistence(self.ctx.tiles_in_bag > 0, &self.leave_map);
+            carry_mod.saveWmp(self);
+        }
     }
 
     pub fn bestFinish(self: *Generator, rack: *const Rack) Allocator.Error!Best {
         defer self.best_only = false;
         if (!self.have_best or self.gen_pass) self.recordBest(Move.pass(), rack, null);
+        carry_mod.remember(self);
         if (self.out_of_memory) return error.OutOfMemory;
         return .{ .move = self.best, .equity = self.best_eq };
     }
@@ -205,6 +227,38 @@ pub const Generator = struct {
             }
         }
         self.recordBest(m, leave, if (fast) value else null);
+    }
+
+    /// Records the exchanges from the leave map's values (filled for this
+    /// rack), as populateVisiting's visitor does while filling it.
+    fn exchangesFromLeaveMap(self: *Generator, rack: *const Rack) void {
+        var letters: [rack_tile_limit]MachineLetter = undefined;
+        var n: usize = 0;
+        for (rack.counts[0..self.ld.size], 0..) |c, ml| {
+            if (c > 0) {
+                letters[n] = @intCast(ml);
+                n += 1;
+            }
+        }
+        var leave: Rack = .{};
+        self.exchangesFrom(rack, letters[0..n], &leave, 0);
+    }
+
+    fn exchangesFrom(self: *Generator, rack: *const Rack, letters: []const MachineLetter, leave: *Rack, idx: u32) void {
+        if (letters.len == 0) {
+            visitExchange(self, leave, self.leave_map.values[idx]);
+            return;
+        }
+        const ml = letters[0];
+        const base = self.leave_map.base[ml];
+        for (0..@as(usize, rack.counts[ml]) + 1) |kept| {
+            leave.counts[ml] = @intCast(kept);
+            leave.num_tiles += @intCast(kept);
+            const bits = ((@as(u32, 1) << @intCast(kept)) - 1) << @intCast(base);
+            self.exchangesFrom(rack, letters[1..], leave, idx | bits);
+            leave.num_tiles -= @intCast(kept);
+        }
+        leave.counts[ml] = 0;
     }
 
     /// Keeps `m` if it beats the best move so far. `rack` holds the leave;

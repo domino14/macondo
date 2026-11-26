@@ -15,6 +15,7 @@ const tiles = @import("tiles.zig");
 const game_mod = @import("game.zig");
 const movegen = @import("movegen.zig");
 const chacha8 = @import("chacha8.zig");
+const carry_mod = @import("carry.zig");
 const Move = @import("move.zig").Move;
 const Game = game_mod.Game;
 const MachineLetter = tiles.MachineLetter;
@@ -172,6 +173,11 @@ pub const Sim = struct {
     /// (the games are reset, it isn't).
     rng: chacha8.Rng,
     gen: *movegen.Generator,
+    /// The rollout generator's memory of best plays by rack.
+    carry: *carry_mod.Carry,
+    /// Tests: a generator without the memory that checks every rollout
+    /// move the memory helped find.
+    check: ?*movegen.Generator = null,
     initial_player: u1,
     initial_spread: i32,
     iterations: u64 = 0,
@@ -197,6 +203,11 @@ pub const Sim = struct {
         // Each rollout points the generator at its own board first.
         gen.* = .init(gpa, @constCast(&g.pos.board), g.pos.lexicon.kwg, g.pos.dist);
         gen.word_map = g.pos.word_map;
+        errdefer gen.deinit();
+        const carry = try gpa.create(carry_mod.Carry);
+        errdefer gpa.destroy(carry);
+        carry.* = .init(gpa);
+        gen.carry = carry;
 
         var sim: Sim = .{
             .gpa = gpa,
@@ -207,6 +218,7 @@ pub const Sim = struct {
             .work = undefined,
             .rng = .init(threadSeed(seed, turn, 0)),
             .gen = gen,
+            .carry = carry,
             .initial_player = g.on_turn,
             .initial_spread = g.pos.scores[g.on_turn] - g.pos.scores[1 - g.on_turn],
             .stat_buf = stat_buf,
@@ -220,6 +232,8 @@ pub const Sim = struct {
     }
 
     pub fn deinit(self: *Sim) void {
+        self.carry.deinit();
+        self.gpa.destroy(self.carry);
         self.gen.deinit();
         self.gpa.destroy(self.gen);
         self.gpa.free(self.stat_buf);
@@ -267,7 +281,8 @@ pub const Sim = struct {
             const on_turn = g.on_turn;
             if (!g.playing) break;
             const rack = g.pos.racks[on_turn];
-            const best = try game_mod.playStaticTurn(g, self.gen);
+            const best = try self.bestStaticTurn(g);
+            if (ply + 1 == self.plies) g.playLast(&best.move) else g.play(&best.move);
             self.nodes += 1;
             if (ply + 2 >= self.plies) {
                 // Our last turn or the opponent's: count what they keep.
@@ -286,6 +301,27 @@ pub const Sim = struct {
         p.leftover.push(leftover);
         const unseen = g.tilesInBag() + g.pos.racks[1 - ip].num_tiles;
         p.win.push(self.win_table.rolloutWin(spread, leftover, !g.playing, unseen, self.plies % 2 == 0));
+    }
+
+    /// The best static move for the player on turn (GenBestStaticTurn).
+    fn bestStaticTurn(self: *Sim, g: *Game) Allocator.Error!movegen.Generator.Best {
+        const ex = g.exchangeRules();
+        self.gen.max_can_exchange = ex.max;
+        const ctx = g.equityContext();
+        var rack = g.pos.racks[g.on_turn];
+        const best = try self.gen.genBest(&rack, ex.allowed, &ctx);
+        if (self.check) |check| {
+            check.board = &g.pos.board;
+            check.max_can_exchange = ex.max;
+            var r = g.pos.racks[g.on_turn];
+            const want = try check.genBest(&r, ex.allowed, &ctx);
+            const eq = @import("equity.zig");
+            if (want.equity != best.equity or eq.tiebreaksBetter(&want.move, &best.move) or eq.tiebreaksBetter(&best.move, &want.move)) {
+                std.debug.print("carry found {any} ({d}), plain generation {any} ({d})\n", .{ best.move, best.equity, want.move, want.equity });
+                @panic("best-move memory changed the best move");
+            }
+        }
+        return best;
     }
 
     /// The plays best first (sortPlaysByWinRate with the ignored plays
@@ -415,4 +451,56 @@ test "sim ranks a clearly better play first and repeats with a seed" {
         r.* = .{ sim.plays[0].equity.mean(), sim.plays[1].win.mean() };
     }
     try testing.expectEqual(results[0], results[1]);
+}
+
+test "the best-move memory finds the moves a plain generation finds" {
+    var store = testdata.store();
+    defer store.deinit();
+    const wt = try testing.allocator.create(WinTable);
+    defer testing.allocator.destroy(wt);
+    const csv = try testdata.loadFile("strategy/default/winpct.csv");
+    defer testing.allocator.free(csv);
+    try wt.parse(csv);
+    // Positions from a static game: early, middle and late.
+    var pos = try testdata.position(&store,
+        \\15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex NWL20;
+    );
+    for ([_]bool{ false, true }) |word_maps| {
+        pos.word_map = if (word_maps) try store.wordMap(@import("build_options").data_path, "NWL20", pos.lexicon, pos.dist) else null;
+        var g: Game = .start(&pos, @splat(9), false);
+        var gen = movegen.Generator.init(testing.allocator, &g.pos.board, pos.lexicon.kwg, pos.dist);
+        defer gen.deinit();
+        gen.word_map = pos.word_map;
+        var check = movegen.Generator.init(testing.allocator, &g.pos.board, pos.lexicon.kwg, pos.dist);
+        defer check.deinit();
+        check.word_map = pos.word_map;
+        var hits: u64 = 0;
+        var skipped: u64 = 0;
+        var seeded: u64 = 0;
+        var turn: usize = 0;
+        while (g.playing and g.bag.len > 0) : (turn += 1) {
+            if (turn % 4 == 1) {
+                var rack = g.pos.racks[g.on_turn];
+                try gen.genAll(&rack, false);
+                const ctx = g.equityContext();
+                const ranked = try testing.allocator.alloc(Move, @min(8, gen.plays.items.len));
+                defer testing.allocator.free(ranked);
+                // Any eight plays will do.
+                @memcpy(ranked, gen.plays.items[0..ranked.len]);
+                _ = ctx;
+                var sim = try Sim.init(testing.allocator, &g, @splat(5), turn, ranked, 3, wt);
+                defer sim.deinit();
+                sim.check = &check;
+                for (0..12) |_| try sim.iterate();
+                hits += sim.carry.rack_hits;
+                skipped += sim.carry.lanes_skipped;
+                seeded += sim.carry.seeded;
+            }
+            gen.board = &g.pos.board;
+            _ = try game_mod.playStaticTurn(&g, &gen);
+        }
+        try testing.expect(hits > 100);
+        try testing.expect(skipped > 100);
+        try testing.expect(seeded > 10);
+    }
 }

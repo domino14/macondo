@@ -14,8 +14,8 @@ const std = @import("std");
 const tiles = @import("tiles.zig");
 const wmp = @import("wmp.zig");
 const leavemap = @import("leavemap.zig");
-const BitRack = wmp.BitRack;
-const Entry = wmp.Entry;
+pub const BitRack = wmp.BitRack;
+pub const Entry = wmp.Entry;
 
 pub const rack_size = 7;
 /// The most runs of board tiles one word can cross on a 15 board.
@@ -24,7 +24,7 @@ pub const max_anchors = (rack_size + 1) * (max_playthrough_blocks + 1);
 /// Where each subrack size starts in the flat arrays of 128 subracks:
 /// C(7,0), C(7,1), ... summed.
 const combination_offsets = [rack_size + 1]u8{ 0, 1, 8, 29, 64, 99, 120, 127 };
-const total_subracks = 1 << rack_size;
+pub const total_subracks = 1 << rack_size;
 /// The blank word cache's size.
 const blank_word_cache_bytes = 4 * wmp.result_buffer_size;
 pub const score_base_count = 2;
@@ -365,7 +365,7 @@ pub const MoveGen = struct {
         return kept & ((@as(u64, 1) << @intCast(n)) - 1);
     }
 
-    fn resetBlankWordCache(self: *MoveGen) void {
+    pub fn resetBlankWordCache(self: *MoveGen) void {
         if (self.blank_used != 0) {
             self.blank_offsets = @splat(0);
             self.blank_used = 0;

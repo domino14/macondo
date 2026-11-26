@@ -255,11 +255,22 @@ pub const Game = struct {
     /// and ends the game on an emptied rack or too many scoreless turns.
     /// Port of playMove without history (challenge rule VOID).
     pub fn play(self: *Game, m: *const Move) void {
+        self.playMove(m, true);
+    }
+
+    /// play without bringing cross-sets and anchors up to date, for a
+    /// position nothing will be generated from (the last ply of a sim's
+    /// rollout: PlayMoveNoCrossSet).
+    pub fn playLast(self: *Game, m: *const Move) void {
+        self.playMove(m, false);
+    }
+
+    fn playMove(self: *Game, m: *const Move, comptime update_board: bool) void {
         const p = self.on_turn;
         const rack = &self.pos.racks[p];
         switch (m.kind) {
             .play => {
-                self.placeTiles(m);
+                self.placeTiles(m, update_board);
                 self.scoreless_turns = 0;
                 self.pos.scores[p] += m.score;
                 for (m.tileSlice()) |ml| {
@@ -299,7 +310,7 @@ pub const Game = struct {
 
     /// Puts a play's tiles on the board and brings cross-sets and anchors
     /// up to date.
-    fn placeTiles(self: *Game, m: *const Move) void {
+    fn placeTiles(self: *Game, m: *const Move, comptime update_board: bool) void {
         const b = &self.pos.board;
         const was_empty = b.tiles_played == 0;
         for (m.tileSlice(), 0..) |ml, i| {
@@ -309,7 +320,7 @@ pub const Game = struct {
             b.setLetter(r, c, ml);
         }
         b.tiles_played += m.tiles_played;
-        cross_set.updateForPlay(b, m, self.pos.lexicon.kwg, self.pos.dist, was_empty);
+        if (update_board) cross_set.updateForPlay(b, m, self.pos.lexicon.kwg, self.pos.dist, was_empty);
     }
 
     fn refreshBoard(self: *Game) void {

@@ -89,6 +89,12 @@ pub fn main(init: std.process.Init) !void {
     var out_buf: [512]u8 = undefined;
     var w: Io.File.Writer = .init(.stdout(), io, &out_buf);
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "phases")) return benchPhases(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_NO_WMP") != null);
+    if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "sim")) {
+        const profile = init.environ_map.get("BENCH_PROFILE");
+        if (profile != null) Profiler.start();
+        defer if (profile) |path| Profiler.stop(io, path) catch {};
+        return benchSim(io, gpa, &store, data_path, positions.items, rounds, &w.interface);
+    }
     // BENCH_MODE=wmp or gaddag times one only (for profiling).
     const only = init.environ_map.get("BENCH_MODE");
     const profile = init.environ_map.get("BENCH_PROFILE");
@@ -130,6 +136,42 @@ pub fn main(init: std.process.Init) !void {
         try w.interface.print("{s}: {d} positions, best of {d} rounds: {d:.2} us/position, {d:.0} positions/s, equity sum {d:.6}\n", .{ if (use_wmp) "word maps" else "GADDAG", n, rounds, per / 1000, 1e9 / per, checksum });
     }
     try w.interface.flush();
+}
+
+/// BENCH_MODE=sim: a single-threaded sim of each position's 15 best plays
+/// by static equity, two plies, `iterations` iterations (`go sim plies 2
+/// iterations <n> plays 15`, without the opponent's rack).
+fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_path: []const u8, positions: []macondo.position.Position, iterations: u32, w: *Io.Writer) !void {
+    const win_table = try store.winTable(data_path);
+    var rollouts: u64 = 0;
+    var nodes: u64 = 0;
+    var total_ns: i96 = 0;
+    for (positions) |*p| {
+        p.racks[1] = .{};
+        const ranked = try macondo.ucgi.rankedMoves(gpa, p);
+        defer gpa.free(ranked);
+        const moves = try gpa.alloc(macondo.move.Move, @min(15, ranked.len));
+        defer gpa.free(moves);
+        for (moves, ranked[0..moves.len]) |*m, r| m.* = r.m;
+        const seed = macondo.game.deriveSeed(1, 0);
+        const g = try gpa.create(macondo.game.Game);
+        defer gpa.destroy(g);
+        g.* = try .fromPosition(p, seed);
+        const sim = try gpa.create(macondo.sim.Sim);
+        defer gpa.destroy(sim);
+        sim.* = try .init(gpa, g, seed, 0, moves, 2, win_table);
+        defer sim.deinit();
+        const start = Io.Timestamp.now(io, .awake);
+        for (0..iterations) |_| try sim.iterate();
+        total_ns += start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+        rollouts += iterations * moves.len;
+        nodes += sim.nodes;
+    }
+    try w.print("sim: {d} positions, {d} rollouts, {d:.2} us/rollout, {d:.0} nodes/s\n", .{
+        positions.len,                                                                rollouts,
+        @as(f64, @floatFromInt(total_ns)) / @as(f64, @floatFromInt(rollouts)) / 1000, @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
+    });
+    try w.flush();
 }
 
 fn benchWmp(init: std.process.Init, args: []const []const u8) !void {

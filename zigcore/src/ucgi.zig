@@ -362,12 +362,12 @@ pub const Engine = struct {
 };
 
 /// Writes "TooManyTiles" as "too-many-tiles", for error tokens.
-const Ranked = struct { m: Move, eq: f64 };
+pub const Ranked = struct { m: Move, eq: f64 };
 
 /// Every move for the player on turn with its static equity (a pass gets
 /// the static pass penalty), best first by equity.better: the static
 /// player's move list.
-fn rankedMoves(gpa: Allocator, p: *const Position) Allocator.Error![]Ranked {
+pub fn rankedMoves(gpa: Allocator, p: *const Position) Allocator.Error![]Ranked {
     var gen = movegen.Generator.init(gpa, @constCast(&p.board), p.lexicon.kwg, p.dist);
     defer gen.deinit();
     const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());

@@ -9,6 +9,7 @@
 //! the remaining squares highest score to highest multiplier.
 
 const std = @import("std");
+const carry_mod = @import("carry.zig");
 const tiles = @import("tiles.zig");
 const board_mod = @import("board.zig");
 const movegen = @import("movegen.zig");
@@ -297,38 +298,82 @@ fn setShadowEquities(s: *State, ctx: *const equity.Context) void {
 /// Works out the bound of every anchor, both directions, and heaps them.
 pub fn genShadow(gen: *Generator, rack: *const Rack) void {
     initShadow(gen, rack);
+    if (carry_mod.active(gen)) return genShadowCarried(gen, rack);
     const dim = gen.board.dim;
     inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, lane| {
         if (dir == .vertical) gen.board.transpose();
         gen.vertical = dir == .vertical;
-        const anchors = &gen.board.anchors[@backingInt(dir)];
         for (0..dim) |row| {
-            // The row's anchors as a mask: one branch per anchor rather
-            // than per square.
-            var mask: u32 = 0;
-            var sq = gen.board.sqIdx(row, 0);
-            for (0..dim) |col| {
-                mask |= @as(u32, @intFromBool(anchors[sq])) << @intCast(col);
-                sq += gen.board.col_mul;
-            }
+            const mask = anchorMask(gen, row, dir);
             if (mask == 0) continue;
-            gen.cur_row = row;
-            gen.last_anchor_col = 100;
             // Loaded where the recording pass will look for it.
-            gen.row = &gen.shadow.lanes[lane][row];
-            gen.loadRowInto(gen.row, row, dir.other());
-            while (mask != 0) : (mask &= mask - 1) {
-                const col: usize = @ctz(mask);
-                if (gen.wmp_gen.isActive()) playForAnchor(gen, row, col, gen.last_anchor_col, dir, true) else playForAnchor(gen, row, col, gen.last_anchor_col, dir, false);
-                gen.last_anchor_col = col;
-                if (gen.row[col].letter != 0) gen.last_anchor_col += 1;
-            }
+            gen.loadRowInto(&gen.shadow.lanes[lane][row], row, dir.other());
+            shadowLane(gen, row, mask, dir);
         }
         if (dir == .vertical) gen.board.transpose();
     }
     gen.shadow.heap.heapifyAll(gen.gpa) catch {
         gen.out_of_memory = true;
     };
+}
+
+/// genShadow for a generation that uses the memory of best plays: every
+/// lane is loaded and looked up first, then only the lanes not skipped
+/// are given bounds.
+fn genShadowCarried(gen: *Generator, rack: *const Rack) void {
+    const dim = gen.board.dim;
+    var masks: [2][board_mod.max_dim]u32 = undefined;
+    inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, lane| {
+        if (dir == .vertical) gen.board.transpose();
+        for (0..dim) |row| {
+            const mask = anchorMask(gen, row, dir);
+            masks[lane][row] = mask;
+            if (mask != 0) gen.loadRowInto(&gen.shadow.lanes[lane][row], row, dir.other());
+            carry_mod.noteLane(gen, lane, row, mask);
+        }
+        if (dir == .vertical) gen.board.transpose();
+    }
+    carry_mod.seedAndSkip(gen, rack);
+    const skip = &gen.carry.?.skip;
+    inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, lane| {
+        if (dir == .vertical) gen.board.transpose();
+        gen.vertical = dir == .vertical;
+        for (0..dim) |row| {
+            if (masks[lane][row] == 0 or skip[lane][row]) continue;
+            shadowLane(gen, row, masks[lane][row], dir);
+        }
+        if (dir == .vertical) gen.board.transpose();
+    }
+    gen.shadow.heap.heapifyAll(gen.gpa) catch {
+        gen.out_of_memory = true;
+    };
+}
+
+/// The anchors of a row of the board as it stands (transposed for
+/// vertical plays) as a mask: one branch per anchor rather than per square.
+inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direction) u32 {
+    const anchors = &gen.board.anchors[@backingInt(dir)];
+    var mask: u32 = 0;
+    var sq = gen.board.sqIdx(row, 0);
+    for (0..gen.board.dim) |col| {
+        mask |= @as(u32, @intFromBool(anchors[sq])) << @intCast(col);
+        sq += gen.board.col_mul;
+    }
+    return mask;
+}
+
+/// Bounds the anchors of a lane loaded into the shadow state.
+fn shadowLane(gen: *Generator, row: usize, anchors: u32, comptime dir: Direction) void {
+    gen.cur_row = row;
+    gen.last_anchor_col = 100;
+    gen.row = &gen.shadow.lanes[@intFromBool(dir == .vertical)][row];
+    var mask = anchors;
+    while (mask != 0) : (mask &= mask - 1) {
+        const col: usize = @ctz(mask);
+        if (gen.wmp_gen.isActive()) playForAnchor(gen, row, col, gen.last_anchor_col, dir, true) else playForAnchor(gen, row, col, gen.last_anchor_col, dir, false);
+        gen.last_anchor_col = col;
+        if (gen.row[col].letter != 0) gen.last_anchor_col += 1;
+    }
 }
 
 fn playForAnchor(gen: *Generator, row: usize, col: usize, last_anchor_col: usize, dir: Direction, comptime W: bool) void {
