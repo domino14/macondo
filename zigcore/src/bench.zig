@@ -15,10 +15,13 @@ const Files = @import("files.zig").Files;
 
 /// A sampling profiler for the bench: with BENCH_PROFILE=<file>, a
 /// profiling timer interrupts the run every 50 us of CPU time and the
-/// interrupted instruction's address is kept; at the end they go to the
-/// file, one hex address per line, for llvm-symbolizer --inlining.
+/// interrupted instruction's address is kept, with the return addresses of
+/// up to `depth` callers when the build keeps frame pointers
+/// (-Dframe-pointers=true); at the end they go to the file, a sample per
+/// line (the instruction first), for llvm-symbolizer.
 const Profiler = struct {
-    var samples: [1 << 22]u64 = undefined;
+    const depth = 24;
+    var samples: [1 << 18][depth + 1]u64 = undefined;
     var count: usize = 0;
 
     fn handler(_: std.os.linux.SIG, _: *const std.os.linux.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
@@ -26,7 +29,21 @@ const Profiler = struct {
         // x86_64 Linux: the ucontext's flags, link and stack (40 bytes), then
         // the saved r8-r15, rdi, rsi, rbp, rbx, rdx, rax, rcx, rsp, rip.
         const words: [*]const u64 = @ptrCast(@alignCast(ctx.?));
-        samples[count] = words[(40 / 8) + 16];
+        const s = &samples[count];
+        s.* = @splat(0);
+        s[0] = words[(40 / 8) + 16];
+        // The frame pointer chain, within the stack above the interrupted
+        // one's pointer.
+        const sp = words[(40 / 8) + 15];
+        var fp = words[(40 / 8) + 10];
+        var i: usize = 1;
+        while (i <= depth and fp >= sp and fp < sp + (8 << 20) and fp % 8 == 0) : (i += 1) {
+            const frame: [*]const u64 = @ptrFromInt(fp);
+            s[i] = frame[1];
+            const next = frame[0];
+            if (next <= fp) break;
+            fp = next;
+        }
         count += 1;
     }
 
@@ -51,7 +68,13 @@ const Profiler = struct {
         defer file.close(io);
         var buf: [4096]u8 = undefined;
         var w = file.writer(io, &buf);
-        for (samples[0..count]) |a| try w.interface.print("0x{x}\n", .{a});
+        for (samples[0..count]) |*smp| {
+            for (smp, 0..) |a, i| {
+                if (a == 0) break;
+                try w.interface.print("{s}0x{x}", .{ if (i == 0) "" else " ", a });
+            }
+            try w.interface.writeAll("\n");
+        }
         try w.interface.flush();
     }
 };

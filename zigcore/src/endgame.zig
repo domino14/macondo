@@ -147,6 +147,10 @@ pub const Options = struct {
     /// Skip moves the opponent can answer by going out for a result that
     /// doesn't beat alpha (speed only).
     out_reply: bool = true,
+    /// Go's choice of going-out replies for that bound (its best eight
+    /// plays) rather than MAGPIE's (each lane's best, or the best three
+    /// drops of a lone tile).
+    go_out_reply: bool = false,
     /// Derive move lists from the ancestors' (speed only).
     lists: bool = true,
     /// Compare every derived list with a full generation (tests).
@@ -161,6 +165,11 @@ pub const Options = struct {
     /// Generate moves and cross-sets over a word graph of only the words
     /// this endgame's tiles can make (speed only).
     pruned_kwg: bool = true,
+    /// The greedy playout picks plays by score plus, for a play that goes
+    /// out, twice the opponent's rack (MAGPIE's pick; Go's is the score
+    /// alone). It changes the values of searches that stop short of the
+    /// end of the game.
+    playout_out_bonus: bool = true,
     /// Search each depth after the first in a window around the last
     /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
     /// single-threaded search has none). The value is the same; the
@@ -243,6 +252,8 @@ const OutReply = struct {
     single: [max_plays]bool = undefined,
     base: i32 = 0,
     dim: usize = 0,
+    /// MAGPIE's choice of replies (else Go's).
+    magpie: bool = true,
     lane_hits: [max_lanes]u32 = undefined,
 
     fn init(o: *OutReply, s: *Solver, on: u1, our_spread: i32) Allocator.Error!void {
@@ -250,9 +261,11 @@ const OutReply = struct {
         o.count = 0;
         o.base = our_spread - 2 * s.racks[on].scoreOn(s.dist);
         o.dim = s.board.dim;
+        o.magpie = !s.opts.go_out_reply;
         const opp = &s.racks[1 - on];
         const opp_tiles = opp.num_tiles;
         if (opp_tiles == 0) return;
+        if (o.magpie) return o.initMagpie(s, on, opp_tiles);
         if (opp_tiles == 1) {
             const lone = if (s.lists) |*l| try l.bestLoneTilePlay(s.frames.items.len, 1 - on, s) else s.bestLoneTilePlay(opp);
             if (lone == null) return;
@@ -263,6 +276,86 @@ const OutReply = struct {
             try s.gen.genAll(opp, false);
             for (s.gen.plays.items) |*mv| o.add(.fromMove(mv), opp_tiles);
         }
+    }
+
+    /// MAGPIE's replies: with one tile, its three best drops, each on its
+    /// own square; with more, the best play of the whole rack in each lane.
+    fn initMagpie(o: *OutReply, s: *Solver, on: u1, opp_tiles: u8) Allocator.Error!void {
+        const b = &s.board;
+        const dim = b.dim;
+        if (opp_tiles == 1) {
+            const opp = &s.racks[1 - on];
+            var tile: MachineLetter = 0;
+            for (0..s.numLetters()) |ml| {
+                if (opp.counts[ml] > 0) {
+                    tile = @intCast(ml);
+                    break;
+                }
+            }
+            const face: i32 = if (tile == 0) 0 else s.dist.score_table[tile];
+            const Drop = struct { score: i32, r: usize, c: usize };
+            var drops: [3]Drop = undefined;
+            var n: usize = 0;
+            for (0..dim) |r| {
+                for (0..dim) |c| {
+                    if (b.hasLetter(r, c)) continue;
+                    const score = pathlists.loneTileAt(b, tile, face, r, c) orelse continue;
+                    // The best three, earlier squares first among equals.
+                    var at = n;
+                    while (at > 0 and drops[at - 1].score < score) at -= 1;
+                    if (at == drops.len) continue;
+                    var k = @min(n, drops.len - 1);
+                    while (k > at) : (k -= 1) drops[k] = drops[k - 1];
+                    drops[at] = .{ .score = score, .r = r, .c = c };
+                    n = @min(n + 1, drops.len);
+                }
+            }
+            for (drops[0..n]) |d| o.addRaw(d.score, d.r, @as(u32, 1) << @intCast(d.c), true);
+            return;
+        }
+        var best_score: [max_lanes]i32 = @splat(-1);
+        var best_span: [max_lanes]u32 = undefined;
+        const Lane = struct {
+            fn note(bs: *[max_lanes]i32, sp: *[max_lanes]u32, d: usize, mv: SmallMove, tiles_needed: u8) void {
+                if (mv.isPass() or mv.tiles_played != tiles_needed) return;
+                const lane: usize = if (mv.vertical()) d + mv.col() else mv.row();
+                if (mv.score <= bs[lane]) return;
+                const start: usize = if (mv.vertical()) mv.row() else mv.col();
+                bs[lane] = mv.score;
+                sp[lane] = ((@as(u32, 1) << @intCast(mv.len)) - 1) << @intCast(start);
+            }
+        };
+        if (s.lists) |*l| {
+            for ((try l.get(s.frames.items.len, 1 - on)).moves.items) |mv| Lane.note(&best_score, &best_span, dim, mv, opp_tiles);
+        } else {
+            try s.gen.genAll(&s.racks[1 - on], false);
+            for (s.gen.plays.items) |*mv| Lane.note(&best_score, &best_span, dim, .fromMove(mv), opp_tiles);
+        }
+        for (0..2 * dim) |lane| {
+            if (best_score[lane] >= 0) o.addRaw(best_score[lane], lane, best_span[lane], false);
+        }
+    }
+
+    /// Keeps a reply among the best `max_plays`, best first (ties: the one
+    /// kept earlier first).
+    fn addRaw(o: *OutReply, score: i32, lane: usize, span: u32, single: bool) void {
+        var slot = o.count;
+        if (slot == max_plays) {
+            if (score <= o.score[slot - 1]) return;
+            slot -= 1;
+        } else {
+            o.count += 1;
+        }
+        while (slot > 0 and o.score[slot - 1] < score) : (slot -= 1) {
+            o.score[slot] = o.score[slot - 1];
+            o.lane[slot] = o.lane[slot - 1];
+            o.span[slot] = o.span[slot - 1];
+            o.single[slot] = o.single[slot - 1];
+        }
+        o.score[slot] = score;
+        o.lane[slot] = @intCast(lane);
+        o.span[slot] = span;
+        o.single[slot] = single;
     }
 
     fn add(o: *OutReply, mv: SmallMove, opp_tiles: u8) void {
@@ -305,7 +398,13 @@ const OutReply = struct {
             const lane: usize = o.lane[i];
             const span = o.span[i];
             if (hits & (@as(u64, 1) << @intCast(lane)) != 0 and o.lane_hits[lane] & span != 0) continue;
-            if (o.single[i]) {
+            if (o.magpie) {
+                // A drop on a row's square: its column must stand too.
+                if (o.single[i] and lane < o.dim) {
+                    const col: usize = @ctz(span);
+                    if (hits & (@as(u64, 1) << @intCast(o.dim + col)) != 0 and o.lane_hits[o.dim + col] & (@as(u32, 1) << @intCast(lane)) != 0) continue;
+                }
+            } else if (o.single[i]) {
                 // As Go has it, the square checked across is the last of
                 // the reply's word, not necessarily the tile's own (MAGPIE
                 // checks the tile's). Either way the check only passes over
@@ -1215,8 +1314,12 @@ pub const Solver = struct {
             if (conserve) pass_penalty = @intFromFloat(@as(f32, @floatFromInt(rack_scores[0] + rack_scores[1])) * frac);
             var best_idx: usize = 0;
             var best_adj: i32 = std.math.minInt(i32);
+            // MAGPIE's pick counts what going out earns (Go's, the score
+            // alone); not under conservation, which has its own valuation.
+            const out_bonus: i32 = if (self.opts.playout_out_bonus and !conserve) 2 * rack_scores[1 - on] else 0;
             for (plays, 0..) |m, idx| {
                 var adj: i32 = m.score;
+                if (out_bonus > 0 and !m.isPass() and m.tiles_played == rack.num_tiles) adj += out_bonus;
                 if (conserve) {
                     if (m.isPass()) adj -= pass_penalty else adj -= self.conservationBonus(m, frac);
                 }
@@ -1389,8 +1492,15 @@ pub const Solver = struct {
         const out_bonus = 2 * self.racks[1 - on].scoreOn(self.dist);
         const keep_one_active = self.opts.keep_one and depth >= 2 and !at_root and stm_tiles >= 2;
         var keep_one: KeepOne = if (keep_one_active) .init(self, on, our_spread) else undefined;
-        // As in Go, only with the move lists, which it reads.
-        const out_reply_active = self.opts.out_reply and self.lists != null and depth >= 2 and !at_root;
+        // Go's only with the move lists (it reads them); MAGPIE's also one
+        // ply above the leaves when the opponent holds one tile, which the
+        // leaf's playout then plays out with its best drop: here only for
+        // the solving player's moves, as the opponent's playout never
+        // conserves tiles.
+        const out_reply_active = self.opts.out_reply and !at_root and (if (self.opts.go_out_reply)
+            self.lists != null and depth >= 2
+        else
+            depth >= 2 or (depth == 1 and self.opts.heuristics and on == 0 and self.racks[1].num_tiles == 1));
         var leaves_played: usize = 0;
         var out_reply: OutReply = .{};
         for (0..num_children) |idx| {

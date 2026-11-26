@@ -158,8 +158,9 @@ func goEndgameSolver(t testing.TB, cfg *config.Config, cgpStr string) (*negamax.
 
 // An endgame configuration to compare: the Go solver's settings and the
 // Zig engine's go endgame options. With nodes set the searches must be the
-// same node for node; otherwise (the Zig engine's own defaults, which take
-// MAGPIE's aspiration windows) only the value and the depth reached.
+// same node for node; otherwise (the Zig engine's defaults, which take
+// MAGPIE's aspiration windows and choice of going-out replies) only the
+// value and the depth reached.
 type endgameVariant struct {
 	name   string
 	goSet  func(*negamax.Solver)
@@ -168,9 +169,11 @@ type endgameVariant struct {
 }
 
 var endgameVariants = []endgameVariant{
-	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration", true},
-	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration", true},
-	{"zig-defaults", func(*negamax.Solver) {}, "", false},
+	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply", true},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply", true},
+	// The engine's defaults but the playout's pick, which changes the
+	// values of searches that stop short of the end of the game.
+	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false},
 }
 
 func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int, v endgameVariant) {

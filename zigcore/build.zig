@@ -14,11 +14,16 @@ pub fn build(b: *std.Build) void {
 
     // The engine: everything except the I/O adapters. Tools, tests and the
     // later WASM build import this module.
+    // Frame pointers let the bench's profiler (BENCH_PROFILE) record who
+    // called each sampled function.
+    const frame_pointers = b.option(bool, "frame-pointers", "Keep frame pointers, for the bench's profiler") orelse false;
+    const omit_fp: ?bool = if (frame_pointers) false else null;
     const core = b.addModule("macondo", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .sanitize_thread = tsan,
+        .omit_frame_pointer = omit_fp,
         .imports = &.{
             .{ .name = "build_options", .module = options.createModule() },
         },
@@ -54,6 +59,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = bench_libc,
+            .omit_frame_pointer = omit_fp,
             .imports = &.{
                 .{ .name = "macondo", .module = core },
             },
