@@ -302,6 +302,16 @@ pub const Board = struct {
         }
     }
 
+    /// Updates the anchors of (row, col) and its neighbours: what a tile
+    /// placed there can change.
+    pub fn updateAnchorsAround(self: *Board, row: usize, col: usize) void {
+        self.updateAnchors(row, col, false);
+        if (row > 0) self.updateAnchors(row - 1, col, false);
+        if (row + 1 < self.dim) self.updateAnchors(row + 1, col, false);
+        if (col > 0) self.updateAnchors(row, col - 1, false);
+        if (col + 1 < self.dim) self.updateAnchors(row, col + 1, false);
+    }
+
     pub fn updateAllAnchors(self: *Board) void {
         if (self.tiles_played > 0) {
             for (0..self.dim) |i| {

@@ -239,6 +239,7 @@ pub const Game = struct {
     /// up to date.
     fn placeTiles(self: *Game, m: *const Move) void {
         const b = &self.pos.board;
+        const was_empty = b.tiles_played == 0;
         for (m.tileSlice(), 0..) |ml, i| {
             if (ml == 0) continue;
             const r = m.row + if (m.vertical) i else 0;
@@ -246,7 +247,7 @@ pub const Game = struct {
             b.setLetter(r, c, ml);
         }
         b.tiles_played += m.tiles_played;
-        self.refreshBoard();
+        cross_set.updateForPlay(b, m, self.pos.lexicon.kwg, self.pos.dist, was_empty);
     }
 
     fn refreshBoard(self: *Game) void {
@@ -372,4 +373,54 @@ test "an exchange keeps the bag and racks whole" {
     try testing.expectEqual(before, after);
     try testing.expectEqual(1, g.scoreless_turns);
     try testing.expectEqual(1, g.on_turn);
+}
+
+/// Whether two boards' squares, cross-sets, cross-scores, extension sets
+/// and anchors are the same.
+fn sameBoards(a: *const board_mod.Board, b: *const board_mod.Board) bool {
+    const n = a.dim * a.dim;
+    if (!std.mem.eql(MachineLetter, a.squares[0..n], b.squares[0..n])) return false;
+    for (0..2) |d| {
+        if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
+        if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
+        if (!std.mem.eql(u64, a.left_ext[d][0..n], b.left_ext[d][0..n])) return false;
+        if (!std.mem.eql(u64, a.right_ext[d][0..n], b.right_ext[d][0..n])) return false;
+        if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
+    }
+    return true;
+}
+
+test "incremental cross-set updates match regenerating everything" {
+    const testdata = @import("testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex NWL20;",
+        "21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21/21 / 0/0 0 lex CSW24; ld english_super; bdn SuperCrosswordGame;",
+        "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 / 0/0 0 lex FRA20; ld french;",
+    };
+    var moves: usize = 0;
+    for (cgps) |text| {
+        var pos = testdata.position(&store, text) catch |err| switch (err) {
+            error.SkipZigTest => continue,
+            else => return err,
+        };
+        const gen = try testing.allocator.create(movegen.Generator);
+        defer testing.allocator.destroy(gen);
+        gen.* = .init(testing.allocator, &pos.board, pos.lexicon.kwg, pos.dist);
+        defer gen.deinit();
+        for (0..6) |seed| {
+            var g: Game = .start(&pos, @splat(@intCast(seed)), seed % 2 == 1);
+            gen.board = &g.pos.board;
+            while (g.playing) {
+                _ = try playStaticTurn(&g, gen);
+                var full = g.pos.board;
+                cross_set.generateAll(&full, pos.lexicon.kwg, pos.dist);
+                full.updateAllAnchors();
+                try testing.expect(sameBoards(&g.pos.board, &full));
+                moves += 1;
+            }
+        }
+    }
+    try testing.expect(moves > 100);
 }

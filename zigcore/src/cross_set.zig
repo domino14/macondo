@@ -29,6 +29,41 @@ pub fn generateAll(b: *Board, kwg: Kwg, ld: *const LetterDistribution) void {
     b.transpose();
 }
 
+/// Brings cross-sets, extension sets and anchors up to date after `m`'s
+/// tiles were put on the board (whose anchors were up to date before),
+/// giving the same result as generateAll and updateAllAnchors.
+///
+/// A square's cross-set for one direction reads and writes only its own
+/// lane (extension sets included), and generateAll visits a lane's squares
+/// in order; lanes whose tiles did not change would write what they already
+/// hold. So the play's own lane is regenerated in its direction, and each
+/// lane crossing it at a new tile in the other. Anchors look only at a
+/// square's neighbours.
+pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld: *const LetterDistribution, was_empty: bool) void {
+    const along: Direction = if (m.vertical) .vertical else .horizontal;
+    const lane = if (m.vertical) m.col else m.row;
+    const start = if (m.vertical) m.row else m.col;
+    regenerateLane(b, along, lane, kwg, ld);
+    for (m.tileSlice(), 0..) |ml, i| {
+        if (ml != 0) regenerateLane(b, along.other(), start + i, kwg, ld);
+    }
+    if (was_empty) return b.updateAllAnchors();
+    for (m.tileSlice(), 0..) |ml, i| {
+        if (ml == 0) continue;
+        const r = m.row + if (m.vertical) i else 0;
+        const c = m.col + if (m.vertical) 0 else i;
+        b.updateAnchorsAround(r, c);
+    }
+}
+
+/// Regenerates lane `lane` for plays in `dir`: row `lane` for horizontal,
+/// column `lane` for vertical (on the transposed board, as generateAll).
+fn regenerateLane(b: *Board, dir: Direction, lane: usize, kwg: Kwg, ld: *const LetterDistribution) void {
+    if (dir == .vertical) b.transpose();
+    for (0..b.dim) |j| generate(b, @intCast(lane), @intCast(j), dir, kwg, ld);
+    if (dir == .vertical) b.transpose();
+}
+
 /// The result of walking the tiles leftward from a square.
 const Traversal = struct { node: u32, valid: bool };
 
