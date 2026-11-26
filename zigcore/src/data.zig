@@ -3,6 +3,7 @@
 //! The engine never opens files itself.
 
 const std = @import("std");
+const WinTable = @import("sim.zig").WinTable;
 const Allocator = std.mem.Allocator;
 const tiles = @import("tiles.zig");
 const kwg_mod = @import("kwg.zig");
@@ -62,6 +63,7 @@ pub const Store = struct {
     peg: std.StringHashMapUnmanaged([]f64) = .empty,
     /// Word maps by lexicon; null for a lexicon that can't have one.
     word_maps: std.StringHashMapUnmanaged(?*WordMap) = .empty,
+    win_table: ?*WinTable = null,
 
     pub fn init(gpa: Allocator, source: Source) Store {
         return .{ .gpa = gpa, .source = source };
@@ -107,7 +109,29 @@ pub const Store = struct {
             }
         }
         self.word_maps.deinit(self.gpa);
+        if (self.win_table) |t| self.gpa.destroy(t);
         self.* = undefined;
+    }
+
+    /// The win probabilities sims score rollouts with. Go's engine reads
+    /// them for NWL20 whatever the lexicon (strategy/NWL20/winpct.csv,
+    /// then the NWL23 and default folders).
+    pub fn winTable(self: *Store, data_path: []const u8) Error!*const WinTable {
+        if (self.win_table) |t| return t;
+        var buf: [128]u8 = undefined;
+        for (strategyDirs("NWL20")) |dir| {
+            const bytes = self.loadFile(data_path, "{s}", .{try strategyPath(&buf, dir, "winpct.csv")}) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => return err,
+            };
+            defer self.gpa.free(bytes);
+            const t = try self.gpa.create(WinTable);
+            errdefer self.gpa.destroy(t);
+            t.parse(bytes) catch return error.InvalidData;
+            self.win_table = t;
+            return t;
+        }
+        return error.FileNotFound;
     }
 
     pub fn lastPath(self: *const Store) []const u8 {

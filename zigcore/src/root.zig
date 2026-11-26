@@ -23,6 +23,7 @@ pub const game = @import("game.zig");
 pub const wmp_maker = @import("wmp_maker.zig");
 pub const wmp_movegen = @import("wmp_movegen.zig");
 pub const wordmap_gen = @import("wordmap_gen.zig");
+pub const sim = @import("sim.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

@@ -141,6 +141,8 @@ as they land.
 - [ ] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
       leaves; `go sim`, streaming `info`. Check: identical results with one
       thread and a fixed seed; statistical agreement with many threads.
+      Endgame leaves need the endgame solver (step 7): until then the
+      cross-check sims positions with at least three tiles in the bag.
 - [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
 - [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;

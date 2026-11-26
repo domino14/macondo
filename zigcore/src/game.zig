@@ -2,7 +2,7 @@
 //! Macondo's game package plays them, so that the same seed deals the same
 //! tiles and the same bots play the same game in both engines. Ports of
 //! word-golib's Bag and the turn logic of game.go and pairedbag.go (only
-//! what autoplay needs: no history, challenges or backups yet).
+//! what autoplay and the sims need: no history or challenges yet).
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
@@ -64,11 +64,37 @@ pub const Bag = struct {
         self.len = k;
     }
 
-    /// Puts tiles back at the end (Bag.PutBack; in fixed order the bag is
-    /// reshuffled, which paired games do their own way, see Game).
+    /// Puts tiles back at the end (Bag.PutBack without its reshuffle, which
+    /// the caller does in fixed order; paired games reinsert instead, see
+    /// Game).
     pub fn putBack(self: *Bag, letters: []const MachineLetter) void {
         @memcpy(self.tiles[self.len..][0..letters.len], letters);
         self.len += letters.len;
+    }
+
+    /// The tiles of `ld` that are not on `b` or in `racks`, in machine
+    /// letter order. Designated blanks on the board count as blanks.
+    pub fn unseen(ld: *const tiles.LetterDistribution, b: *const board_mod.Board, racks: []const Rack) error{TooManyTiles}!Bag {
+        var counts: [tiles.max_alphabet_size]i32 = @splat(0);
+        for (ld.counts[0..ld.size], 0..) |n, ml| counts[ml] = n;
+        for (0..b.dim) |r| {
+            for (0..b.dim) |c| {
+                const ml = b.getLetter(r, c);
+                if (ml != 0) counts[if (tiles.isBlanked(ml)) 0 else ml] -= 1;
+            }
+        }
+        for (racks) |rack| {
+            for (rack.counts, 0..) |n, ml| counts[ml] -= n;
+        }
+        var bag: Bag = .{};
+        for (counts[0..ld.size], 0..) |n, ml| {
+            if (n < 0) return error.TooManyTiles;
+            for (0..@intCast(n)) |_| {
+                bag.tiles[bag.len] = @intCast(ml);
+                bag.len += 1;
+            }
+        }
+        return bag;
     }
 };
 
@@ -113,6 +139,23 @@ pub const Game = struct {
         return g;
     }
 
+    /// A game going on from `pos`, player 0 to move, with the unseen tiles
+    /// in the bag in machine-letter order (whatever order a Go game built
+    /// from the same CGP has them in is incidental: a test sorts it). The
+    /// bag draws with an RNG seeded with `seed` (SeedBag).
+    pub fn fromPosition(pos: *const position.Position, seed: [32]u8) error{TooManyTiles}!Game {
+        var g: Game = .{
+            .pos = pos.*,
+            .bag = try .unseen(pos.dist, &pos.board, &pos.racks),
+            .rng = .init(seed),
+            .scoreless_turns = pos.scoreless_turns,
+            .max_scoreless_turns = pos.max_scoreless_turns,
+            .exchange_limit = movegen.exchangeLimit(pos.lexiconName()),
+        };
+        g.playing = !(g.bag.len == 0 and (pos.racks[0].num_tiles == 0 or pos.racks[1].num_tiles == 0));
+        return g;
+    }
+
     /// The end of the bag seat `p` draws from in paired mode: seat 0 moves
     /// first and takes from the back, seat 1 from the front.
     fn drawsFromFront(p: u1) bool {
@@ -133,8 +176,27 @@ pub const Game = struct {
     /// spot, moving the tile there to the seat's own end; otherwise they go
     /// on the end (no shuffle: the bag isn't in fixed order).
     fn putBackFor(self: *Game, p: u1, letters: []const MachineLetter) void {
-        if (!self.paired) return self.bag.putBack(letters);
-        for (letters) |ml| self.reinsert(p, ml);
+        if (self.paired) {
+            for (letters) |ml| self.reinsert(p, ml);
+            return;
+        }
+        self.putBack(letters);
+    }
+
+    /// Bag.PutBack: the tiles go on the end, and a bag in fixed order (a
+    /// sim's) is reshuffled.
+    pub fn putBack(self: *Game, letters: []const MachineLetter) void {
+        if (letters.len == 0) return;
+        self.bag.putBack(letters);
+        if (self.bag.fixed_order) self.bag.shuffle(&self.rng);
+    }
+
+    /// Draws at most `out.len` tiles for the player on turn's seat (not
+    /// paired), returning how many.
+    pub fn drawAtMost(self: *Game, out: []MachineLetter) usize {
+        const n = @min(out.len, self.bag.len);
+        self.bag.draw(&self.rng, out[0..n]);
+        return n;
     }
 
     /// Port of reinsert: the tile lands in one of the len+1 slots.

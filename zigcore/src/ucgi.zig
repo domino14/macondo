@@ -14,6 +14,7 @@ const movegen = @import("movegen.zig");
 const Move = @import("move.zig").Move;
 const equity = @import("equity.zig");
 const game_mod = @import("game.zig");
+const sim_mod = @import("sim.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -232,8 +233,10 @@ pub const Engine = struct {
     fn go(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         const kind = tokens.next() orelse return out.writeAll("error bad-go\n");
-        if (!std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
+        const is_sim = std.mem.eql(u8, kind, "sim");
+        if (!is_sim and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        if (is_sim) return self.goSim(p, tokens.rest(), out);
         var rack = p.racks[0];
         if (rack.num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
 
@@ -257,32 +260,70 @@ pub const Engine = struct {
     /// player's move list), best first, then `genok count <n>`.
     fn printMoves(self: *Engine, out: *Writer) (Writer.Error || Allocator.Error)!void {
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
-        var gen = movegen.Generator.init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
-        defer gen.deinit();
-        const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
-        gen.max_can_exchange = ex.max;
-        var rack = p.racks[0];
-        try gen.genAll(&rack, ex.allowed);
-
-        const ctx = p.equityContext();
-        const Ranked = struct { m: Move, eq: f64 };
-        const ranked = try self.gpa.alloc(Ranked, gen.plays.items.len);
+        const ranked = try rankedMoves(self.gpa, p);
         defer self.gpa.free(ranked);
-        for (gen.plays.items, ranked) |*m, *r| {
-            const lv = m.leave(&rack);
-            r.* = .{ .m = m.*, .eq = if (m.kind == .pass) equity.static_pass_penalty else ctx.equity(m, &lv) };
-        }
-        std.mem.sort(Ranked, ranked, {}, struct {
-            fn before(_: void, a: Ranked, b: Ranked) bool {
-                return equity.better(&a.m, a.eq, &b.m, b.eq);
-            }
-        }.before);
         for (ranked) |*r| {
             try out.writeAll("move ");
             try r.m.format(p.dist, out);
             try out.print(" score {d} equity {d}\n", .{ r.m.score, r.eq });
         }
         try out.print("genok count {d}\n", .{ranked.len});
+    }
+
+    /// `go sim`: a Monte Carlo sim of the best plays by static equity,
+    /// single-threaded, run to a fixed number of iterations. Writes one
+    /// `info sim` line per play, best first, then `bestmove`.
+    fn goSim(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        var plies: u32 = 2;
+        var iterations: u64 = 1000;
+        var num_plays: usize = 15;
+        var seed: u64 = 1;
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            const v = tokens.next() orelse return out.writeAll("error bad-go\n");
+            const n = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-go\n");
+            if (std.mem.eql(u8, key, "plies") and n >= 1 and n <= 32) {
+                plies = @intCast(n);
+            } else if (std.mem.eql(u8, key, "iterations")) {
+                iterations = n;
+            } else if (std.mem.eql(u8, key, "plays") and n >= 1 and n <= 1000) {
+                num_plays = @intCast(n);
+            } else if (std.mem.eql(u8, key, "seed")) {
+                seed = n;
+            } else return out.print("error bad-go {s}\n", .{key});
+        }
+        if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
+        const win_table = self.store.winTable(self.options.data_path) catch |err| return self.dataError(err, out);
+
+        const ranked = try rankedMoves(self.gpa, p);
+        defer self.gpa.free(ranked);
+        const moves = try self.gpa.alloc(Move, @min(num_plays, ranked.len));
+        defer self.gpa.free(moves);
+        for (moves, ranked[0..moves.len]) |*m, r| m.* = r.m;
+
+        const game_seed = game_mod.deriveSeed(seed, 0);
+        const g = try self.gpa.create(game_mod.Game);
+        defer self.gpa.destroy(g);
+        g.* = game_mod.Game.fromPosition(p, game_seed) catch return out.writeAll("error bad-position\n");
+        const sim = try self.gpa.create(sim_mod.Sim);
+        defer self.gpa.destroy(sim);
+        sim.* = try .init(self.gpa, g, game_seed, 0, moves, plies, win_table);
+        defer sim.deinit();
+        if (g.playing) {
+            for (0..iterations) |_| try sim.iterate();
+        }
+
+        const order = try self.gpa.alloc(*const sim_mod.Play, moves.len);
+        defer self.gpa.free(order);
+        sim.ranked(order);
+        for (order) |play| {
+            try out.print("info sim iterations {d} play ", .{sim.iterations});
+            try play.move.format(p.dist, out);
+            try out.print(" win {d} equity {d} stderr {d}\n", .{ play.win.mean(), play.equity.mean(), play.equity.stdErr() });
+        }
+        try out.writeAll("bestmove ");
+        if (order.len > 0) try order[0].move.format(p.dist, out) else try out.writeAll("pass");
+        try out.writeAll("\n");
     }
 
     /// Debug: every square's cross-set, cross-score, anchor and extension
@@ -321,6 +362,33 @@ pub const Engine = struct {
 };
 
 /// Writes "TooManyTiles" as "too-many-tiles", for error tokens.
+const Ranked = struct { m: Move, eq: f64 };
+
+/// Every move for the player on turn with its static equity (a pass gets
+/// the static pass penalty), best first by equity.better: the static
+/// player's move list.
+fn rankedMoves(gpa: Allocator, p: *const Position) Allocator.Error![]Ranked {
+    var gen = movegen.Generator.init(gpa, @constCast(&p.board), p.lexicon.kwg, p.dist);
+    defer gen.deinit();
+    const ex = movegen.exchangeRules(p.unseenBy(0), p.lexiconName());
+    gen.max_can_exchange = ex.max;
+    var rack = p.racks[0];
+    try gen.genAll(&rack, ex.allowed);
+
+    const ctx = p.equityContext();
+    const ranked = try gpa.alloc(Ranked, gen.plays.items.len);
+    for (gen.plays.items, ranked) |*m, *r| {
+        const lv = m.leave(&rack);
+        r.* = .{ .m = m.*, .eq = if (m.kind == .pass) equity.static_pass_penalty else ctx.equity(m, &lv) };
+    }
+    std.mem.sort(Ranked, ranked, {}, struct {
+        fn before(_: void, a: Ranked, b: Ranked) bool {
+            return equity.better(&a.m, a.eq, &b.m, b.eq);
+        }
+    }.before);
+    return ranked;
+}
+
 fn writeKebab(out: *Writer, name: []const u8) Writer.Error!void {
     for (name, 0..) |ch, i| {
         if (std.ascii.isUpper(ch)) {
@@ -416,16 +484,16 @@ test "go static and gen with equities" {
     _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}), &out.writer);
 
     _ = try engine.handle("go static", &out.writer);
-    _ = try engine.handle("go sim", &out.writer);
+    _ = try engine.handle("go infer", &out.writer);
     // The opening: FERAL and FARLE score 24, but FERAL puts a vowel next
     // to a double-letter square.
     _ = try engine.handle("position cgp 15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AEFLR/ 0/0 0 lex NWL23;", &out.writer);
-    if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go sim\nerror data-not-found")) return error.SkipZigTest;
+    if (std.mem.startsWith(u8, out.written(), "error no-position\nerror bad-go infer\nerror data-not-found")) return error.SkipZigTest;
     _ = try engine.handle("go static", &out.writer);
     _ = try engine.handle("gen", &out.writer);
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     try testing.expectEqualStrings("error no-position", lines.next().?);
-    try testing.expectEqualStrings("error bad-go sim", lines.next().?);
+    try testing.expectEqualStrings("error bad-go infer", lines.next().?);
     try testing.expectEqualStrings("info move 8D.FARLE score 24 equity 24", lines.next().?);
     try testing.expectEqualStrings("bestmove 8D.FARLE", lines.next().?);
     // gen: best first, FARLE before FLARE on the tiebreak (same score,

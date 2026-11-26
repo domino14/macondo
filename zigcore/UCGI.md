@@ -90,6 +90,20 @@ leave value, and the opening, pre-endgame and endgame adjustments):
 < bestmove 8D.QUIZ
 ```
 
+`go sim plies <n> iterations <n> plays <n> seed <n>` sims the `plays` best
+plays by static equity (default 15) for `iterations` iterations (default
+1000), rolling each out `plies` plies (default 2) with best static plays
+against a random opponent rack. The game is seeded with SHA-256 of `seed`
+(default 1) and 0, both big-endian u64s, at turn 0, and the bag starts in
+machine-letter order, so the same command gives the same numbers as Macondo's
+single-threaded sim of the same position with that seed. It ends with one
+line per play, best first by win probability (then equity), and `bestmove`:
+
+```
+< info sim iterations 1000 play 8D.QUIZ win 0.71 equity 41.2 stderr 1.3
+< bestmove 8D.QUIZ
+```
+
 Progress, as often as the engine likes:
 
 ```

@@ -9,10 +9,13 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/wmp"
@@ -114,4 +117,46 @@ func BenchmarkStatic(b *testing.B) {
 	b.ReportMetric(perPos/1000, "us/position")
 	b.ReportMetric(1e9/perPos, "positions/s")
 	b.Logf("%d positions, equity sum %.6f", len(positions), sum)
+}
+
+// BenchmarkSim times Go's single-threaded sim on every position of the
+// -crosscheck.positions file: the 15 best plays by static equity, two
+// plies, -crosscheck.simiters iterations, with the lexicon's word map. The
+// UCGI equivalent is `go sim plies 2 iterations <n> plays 15` per
+// position.
+func BenchmarkSim(b *testing.B) {
+	if *positionsFlag == "" {
+		b.Skip("no -crosscheck.positions file")
+	}
+	cfg := config.DefaultConfig()
+	text, err := os.ReadFile(*positionsFlag)
+	if err != nil {
+		b.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(text)), "\n")
+	b.ResetTimer()
+	for b.Loop() {
+		for _, line := range lines {
+			b.StopTimer()
+			g := parseCGP(b, cfg, line)
+			g.SeedBag(automatic.DeriveSeed(1, 0))
+			p := staticPlayer(b, cfg, g)
+			plays := p.GenerateMoves(15)
+			calc, err := equity.NewCombinedStaticCalculator(g.LexiconName(), cfg, "", "")
+			if err != nil {
+				b.Fatal(err)
+			}
+			s := &montecarlo.Simmer{}
+			s.Init(g, []equity.EquityCalculator{calc}, calc, cfg)
+			s.SetThreads(1)
+			s.TryLoadWMP(cfg.WGLConfig(), g.LexiconName())
+			if err := s.PrepareSim(2, plays); err != nil {
+				b.Fatal(err)
+			}
+			b.StartTimer()
+			s.SimSingleThread(*simIterations, 2)
+		}
+	}
+	rollouts := float64(b.N * len(lines) * *simIterations * 15)
+	b.ReportMetric(float64(b.Elapsed().Microseconds())/rollouts, "us/rollout")
 }
