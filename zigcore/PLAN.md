@@ -134,16 +134,18 @@ as they land.
       generation (these only pay off when looking for the best play, so
       they are checked here); static best move; `go static`.
       Check: identical equities and best moves.
-- [ ] **4. Game rules and autoplay.** Bag, racks, turn logic, challenge rules,
-      paired bags; `autoplay` command. Check: identical games from the same
-      seed (port `frand`'s ChaCha generator exactly).
+- [x] **4. Game rules and autoplay.** Bag, racks, turn logic, paired bags;
+      `autoplay` command. Check: identical games from the same seed (port
+      `frand`'s ChaCha generator exactly). Challenge rules are left for
+      step 12: autoplay and sims play with VOID.
 - [ ] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
       leaves; `go sim`, streaming `info`. Check: identical results with one
       thread and a fixed seed; statistical agreement with many threads.
 - [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
 - [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
-      `go endgame`. (The Go Zobrist keys come from an unseeded RNG, so
+      `go endgame`. Of the parallel searches only PV split and ABDADA are
+      ported; the others in `endgame/negamax` are slower. (The Go Zobrist keys come from an unseeded RNG, so
       hashes are compared by property, e.g. incremental = from scratch.)
       Check: identical values (not PVs; ties can differ) on the endgame
       test suite.
@@ -156,6 +158,8 @@ as they land.
       postMessage adapter, a demo page. Needs COOP/COEP headers on Woogles.
 - [ ] **12. Go side switch-over.** Shell setting `engine zig|go`; the Go
       engine stays available until the Zig core has covered a release.
+      Challenge rules (single, double, void, five-point) come here, with
+      games played through the interface.
 - [ ] **13. ML.** Feature extraction, `Evaluator` interface, `ort` and
       `remote` backends.
 

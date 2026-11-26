@@ -13,6 +13,7 @@ const Position = @import("position.zig").Position;
 const movegen = @import("movegen.zig");
 const Move = @import("move.zig").Move;
 const equity = @import("equity.zig");
+const game_mod = @import("game.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -73,6 +74,8 @@ pub const Engine = struct {
             try self.setPosition(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "load")) {
             try self.load(tokens.rest(), out);
+        } else if (std.mem.eql(u8, cmd, "autoplay")) {
+            try self.autoplay(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "go")) {
             try self.go(tokens.rest(), out);
         } else if (std.mem.eql(u8, cmd, "gen")) {
@@ -174,6 +177,54 @@ pub const Engine = struct {
                 return out.writeAll("error bad-load\n");
             }
         }
+    }
+
+    /// `autoplay games <n> seed <master> [pairs] [moves]`: plays n games
+    /// between static players (HastyBot) on the position's layout and
+    /// lexicon, game i seeded with automatic.DeriveSeed(master, i) as the
+    /// Go engine's autoplay seeds it (with `pairs`, pair i's two games
+    /// share that seed in paired-bag mode). Writes `game <i> score <a> <b>
+    /// turns <t>` per game (with `moves`, each move first as `move <i>
+    /// <move> score <s> equity <e>`), then `autoplayok games <n>`.
+    fn autoplay(self: *Engine, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const p = &(self.position orelse return out.writeAll("error no-position\n"));
+        var games: u64 = 1;
+        var master: u64 = 1;
+        var pairs = false;
+        var show_moves = false;
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            if (std.mem.eql(u8, key, "pairs")) {
+                pairs = true;
+            } else if (std.mem.eql(u8, key, "moves")) {
+                show_moves = true;
+            } else if (std.mem.eql(u8, key, "games") or std.mem.eql(u8, key, "seed")) {
+                const v = tokens.next() orelse return out.writeAll("error bad-autoplay\n");
+                const n = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-autoplay\n");
+                if (key[0] == 'g') games = n else master = n;
+            } else return out.print("error bad-autoplay {s}\n", .{key});
+        }
+
+        const gen = try self.gpa.create(movegen.Generator);
+        defer self.gpa.destroy(gen);
+        gen.* = .init(self.gpa, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        gen.word_map = p.word_map;
+        for (0..games) |gi| {
+            const seed = game_mod.deriveSeed(master, if (pairs) gi / 2 else gi);
+            var g: game_mod.Game = .start(p, seed, pairs);
+            gen.board = &g.pos.board;
+            while (g.playing) {
+                const best = try game_mod.playStaticTurn(&g, gen);
+                if (show_moves) {
+                    try out.print("move {d} ", .{gi});
+                    try best.move.format(p.dist, out);
+                    try out.print(" score {d} equity {d}\n", .{ best.move.score, best.equity });
+                }
+            }
+            try out.print("game {d} score {d} {d} turns {d}\n", .{ gi, g.pos.scores[0], g.pos.scores[1], g.turn });
+        }
+        try out.print("autoplayok games {d}\n", .{games});
     }
 
     /// `go static`: the best move by static equity. Writes

@@ -121,8 +121,19 @@ Used by the cross-check harness; engines may omit them.
 < crosssetsok
 > leave AEST             leave value of the tiles, from the lexicon's leave file
 < leave 18.48235
-> autoplay games 100 seed 42
+> autoplay games 100 seed 42 [pairs] [moves]
+< move 0 8D.QUIZ score 84 equity 102.5
+< game 0 score 412 388 turns 24
+< autoplayok games 100
 ```
+
+`autoplay` plays games between static players (best move by static
+equity) on the position's board layout and lexicon. Game i is seeded with
+SHA-256 of the master seed and i, both as big-endian u64s, which is how
+Macondo's autoplay seeds its games, so the same command plays the same
+games in both engines; with `pairs`, games 2i and 2i+1 share pair i's seed
+and draw from a paired bag (each seat from its own end). `moves` lists each
+move before the game's result.
 
 `gen` lists the moves best first by static equity (a pass, listed only
 when there is no tile play, gets equity -50); an engine without an
