@@ -104,6 +104,7 @@ func TestPositionCrossCheck(t *testing.T) {
 				cgpStr := randomTilesCGP(t, cfg, bc, uint64(i))
 				comparePosition(t, e, cfg, cgpStr)
 				compareMoves(t, e, cfg, cgpStr)
+				compareRawOrder(t, e, cfg, cgpStr)
 				compareBest(t, e, cfg, cgpStr)
 				positions++
 				if t.Failed() {
@@ -290,6 +291,40 @@ func compareMoves(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
 	}
 }
 
+// compareRawOrder compares the order the two engines' move generators make
+// the tile plays in, unsorted. Searches that keep the first of equal moves
+// (the endgame's move ordering and bounds) depend on it.
+func compareRawOrder(t *testing.T, e *Engine, cfg *config.Config, cgpStr string) {
+	t.Helper()
+	g := parseCGP(t, cfg, cgpStr)
+	gd, err := kwg.GetKWG(cfg.WGLConfig(), g.LexiconName(), kwg.WithDistribution(g.Rules().LetterDistributionName()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Rules().LetterDistribution())
+	gen.SetSortingParameter(movegen.SortByNone)
+	var want []string
+	for _, m := range gen.GenAll(g.RackFor(g.PlayerOnTurn()), false) {
+		if m.Action() == move.MoveTypePlay {
+			want = append(want, fmt.Sprintf("move %s score %d", ucgiMove(m, g.Alphabet()), m.Score()))
+		}
+	}
+	lines, err := e.Command("gen raw", "genok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := lines[:len(lines)-1]
+	for i := range min(len(want), len(got)) {
+		if want[i] != got[i] {
+			t.Errorf("position %s: play %d is %s in Go, %s in Zig", cgpStr, i, want[i], got[i])
+			return
+		}
+	}
+	if len(want) != len(got) {
+		t.Errorf("position %s: %d plays in Go, %d in Zig", cgpStr, len(want), len(got))
+	}
+}
+
 // compareBest asks both engines for the best move by static equity, the
 // way the Go engine finds it in sims and autoplay: GenBestStaticTurn, with
 // shadow pruning and the top-play recorder.
@@ -395,6 +430,7 @@ func crossCheckGame(t *testing.T, e *Engine, cfg *config.Config, dataPath string
 		}
 		comparePosition(t, e, cfg, cgpStr)
 		compareMoves(t, e, cfg, cgpStr)
+		compareRawOrder(t, e, cfg, cgpStr)
 		compareBest(t, e, cfg, cgpStr)
 		compareLeaves(t, e, staticPlayer(t, cfg, parseCGP(t, cfg, cgpStr)), g.RackFor(g.PlayerOnTurn()), rules.LetterDistribution().TileMapping(), rng)
 		positions++
