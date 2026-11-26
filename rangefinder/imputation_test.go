@@ -913,3 +913,37 @@ func TestValueTermByLeaveLength(t *testing.T) {
 		t.Fatalf("pinned on must win: %v", got)
 	}
 }
+
+// The value fit must give the same slope every time for the same leaves: it
+// sums over the measured leaves in floating point, and once summed in map
+// order (which Go randomizes) the same position could read differently from
+// one run to the next.
+func TestValueTermIsDeterministic(t *testing.T) {
+	value := func(runs []tileRun) float64 {
+		v := 0.0
+		for _, r := range runs {
+			v += math.Sin(float64(r.t)*1.7) * float64(r.c)
+		}
+		return v
+	}
+	measured := map[string]*measuredLeave{}
+	for a := 0; a < 8; a++ {
+		for b := a; b < 8; b++ {
+			for c := b; c < 8; c++ {
+				l := mls(a, b, c)
+				w := math.Exp(0.3*value(runsOf(l, nil)) + math.Cos(float64(a*b+c)))
+				measured[leaveKey(l)] = &measuredLeave{sumW: w, count: 1, sumU: 1 + float64(c)/7}
+			}
+		}
+	}
+	var first imputationModel
+	fitValueTerm(&first, measured, value, true, -1, 0)
+	for i := 0; i < 50; i++ {
+		var mod imputationModel
+		fitValueTerm(&mod, measured, value, true, -1, 0)
+		if math.Float64bits(mod.beta) != math.Float64bits(first.beta) ||
+			math.Float64bits(mod.vbar) != math.Float64bits(first.vbar) {
+			t.Fatalf("fit %d: beta %v vbar %v, first beta %v vbar %v", i, mod.beta, mod.vbar, first.beta, first.vbar)
+		}
+	}
+}
