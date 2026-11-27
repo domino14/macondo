@@ -519,6 +519,7 @@ pub const Engine = struct {
     }
 
     /// `go endgame plies <n> [firstwin] [alldepths] [noid] [noheur] [nolists]
+    /// [noforcedpass] [nosureout] [noprecisepure]
     /// [magpieorder|goorder] [goplayout] [gooutreply] [nofirstreply] [nopruned] [noaspiration] [nooutreply] [nokeepone]
     /// [noshortcuts] [checklists]`:
     /// solves the
@@ -539,6 +540,12 @@ pub const Engine = struct {
                 plies = std.fmt.parseInt(u32, v, 10) catch return out.writeAll("error bad-endgame\n");
             } else if (std.mem.eql(u8, key, "firstwin")) {
                 opts.first_win = true;
+            } else if (std.mem.eql(u8, key, "noforcedpass")) {
+                opts.forced_pass = false;
+            } else if (std.mem.eql(u8, key, "noprecisepure")) {
+                opts.precise_pure = false;
+            } else if (std.mem.eql(u8, key, "nosureout")) {
+                opts.sure_out = false;
             } else if (std.mem.eql(u8, key, "alldepths")) {
                 opts.every_depth = true;
             } else if (std.mem.eql(u8, key, "noid")) {

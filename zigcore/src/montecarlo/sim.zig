@@ -986,10 +986,14 @@ pub const Worker = struct {
         const final = if (self.leaf_results.get(key)) |v| v else blk: {
             if (self.leaf_workspace == null) self.leaf_workspace = .init(sim.gpa);
             // Go's quick result-only search: its playouts' picks, no pruned
-            // word graph (a 2-ply search costs less than making one), and
-            // only the value.
+            // word graph (a 2-ply search costs less than making one), only
+            // the value, and a pass taking a ply and no sure bounds, as in
+            // Go's search.
             const solver = endgame.Solver.initIn(sim.gpa, &pos, lv.zobrist, lv.tt, .{
                 .first_win = true,
+                .forced_pass = false,
+                .sure_out = false,
+                .precise_pure = false,
                 .clear_tt = false,
                 .pruned_kwg = false,
                 .playout_out_bonus = false,

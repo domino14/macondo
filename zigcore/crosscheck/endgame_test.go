@@ -175,16 +175,21 @@ type endgameVariant struct {
 	threads int
 }
 
+// goGame turns off what Go's solver lacks: the forced-pass bypass, which
+// changes the values of searches short of the end of the game, and the
+// sure bounds that let the Zig engine prove a value, and so stop, sooner.
+const goGame = "noforcedpass nosureout noprecisepure "
+
 var endgameVariants = []endgameVariant{
-	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply nofirstreply nocap", true, false, 0},
-	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply nolazyorder nocap", true, false, 0},
+	{"go-ordering", func(*negamax.Solver) {}, goGame + "goorder noaspiration goplayout gooutreply nofirstreply nocap", true, false, 0},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, goGame + "magpieorder noaspiration goplayout gooutreply nofirstreply nolazyorder nocap", true, false, 0},
 	// The engine's defaults but the playout's pick, which changes the
 	// values of searches that stop short of the end of the game.
-	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false, false, 0},
+	{"zig-defaults", func(*negamax.Solver) {}, goGame + "goplayout", false, false, 0},
 	{"zig-defaults-selfcheck", nil, "checklists", false, true, 0},
 	// The parallel searches, which must find the values one thread does.
-	{"zig-defaults-pvsplit", func(*negamax.Solver) {}, "goplayout pvsplit", false, false, 4},
-	{"zig-defaults-abdada", func(*negamax.Solver) {}, "goplayout abdada", false, false, 4},
+	{"zig-defaults-pvsplit", func(*negamax.Solver) {}, goGame + "goplayout pvsplit", false, false, 4},
+	{"zig-defaults-abdada", func(*negamax.Solver) {}, goGame + "goplayout abdada", false, false, 4},
 }
 
 func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int, v endgameVariant) {

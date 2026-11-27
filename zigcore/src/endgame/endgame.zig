@@ -211,6 +211,20 @@ pub const Options = struct {
     /// Deepen one ply at a time (else two at a time after the first,
     /// ending on the depth asked for).
     every_depth: bool = false,
+    /// MAGPIE's forced-pass bypass: a player whose only move is a pass
+    /// (after a scoring turn) passes without the pass taking a ply. It
+    /// changes the values of searches that stop short of the end of the
+    /// game (Go's solver spends a ply on the pass).
+    forced_pass: bool = true,
+    /// A leaf whose playout goes out with its first move ends the game
+    /// there, so its value is a sure lower bound for the player on turn:
+    /// one at or above beta is a proven cutoff, which does not keep the
+    /// value from being exact.
+    sure_out: bool = true,
+    /// A cutoff's value rests on the move that cut off alone: the guesses
+    /// of the moves searched before it don't keep the node's value from
+    /// being exact.
+    precise_pure: bool = true,
     /// Search the window (-1, 1) only: whether the solving player wins.
     first_win: bool = false,
     /// The transposition table's size in bytes (rounded down to a power
@@ -934,6 +948,8 @@ pub const Solver = struct {
     helpers: []*Solver = &.{},
     /// Set when this solver's search of a depth ends, for its helpers.
     helpers_halt: std.atomic.Value(bool) = .init(false),
+    /// Whether the last greedy playout went out with its first move.
+    playout_out_first: bool = false,
     /// A helper's: its solver's helpers_halt; in an ABDADA solve the
     /// solver's own too.
     halt: ?*const std.atomic.Value(bool) = null,
@@ -1642,6 +1658,7 @@ pub const Solver = struct {
     fn greedyPlayout(self: *Solver, pv: *Line, node_key: u64) Allocator.Error!i16 {
         const leaf_player = self.on_turn;
         const budget = @min(if (self.cappedLeaves()) @as(usize, 1) else max_playout, self.stackRemaining());
+        self.playout_out_first = false;
         if (budget == 0) {
             pv.clear();
             return @intCast(self.spreadFor(leaf_player));
@@ -1738,6 +1755,7 @@ pub const Solver = struct {
             on_board += 1;
         }
         pv.setPlayout(moves[0..played]);
+        self.playout_out_first = went_out and played == 1;
         var spread = self.spreadFor(leaf_player) + out_gain;
         if (!went_out and self.playing) {
             spread -= 2 * self.racks[leaf_player].scoreOn(self.dist);
@@ -1856,10 +1874,12 @@ pub const Solver = struct {
             }
         }
 
+        const impure_after_tt = self.impure;
         if (depth == 0 or !self.playing) {
-            if (self.playing) self.impure += 1;
             if (self.opts.heuristics and self.playing) {
                 const val = try self.greedyPlayout(pv, node_key);
+                // An estimate, unless it is a sure bound that cuts off.
+                if (!(self.opts.sure_out and self.playout_out_first and val >= beta_in)) self.impure += 1;
                 if (node_key != 0) {
                     const leaf_key = self.leafKey(node_key);
                     const existing = self.tt.lookup(leaf_key);
@@ -1870,6 +1890,7 @@ pub const Solver = struct {
                 self.reach = 0;
                 return val;
             }
+            if (self.playing) self.impure += 1;
             pv.clear();
             self.reach = 0;
             return @intCast(self.spreadFor(self.on_turn));
@@ -1926,6 +1947,18 @@ pub const Solver = struct {
             try self.assignEstimates(children, depth, tt_move, node_key, false);
             break :blk children.len;
         };
+        if (self.opts.forced_pass and !at_root and num_children == 1 and self.scoreless == 0 and
+            self.arena.items[arena_mark].isPass() and self.stackRemaining() > @as(usize, @intCast(depth)) + 2)
+        {
+            // A forced pass: played without taking a ply.
+            const m = self.arena.items[arena_mark];
+            const value = try self.searchChild(m, node_key, depth + 1, alpha, beta, true, pv_node, &child_pv, false);
+            max_reach = @max(max_reach, self.reach + 1);
+            best_value = -value;
+            best_move = m;
+            pv.update(m, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+            return self.storeNode(node_key, depth, best_value, alpha_orig, beta, our_spread, best_move, impure_at_entry, max_reach);
+        }
         const stm_tiles = self.racks[on].num_tiles;
         const out_bonus = 2 * self.racks[1 - on].scoreOn(self.dist);
         const keep_one_active = self.opts.keep_one and depth >= 2 and !at_root and stm_tiles >= 2;
@@ -1984,6 +2017,7 @@ pub const Solver = struct {
                 }
             }
             var value: i16 = undefined;
+            const impure_before_child = self.impure;
             if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
                 value = v;
                 self.nodes += 1;
@@ -1996,7 +2030,10 @@ pub const Solver = struct {
                 }
                 if (at_root) self.root_moves[idx].est = -value;
                 alpha = @max(alpha, best_value);
-                if (best_value >= beta) break;
+                if (best_value >= beta) {
+                    if (self.opts.precise_pure) self.impure = impure_after_tt + (self.impure - impure_before_child);
+                    break;
+                }
                 child_pv.clear();
                 continue;
             }
@@ -2025,7 +2062,10 @@ pub const Solver = struct {
             }
             if (at_root) self.root_moves[idx].est = -value;
             alpha = @max(alpha, best_value);
-            if (best_value >= beta) break;
+            if (best_value >= beta) {
+                if (self.opts.precise_pure) self.impure = impure_after_tt + (self.impure - impure_before_child);
+                break;
+            }
             child_pv.clear();
         }
         // The moves put off, now searched (ABDADA's second pass).
@@ -2034,6 +2074,7 @@ pub const Solver = struct {
             const idx = self.deferred.items[d];
             const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
             child_pv.clear();
+            const impure_before_child = self.impure;
             const value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, false);
             max_reach = @max(max_reach, self.reach + 1);
             if (-value > best_value) {
@@ -2043,6 +2084,7 @@ pub const Solver = struct {
             }
             if (at_root) self.root_moves[idx].est = -value;
             alpha = @max(alpha, best_value);
+            if (best_value >= beta and self.opts.precise_pure) self.impure = impure_after_tt + (self.impure - impure_before_child);
         }
 
         return self.storeNode(node_key, depth, best_value, alpha_orig, beta, our_spread, best_move, impure_at_entry, max_reach);
@@ -2756,10 +2798,11 @@ test "a value is exact only once no line behind it stops short of the game's end
     // position after its best move, 3D V(I)OL, the opponent to move. The
     // best line, 3D V(I)OL 15C AAS 10B YO 13A (D)UI (+21), ends the game
     // within 4 plies, but the lines that rule out the other moves take
-    // longer: the value is proven at depth 12 (one ply at a time), and at
-    // depth 5 after V(I)OL. Without playouts, the depth-4 search is the
-    // article's wrong +18. On several threads, each case is solved
-    // test_repeats times (zig build test -Dtest-repeats=100).
+    // longer: the value is proven at depth 11, and at depth 5 after
+    // V(I)OL (at 13 without the sure bounds and the forced-pass bypass).
+    // Without playouts, the depth-4 search is the article's wrong +18. On
+    // several threads, each case is solved test_repeats times (zig build
+    // test -Dtest-repeats=100).
     const repeats = @import("build_options").test_repeats;
     const testdata = @import("../testing/testdata.zig");
     var store = testdata.store();
@@ -2800,8 +2843,11 @@ test "a value is exact only once no line behind it stops short of the game's end
         .{ .pos = &after, .plies = 4, .value = -1, .exact = false, .depths = &.{ 1, 2, 4 } },
         .{ .pos = &start, .plies = 4, .value = 21, .exact = false, .depths = &.{ 1, 2, 4 } },
         .{ .pos = &start, .plies = 4, .opts = .{ .heuristics = false }, .value = 18, .exact = false, .depths = &.{ 1, 2, 4 } },
-        // Proven by the depth-13 search.
-        .{ .pos = &start, .plies = max_variant, .value = 21, .exact = true, .depths = &.{ 1, 3, 5, 7, 9, 11, max_variant } },
+        // Proven by the depth-11 search.
+        .{ .pos = &start, .plies = max_variant, .value = 21, .exact = true, .depths = &.{ 1, 3, 5, 7, 9, max_variant } },
+        // Without the sure bounds and the forced-pass bypass, by the
+        // depth-13 search.
+        .{ .pos = &start, .plies = max_variant, .opts = .{ .forced_pass = false, .sure_out = false, .precise_pure = false }, .value = 21, .exact = true, .depths = &.{ 1, 3, 5, 7, 9, 11, max_variant } },
     };
     for (cases) |c| {
         var seen: Seen = .{};
@@ -2835,6 +2881,45 @@ test "a value is exact only once no line behind it stops short of the game's end
             }
         }
     }
+}
+
+test "a value proven with the sure bounds is the full solve's" {
+    // Searches of every depth to 6 that come out exact must have the value
+    // of the solve to the end of the game without the sure bounds and the
+    // forced-pass bypass, which takes no shortcuts to a proof.
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "CATENOID7/O14/IT1S11/FERN11/1GOY2Q3V4/1UTE1BI1TEIID2/1LI2U1WAWL4/TA1VERSO2LAZAR/AR3R4O4/X3BY1AMUSE3/I3A1PRETENDS1/N1FUCK9/GEE1HOG8/1N3HI8/1D1JuLEP7 AIMOO/?EN 354/408 0 lex NWL23;",
+        "1OAK3D7/OHIA3U7/M6C7/I5LI7/C3JEU8/RHINO1V4P3/O1NUB1V4R3/N4OYEZ1TE3/5B1FA1AS3/ALTERERS2XI1W1/5Y4AD1I1/3UnSWEAR1I1P1/1QAT4GEMOTE1/FILED8R1/EST1EaNLING4 ADGT/ENOO 358/440 0 lex NWL23;",
+        "3SECONDO1C1FA/5I3WARNER/5L4BEAD1/3MOI3N1T3/3AHA3AHI3/V2US4GIN3/A2Z2ROB1L4/U2YOKED2LAMIA/L1Q1WIFEY5N/TOUTER2E5O/1PEED3G5i/JEST4G5N/E1O11t/U1SPIV8E/X13R IIT/RT 437/391 0 lex NWL23;",
+        standard_cgp,
+    };
+    var exact_seen: usize = 0;
+    for (cgps) |text| {
+        const p = try testdata.position(&store, text);
+        var z = try zobrist_mod.Zobrist.init(testing.allocator, p.board.dim, @splat(1));
+        defer z.deinit(testing.allocator);
+        var tt: ttable.Table = .{};
+        defer tt.deinit(testing.allocator);
+        const full = blk: {
+            const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 1 << 20, .forced_pass = false, .sure_out = false, .precise_pure = false });
+            defer s.deinit();
+            const r = try s.solve(max_variant, null, null);
+            try testing.expect(r.exact);
+            break :blk r.value;
+        };
+        for (1..7) |plies| {
+            const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 1 << 20, .every_depth = true });
+            defer s.deinit();
+            const r = try s.solve(@intCast(plies), null, null);
+            if (!r.exact) continue;
+            exact_seen += 1;
+            try testing.expectEqual(full, r.value);
+        }
+    }
+    try testing.expect(exact_seen > 0);
 }
 
 test "the speed options leave endgame values as they were" {

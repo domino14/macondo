@@ -4,7 +4,8 @@
 # one thread each, and compares the value of every position, then the time.
 #
 # MAGPIE runs its own benchmark (egspeedbench in its test binary) with its
-# forced-pass bypass off, so that a pass uses a ply as it does here. The
+# forced-pass bypass off, and the Zig engine without its own, so that a
+# pass uses a ply in both (MAGPIE's bypass also changes its playouts). The
 # engines then search the same game: the leaf playouts pick plays the same
 # way (score, plus twice the opponent's rack for going out), and a solve
 # that reaches the end of every line must agree. At a depth short of that,
@@ -29,7 +30,7 @@ n=$(wc -l < "$positions")
 
 (cd "$magpie" && ./bin/magpie_test "egspeedbench:cgp=$work/magpie.txt,lex=$lexicon,plies=$plies,threads=1,max=$n,bypass=0") > "$work/magpie.out"
 (cd "$here/.." && zig build -Doptimize=ReleaseFast > /dev/null &&
-  BENCH_MODE=endgame BENCH_ROWS=1 ./zig-out/bin/macondo-zig-bench "$positions" "$plies" ../data) > "$work/zig.out"
+  BENCH_MODE=endgame BENCH_ROWS=1 BENCH_NO_FORCED_PASS=1 ./zig-out/bin/macondo-zig-bench "$positions" "$plies" ../data) > "$work/zig.out"
 
 python3 - "$work/magpie.out" "$work/zig.out" <<'PY'
 import sys

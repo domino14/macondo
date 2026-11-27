@@ -232,7 +232,15 @@ ply at a time.)
 A value is exact when no line behind it stopped short of the game's end
 (at a position valued by the greedy playout, or at a table entry that
 depended on one): no deeper search can change it. The search then stops
-there, and reports the value at the depth asked for.
+there, and reports the value at the depth asked for. Two kinds of guess
+don't count against it: a playout whose first move goes out ends the game
+there, so its value is a sure minimum for the player who moves, and proves
+a cutoff it reaches; and at a cutoff, the moves searched before the one
+that cut off no longer matter. A player whose only move is a pass, after a
+scoring turn, passes without the pass taking a ply (MAGPIE's forced-pass
+bypass), which changes the values of searches that stop short of the end
+of the game. `nosureout`, `noprecisepure` and `noforcedpass` turn these
+off.
 
 Two scoreless turns in a row end the game in the search, as in Macondo's
 endgame mode. `firstwin` searches only whether the player on turn wins
