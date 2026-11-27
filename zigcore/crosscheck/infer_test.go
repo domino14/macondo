@@ -46,6 +46,7 @@ type inferCase struct {
 // the move, with the move in the CGP's lm. The posteriors must be the same
 // leaves in the same order with the same weights.
 func TestInferCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	// An inference is up to a few hundred mini-sims.
 	e.Timeout = 5 * time.Minute
@@ -68,6 +69,7 @@ func TestInferCrossCheck(t *testing.T) {
 			continue
 		}
 		t.Run(bc.lexicon+"-"+bc.layout, func(t *testing.T) {
+			skipLargeBoardInShort(t, bc)
 			if _, err := os.Stat(filepath.Join(dataPath, "lexica", "gaddag", bc.lexicon+".kwg")); err != nil {
 				t.Skipf("no %s word graph", bc.lexicon)
 			}
@@ -317,6 +319,7 @@ func inferCasesFrom(t *testing.T, cfg *config.Config, bc boardCase, seed [32]byt
 // (best-arm, bag cycling asked for but off with a posterior), and plainly
 // for a fixed number of iterations, in both engines.
 func TestInferSimCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	e.Timeout = 5 * time.Minute
 	cfg := config.DefaultConfig()
@@ -334,6 +337,7 @@ func TestInferSimCrossCheck(t *testing.T) {
 			continue
 		}
 		t.Run(bc.lexicon+"-"+bc.layout, func(t *testing.T) {
+			skipLargeBoardInShort(t, bc)
 			if _, err := os.Stat(filepath.Join(dataPath, "lexica", "gaddag", bc.lexicon+".kwg")); err != nil {
 				t.Skipf("no %s word graph", bc.lexicon)
 			}

@@ -25,6 +25,7 @@ var autoplayGames = flag.Int("crosscheck.autoplay", 10, "seeded games per case i
 // tiles, and the same bots must make the same plays, to the end. Pairs mode
 // plays them from a paired bag (each seat drawing from its own end).
 func TestAutoplayCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	cfg := config.DefaultConfig()
 	dataPath := cfg.GetString(config.ConfigDataPath)

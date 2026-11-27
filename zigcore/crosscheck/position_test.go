@@ -36,6 +36,17 @@ type boardCase struct {
 	peg bool
 }
 
+// skipLargeBoardInShort skips the SuperCrosswordGame cases of the searches
+// in -short mode (CI's): on its board Go's sims and inferences take as long
+// as all the other cases together, and the position, paths, endgame and
+// autoplay cross-checks still cover it there.
+func skipLargeBoardInShort(t *testing.T, bc boardCase) {
+	t.Helper()
+	if testing.Short() && bc.layout == board.SuperCrosswordGameLayout {
+		t.Skip("SuperCrosswordGame searches skipped in -short mode")
+	}
+}
+
 var boardCases = []boardCase{
 	{lexicon: "NWL20", dist: "english", layout: board.CrosswordGameLayout},
 	// The Zig engine plays NWL23 with its rack info table where
@@ -59,6 +70,7 @@ var boardCases = []boardCase{
 // moves with the same scores, and the same leave values for random leaves.
 // It does the same on boards of random tiles with random racks.
 func TestPositionCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	cfg := config.DefaultConfig()
 	dataPath := cfg.GetString(config.ConfigDataPath)

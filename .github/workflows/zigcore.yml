@@ -69,6 +69,14 @@ jobs:
       - name: Cross-check against the Go engine
         env:
           MACONDO_ZIG_ENGINE: ${{ github.workspace }}/zigcore/zig-out/bin/macondo-zig
-        # Longer than go test's default 10 minutes: the sims, endgames and
-        # inferences take most of half an hour on a runner.
-        run: go test -count=1 -v -timeout 60m ./crosscheck/... -crosscheck.games 10
+        # A quick pass: a case or two per lexicon at shallow depths, the
+        # tests side by side, the SuperCrosswordGame sims and inferences
+        # left out (-short). The full cross-checks (their default sizes) are
+        # run locally when a step of zigcore/PLAN.md is checked off.
+        run: >-
+          go test -count=1 -v -short ./crosscheck/...
+          -crosscheck.games 2 -crosscheck.autoplay 3
+          -crosscheck.pathgames 1 -crosscheck.takebacks 1
+          -crosscheck.endgames 2 -crosscheck.endgameplies 2
+          -crosscheck.infers 1 -crosscheck.inferbudget 10
+          -crosscheck.sims 1 -crosscheck.simiters 20

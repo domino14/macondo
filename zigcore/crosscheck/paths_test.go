@@ -42,6 +42,7 @@ var (
 // The games are random-ish (half the moves the top scorer, half any play),
 // and random-tile boards add shapes and phonies no game reaches.
 func TestBoardPathsCrossCheck(t *testing.T) {
+	t.Parallel()
 	inc := startEngine(t)
 	fresh := startEngine(t)
 	cfg := config.DefaultConfig()

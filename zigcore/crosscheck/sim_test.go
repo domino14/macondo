@@ -74,6 +74,7 @@ type simResult struct {
 // Positions with two tiles or fewer in the bag are simmed with endgame
 // leaves: the rollouts' endgames are searched, and must be judged alike.
 func TestSimCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	cfg := config.DefaultConfig()
 	dataPath := cfg.GetString(config.ConfigDataPath)
@@ -89,6 +90,7 @@ func TestSimCrossCheck(t *testing.T) {
 			continue
 		}
 		t.Run(bc.lexicon+"-"+bc.layout, func(t *testing.T) {
+			skipLargeBoardInShort(t, bc)
 			if _, err := os.Stat(filepath.Join(dataPath, "lexica", "gaddag", bc.lexicon+".kwg")); err != nil {
 				t.Skipf("no %s word graph", bc.lexicon)
 			}

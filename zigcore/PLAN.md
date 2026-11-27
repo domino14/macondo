@@ -248,8 +248,16 @@ as they land.
   `testdata`.
 - **Cross-check harness** (Go, in `zigcore/crosscheck`): generates random
   positions with the Go engine, sends them to the Zig binary over UCGI and
-  compares results. Runs in CI on a fixed number of positions and can be run
-  longer locally.
+  compares results. CI runs a quick pass (a case or two per lexicon, in
+  `-short` mode, a few minutes); the full cross-checks run locally when a
+  step is checked off. The harness is scaffolding for the port: the Go
+  engine is to be retired.
+- **Golden files:** once a module's port matches Go, its Go results on a
+  fixed set of inputs can be written once into golden files (a generator
+  in the harness, the files committed with a README) that `zig build test`
+  checks without Go. Modules ported from here on (the pre-endgame first)
+  start that way, and the live cross-checks move to golden files over
+  time, so that retiring the Go engine leaves the tests in place.
 - **Every way to reach a board:** a board the engine reaches without
   loading it (moves played on with incremental cross-set updates, a move
   played and taken back, a position loaded with its last move and taken

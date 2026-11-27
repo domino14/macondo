@@ -35,6 +35,7 @@ var (
 // and compares the value, the depth reached, the number of positions
 // searched and the best move.
 func TestEndgameCrossCheck(t *testing.T) {
+	t.Parallel()
 	e := startEngine(t)
 	e.Timeout = 5 * time.Minute
 	cfg := config.DefaultConfig()
