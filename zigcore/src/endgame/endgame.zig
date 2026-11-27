@@ -1829,7 +1829,14 @@ pub const Solver = struct {
                 self.gen.kwg = self.kwg;
             }
         }
-        if (self.lists) |*l| l.reset(self.frames.items.len);
+        if (self.lists) |*l| {
+            l.reset(self.frames.items.len);
+            // Both sides' root lists, which the lists one move down derive
+            // from (MAGPIE seeds the opponent's): without the opponent's,
+            // each of its lists one move down is generated in full.
+            _ = try l.get(self.frames.items.len, self.on_turn);
+            if (self.racks[1 - self.on_turn].num_tiles >= 2) _ = try l.get(self.frames.items.len, 1 - self.on_turn);
+        }
         self.initial_spread = self.spreadFor(0);
         self.stack_len = plies + 2 + max_playout;
         self.nodes = 0;
