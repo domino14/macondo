@@ -8,7 +8,10 @@ pub fn build(b: *std.Build) void {
     const data_path = b.option([]const u8, "data-path", "Macondo data directory for tests (default ../data)") orelse "../data";
     const tsan = b.option(bool, "tsan", "Build with ThreadSanitizer (for `zig build test`: finds data races)") orelse false;
 
+    const test_repeats = b.option(u32, "test-repeats", "Solves of each case in the tests that repeat a search (default 1), e.g. on several threads") orelse 1;
+
     const options = b.addOptions();
+    options.addOption(u32, "test_repeats", test_repeats);
     options.addOption([]const u8, "version", zon.version);
     options.addOption([]const u8, "data_path", data_path);
 

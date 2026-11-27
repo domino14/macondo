@@ -2751,18 +2751,22 @@ test "the parallel searches give the values one thread does" {
 }
 
 test "a value is exact only once no line behind it stops short of the game's end" {
-    // The opponent to move, after 3D V(I)OL in the endgame of "Why more
-    // plies sometimes reveal the true best move" (Woogles blog): from
-    // depth 3 its best line, 15C AAS 10B YO 13A (D)UI, ends the game, but
-    // other lines stop short of it until depth 5. Without playouts the
-    // first moves' depth-4 search is wrong (+18 for V(I)OL's side, where
-    // it is +21), and not exact.
+    // The endgame of the Woogles blog's "Why more plies sometimes reveal
+    // the true best move" (NWL23; the scores are made up), and the
+    // position after its best move, 3D V(I)OL, the opponent to move. The
+    // best line, 3D V(I)OL 15C AAS 10B YO 13A (D)UI (+21), ends the game
+    // within 4 plies, but the lines that rule out the other moves take
+    // longer: the value is proven at depth 12 (one ply at a time), and at
+    // depth 5 after V(I)OL. Without playouts, the depth-4 search is the
+    // article's wrong +18. On several threads, each case is solved
+    // test_repeats times (zig build test -Dtest-repeats=100).
+    const repeats = @import("build_options").test_repeats;
     const testdata = @import("../testing/testdata.zig");
     var store = testdata.store();
     defer store.deinit();
+    const start = try testdata.position(&store, "10ADDER/1BROWN3PROEM1/4I3MI2L2/3ANTIQUES1UN1/4T6AXe1/4L1G2J1NET1/3BEGET1E1T1S1/VICE2COLE1H1UP/6K4O1RE/5WOmANED1FA/HAFIZES4I2G/Y3I6A3/D3T10/R3I10/O14 LNOORVY/AAISU 400/310 0 lex NWL23;");
     const after = try testdata.position(&store, "10ADDER/1BROWN3PROEM1/3VIOL1MI2L2/3ANTIQUES1UN1/4T6AXe1/4L1G2J1NET1/3BEGET1E1T1S1/VICE2COLE1H1UP/6K4O1RE/5WOmANED1FA/HAFIZES4I2G/Y3I6A3/D3T10/R3I10/O14 AAISU/NORY 310/420 0 lex NWL23;");
-    const before = try testdata.position(&store, "10ADDER/1BROWN3PROEM1/4I3MI2L2/3ANTIQUES1UN1/4T6AXe1/4L1G2J1NET1/3BEGET1E1T1S1/VICE2COLE1H1UP/6K4O1RE/5WOmANED1FA/HAFIZES4I2G/Y3I6A3/D3T10/R3I10/O14 LNOORVY/AAISU 400/310 0 lex NWL23;");
-    var z = try zobrist_mod.Zobrist.init(testing.allocator, after.board.dim, @splat(1));
+    var z = try zobrist_mod.Zobrist.init(testing.allocator, start.board.dim, @splat(1));
     defer z.deinit(testing.allocator);
     var tt: ttable.Table = .{};
     defer tt.deinit(testing.allocator);
@@ -2779,39 +2783,50 @@ test "a value is exact only once no line behind it stops short of the game's end
             self.n += 1;
         }
     };
-    {
+    const Case = struct {
+        pos: *const position.Position,
+        plies: u32,
+        opts: Options = .{},
+        value: i16,
+        exact: bool,
+        /// The depths reported, on one thread.
+        depths: []const u32 = &.{},
+    };
+    const cases = [_]Case{
+        // One ply at a time: unproven to depth 4, proven at 5.
+        .{ .pos = &after, .plies = max_variant, .opts = .{ .every_depth = true }, .value = -1, .exact = true, .depths = &.{ 1, 2, 3, 4, max_variant } },
+        // Two at a time: proven by the depth-5 search.
+        .{ .pos = &after, .plies = max_variant, .value = -1, .exact = true, .depths = &.{ 1, 3, max_variant } },
+        .{ .pos = &after, .plies = 4, .value = -1, .exact = false, .depths = &.{ 1, 2, 4 } },
+        .{ .pos = &start, .plies = 4, .value = 21, .exact = false, .depths = &.{ 1, 2, 4 } },
+        .{ .pos = &start, .plies = 4, .opts = .{ .heuristics = false }, .value = 18, .exact = false, .depths = &.{ 1, 2, 4 } },
+        // Proven by the depth-13 search.
+        .{ .pos = &start, .plies = max_variant, .value = 21, .exact = true, .depths = &.{ 1, 3, 5, 7, 9, 11, max_variant } },
+    };
+    for (cases) |c| {
         var seen: Seen = .{};
-        const s = try Solver.init(testing.allocator, &after, &z, &tt, .{ .tt_bytes = 1 << 20, .every_depth = true });
+        var opts = c.opts;
+        opts.tt_bytes = 1 << 20;
+        const s = try Solver.init(testing.allocator, c.pos, &z, &tt, opts);
         defer s.deinit();
-        const r = try s.solve(max_variant, Seen.add, &seen);
-        try testing.expectEqual(@as(i16, -1), r.value);
-        try testing.expect(r.exact);
-        try testing.expectEqual(@as(u32, max_variant), r.depth);
-        // Depths 1 to 4, one at a time, none exact; then the proven value.
-        try testing.expectEqualSlices(u32, &.{ 1, 2, 3, 4, max_variant }, seen.depths[0..seen.n]);
-        try testing.expectEqualSlices(bool, &.{ false, false, false, false, true }, seen.exact[0..seen.n]);
+        const r = try s.solve(c.plies, Seen.add, &seen);
+        try testing.expectEqual(c.value, r.value);
+        try testing.expectEqual(c.exact, r.exact);
+        try testing.expectEqualSlices(u32, c.depths, seen.depths[0..seen.n]);
+        // Only the last can be exact.
+        for (seen.exact[0 .. seen.n - 1]) |e| try testing.expect(!e);
     }
-    {
-        var seen: Seen = .{};
-        const s = try Solver.init(testing.allocator, &before, &z, &tt, .{ .tt_bytes = 1 << 20, .every_depth = true, .heuristics = false });
-        defer s.deinit();
-        const r = try s.solve(5, Seen.add, &seen);
-        try testing.expectEqualSlices(u32, &.{ 1, 2, 3, 4, 5 }, seen.depths[0..seen.n]);
-        try testing.expectEqual(@as(i16, 18), seen.values[3]);
-        try testing.expect(!seen.exact[3]);
-        try testing.expectEqual(@as(i16, 21), r.value);
-    }
-    // On several threads, solve after solve: never exact at 4 plies (where
-    // the first position's best line already ends the game), always exact
-    // when asked for 25.
+    // On several threads the same values and flags (where a search stops
+    // can differ: a thread can prove the value from the table entries the
+    // others proved).
     for ([_]Parallel{ .pv_split, .abdada }) |parallel| {
-        for (0..20) |_| {
-            for ([_]struct { pos: *const position.Position, plies: u32, value: i16, exact: bool }{
-                .{ .pos = &after, .plies = 4, .value = -1, .exact = false },
-                .{ .pos = &after, .plies = max_variant, .value = -1, .exact = true },
-                .{ .pos = &before, .plies = 4, .value = 21, .exact = false },
-            }) |c| {
-                const s = try Solver.init(testing.allocator, c.pos, &z, &tt, .{ .tt_bytes = 1 << 20, .threads = 3, .parallel = parallel });
+        for (cases) |c| {
+            for (0..repeats) |_| {
+                var opts = c.opts;
+                opts.tt_bytes = 1 << 20;
+                opts.threads = 3;
+                opts.parallel = parallel;
+                const s = try Solver.init(testing.allocator, c.pos, &z, &tt, opts);
                 defer s.deinit();
                 s.io = testing.io;
                 const r = try s.solve(c.plies, null, null);
