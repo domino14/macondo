@@ -51,3 +51,5 @@ FRA20.klv2
 RD29.klv2
 FILE2017.klv2
 super-NWL23.klv2
+# The Zig cross-check plays SuperCrosswordGame games in CSW24.
+super-CSW24.klv2
