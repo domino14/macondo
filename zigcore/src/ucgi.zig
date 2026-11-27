@@ -531,6 +531,8 @@ pub const Engine = struct {
                 opts.first_reply = false;
             } else if (std.mem.eql(u8, key, "nosibling")) {
                 opts.sibling = false;
+            } else if (std.mem.eql(u8, key, "nolazyorder")) {
+                opts.lazy_order = false;
             } else if (std.mem.eql(u8, key, "gooutreply")) {
                 opts.go_out_reply = true;
             } else if (std.mem.eql(u8, key, "goplayout")) {

@@ -47,6 +47,9 @@ const early_pass_bf: i16 = 1 << 13;
 const hash_move_bf: i16 = 1 << 12;
 const going_out_bf: i16 = 1 << 11;
 const conservation_tile_weight = 7;
+/// The moves a node takes best first by selection before it sorts the
+/// rest (MAGPIE's LAZY_SELECTION_LIMIT).
+const lazy_selection_limit = 8;
 const conservation_value_weight = 2;
 /// Turns without a score that end the game in endgame mode.
 const max_scoreless = 2;
@@ -102,6 +105,34 @@ pub const SmallMove = struct {
         return .{ .tm = code, .score = @intCast(mv.score), .tiles_played = mv.tiles_played, .len = mv.len };
     }
 };
+
+fn estimateFirst(_: void, a: SmallMove, b: SmallMove) bool {
+    return a.est > b.est;
+}
+
+/// MAGPIE's lazy move ordering: puts `list`'s moves in place, best
+/// estimate first, through index `through`, the moves before `ordered.*`
+/// being in place already. The first lazy_selection_limit slots are each
+/// given the first of the best estimates left, swapped with the move it
+/// held; the slot after that sorts the rest stably. Returns whether the
+/// rest is sorted. Equal estimates keep MAGPIE's order, which the swaps
+/// make other than a stable sort's.
+fn orderThrough(list: []SmallMove, ordered: *usize, through: usize) bool {
+    while (ordered.* <= through) {
+        const slot = ordered.*;
+        ordered.* += 1;
+        if (slot >= lazy_selection_limit) {
+            std.sort.block(SmallMove, list[slot..], {}, estimateFirst);
+            return true;
+        }
+        var best = slot;
+        for (slot + 1..list.len) |i| {
+            if (list[i].est > list[best].est) best = i;
+        }
+        std.mem.swap(SmallMove, &list[slot], &list[best]);
+    }
+    return false;
+}
 
 /// A line of play, best first (PVLine).
 pub const Line = struct {
@@ -185,6 +216,12 @@ pub const Options = struct {
     /// of the lanes the last move left alone from the lists, shared by the
     /// last move's siblings, and search only the lanes it changed.
     sibling: bool = true,
+    /// With MAGPIE's ordering, take a node's first moves best first as the
+    /// search reaches them, and sort the rest (stably) only if it gets
+    /// past them, as MAGPIE does (most nodes cut off on their first move);
+    /// else sort the whole list at once, as Go does. Equal estimates fall
+    /// in other orders, so the positions searched differ; not the value.
+    lazy_order: bool = true,
     /// Search each depth after the first in a window around the last
     /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
     /// single-threaded search has none). The value is the same; the
@@ -866,8 +903,10 @@ pub const Solver = struct {
         return self.arena.items[start..];
     }
 
-    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64, node_key: u64) Allocator.Error!void {
-        if (self.opts.heuristics and self.opts.magpie_ordering) return self.assignEstimatesMagpie(moves, tt_move, node_key);
+    /// Values `moves` for the move ordering and sorts them, best first;
+    /// with MAGPIE's lazy ordering (see Options.lazy_order) unless `sort`.
+    fn assignEstimates(self: *Solver, moves: []SmallMove, depth: i32, tt_move: u64, node_key: u64, sort: bool) Allocator.Error!void {
+        if (self.opts.heuristics and self.opts.magpie_ordering) return self.assignEstimatesMagpie(moves, tt_move, node_key, sort or !self.opts.lazy_order);
         const on = self.on_turn;
         const num_tiles = self.racks[on].num_tiles;
         const last_was_pass = self.scoreless > self.last_scoreless;
@@ -889,7 +928,7 @@ pub const Solver = struct {
     const max_non_going_out_estimate: i32 = going_out_bf - 1;
 
     /// MAGPIE's move ordering, as Go's assignEstimatesHeuristic has it.
-    fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64, node_key: u64) Allocator.Error!void {
+    fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64, node_key: u64, sort: bool) Allocator.Error!void {
         const on = self.on_turn;
         const num_tiles = self.racks[on].num_tiles;
         const last_was_pass = self.scoreless > self.last_scoreless;
@@ -918,6 +957,7 @@ pub const Solver = struct {
             if (m.tm == tt_move) m.est +%= hash_move_bf;
             if (last_was_pass and m.isPass()) m.est +%= early_pass_bf;
         }
+        if (!sort) return;
         gosort.slice(SmallMove, moves, {}, struct {
             fn less(_: void, a: SmallMove, b: SmallMove) bool {
                 return a.est > b.est;
@@ -1338,8 +1378,12 @@ pub const Solver = struct {
                     buf[n] = m;
                     n += 1;
                 }
-                buf[n] = .{};
-                n += 1;
+                // MAGPIE's pick goes out with the last tile wherever it
+                // can, conserving or not; Go's weighs the pass.
+                if (n == 0 or !self.opts.playout_out_bonus) {
+                    buf[n] = .{};
+                    n += 1;
+                }
                 plays = buf[0..n];
             } else if (self.opts.playout_out_bonus and !(frac > 0 and on == 0)) {
                 // MAGPIE's pick wants only the best play: a best-first
@@ -1576,7 +1620,7 @@ pub const Solver = struct {
 
         const num_children = if (at_root) self.root_moves.len else blk: {
             const children = try self.generate();
-            try self.assignEstimates(children, depth, tt_move, node_key);
+            try self.assignEstimates(children, depth, tt_move, node_key, false);
             break :blk children.len;
         };
         const stm_tiles = self.racks[on].num_tiles;
@@ -1585,16 +1629,22 @@ pub const Solver = struct {
         var keep_one: KeepOne = if (keep_one_active) .init(self, on, our_spread) else undefined;
         // Go's only with the move lists (it reads them); MAGPIE's also one
         // ply above the leaves when the opponent holds one tile, which the
-        // leaf's playout then plays out with its best drop: here only for
-        // the solving player's moves, as the opponent's playout never
-        // conserves tiles.
+        // leaf's playout then plays out with its best drop. The opponent's
+        // playout never conserves tiles; the solving player's goes out with
+        // its last tile only with MAGPIE's picks (see greedyPlayout).
         const out_reply_active = self.opts.out_reply and !at_root and (if (self.opts.go_out_reply)
             self.lists != null and depth >= 2
         else
-            depth >= 2 or (depth == 1 and self.opts.heuristics and on == 0 and self.racks[1].num_tiles == 1));
+            depth >= 2 or (depth == 1 and self.opts.heuristics and self.racks[1 - on].num_tiles == 1 and
+                (on == 0 or self.opts.playout_out_bonus)));
         var leaves_played: usize = 0;
         var out_reply: OutReply = .{};
+        // MAGPIE's lazy ordering: the moves before `ordered` are in place.
+        var tail_sorted = at_root or !(self.opts.heuristics and self.opts.magpie_ordering and self.opts.lazy_order);
+        var ordered: usize = 0;
         for (0..num_children) |idx| {
+            // (Deeper nodes may move the arena.)
+            if (!tail_sorted) tail_sorted = orderThrough(self.arena.items[arena_mark..][0..num_children], &ordered, idx);
             // (Deeper nodes may move the arena.)
             const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
             if (first_reply) |fr| if (m.tm == fr.tm) continue;
@@ -1735,7 +1785,7 @@ pub const Solver = struct {
         self.root_moves = try self.gpa.dupe(SmallMove, root);
         defer self.gpa.free(self.root_moves);
         self.arena.clearRetainingCapacity();
-        try self.assignEstimates(self.root_moves, 0, ttable.invalid_move, key);
+        try self.assignEstimates(self.root_moves, 0, ttable.invalid_move, key, true);
 
         var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
         var reported = true;
@@ -1936,4 +1986,72 @@ test "the standard endgame is worth 11 at 4 plies" {
     const r = try s.solve(4, null, null);
     try testing.expectEqual(11, r.value);
     try testing.expectEqual(4, r.depth);
+}
+
+test "the lazy move ordering sorts by estimate, ties in MAGPIE's order" {
+    var prng: std.Random.DefaultPrng = .init(7);
+    const r = prng.random();
+    for (0..500) |_| {
+        var list: [40]SmallMove = undefined;
+        const n = r.uintAtMost(usize, list.len);
+        // Few estimates, so many ties; each move's code tells them apart.
+        for (list[0..n], 0..) |*m, i| m.* = .{ .tm = i, .est = r.intRangeAtMost(i16, -3, 3) };
+        var ordered: usize = 0;
+        var sorted = false;
+        var seen: u64 = 0;
+        for (0..n) |idx| {
+            if (!sorted) sorted = orderThrough(list[0..n], &ordered, idx);
+            // Each move in its place once taken: none after it is better.
+            for (list[idx + 1 .. n]) |m| try testing.expect(m.est <= list[idx].est);
+            seen |= @as(u64, 1) << @intCast(list[idx].tm);
+        }
+        try testing.expectEqual(if (n == 64) ~@as(u64, 0) else (@as(u64, 1) << @intCast(n)) - 1, seen);
+    }
+    // MAGPIE's selection swaps the best into place: estimates 1, 1, 2 give
+    // the 2, then the second 1, then the first.
+    var three = [_]SmallMove{ .{ .tm = 0, .est = 1 }, .{ .tm = 1, .est = 1 }, .{ .tm = 2, .est = 2 } };
+    var ordered: usize = 0;
+    _ = orderThrough(&three, &ordered, 2);
+    try testing.expectEqual(2, three[0].tm);
+    try testing.expectEqual(1, three[1].tm);
+    try testing.expectEqual(0, three[2].tm);
+}
+
+test "the speed options leave endgame values as they were" {
+    // Endgames in which, one ply above the leaves of a 4-ply search, the
+    // opponent often moves while the solving player holds one tile (the
+    // out-reply bound's case there), and the standard one.
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "CATENOID7/O14/IT1S11/FERN11/1GOY2Q3V4/1UTE1BI1TEIID2/1LI2U1WAWL4/TA1VERSO2LAZAR/AR3R4O4/X3BY1AMUSE3/I3A1PRETENDS1/N1FUCK9/GEE1HOG8/1N3HI8/1D1JuLEP7 AIMOO/?EN 354/408 0 lex NWL23;",
+        "1OAK3D7/OHIA3U7/M6C7/I5LI7/C3JEU8/RHINO1V4P3/O1NUB1V4R3/N4OYEZ1TE3/5B1FA1AS3/ALTERERS2XI1W1/5Y4AD1I1/3UnSWEAR1I1P1/1QAT4GEMOTE1/FILED8R1/EST1EaNLING4 ADGT/ENOO 358/440 0 lex NWL23;",
+        "3SECONDO1C1FA/5I3WARNER/5L4BEAD1/3MOI3N1T3/3AHA3AHI3/V2US4GIN3/A2Z2ROB1L4/U2YOKED2LAMIA/L1Q1WIFEY5N/TOUTER2E5O/1PEED3G5i/JEST4G5N/E1O11t/U1SPIV8E/X13R IIT/RT 437/391 0 lex NWL23;",
+        standard_cgp,
+    };
+    const variants = [_]Options{
+        .{ .tt_bytes = 0, .out_reply = false },
+        .{ .tt_bytes = 0, .lazy_order = false },
+        .{ .tt_bytes = 0, .sibling = false, .first_reply = false },
+    };
+    for (cgps) |text| {
+        const p = try testdata.position(&store, text);
+        var z = try zobrist_mod.Zobrist.init(testing.allocator, p.board.dim, @splat(1));
+        defer z.deinit(testing.allocator);
+        var tt: ttable.Table = .{};
+        defer tt.deinit(testing.allocator);
+        for ([_]u32{ 3, 4 }) |plies| {
+            const want = blk: {
+                const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 0 });
+                defer s.deinit();
+                break :blk (try s.solve(plies, null, null)).value;
+            };
+            for (variants) |opts| {
+                const s = try Solver.init(testing.allocator, &p, &z, &tt, opts);
+                defer s.deinit();
+                try testing.expectEqual(want, (try s.solve(plies, null, null)).value);
+            }
+        }
+    }
 }

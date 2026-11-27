@@ -175,7 +175,7 @@ type endgameVariant struct {
 
 var endgameVariants = []endgameVariant{
 	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply nofirstreply", true, false},
-	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply", true, false},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply nolazyorder", true, false},
 	// The engine's defaults but the playout's pick, which changes the
 	// values of searches that stop short of the end of the game.
 	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false, false},
