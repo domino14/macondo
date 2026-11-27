@@ -2,6 +2,13 @@
 //! and the extension sets shadow move generation uses. Port of Macondo's
 //! `board` package.
 //!
+//! The squares are kept as MAGPIE keeps them: twice, once for the plays of
+//! each direction, each square a 32-byte struct of what such a play reads
+//! there, lane by lane, so that a lane's squares lie together in either
+//! direction. A tile is written to both; a cross-set (or cross-score, or
+//! extension set) to the one of the plays it constrains. The letters are
+//! also kept by themselves, row by row.
+//!
 //! Like the Go board, it is transposed by swapping the row and column
 //! strides, so code written for horizontal lanes also handles vertical
 //! ones. Every accessor that takes (row, col) goes through the strides.
@@ -101,17 +108,31 @@ pub fn wordMultiplier(bonus: u8) u8 {
     };
 }
 
-const PerDir = [2][max_squares]u64;
+/// A square as the plays of one direction read it (MAGPIE's Square): its
+/// cross-set and cross-score from the words across, its extension sets
+/// from the words along, its letter and multipliers, and whether it
+/// anchors such plays.
+pub const Square = extern struct {
+    cross_set: CrossSet,
+    left_ext: u64,
+    right_ext: u64,
+    cross_score: i32,
+    letter: MachineLetter,
+    letter_mul: u8,
+    word_mul: u8,
+    anchor: bool,
+};
 
-/// Everything a square holds that a move can change.
+comptime {
+    std.debug.assert(@sizeOf(Square) == 32);
+}
+
+/// Everything a square holds that a move can change: its place (row by
+/// row) and its place in the vertical plays' squares, and both squares.
 pub const SavedSquare = struct {
     idx: u16,
-    letter: MachineLetter,
-    anchors: [2]bool,
-    cross_sets: [2]u64,
-    cross_scores: [2]i32,
-    left_ext: [2]u64,
-    right_ext: [2]u64,
+    v_idx: u16,
+    sq: [2]Square,
 };
 
 /// An undo record for a board (MAGPIE's MoveUndo): attached to the board,
@@ -150,32 +171,23 @@ pub const Journal = struct {
         return self.saved.items.len;
     }
 
-    inline fn save(self: *Journal, b: *const Board, idx: usize) void {
+    inline fn save(self: *Journal, b: *const Board, idx: usize, v_idx: usize) void {
         if (self.stamp[idx] == self.serial) return;
         self.stamp[idx] = self.serial;
         self.saved.appendAssumeCapacity(.{
             .idx = @intCast(idx),
-            .letter = b.squares[idx],
-            .anchors = .{ b.anchors[0][idx], b.anchors[1][idx] },
-            .cross_sets = .{ b.cross_sets[0][idx], b.cross_sets[1][idx] },
-            .cross_scores = .{ b.cross_scores[0][idx], b.cross_scores[1][idx] },
-            .left_ext = .{ b.left_ext[0][idx], b.left_ext[1][idx] },
-            .right_ext = .{ b.right_ext[0][idx], b.right_ext[1][idx] },
+            .v_idx = @intCast(v_idx),
+            .sq = .{ b.views[0][idx], b.views[1][v_idx] },
         });
     }
 
     /// Puts back every square saved since `start` and forgets them; the
     /// squares can then be saved again.
     pub fn restore(self: *Journal, b: *Board, start: usize) void {
-        for (self.saved.items[start..]) |sq| {
-            b.squares[sq.idx] = sq.letter;
-            inline for (0..2) |d| {
-                b.anchors[d][sq.idx] = sq.anchors[d];
-                b.cross_sets[d][sq.idx] = sq.cross_sets[d];
-                b.cross_scores[d][sq.idx] = sq.cross_scores[d];
-                b.left_ext[d][sq.idx] = sq.left_ext[d];
-                b.right_ext[d][sq.idx] = sq.right_ext[d];
-            }
+        for (self.saved.items[start..]) |*sq| {
+            b.squares[sq.idx] = sq.sq[0].letter;
+            b.views[0][sq.idx] = sq.sq[0];
+            b.views[1][sq.v_idx] = sq.sq[1];
         }
         self.saved.shrinkRetainingCapacity(start);
         _ = self.mark();
@@ -187,18 +199,17 @@ pub const Board = struct {
     row_mul: usize,
     col_mul: usize,
     tiles_played: u32,
+    /// The letters, row by row.
     squares: [max_squares]MachineLetter,
     bonuses: [max_squares]u8,
-    /// Each square's letter and word multipliers, from its bonus.
-    letter_muls: [max_squares]u8,
-    word_muls: [max_squares]u8,
-    cross_sets: [2][max_squares]CrossSet,
-    cross_scores: [2][max_squares]i32,
-    anchors: [2][max_squares]bool,
-    /// Letters that can extend a word leftward / rightward through a square,
-    /// in the direction of play (see cross_set.zig).
-    left_ext: PerDir,
-    right_ext: PerDir,
+    /// The squares as the plays of each direction read them, lane by lane:
+    /// views[0] (horizontal plays) row by row, at the letters' places;
+    /// views[1] (vertical plays) column by column. A square's cross-set
+    /// and cross-score of direction d (the words across it in d) are in
+    /// the view of the plays of the other direction, with its extension
+    /// sets of d (letters that extend a word through it, in the direction
+    /// of play, see cross_set.zig), and its anchor of d in view d.
+    views: [2][max_squares]Square,
     /// While set, every change to a square through the setters (and
     /// anchor updates) records the square first: see Journal.
     journal: ?*Journal = null,
@@ -213,21 +224,20 @@ pub const Board = struct {
             .tiles_played = 0,
             .squares = @splat(0),
             .bonuses = @splat(' '),
-            .letter_muls = @splat(1),
-            .word_muls = @splat(1),
-            .cross_sets = undefined,
-            .cross_scores = undefined,
-            .anchors = undefined,
-            .left_ext = undefined,
-            .right_ext = undefined,
+            .views = @splat(@splat(.{ .cross_set = trivial_cross_set, .left_ext = trivial_cross_set, .right_ext = trivial_cross_set, .cross_score = 0, .letter = 0, .letter_mul = 1, .word_mul = 1, .anchor = false })),
         };
         for (layout.rows, 0..) |row, r| {
             std.debug.assert(row.len == dim);
             @memcpy(b.bonuses[r * dim ..][0..dim], row);
         }
-        for (b.bonuses[0 .. dim * dim], 0..) |bonus_char, i| {
-            b.letter_muls[i] = letterMultiplier(bonus_char);
-            b.word_muls[i] = wordMultiplier(bonus_char);
+        for (0..dim) |r| {
+            for (0..dim) |c| {
+                const bonus_char = b.bonuses[r * dim + c];
+                inline for (.{ r * dim + c, c * dim + r }, 0..) |i, d| {
+                    b.views[d][i].letter_mul = letterMultiplier(bonus_char);
+                    b.views[d][i].word_mul = wordMultiplier(bonus_char);
+                }
+            }
         }
         b.clear();
         return b;
@@ -236,6 +246,9 @@ pub const Board = struct {
     pub fn clear(self: *Board) void {
         std.debug.assert(self.journal == null);
         @memset(&self.squares, 0);
+        for (&self.views) |*v| {
+            for (v) |*sq| sq.letter = 0;
+        }
         self.tiles_played = 0;
         self.setAllCrosses();
         self.resetCrossScores();
@@ -244,15 +257,19 @@ pub const Board = struct {
 
     pub fn setAllCrosses(self: *Board) void {
         std.debug.assert(self.journal == null);
-        for (0..2) |d| {
-            @memset(&self.cross_sets[d], trivial_cross_set);
-            @memset(&self.left_ext[d], trivial_cross_set);
-            @memset(&self.right_ext[d], trivial_cross_set);
+        for (&self.views) |*v| {
+            for (v) |*sq| {
+                sq.cross_set = trivial_cross_set;
+                sq.left_ext = trivial_cross_set;
+                sq.right_ext = trivial_cross_set;
+            }
         }
     }
 
     pub fn resetCrossScores(self: *Board) void {
-        for (0..2) |d| @memset(&self.cross_scores[d], 0);
+        for (&self.views) |*v| {
+            for (v) |*sq| sq.cross_score = 0;
+        }
     }
 
     pub inline fn transpose(self: *Board) void {
@@ -263,8 +280,33 @@ pub const Board = struct {
         return self.col_mul != 1;
     }
 
+    /// The square's place row by row: its letter's, and its place in
+    /// views[0].
     pub inline fn sqIdx(self: *const Board, row: usize, col: usize) usize {
         return row * self.row_mul + col * self.col_mul;
+    }
+
+    /// The square's place in views[1], column by column.
+    pub inline fn vIdx(self: *const Board, row: usize, col: usize) usize {
+        return row * self.col_mul + col * self.row_mul;
+    }
+
+    /// The square at (row, col) as the plays of direction `p` read it.
+    pub inline fn view(self: *const Board, p: Direction, row: usize, col: usize) *const Square {
+        return &self.views[@backingInt(p)][if (p == .horizontal) self.sqIdx(row, col) else self.vIdx(row, col)];
+    }
+
+    inline fn viewMut(self: *Board, p: Direction, row: usize, col: usize) *Square {
+        const idx = self.sqIdx(row, col);
+        const v_idx = self.vIdx(row, col);
+        self.touch(idx, v_idx);
+        return &self.views[@backingInt(p)][if (p == .horizontal) idx else v_idx];
+    }
+
+    /// The lane `lane` of the plays of direction `p` (a row for horizontal
+    /// plays, a column for vertical ones), whatever the transposition.
+    pub inline fn lane(self: *const Board, p: Direction, l: usize) []const Square {
+        return self.views[@backingInt(p)][l * self.dim ..][0..self.dim];
     }
 
     pub inline fn posExists(self: *const Board, row: isize, col: isize) bool {
@@ -278,8 +320,11 @@ pub const Board = struct {
 
     pub inline fn setLetter(self: *Board, row: usize, col: usize, ml: MachineLetter) void {
         const idx = self.sqIdx(row, col);
-        self.touch(idx);
+        const v_idx = self.vIdx(row, col);
+        self.touch(idx, v_idx);
         self.squares[idx] = ml;
+        self.views[0][idx].letter = ml;
+        self.views[1][v_idx].letter = ml;
     }
 
     pub inline fn hasLetter(self: *const Board, row: usize, col: usize) bool {
@@ -296,71 +341,79 @@ pub const Board = struct {
         return self.bonuses[self.sqIdx(row, col)];
     }
 
+    /// The cross-set of the words across the square in `dir`: what the
+    /// plays of the other direction may put there.
     pub inline fn crossSet(self: *const Board, row: usize, col: usize, dir: Direction) CrossSet {
-        return self.cross_sets[@backingInt(dir)][self.sqIdx(row, col)];
+        return self.view(dir.other(), row, col).cross_set;
     }
 
     pub inline fn setCrossSet(self: *Board, row: usize, col: usize, cs: CrossSet, dir: Direction) void {
-        const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        self.cross_sets[@backingInt(dir)][idx] = cs;
+        self.viewMut(dir.other(), row, col).cross_set = cs;
     }
 
     /// Empties a square's cross-sets and cross-scores in both directions,
     /// as a filled square's are.
     pub inline fn clearCrossSets(self: *Board, row: usize, col: usize) void {
         const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        inline for (0..2) |d| {
-            self.cross_sets[d][idx] = 0;
-            self.cross_scores[d][idx] = 0;
+        const v_idx = self.vIdx(row, col);
+        self.touch(idx, v_idx);
+        inline for (.{ idx, v_idx }, 0..) |i, d| {
+            self.views[d][i].cross_set = 0;
+            self.views[d][i].cross_score = 0;
         }
     }
 
     pub inline fn addToCrossSet(self: *Board, row: usize, col: usize, ml: MachineLetter, dir: Direction) void {
-        const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        self.cross_sets[@backingInt(dir)][idx] |= @as(CrossSet, 1) << @intCast(ml);
+        self.viewMut(dir.other(), row, col).cross_set |= @as(CrossSet, 1) << @intCast(ml);
     }
 
     pub inline fn crossScore(self: *const Board, row: usize, col: usize, dir: Direction) i32 {
-        return self.cross_scores[@backingInt(dir)][self.sqIdx(row, col)];
+        return self.view(dir.other(), row, col).cross_score;
     }
 
     pub inline fn setCrossScore(self: *Board, row: usize, col: usize, score: i32, dir: Direction) void {
-        const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        self.cross_scores[@backingInt(dir)][idx] = score;
+        self.viewMut(dir.other(), row, col).cross_score = score;
     }
 
     pub inline fn isAnchor(self: *const Board, row: usize, col: usize, dir: Direction) bool {
-        return self.anchors[@backingInt(dir)][self.sqIdx(row, col)];
+        return self.view(dir, row, col).anchor;
+    }
+
+    /// The letters a tile played alone on the square may be: those both
+    /// directions' cross-sets allow.
+    pub inline fn loneTileSet(self: *const Board, row: usize, col: usize) CrossSet {
+        return self.views[0][self.sqIdx(row, col)].cross_set & self.views[1][self.vIdx(row, col)].cross_set;
+    }
+
+    pub inline fn letterMul(self: *const Board, row: usize, col: usize) u8 {
+        return self.views[0][self.sqIdx(row, col)].letter_mul;
+    }
+
+    pub inline fn wordMul(self: *const Board, row: usize, col: usize) u8 {
+        return self.views[0][self.sqIdx(row, col)].word_mul;
     }
 
     pub inline fn leftExtSet(self: *const Board, row: usize, col: usize, dir: Direction) u64 {
-        return self.left_ext[@backingInt(dir)][self.sqIdx(row, col)];
+        return self.view(dir.other(), row, col).left_ext;
     }
 
     pub inline fn rightExtSet(self: *const Board, row: usize, col: usize, dir: Direction) u64 {
-        return self.right_ext[@backingInt(dir)][self.sqIdx(row, col)];
+        return self.view(dir.other(), row, col).right_ext;
     }
 
     pub inline fn setLeftExtSet(self: *Board, row: usize, col: usize, dir: Direction, es: u64) void {
-        const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        self.left_ext[@backingInt(dir)][idx] = es;
+        self.viewMut(dir.other(), row, col).left_ext = es;
     }
 
     pub inline fn setRightExtSet(self: *Board, row: usize, col: usize, dir: Direction, es: u64) void {
-        const idx = self.sqIdx(row, col);
-        self.touch(idx);
-        self.right_ext[@backingInt(dir)][idx] = es;
+        self.viewMut(dir.other(), row, col).right_ext = es;
     }
 
-    /// Records square `idx` in the journal, if there is one, before its
-    /// first change since the journal's last mark.
-    inline fn touch(self: *Board, idx: usize) void {
-        if (self.journal) |j| j.save(self, idx);
+    /// Records the square (its places row by row and in views[1]) in the
+    /// journal, if there is one, before its first change since the
+    /// journal's last mark.
+    inline fn touch(self: *Board, idx: usize, v_idx: usize) void {
+        if (self.journal) |j| j.save(self, idx, v_idx);
     }
 
     /// Whether the squares left and right of (row, col) are empty or off
@@ -397,22 +450,23 @@ pub const Board = struct {
         var col = col_in;
         if (vertical) std.mem.swap(usize, &row, &col);
         const pos = self.sqIdx(row, col);
-        const h = @backingInt(Direction.horizontal);
-        const v = @backingInt(Direction.vertical);
-        self.touch(pos);
-        self.anchors[h][pos] = false;
-        self.anchors[v][pos] = false;
+        const v_pos = self.vIdx(row, col);
+        self.touch(pos, v_pos);
+        const ah = &self.views[0][pos].anchor;
+        const av = &self.views[1][v_pos].anchor;
+        ah.* = false;
+        av.* = false;
         const tile_above = row > 0 and self.hasLetter(row - 1, col);
         const tile_left = col > 0 and self.hasLetter(row, col - 1);
         const tile_below = row < self.dim - 1 and self.hasLetter(row + 1, col);
         const tile_right = col < self.dim - 1 and self.hasLetter(row, col + 1);
         if (self.hasLetter(row, col)) {
             // A filled square anchors only as the last square of a word.
-            if (!tile_right) self.anchors[h][pos] = true;
-            if (!tile_below) self.anchors[v][pos] = true;
+            if (!tile_right) ah.* = true;
+            if (!tile_below) av.* = true;
         } else {
-            if (!tile_left and !tile_right and (tile_above or tile_below)) self.anchors[h][pos] = true;
-            if (!tile_above and !tile_below and (tile_left or tile_right)) self.anchors[v][pos] = true;
+            if (!tile_left and !tile_right and (tile_above or tile_below)) ah.* = true;
+            if (!tile_above and !tile_below and (tile_left or tile_right)) av.* = true;
         }
     }
 
@@ -432,9 +486,11 @@ pub const Board = struct {
                 for (0..self.dim) |j| self.updateAnchors(i, j, false);
             }
         } else {
-            for (0..2) |d| @memset(&self.anchors[d], false);
+            for (&self.views) |*v| {
+                for (v) |*sq| sq.anchor = false;
+            }
             const rc = self.dim / 2;
-            self.anchors[@backingInt(Direction.horizontal)][self.sqIdx(rc, rc)] = true;
+            self.views[0][self.sqIdx(rc, rc)].anchor = true;
         }
     }
 

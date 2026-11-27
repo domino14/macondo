@@ -59,9 +59,8 @@ pub const Move = struct {
                 main += ld.score(b.getLetter(r, c));
                 continue;
             }
-            const sq = b.sqIdx(r, c);
-            const lm: i32 = b.letter_muls[sq];
-            const wm: i32 = b.word_muls[sq];
+            const lm: i32 = b.letterMul(r, c);
+            const wm: i32 = b.wordMul(r, c);
             const ts = ld.score(ml) * lm;
             main += ts;
             word_mul *= wm;

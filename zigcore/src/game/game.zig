@@ -511,20 +511,19 @@ test "an exchange keeps the bag and racks whole" {
 fn sameBoards(a: *const board_mod.Board, b: *const board_mod.Board) bool {
     const n = a.dim * a.dim;
     if (!std.mem.eql(MachineLetter, a.squares[0..n], b.squares[0..n])) return false;
-    for (0..2) |d| {
-        if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
-        if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
-        if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
+    for ([_]board_mod.Direction{ .horizontal, .vertical }) |d| {
         for (0..n) |i| {
+            const r = i / a.dim;
+            const c = i % a.dim;
+            if (a.crossSet(r, c, d) != b.crossSet(r, c, d) or a.crossScore(r, c, d) != b.crossScore(r, c, d) or
+                a.isAnchor(r, c, d) != b.isAnchor(r, c, d)) return false;
             if (a.squares[i] != 0) {
-                // Slot 0's sets serve plays down a column.
-                const r = i / a.dim;
-                const c = i % a.dim;
-                const nr = if (d == 0) r + 1 else r;
-                const nc = if (d == 0) c else c + 1;
+                // The horizontal slot's sets serve plays down a column.
+                const nr = if (d == .horizontal) r + 1 else r;
+                const nc = if (d == .horizontal) c else c + 1;
                 if (nr < a.dim and nc < a.dim and a.squares[nr * a.dim + nc] != 0) continue;
             }
-            if (a.left_ext[d][i] != b.left_ext[d][i] or a.right_ext[d][i] != b.right_ext[d][i]) return false;
+            if (a.leftExtSet(r, c, d) != b.leftExtSet(r, c, d) or a.rightExtSet(r, c, d) != b.rightExtSet(r, c, d)) return false;
         }
     }
     return true;
@@ -642,10 +641,14 @@ test "taking a move back regenerates the board from scratch" {
             const p = try testdata.position(&store, w.buffered());
             const back = p.beforeLastMove().?;
             const fresh = try testdata.position(&store, bw.buffered());
-            const n = fresh.board.dim * fresh.board.dim;
-            for (0..2) |d| {
-                try testing.expectEqualSlices(u64, fresh.board.left_ext[d][0..n], back.board.left_ext[d][0..n]);
-                try testing.expectEqualSlices(u64, fresh.board.right_ext[d][0..n], back.board.right_ext[d][0..n]);
+            const dim = fresh.board.dim;
+            for ([_]board_mod.Direction{ .horizontal, .vertical }) |d| {
+                for (0..dim) |r| {
+                    for (0..dim) |c| {
+                        try testing.expectEqual(fresh.board.leftExtSet(r, c, d), back.board.leftExtSet(r, c, d));
+                        try testing.expectEqual(fresh.board.rightExtSet(r, c, d), back.board.rightExtSet(r, c, d));
+                    }
+                }
             }
             try testing.expect(sameBoards(&fresh.board, &back.board));
             checked += 1;

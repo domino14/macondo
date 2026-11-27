@@ -49,15 +49,9 @@ pub fn exchangeLimit(lexicon: []const u8) i32 {
 }
 
 /// The squares of the row being generated, read once from the board.
-pub const CachedSquare = struct {
-    cross_set: board_mod.CrossSet,
-    /// The left extension set, for the shadow pass.
-    left_ext: board_mod.CrossSet,
-    cross_score: i32,
-    letter: MachineLetter,
-    letter_mul: u8,
-    word_mul: u8,
-};
+/// A square of the lane being generated: the board's square as the
+/// lane's plays read it.
+pub const CachedSquare = board_mod.Square;
 
 /// What the generator does with the plays it finds: keeps them all,
 /// keeps the best by equity (genBest), keeps the endgame's best by value
@@ -100,7 +94,7 @@ pub const Generator = struct {
     exchange_strip: [rack_tile_limit]MachineLetter = undefined,
     /// The squares of the row being generated: row_buf, or a lane the
     /// shadow pass loaded.
-    row: *[board_mod.max_dim]CachedSquare = undefined,
+    row: *const [board_mod.max_dim]CachedSquare = undefined,
     row_buf: [board_mod.max_dim]CachedSquare = undefined,
     out_of_memory: bool = false,
 
@@ -508,27 +502,37 @@ pub const Generator = struct {
         self.rack_bits = bits;
     }
 
+    /// Points the generator at row `row`'s squares, as the plays across
+    /// `cs_dir` read them: the board's own lane where the transposition
+    /// makes the row one, else a copy.
     pub fn loadRow(self: *Generator, row: usize, cs_dir: Direction) void {
-        self.row = &self.row_buf;
-        self.loadRowInto(self.row, row, cs_dir);
+        const p = cs_dir.other();
+        if (self.board.isTransposed() == (p == .vertical)) {
+            self.row = self.lanePtr(@backingInt(p), row);
+        } else {
+            self.loadRowInto(&self.row_buf, row, cs_dir);
+            self.row = &self.row_buf;
+        }
+    }
+
+    /// Lane `lane` of the plays of direction `side` (0: rows, 1: columns),
+    /// in the board, whatever the transposition. A lane's squares are
+    /// followed by the next lane's (or the views' spare room), so the
+    /// pointer may cover max_dim of them.
+    pub inline fn lanePtr(self: *const Generator, side: usize, lane: usize) *const [board_mod.max_dim]CachedSquare {
+        return @ptrCast(&self.board.views[side][lane * self.board.dim]);
     }
 
     /// Reads row `row`'s squares, with the cross-sets of `cs_dir`, into
     /// `dest`.
     pub fn loadRowInto(self: *const Generator, dest: *[board_mod.max_dim]CachedSquare, row: usize, cs_dir: Direction) void {
         const b = self.board;
-        const d = @backingInt(cs_dir);
-        var sq = b.sqIdx(row, 0);
-        for (dest[0..b.dim]) |*out| {
-            out.* = .{
-                .cross_set = b.cross_sets[d][sq],
-                .left_ext = b.left_ext[d][sq],
-                .cross_score = b.cross_scores[d][sq],
-                .letter = b.squares[sq],
-                .letter_mul = b.letter_muls[sq],
-                .word_mul = b.word_muls[sq],
-            };
-            sq += b.col_mul;
+        const p = cs_dir.other();
+        // The board is transposed for vertical plays: the row is the lane.
+        if (b.isTransposed() == (p == .vertical)) {
+            @memcpy(dest[0..b.dim], b.lane(p, row));
+        } else {
+            for (dest[0..b.dim], 0..) |*out, col| out.* = b.view(p, row, col).*;
         }
     }
 
@@ -1056,8 +1060,8 @@ test "the endgame's small records agree with the full move list" {
         var anchors: [Generator.max_lanes]u32 = @splat(0);
         for (0..dim) |r| {
             for (0..dim) |c| {
-                if (b.anchors[@backingInt(Direction.horizontal)][r * dim + c]) anchors[r] |= @as(u32, 1) << @intCast(c);
-                if (b.anchors[@backingInt(Direction.vertical)][r * dim + c]) anchors[dim + c] |= @as(u32, 1) << @intCast(r);
+                if (b.isAnchor(r, c, .horizontal)) anchors[r] |= @as(u32, 1) << @intCast(c);
+                if (b.isAnchor(r, c, .vertical)) anchors[dim + c] |= @as(u32, 1) << @intCast(r);
             }
         }
         const wanted: [Generator.max_lanes]u32 = @splat(~@as(u32, 0));
@@ -1199,7 +1203,9 @@ test "gen base: no cross-sets, no plays" {
     var f = try testdata.Fixture.load("NWL18");
     defer f.deinit();
     var b = Board.init(&board_mod.crossword_game);
-    for (&b.cross_sets) |*cs| @memset(cs, 0);
+    for (&b.views) |*v| {
+        for (v) |*sq| sq.cross_set = 0;
+    }
     var gen = Generator.init(testing.allocator, &b, f.kwg, &f.ld);
     defer gen.deinit();
     var rack = try rackFrom(&f, "AEINRST");

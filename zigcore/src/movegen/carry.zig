@@ -371,7 +371,7 @@ pub fn noteLane(gen: *Generator, dir: usize, lane: usize, anchors: u32) void {
         return;
     }
     const dim = gen.board.dim;
-    const squares = gen.shadow.lanes[dir][lane][0..dim];
+    const squares = gen.lanePtr(dir, lane)[0..dim];
     const hash = hashLane(squares, anchors);
     c.hashes[dir][lane] = hash;
     c.lanes_seen += 1;
@@ -434,7 +434,7 @@ fn revalidate(gen: *const Generator, rack: *const Rack, entry: *const RackEntry,
     const end = start + m.len;
     const anchors = c.anchors[dir][lane];
     if (end > dim or anchors & ((@as(u32, 1) << @intCast(end)) - (@as(u32, 1) << @intCast(start))) == 0) return null;
-    const squares = gen.shadow.lanes[dir][lane][0..dim];
+    const squares = gen.lanePtr(dir, lane)[0..dim];
     if (start > 0 and squares[start - 1].letter != 0) return null;
     if (end < dim and squares[end].letter != 0) return null;
     const one_tile_down = m.vertical and m.tiles_played == 1;
@@ -528,7 +528,7 @@ pub fn remember(gen: *Generator) void {
         const dir: usize = @intFromBool(best.vertical);
         const lane: usize = if (best.vertical) best.col else best.row;
         const start: usize = if (best.vertical) best.row else best.col;
-        for (0..best.len) |k| entry.through[move_idx][k] = gen.shadow.lanes[dir][lane][start + k].letter;
+        for (0..best.len) |k| entry.through[move_idx][k] = gen.lanePtr(dir, lane)[start + k].letter;
     }
     for (0..2) |dir| {
         for (0..dim) |lane| {
@@ -556,7 +556,7 @@ pub fn remember(gen: *Generator) void {
                 .anchors = c.anchors[dir][lane],
                 .move_idx = @intCast(move_idx),
             };
-            for (bd.sq, gen.shadow.lanes[dir][lane][0..dim]) |*k, *sq| k.* = .of(sq);
+            for (bd.sq, gen.lanePtr(dir, lane)[0..dim]) |*k, *sq| k.* = .of(sq);
         }
     }
 }
@@ -566,7 +566,7 @@ pub fn remember(gen: *Generator) void {
 const testing = std.testing;
 
 test "lane hashes are never 0 and see every field" {
-    var squares: [15]CachedSquare = @splat(.{ .cross_set = 3, .left_ext = 0, .cross_score = 2, .letter = 0, .letter_mul = 1, .word_mul = 1 });
+    var squares: [15]CachedSquare = @splat(.{ .cross_set = 3, .left_ext = 0, .right_ext = 0, .cross_score = 2, .letter = 0, .letter_mul = 1, .word_mul = 1, .anchor = false });
     const h = hashLane(&squares, 5);
     try testing.expect(h != 0);
     try testing.expect(hashLane(&squares, 4) != h);

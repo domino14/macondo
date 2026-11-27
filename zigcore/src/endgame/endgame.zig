@@ -589,7 +589,7 @@ const KeepOne = struct {
             if (!is_placed[i]) continue;
             const r = r0 + dr * @as(isize, @intCast(i));
             const c = c0 + dc * @as(isize, @intCast(i));
-            const run = placed_face[i] + b.cross_scores[cross_dir][@intCast(r * dim + c)];
+            const run = placed_face[i] + b.crossScore(@intCast(r), @intCast(c), @fromBackingInt(@intCast(cross_dir)));
             var sign: isize = -1;
             while (sign <= 1) : (sign += 2) {
                 const sr = sign * dc;
@@ -614,8 +614,7 @@ const KeepOne = struct {
         const b = &s.board;
         const dim: isize = @intCast(b.dim);
         if (r < 0 or r >= dim or c < 0 or c >= dim) return 0;
-        const idx: usize = @intCast(r * dim + c);
-        const other_set = b.cross_sets[other_dir][idx];
+        const other_set = b.crossSet(@intCast(r), @intCast(c), @fromBackingInt(@intCast(other_dir)));
         if (kept == 0) {
             if (other_set >> 1 == 0) return 0;
         } else if (other_set & (@as(u64, 1) << @intCast(kept)) == 0) return 0;
@@ -627,8 +626,8 @@ const KeepOne = struct {
             fr += sr;
             fc += sc;
         }
-        const tile = kept_face * b.letter_muls[idx];
-        const wm: i32 = b.word_muls[idx];
+        const tile = kept_face * b.letterMul(@intCast(r), @intCast(c));
+        const wm: i32 = b.wordMul(@intCast(r), @intCast(c));
         var score = (run_score + tile) * wm;
         var orr = sc;
         var oc = sr;
@@ -638,7 +637,7 @@ const KeepOne = struct {
         }
         const has_other = (r - orr >= 0 and c - oc >= 0 and b.hasLetter(@intCast(r - orr), @intCast(c - oc))) or
             (r + orr < dim and c + oc < dim and b.hasLetter(@intCast(r + orr), @intCast(c + oc)));
-        if (has_other) score += (b.cross_scores[other_dir][idx] + tile) * wm;
+        if (has_other) score += (b.crossScore(@intCast(r), @intCast(c), @fromBackingInt(@intCast(other_dir))) + tile) * wm;
         return score;
     }
 };
@@ -691,16 +690,15 @@ pub fn scanLoneTileOn(b: *const Board, occ: *const [board_mod.max_dim]u32, ld: *
         while (cand != 0) {
             const c = @ctz(cand);
             cand &= cand - 1;
-            const idx = r * b.dim + c;
-            const combined = b.cross_sets[0][idx] & b.cross_sets[1][idx];
+            const combined = b.loneTileSet(r, c);
             if (tile == 0) {
                 if (combined >> 1 == 0) continue;
             } else if (combined & (@as(u64, 1) << @intCast(tile)) == 0) continue;
-            const ls = face * b.letter_muls[idx];
-            const wm: i32 = b.word_muls[idx];
+            const ls = face * b.letterMul(r, c);
+            const wm: i32 = b.wordMul(r, c);
             var score: i32 = 0;
-            if (h_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.cross_scores[0][idx]) * wm;
-            if (v_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.cross_scores[1][idx]) * wm;
+            if (h_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.crossScore(r, c, .horizontal)) * wm;
+            if (v_nbr & (@as(u32, 1) << @intCast(c)) != 0) score += (ls + b.crossScore(r, c, .vertical)) * wm;
             if (found and score <= best_score) continue;
             found = true;
             best_score = score;
@@ -1164,8 +1162,7 @@ pub const Solver = struct {
             while (cand != 0) {
                 const c = @ctz(cand);
                 cand &= cand - 1;
-                const idx = r * b.dim + c;
-                playable |= b.cross_sets[0][idx] & b.cross_sets[1][idx];
+                playable |= b.loneTileSet(r, c);
                 if (target != 0 and playable & target == target) return playable;
             }
         }
@@ -1329,8 +1326,7 @@ pub const Solver = struct {
         }
         var chosen = tile;
         if (tile == 0) {
-            const idx = r * b.dim + c;
-            const combined = b.cross_sets[0][idx] & b.cross_sets[1][idx];
+            const combined = b.loneTileSet(r, c);
             var ml: usize = 1;
             while (ml < self.numLetters()) : (ml += 1) {
                 if (combined & (@as(u64, 1) << @intCast(ml)) != 0) {
@@ -1961,11 +1957,7 @@ fn sameSquares(a: *const Board, b: *const Board) bool {
     const n = a.dim * a.dim;
     if (!std.mem.eql(MachineLetter, a.squares[0..n], b.squares[0..n])) return false;
     for (0..2) |d| {
-        if (!std.mem.eql(u64, a.cross_sets[d][0..n], b.cross_sets[d][0..n])) return false;
-        if (!std.mem.eql(i32, a.cross_scores[d][0..n], b.cross_scores[d][0..n])) return false;
-        if (!std.mem.eql(bool, a.anchors[d][0..n], b.anchors[d][0..n])) return false;
-        if (!std.mem.eql(u64, a.left_ext[d][0..n], b.left_ext[d][0..n])) return false;
-        if (!std.mem.eql(u64, a.right_ext[d][0..n], b.right_ext[d][0..n])) return false;
+        if (!std.mem.eql(u8, std.mem.sliceAsBytes(a.views[d][0..n]), std.mem.sliceAsBytes(b.views[d][0..n]))) return false;
     }
     return a.tiles_played == b.tiles_played;
 }

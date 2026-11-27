@@ -686,7 +686,6 @@ pub const PathLists = struct {
     /// cross-sets the lane's plays read), as the generator tests it.
     fn laneFits(p: *const PathLists, lane: usize, rack: *const Rack) u32 {
         const b = p.host.board;
-        const dim = p.dim;
         var rack_bits: u64 = 0;
         for (1..p.numLetters()) |ml| {
             if (rack.counts[ml] > 0) rack_bits |= @as(u64, 1) << @intCast(ml);
@@ -694,11 +693,10 @@ pub const PathLists = struct {
         const blank = rack.counts[0] > 0;
         // A row's plays read the cross-sets of words down, a column's of
         // words across.
-        const cs: usize = if (lane < dim) @backingInt(board_mod.Direction.vertical) else @backingInt(board_mod.Direction.horizontal);
+        const squares = laneSquares(b, lane);
         var fits: u32 = 0;
-        for (0..dim) |i| {
-            const idx = if (lane < dim) lane * dim + i else i * dim + (lane - dim);
-            const allowed = b.cross_sets[cs][idx] & ~@as(u64, 1);
+        for (squares, 0..) |*sq, i| {
+            const allowed = sq.cross_set & ~@as(u64, 1);
             const ok = if (blank) allowed != 0 else allowed & rack_bits != 0;
             fits |= @as(u32, @intFromBool(ok)) << @intCast(i);
         }
@@ -708,13 +706,12 @@ pub const PathLists = struct {
     fn laneMasks(p: *const PathLists, lane: usize) struct { anchors: u32, occupied: u32 } {
         const b = p.host.board;
         const dim = p.dim;
+        _ = dim;
         var anchors: u32 = 0;
         var occupied: u32 = 0;
-        for (0..dim) |i| {
-            const idx = if (lane < dim) lane * dim + i else i * dim + (lane - dim);
-            const d: usize = if (lane < dim) 0 else 1;
-            if (b.anchors[d][idx]) anchors |= @as(u32, 1) << @intCast(i);
-            if (b.squares[idx] != 0) occupied |= @as(u32, 1) << @intCast(i);
+        for (laneSquares(b, lane), 0..) |*sq, i| {
+            anchors |= @as(u32, @intFromBool(sq.anchor)) << @intCast(i);
+            occupied |= @as(u32, @intFromBool(sq.letter != 0)) << @intCast(i);
         }
         return .{ .anchors = anchors, .occupied = occupied };
     }
@@ -978,17 +975,26 @@ pub fn loneTileAt(b: *const Board, tile: MachineLetter, face: i32, r: usize, c: 
     const has_h = (c > 0 and b.hasLetter(r, c - 1)) or (c + 1 < dim and b.hasLetter(r, c + 1));
     const has_v = (r > 0 and b.hasLetter(r - 1, c)) or (r + 1 < dim and b.hasLetter(r + 1, c));
     if (!has_h and !has_v) return null;
-    const idx = r * dim + c;
-    const combined = b.cross_sets[0][idx] & b.cross_sets[1][idx];
+    // The square as a row's plays read it (the words down) and as a
+    // column's (the words across).
+    const across = &b.views[0][r * dim + c];
+    const down = &b.views[1][c * dim + r];
+    const combined = across.cross_set & down.cross_set;
     if (tile == 0) {
         if (combined >> 1 == 0) return null;
     } else if (combined & (@as(u64, 1) << @intCast(tile)) == 0) return null;
-    const ls = face * b.letter_muls[idx];
-    const wm: i32 = b.word_muls[idx];
+    const ls = face * across.letter_mul;
+    const wm: i32 = across.word_mul;
     var score: i32 = 0;
-    if (has_h) score += (ls + b.cross_scores[0][idx]) * wm;
-    if (has_v) score += (ls + b.cross_scores[1][idx]) * wm;
+    if (has_h) score += (ls + down.cross_score) * wm;
+    if (has_v) score += (ls + across.cross_score) * wm;
     return score;
+}
+
+/// Lane `lane`'s squares (rows, then columns) as its plays read them.
+inline fn laneSquares(b: *const Board, lane: usize) []const board_mod.Square {
+    const dim = b.dim;
+    return if (lane < dim) b.lane(.horizontal, lane) else b.lane(.vertical, lane - dim);
 }
 
 test "an anchor's reach covers every span a play from it can cover" {

@@ -107,24 +107,16 @@ pub fn laneKey(b: *const board_mod.Board, lane: usize) u64 {
     return k;
 }
 
-/// Square `i` (along the lane)'s part of lane `lane`'s key.
+/// Square `i` (along the lane)'s part of lane `lane`'s key: the
+/// square as the lane's plays read it.
 pub fn squareKey(b: *const board_mod.Board, lane: usize, i: usize) u64 {
-    const dim = b.dim;
-    const vertical = lane >= dim;
-    const fixed = if (vertical) lane - dim else lane;
-    const idx = if (vertical) i * dim + fixed else fixed * dim + i;
-    const cs = acrossIndex(vertical);
-    const an = alongIndex(vertical);
-    return squarePart(lane, i, b.squares[idx], b.anchors[an][idx], b.cross_sets[cs][idx], b.cross_scores[cs][idx], b.left_ext[cs][idx], b.right_ext[cs][idx]);
+    return squarePart(lane, i, laneSquare(b, lane, i));
 }
 
-/// The direction of the cross-sets (and extension sets) a lane's plays
-/// read, and of its anchors.
-inline fn acrossIndex(vertical: bool) usize {
-    return if (vertical) @backingInt(Direction.horizontal) else @backingInt(Direction.vertical);
-}
-inline fn alongIndex(vertical: bool) usize {
-    return if (vertical) @backingInt(Direction.vertical) else @backingInt(Direction.horizontal);
+/// Square `i` of lane `lane` (rows, then columns), as its plays read it.
+inline fn laneSquare(b: *const board_mod.Board, lane: usize, i: usize) *const board_mod.Square {
+    const dim = b.dim;
+    return if (lane >= dim) &b.views[1][(lane - dim) * dim + i] else &b.views[0][lane * dim + i];
 }
 
 /// Each square's place in each lane, hashed: a square's part starts from
@@ -142,10 +134,10 @@ const place_salt: [max_lanes][board_mod.max_dim]u64 = blk: {
 
 /// The fields are multiplied by odd constants (each a bijection) and
 /// xored onto the place's salt, then one finalizer mixes them.
-inline fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set: u64, cross_score: i32, left_ext: u64, right_ext: u64) u64 {
-    const word = @as(u64, letter) | @as(u64, @intFromBool(anchor)) << 8 | @as(u64, @as(u32, @bitCast(cross_score))) << 16;
-    const k = place_salt[lane][i] ^ (cross_set *% 0x9E3779B97F4A7C15) ^ (word *% 0xC2B2AE3D27D4EB4F) ^
-        (left_ext *% 0x165667B19E3779F9) ^ std.math.rotl(u64, right_ext *% 0xD6E8FEB86659FD93, 32);
+inline fn squarePart(lane: usize, i: usize, sq: *const board_mod.Square) u64 {
+    const word = @as(u64, sq.letter) | @as(u64, @intFromBool(sq.anchor)) << 8 | @as(u64, @as(u32, @bitCast(sq.cross_score))) << 16;
+    const k = place_salt[lane][i] ^ (sq.cross_set *% 0x9E3779B97F4A7C15) ^ (word *% 0xC2B2AE3D27D4EB4F) ^
+        (sq.left_ext *% 0x165667B19E3779F9) ^ std.math.rotl(u64, sq.right_ext *% 0xD6E8FEB86659FD93, 32);
     return finish(k);
 }
 
@@ -153,20 +145,11 @@ inline fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set:
 /// (`sq`, as it was) to the board's square as it is.
 pub fn updateKeys(b: *const board_mod.Board, keys: *[max_lanes]u64, sq: *const board_mod.SavedSquare) void {
     const dim = b.dim;
-    const idx = sq.idx;
-    const r = idx / dim;
-    const c = idx % dim;
-    inline for (.{ false, true }) |vertical| {
-        const cs = acrossIndex(vertical);
-        const an = alongIndex(vertical);
-        {
-            // An unchanged square's two parts cancel.
-            const lane = if (vertical) dim + c else r;
-            const i = if (vertical) r else c;
-            keys[lane] ^= squarePart(lane, i, sq.letter, sq.anchors[an], sq.cross_sets[cs], sq.cross_scores[cs], sq.left_ext[cs], sq.right_ext[cs]) ^
-                squarePart(lane, i, b.squares[idx], b.anchors[an][idx], b.cross_sets[cs][idx], b.cross_scores[cs][idx], b.left_ext[cs][idx], b.right_ext[cs][idx]);
-        }
-    }
+    const r = sq.idx / dim;
+    const c = sq.idx % dim;
+    // An unchanged square's two parts cancel.
+    keys[r] ^= squarePart(r, c, &sq.sq[0]) ^ squarePart(r, c, &b.views[0][sq.idx]);
+    keys[dim + c] ^= squarePart(dim + c, r, &sq.sq[1]) ^ squarePart(dim + c, r, &b.views[1][sq.v_idx]);
 }
 
 /// The best tile play for `rack` by score plus, for a play of the whole
@@ -200,12 +183,11 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
     rack_key = finish(rack_key);
 
     const dim = gen.board.dim;
-    // Each lane's key with the rack's, and which lanes are loaded. The
-    // keys first, their entries asked for, then the entries read.
+    // Each lane's key with the rack's: the keys first, their entries
+    // asked for, then the entries read.
     // (The lane keys cover the anchors, so a lane the cache knows, with
     // anchors or none, needs no look at the board.)
     var keys: [2][board_mod.max_dim]u64 = undefined;
-    var loaded: [2]u32 = .{ 0, 0 };
     for (0..2) |side| {
         for (0..dim) |row| {
             if (lanes >> @intCast(side * dim + row) & 1 == 0) continue;
@@ -219,7 +201,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
         gen.vertical = dir == .vertical;
         for (0..dim) |row| {
             if (lanes >> @intCast(side * dim + row) & 1 == 0) continue;
-            const lane = &s.lanes[side][row];
             const key = keys[side][row];
             const e = &cache.lanes[key >> cache.lane_shift];
             if (e.key == key) {
@@ -240,8 +221,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
                 continue;
             }
             cache.lane_misses += 1;
-            gen.loadRowInto(lane, row, dir.other());
-            loaded[side] |= @as(u32, 1) << @intCast(row);
             const first = s.heap.anchors.items.len;
             shadow.shadowLane(gen, row, mask, dir);
             const added = s.heap.anchors.items[first..];
@@ -290,11 +269,7 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
             gen.cur_row = a.row;
             gen.cur_anchor_col = a.col;
             gen.last_anchor_col = a.last_anchor_col;
-            gen.row = &s.lanes[side][a.row];
-            if (loaded[side] & (@as(u32, 1) << @intCast(a.row)) == 0) {
-                gen.loadRowInto(gen.row, a.row, if (need_transposed) .horizontal else .vertical);
-                loaded[side] |= @as(u32, 1) << @intCast(a.row);
-            }
+            gen.row = gen.lanePtr(side, a.row);
             gen.tiles_played = 0;
             const sb = gen.genForAnchorSmallBest(rack, out_bonus);
             if (sb.tm != 0) {
@@ -325,14 +300,13 @@ test "a lane's key changes when two of its squares trade contents" {
     // with the same cross-score, at rows 1 and 3. Hashing a square's place
     // into its cross-set with a plain xor gave both orders the same key.
     const lane = b.dim + 4;
-    const h: usize = @backingInt(Direction.horizontal);
-    b.cross_sets[h][1 * b.dim + 4] = 2;
-    b.cross_sets[h][3 * b.dim + 4] = 0;
-    b.cross_scores[h][1 * b.dim + 4] = 8;
-    b.cross_scores[h][3 * b.dim + 4] = 8;
+    b.setCrossSet(1, 4, 2, .horizontal);
+    b.setCrossSet(3, 4, 0, .horizontal);
+    b.setCrossScore(1, 4, 8, .horizontal);
+    b.setCrossScore(3, 4, 8, .horizontal);
     const before = laneKey(&b, lane);
-    b.cross_sets[h][1 * b.dim + 4] = 0;
-    b.cross_sets[h][3 * b.dim + 4] = 2;
+    b.setCrossSet(1, 4, 0, .horizontal);
+    b.setCrossSet(3, 4, 2, .horizontal);
     try testing.expect(laneKey(&b, lane) != before);
 }
 
@@ -342,25 +316,27 @@ test "changing any one square of a lane changes its key" {
     var b = board_mod.Board.init(&board_mod.crossword_game);
     for (0..300) |_| {
         // A random board's lane and square, and one of its fields changed.
-        for (0..2) |d| {
-            for (0..b.dim * b.dim) |i| {
-                b.cross_sets[d][i] = r.int(u64) & r.int(u64);
-                b.cross_scores[d][i] = r.intRangeAtMost(i32, 0, 20);
-                b.anchors[d][i] = r.boolean();
+        for (&b.views) |*v| {
+            for (v[0 .. b.dim * b.dim]) |*sq| {
+                sq.cross_set = r.int(u64) & r.int(u64);
+                sq.cross_score = r.intRangeAtMost(i32, 0, 20);
+                sq.anchor = r.boolean();
             }
         }
-        for (0..b.dim * b.dim) |i| b.squares[i] = if (r.uintLessThan(u8, 3) == 0) r.intRangeAtMost(u8, 1, 26) else 0;
+        for (0..b.dim) |row| {
+            for (0..b.dim) |col| b.setLetter(row, col, if (r.uintLessThan(u8, 3) == 0) r.intRangeAtMost(u8, 1, 26) else 0);
+        }
         const lane = r.uintLessThan(usize, 2 * b.dim);
         const before = laneKey(&b, lane);
         const i = r.uintLessThan(usize, b.dim);
-        const idx = if (lane >= b.dim) i * b.dim + (lane - b.dim) else lane * b.dim + i;
-        const cs: usize = if (lane >= b.dim) @backingInt(Direction.horizontal) else @backingInt(Direction.vertical);
-        const an: usize = if (lane >= b.dim) @backingInt(Direction.vertical) else @backingInt(Direction.horizontal);
-        switch (r.uintLessThan(u8, 4)) {
-            0 => b.cross_sets[cs][idx] ^= @as(u64, 1) << r.int(u6),
-            1 => b.cross_scores[cs][idx] += 1,
-            2 => b.anchors[an][idx] = !b.anchors[an][idx],
-            else => b.squares[idx] +%= 1,
+        const sq = if (lane >= b.dim) &b.views[1][(lane - b.dim) * b.dim + i] else &b.views[0][lane * b.dim + i];
+        switch (r.uintLessThan(u8, 6)) {
+            0 => sq.cross_set ^= @as(u64, 1) << r.int(u6),
+            1 => sq.cross_score += 1,
+            2 => sq.anchor = !sq.anchor,
+            3 => sq.left_ext ^= @as(u64, 1) << r.int(u6),
+            4 => sq.right_ext ^= @as(u64, 1) << r.int(u6),
+            else => sq.letter +%= 1,
         }
         try testing.expect(laneKey(&b, lane) != before);
     }

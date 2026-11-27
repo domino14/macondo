@@ -177,10 +177,6 @@ pub const State = struct {
     rack_cross_set: u64 = 0,
     num_letters_on_rack: u32 = 0,
 
-    /// Every lane's squares as the shadow pass loaded them (rows, then
-    /// columns as rows of the transposed board), for the recording pass.
-    lanes: [2][board_mod.max_dim][board_mod.max_dim]movegen.CachedSquare = undefined,
-
     /// Per lane, for word-map generation: each letter's columns (see
     /// wordmap_gen.loadLetterCols), and which lanes have them this
     /// generation.
@@ -302,14 +298,12 @@ pub fn genShadow(gen: *Generator, rack: *const Rack) void {
     initShadow(gen, rack);
     if (carry_mod.active(gen)) return genShadowCarried(gen, rack);
     const dim = gen.board.dim;
-    inline for (.{ Direction.horizontal, Direction.vertical }, 0..) |dir, lane| {
+    inline for (.{ Direction.horizontal, Direction.vertical }) |dir| {
         if (dir == .vertical) gen.board.transpose();
         gen.vertical = dir == .vertical;
         for (0..dim) |row| {
             const mask = anchorMask(gen, row, dir);
             if (mask == 0) continue;
-            // Loaded where the recording pass will look for it.
-            gen.loadRowInto(&gen.shadow.lanes[lane][row], row, dir.other());
             shadowLane(gen, row, mask, dir);
         }
         if (dir == .vertical) gen.board.transpose();
@@ -330,7 +324,6 @@ fn genShadowCarried(gen: *Generator, rack: *const Rack) void {
         for (0..dim) |row| {
             const mask = anchorMask(gen, row, dir);
             masks[lane][row] = mask;
-            if (mask != 0) gen.loadRowInto(&gen.shadow.lanes[lane][row], row, dir.other());
             carry_mod.noteLane(gen, lane, row, mask);
         }
         if (dir == .vertical) gen.board.transpose();
@@ -354,13 +347,9 @@ fn genShadowCarried(gen: *Generator, rack: *const Rack) void {
 /// The anchors of a row of the board as it stands (transposed for
 /// vertical plays) as a mask: one branch per anchor rather than per square.
 pub inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direction) u32 {
-    const anchors = &gen.board.anchors[@backingInt(dir)];
+    std.debug.assert(gen.board.isTransposed() == (dir == .vertical));
     var mask: u32 = 0;
-    var sq = gen.board.sqIdx(row, 0);
-    for (0..gen.board.dim) |col| {
-        mask |= @as(u32, @intFromBool(anchors[sq])) << @intCast(col);
-        sq += gen.board.col_mul;
-    }
+    for (gen.board.lane(dir, row), 0..) |sq, col| mask |= @as(u32, @intFromBool(sq.anchor)) << @intCast(col);
     return mask;
 }
 
@@ -368,7 +357,7 @@ pub inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direct
 pub fn shadowLane(gen: *Generator, row: usize, anchors: u32, comptime dir: Direction) void {
     gen.cur_row = row;
     gen.last_anchor_col = 100;
-    gen.row = &gen.shadow.lanes[@intFromBool(dir == .vertical)][row];
+    gen.row = gen.lanePtr(@intFromBool(dir == .vertical), row);
     var mask = anchors;
     while (mask != 0) : (mask &= mask - 1) {
         const col: usize = @ctz(mask);
@@ -855,7 +844,7 @@ pub fn recordFromAnchors(gen: *Generator, rack: *Rack) void {
         gen.cur_anchor_col = a.col;
         gen.last_anchor_col = a.last_anchor_col;
         if (loaded == null or loaded.?.row != a.row or loaded.?.dir != a.dir) {
-            gen.row = &s.lanes[@intFromBool(need_transposed)][a.row];
+            gen.row = gen.lanePtr(@intFromBool(need_transposed), a.row);
             loaded = .{ .row = a.row, .dir = a.dir };
         }
         if (a.tiles_to_play > 0) {
