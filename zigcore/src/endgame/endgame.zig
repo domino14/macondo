@@ -208,6 +208,9 @@ pub const Options = struct {
     /// greedily (else by their spread).
     heuristics: bool = true,
     iterative_deepening: bool = true,
+    /// Deepen one ply at a time (else two at a time after the first,
+    /// ending on the depth asked for).
+    every_depth: bool = false,
     /// Search the window (-1, 1) only: whether the solving player wins.
     first_win: bool = false,
     /// The transposition table's size in bytes (rounded down to a power
@@ -869,6 +872,11 @@ pub const Result = struct {
     depth: u32,
     /// Positions searched, without the moves of the greedy playouts.
     nodes: u64,
+    /// Whether the value is proven: no line behind it stopped short of the
+    /// game's end (a leaf valued by a playout, or a table entry that
+    /// depended on one), so no deeper search can change it. It then holds
+    /// at the depth asked for, which `depth` is.
+    exact: bool = false,
 };
 
 pub const Error = Allocator.Error || error{ BagNotEmpty, NoOpponentTiles, Stopped };
@@ -2395,7 +2403,7 @@ pub const Solver = struct {
             };
             var group: std.Io.Group = .init;
             for (self.helpers, 1..) |h, i| {
-                group.concurrent(io, Helper.run, .{ h, key, plies, if (self.opts.iterative_deepening) helperStart(i, plies) else plies, &shared }) catch break;
+                group.concurrent(io, Helper.run, .{ h, key, plies, if (self.opts.iterative_deepening) helperStart(i, plies, self.opts.every_depth) else plies, &shared }) catch break;
             }
             const mine = self.deepen(key, plies, start, &shared, progress, ctx);
             self.helpers_halt.store(true, .monotonic);
@@ -2443,10 +2451,10 @@ pub const Solver = struct {
     /// The depth helper `i` (from 1) of an ABDADA solve starts at:
     /// MAGPIE's, spread over up to four depths from 2 so the threads don't
     /// all crowd the shallow ones; on the solve's sequence of depths.
-    fn helperStart(i: usize, plies: u32) u32 {
+    fn helperStart(i: usize, plies: u32, every: bool) u32 {
         const offset: u32 = 1 + @as(u32, @intCast(i % @min(4, plies - 1)));
         var p: u32 = 1;
-        while (p < @min(offset, plies)) p = nextDepth(p, plies);
+        while (p < @min(offset, plies)) p = nextDepth(p, plies, every);
         return p;
     }
 
@@ -2465,7 +2473,7 @@ pub const Solver = struct {
         var reported = true;
         var p = first;
         var prev_value: i32 = 0;
-        while (p <= plies) : (p = nextDepth(p, plies)) {
+        while (p <= plies) : (p = nextDepth(p, plies, self.opts.every_depth)) {
             self.current_depth = @intCast(p);
             var pv: Line = .{};
             var impure_before = self.impure;
@@ -2510,11 +2518,14 @@ pub const Solver = struct {
                 }.less);
             }
             result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.searchedNodes() };
-            if (root_pure) result.depth = plies;
+            if (root_pure) {
+                result.depth = plies;
+                result.exact = true;
+            }
             reported = false;
             if (shared) |sh| sh.offer(&result);
             // The last depth is reported once its line is complete.
-            if (root_pure or nextDepth(p, plies) > plies) {
+            if (root_pure or nextDepth(p, plies, self.opts.every_depth) > plies) {
                 if (shared) |sh| sh.halt.store(true, .monotonic);
                 break;
             }
@@ -2566,8 +2577,8 @@ pub const Solver = struct {
         }
     }
 
-    fn nextDepth(p: u32, plies: u32) u32 {
-        if (p + 1 >= plies or (plies - (p + 1)) % 2 == 0) return p + 1;
+    fn nextDepth(p: u32, plies: u32, every: bool) u32 {
+        if (every or p + 1 >= plies or (plies - (p + 1)) % 2 == 0) return p + 1;
         return p + 2;
     }
 
@@ -2736,6 +2747,59 @@ test "the parallel searches give the values one thread does" {
                 try testing.expectEqual(want, (try s.solve(plies, null, null)).value);
             }
         }
+    }
+}
+
+test "a value is exact only once no line behind it stops short of the game's end" {
+    // The opponent to move, after 3D V(I)OL in the endgame of "Why more
+    // plies sometimes reveal the true best move" (Woogles blog): from
+    // depth 3 its best line, 15C AAS 10B YO 13A (D)UI, ends the game, but
+    // other lines stop short of it until depth 5. Without playouts the
+    // first moves' depth-4 search is wrong (+18 for V(I)OL's side, where
+    // it is +21), and not exact.
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const after = try testdata.position(&store, "10ADDER/1BROWN3PROEM1/3VIOL1MI2L2/3ANTIQUES1UN1/4T6AXe1/4L1G2J1NET1/3BEGET1E1T1S1/VICE2COLE1H1UP/6K4O1RE/5WOmANED1FA/HAFIZES4I2G/Y3I6A3/D3T10/R3I10/O14 AAISU/NORY 310/420 0 lex NWL23;");
+    const before = try testdata.position(&store, "10ADDER/1BROWN3PROEM1/4I3MI2L2/3ANTIQUES1UN1/4T6AXe1/4L1G2J1NET1/3BEGET1E1T1S1/VICE2COLE1H1UP/6K4O1RE/5WOmANED1FA/HAFIZES4I2G/Y3I6A3/D3T10/R3I10/O14 LNOORVY/AAISU 400/310 0 lex NWL23;");
+    var z = try zobrist_mod.Zobrist.init(testing.allocator, after.board.dim, @splat(1));
+    defer z.deinit(testing.allocator);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(testing.allocator);
+    const Seen = struct {
+        depths: [max_variant]u32 = undefined,
+        values: [max_variant]i16 = undefined,
+        exact: [max_variant]bool = undefined,
+        n: usize = 0,
+        fn add(ctx: ?*anyopaque, r: *const Result) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx.?));
+            self.depths[self.n] = r.depth;
+            self.values[self.n] = r.value;
+            self.exact[self.n] = r.exact;
+            self.n += 1;
+        }
+    };
+    {
+        var seen: Seen = .{};
+        const s = try Solver.init(testing.allocator, &after, &z, &tt, .{ .tt_bytes = 1 << 20, .every_depth = true });
+        defer s.deinit();
+        const r = try s.solve(max_variant, Seen.add, &seen);
+        try testing.expectEqual(@as(i16, -1), r.value);
+        try testing.expect(r.exact);
+        try testing.expectEqual(@as(u32, max_variant), r.depth);
+        // Depths 1 to 4, one at a time, none exact; then the proven value.
+        try testing.expectEqualSlices(u32, &.{ 1, 2, 3, 4, max_variant }, seen.depths[0..seen.n]);
+        try testing.expectEqualSlices(bool, &.{ false, false, false, false, true }, seen.exact[0..seen.n]);
+    }
+    {
+        var seen: Seen = .{};
+        const s = try Solver.init(testing.allocator, &before, &z, &tt, .{ .tt_bytes = 1 << 20, .every_depth = true, .heuristics = false });
+        defer s.deinit();
+        const r = try s.solve(5, Seen.add, &seen);
+        try testing.expectEqualSlices(u32, &.{ 1, 2, 3, 4, 5 }, seen.depths[0..seen.n]);
+        try testing.expectEqual(@as(i16, 18), seen.values[3]);
+        try testing.expect(!seen.exact[3]);
+        try testing.expectEqual(@as(i16, 21), r.value);
     }
 }
 

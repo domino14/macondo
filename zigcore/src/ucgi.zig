@@ -518,15 +518,16 @@ pub const Engine = struct {
         }
     }
 
-    /// `go endgame plies <n> [firstwin] [noid] [noheur] [nolists]
+    /// `go endgame plies <n> [firstwin] [alldepths] [noid] [noheur] [nolists]
     /// [magpieorder|goorder] [goplayout] [gooutreply] [nofirstreply] [nopruned] [noaspiration] [nooutreply] [nokeepone]
     /// [noshortcuts] [checklists]`:
     /// solves the
     /// endgame (the bag must be empty) to n plies on the `threads`
     /// option's threads (`abdada`, `pvsplit`: how they share the search),
     /// writing
-    /// `info endgame depth <d> value <v> nodes <n> pv <moves>` after each
-    /// depth (v: the change in the spread of the player on turn), then
+    /// `info endgame depth <d> value <v> nodes <n> exact <0|1> pv <moves>`
+    /// after each depth (v: the change in the spread of the player on
+    /// turn; exact: the value is proven), then
     /// `bestmove`.
     fn goEndgame(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         var plies: u32 = 0;
@@ -538,6 +539,8 @@ pub const Engine = struct {
                 plies = std.fmt.parseInt(u32, v, 10) catch return out.writeAll("error bad-endgame\n");
             } else if (std.mem.eql(u8, key, "firstwin")) {
                 opts.first_win = true;
+            } else if (std.mem.eql(u8, key, "alldepths")) {
+                opts.every_depth = true;
             } else if (std.mem.eql(u8, key, "noid")) {
                 opts.iterative_deepening = false;
             } else if (std.mem.eql(u8, key, "noheur")) {
@@ -605,7 +608,7 @@ pub const Engine = struct {
                 };
             }
             fn write(self_: *@This(), r: *const endgame.Result) !void {
-                try self_.out.print("info endgame depth {d} value {d} nodes {d} pv", .{ r.depth, r.value, r.nodes });
+                try self_.out.print("info endgame depth {d} value {d} nodes {d} exact {d} pv", .{ r.depth, r.value, r.nodes, @intFromBool(r.exact) });
                 var moves: [endgame.max_variant]Move = undefined;
                 const n = try self_.solver.lineMoves(&r.line, &moves);
                 for (moves[0..n], 0..) |*m, i| {

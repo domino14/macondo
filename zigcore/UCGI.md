@@ -210,22 +210,29 @@ without a last move, or whose last move was a pass, a phony or a bingo, or
 with an empty bag, gets `error infer` and the reason.
 
 `go endgame plies <n>` solves the endgame (the bag must be empty, so both
-racks are known) to n plies on one thread, deepening iteratively, with a
+racks are known) to n plies on the `threads` option's threads, deepening iteratively, with a
 transposition table of `hash-mb` (at least 2^24 entries). After each depth
 it writes the value (the change in the spread of the player on turn), the
-positions searched and the line of play, a `|` where the search's moves end
-and its estimate of how the game finishes begins:
+positions searched, whether the value is exact, and the line of play, a `|`
+where the search's moves end and its estimate of how the game finishes
+begins:
 
 ```
 > go endgame plies 4
-< info endgame depth 1 value 14 nodes 63 pv 1G.VIG. | 2J..O.DI G7.B...
-< info endgame depth 2 value 11 nodes 1806 pv 1G.VIG. 4A.HOER | G7.B...
-< info endgame depth 4 value 11 nodes 3752 pv 1G.VIG. 4A.HOER 13K.B..
+< info endgame depth 1 value 14 nodes 63 exact 0 pv 1G.VIG. | 2J..O.DI G7.B...
+< info endgame depth 2 value 11 nodes 1806 exact 0 pv 1G.VIG. 4A.HOER | G7.B...
+< info endgame depth 4 value 11 nodes 3752 exact 0 pv 1G.VIG. 4A.HOER 13K.B..
 < bestmove 1G.VIG.
 ```
 
 (Depth 3 is skipped: a search to a fixed depth deepens by one ply at first,
-then two at a time, ending on the depth asked for.)
+then two at a time, ending on the depth asked for; `alldepths` deepens one
+ply at a time.)
+
+A value is exact when no line behind it stopped short of the game's end
+(at a position valued by the greedy playout, or at a table entry that
+depended on one): no deeper search can change it. The search then stops
+there, and reports the value at the depth asked for.
 
 Two scoreless turns in a row end the game in the search, as in Macondo's
 endgame mode. `firstwin` searches only whether the player on turn wins
