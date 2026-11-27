@@ -414,8 +414,10 @@ pub const Engine = struct {
     /// the `threads` option's workers, in the background. Plain, it rolls
     /// every play out until stopped (or for `iterations`); with `stop` it
     /// is a best-arm run. `time` stops it after that many milliseconds.
-    /// Progress lines as it runs, then one `info sim` line per play, best
-    /// first, and `bestmove`.
+    /// With two tiles or fewer in the bag the rollouts search the endgames
+    /// they reach (`leaves 0` plays them out instead). Progress lines as
+    /// it runs, then one `info sim` line per play, best first, and
+    /// `bestmove`.
     fn goSim(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         var plies: u32 = 2;
         var iterations: u64 = 0;
@@ -427,6 +429,7 @@ pub const Engine = struct {
         var time_ms: u64 = 0;
         var cycle = false;
         var infer_budget: u32 = 0;
+        var leaves = true;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             const v = tokens.next() orelse return out.writeAll("error bad-go\n");
@@ -451,6 +454,8 @@ pub const Engine = struct {
                 cycle = n == 1;
             } else if (std.mem.eql(u8, key, "infer") and n <= 1_000_000) {
                 infer_budget = @intCast(n);
+            } else if (std.mem.eql(u8, key, "leaves") and n <= 1) {
+                leaves = n == 1;
             } else return out.print("error bad-go {s}\n", .{key});
         }
         if (p.racks[0].num_tiles > movegen.rack_tile_limit) return out.writeAll("error rack-too-big\n");
@@ -469,6 +474,17 @@ pub const Engine = struct {
         const turn = positionTurn(p);
         const sim = try sim_mod.Sim.create(self.gpa, g, game_seed, turn, moves, plies, win_table, self.options.threads);
         errdefer sim.destroy();
+        if (leaves and g.tilesInBag() <= sim_mod.leaf_max_bag) {
+            // The endgame leaves' searches share the engine's table, kept
+            // from sim to sim as Go keeps its.
+            if (self.zobrist == null or self.zobrist.?.dim != p.board.dim) {
+                if (self.zobrist) |*z| z.deinit(self.gpa);
+                self.zobrist = null;
+                self.zobrist = try .init(self.gpa, p.board.dim, @splat(0x5a));
+            }
+            if (self.tt.slots.len == 0) try self.tt.reset(self.gpa, @as(u64, self.options.hash_mb) << 20);
+            sim.setEndgameLeaves(.{ .tt = &self.tt, .zobrist = &self.zobrist.? });
+        }
         var reading: ?Search.Reading = null;
         if (infer_budget > 0) {
             const copy = try self.gpa.create(Position);

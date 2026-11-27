@@ -171,13 +171,13 @@ as they land.
 - [ ] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
       leaves; `go sim`, streaming `info`. Check: identical results with one
       thread and a fixed seed; statistical agreement with many threads.
-      Endgame leaves need the endgame solver (step 7): until then the
-      cross-check sims positions with at least three tiles in the bag.
       Done: plain sims (until stopped) and best-arm sims (the elite bot's
       rule) on any number of threads, as a std.Io group, best-arm results
       the same on any number; `go sim` in the background with progress,
-      `stop` and `time`. Go's other stopping rules (classic, paired) are
-      not ported.
+      `stop` and `time`; endgame leaves (with two tiles or fewer in the
+      bag a rollout's endgame is searched, each once a sim), the
+      cross-check simming such positions too. Go's other stopping rules
+      (classic, paired) are not ported.
 - [x] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
       The opponent's last move comes in the CGP's `lm` opcode (through

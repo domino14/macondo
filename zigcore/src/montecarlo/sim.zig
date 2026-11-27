@@ -28,6 +28,9 @@ const cross_set = @import("../board/cross_set.zig");
 const bai = @import("bai.zig");
 const gomath = @import("../gocompat/gomath.zig");
 const Move = @import("../board/move.zig").Move;
+const endgame = @import("../endgame/endgame.zig");
+const ttable = @import("../endgame/ttable.zig");
+const zobrist_mod = @import("../endgame/zobrist.zig");
 const Game = game_mod.Game;
 const MachineLetter = tiles.MachineLetter;
 
@@ -346,6 +349,35 @@ pub fn threadSeed(seed: [32]u8, turn: u64, thread: u64) [32]u8 {
     return out;
 }
 
+/// Endgame leaves (Go's endgame_leaf.go): in a sim of a position with at
+/// most leaf_max_bag tiles in the bag, a rollout that empties the bag stops
+/// there and scores the endgame with a quick result-only search instead of
+/// playing it out with static moves: with both racks known, a search is the
+/// right judge of who wins. Only endgames within leaf_margin points are
+/// searched (the others are decided anyway). With one or two tiles in the
+/// bag a sim meets the same few endgames over and over, so each worker
+/// keeps every result for the rest of the sim.
+pub const leaf_max_bag = 2;
+pub const leaf_plies = 2;
+pub const leaf_margin = 60;
+/// A search past this many positions gives up, and the rollout plays on
+/// with static moves (Go stops one after 100 ms; a count of positions
+/// keeps the result the same on every machine).
+pub const leaf_node_limit = 1_000_000;
+
+/// What a sim's endgame leaves are searched with: a transposition table
+/// and its keys, shared by the workers (the table is lockless).
+pub const EndgameLeaves = struct {
+    tt: *ttable.Table,
+    zobrist: *const zobrist_mod.Zobrist,
+};
+
+/// A leaf's position (the board, both racks, the scoreless turns) and the
+/// spread of the player on turn, which its result depends on.
+const LeafKey = struct { hash: u64, spread: i32 };
+/// A cached leaf whose search gave up.
+const leaf_failed = std.math.minInt(i32);
+
 pub const Sim = struct {
     gpa: Allocator,
     plays: []Play,
@@ -376,6 +408,8 @@ pub const Sim = struct {
     /// Keeps a progress report and a plain run's last merge apart.
     stats_mutex: std.Io.Mutex = .init,
     bai_stop: ?*const std.atomic.Value(bool) = null,
+    /// Set (setEndgameLeaves) when the rollouts search their endgames.
+    leaves: ?EndgameLeaves = null,
 
     /// A sim of `moves` from `g` (whose seed is `seed` at turn `turn`),
     /// rolling each out `plies` plies (at most max_plies), on `threads`
@@ -468,6 +502,12 @@ pub const Sim = struct {
     fn clearPosterior(self: *Sim) void {
         if (self.posterior) |p| self.gpa.free(p.cdf);
         self.posterior = null;
+    }
+
+    /// Has the rollouts search the endgames they reach (see leaf_max_bag),
+    /// if the position has few enough tiles in the bag; `tt` must be sized.
+    pub fn setEndgameLeaves(self: *Sim, leaves: EndgameLeaves) void {
+        if (self.workers[0].start.tilesInBag() <= leaf_max_bag) self.leaves = leaves;
     }
 
     pub fn destroy(self: *Sim) void {
@@ -702,6 +742,10 @@ pub const Worker = struct {
     stat_buf: []Stat,
     mutex: std.Io.Mutex = .init,
     nodes: std.atomic.Value(u64) = .init(0),
+    /// Endgame leaves: the results so far (final spreads for the player on
+    /// turn), and the searches' caches.
+    leaf_results: std.AutoHashMapUnmanaged(LeafKey, i32) = .empty,
+    leaf_workspace: ?endgame.Workspace = null,
 
     fn init(self: *Worker, sim: *Sim, g: *const Game, seed: [32]u8) Allocator.Error!void {
         const gpa = sim.gpa;
@@ -743,6 +787,8 @@ pub const Worker = struct {
 
     fn deinit(self: *Worker) void {
         const gpa = self.sim.gpa;
+        self.leaf_results.deinit(gpa);
+        if (self.leaf_workspace) |*w| w.deinit();
         self.cross_cache.deinit(gpa);
         gpa.destroy(self.cross_cache);
         self.carry.deinit();
@@ -863,9 +909,19 @@ pub const Worker = struct {
         var r: Rollout = .{ .play = @intCast(index) };
         g.play(&sim.plays[index].move);
         _ = self.nodes.fetchAdd(1, .monotonic);
+        var leaf_win: ?f64 = null;
         for (0..sim.plies) |ply| {
             const on_turn = g.on_turn;
             if (!g.playing) break;
+            if (sim.leaves != null and g.tilesInBag() == 0) {
+                // The bag is empty: search the endgame rather than play it
+                // out with static moves.
+                const sp = g.pos.scores[on_turn] - g.pos.scores[1 - on_turn];
+                if (sp <= leaf_margin and sp >= -leaf_margin) {
+                    leaf_win = try self.endgameLeaf(g);
+                    if (leaf_win != null) break;
+                }
+            }
             const rack = g.pos.racks[on_turn];
             const best = try self.bestStaticTurn(g);
             if (ply + 1 == sim.plies) g.playLast(&best.move) else g.play(&best.move);
@@ -883,10 +939,67 @@ pub const Worker = struct {
         }
         const ip = sim.initial_player;
         const spread = g.pos.scores[ip] - g.pos.scores[1 - ip];
+        if (leaf_win) |w| {
+            // Scored at the empty bag: the searched result, and the spread
+            // the endgame starts from with no leftover.
+            r.leftover = 0;
+            r.equity = @floatFromInt(spread - sim.initial_spread);
+            r.win = w;
+            return r;
+        }
         r.equity = @as(f64, @floatFromInt(spread - sim.initial_spread)) + r.leftover;
         const unseen = g.tilesInBag() + g.pos.racks[1 - ip].num_tiles;
         r.win = sim.win_table.rolloutWin(spread, r.leftover, !g.playing, unseen, sim.plies % 2 == 0);
         return r;
+    }
+
+    /// The empty-bag position of `g` scored for the sim's player by a
+    /// result-only search (see leaf_max_bag): 1 for a win, 0 for a loss,
+    /// 0.5 for a tie; null if the search gave up, the rollout then playing
+    /// on. `g` is left as it was.
+    fn endgameLeaf(self: *Worker, g: *const Game) Allocator.Error!?f64 {
+        const sim = self.sim;
+        const lv = sim.leaves.?;
+        const on = g.on_turn;
+        if (g.pos.racks[on].num_tiles == 0 or g.pos.racks[1 - on].num_tiles == 0) return null;
+        // The solver's position: the player on turn first.
+        var pos = g.pos;
+        pos.racks = .{ g.pos.racks[on], g.pos.racks[1 - on] };
+        pos.scores = .{ g.pos.scores[on], g.pos.scores[1 - on] };
+        pos.scoreless_turns = g.scoreless_turns;
+        pos.max_scoreless_turns = g.max_scoreless_turns;
+        pos.last_move = null;
+        const spread = pos.scores[0] - pos.scores[1];
+        const dim = pos.board.dim;
+        const key: LeafKey = .{ .spread = spread, .hash = lv.zobrist.hash(pos.board.squares[0 .. dim * dim], &pos.racks[0], &pos.racks[1], pos.dist.size, false, pos.scoreless_turns) };
+        const final = if (self.leaf_results.get(key)) |v| v else blk: {
+            if (self.leaf_workspace == null) self.leaf_workspace = .init(sim.gpa);
+            // Go's quick result-only search: its playouts' picks, no pruned
+            // word graph (a 2-ply search costs less than making one), and
+            // only the value.
+            const solver = endgame.Solver.initIn(sim.gpa, &pos, lv.zobrist, lv.tt, .{
+                .first_win = true,
+                .clear_tt = false,
+                .pruned_kwg = false,
+                .playout_out_bonus = false,
+                .node_limit = leaf_node_limit,
+                .complete_line = false,
+            }, &self.leaf_workspace.?, 0) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => break :blk leaf_failed,
+            };
+            defer solver.deinit();
+            const res = solver.solve(leaf_plies, null, null) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => break :blk leaf_failed,
+            };
+            break :blk if (res.depth < leaf_plies) leaf_failed else res.value + spread;
+        };
+        try self.leaf_results.put(sim.gpa, key, final);
+        if (final == leaf_failed) return null;
+        var win: f64 = if (final > 0) 1 else if (final < 0) 0 else 0.5;
+        if (on != sim.initial_player) win = 1 - win;
+        return win;
     }
 
     /// The best static move for the player on turn (GenBestStaticTurn).

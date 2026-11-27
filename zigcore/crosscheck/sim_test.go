@@ -42,6 +42,9 @@ type simCase struct {
 	// classic is the inference's mini-sim: the classic Stop99 rule,
 	// checked every 64 iterations, on one thread (Zig's minisim command).
 	classic bool
+	// leaves has Go's sim search the endgames its rollouts reach (the Zig
+	// engine's always does, with two tiles or fewer in the bag).
+	leaves bool
 }
 
 func (c simCase) command() string {
@@ -68,8 +71,8 @@ type simResult struct {
 // engines, single-threaded with the same seed, and compares every play's
 // mean win probability and equity exactly: the same seed must deal the
 // same opponent racks and draws, and the rollouts must make the same plays.
-// Positions keep at least three tiles in the bag, where Go's sim would
-// search endgames instead of playing them out (not ported yet).
+// Positions with two tiles or fewer in the bag are simmed with endgame
+// leaves: the rollouts' endgames are searched, and must be judged alike.
 func TestSimCrossCheck(t *testing.T) {
 	e := startEngine(t)
 	cfg := config.DefaultConfig()
@@ -106,8 +109,24 @@ func TestSimCrossCheck(t *testing.T) {
 					sims++
 				}
 			}
+			for i, cgpStr := range lowBagPositions(t, cfg, bc, automatic.DeriveSeed(master, 1), *simPositions) {
+				plies := 2 + i%3
+				for _, c := range []simCase{
+					{plies: plies, iters: *simIterations, seed: uint64(i + 1), leaves: true},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), leaves: true},
+					{plies: plies, stop: 99, cap: 3 * *simIterations, bestCap: 2000, seed: uint64(i + 1), threads: 4, leaves: true},
+				} {
+					compareSim(t, e, cfg, cgpStr, c)
+					sims++
+				}
+			}
 			t.Logf("%d sims match", sims)
 		})
+	}
+	t.Logf("%d endgame leaves searched by Go, %d sims skipped for a search Go cut short",
+		montecarlo.EndgameLeafSolves.Load(), leafCapSkips)
+	if montecarlo.EndgameLeafSolves.Load() == 0 {
+		t.Error("no endgame leaf was searched")
 	}
 	t.Logf("%d best-arm sims sampled adaptively", adaptiveSims)
 	t.Logf("%d mini-sims dropped plays or stopped early", classicStops)
@@ -157,7 +176,14 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 		zig[f[5]] = r
 	}
 	zigBest := strings.TrimPrefix(lines[len(lines)-1], "bestmove ")
+	capped := montecarlo.EndgameLeafFallbacks.Load()
 	want, best, status := goSim(t, cfg, cgpStr, automatic.DeriveSeed(c.seed, 0), c, 10)
+	if montecarlo.EndgameLeafFallbacks.Load() != capped {
+		// Go stops a leaf's search after 100 ms, the Zig engine after a
+		// number of positions: a sim with a search Go cut short can differ.
+		leafCapSkips++
+		return
+	}
 	if len(want) != len(zig) {
 		t.Fatalf("%s: Go simmed %d plays, Zig %d", cgpStr, len(want), len(zig))
 	}
@@ -198,6 +224,10 @@ func compareSim(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, c si
 // adaptiveSims counts the best-arm sims that got past the round-robin
 // phase, where every play has the same number of rollouts.
 var adaptiveSims int
+
+// leafCapSkips counts the sims not compared because Go cut short an
+// endgame leaf's search.
+var leafCapSkips int
 
 // classicStops counts mini-sims in which the classic rule dropped a play
 // or stopped early.
@@ -244,6 +274,50 @@ func simPositionsFrom(t *testing.T, cfg *config.Config, bc boardCase, seed [32]b
 	return out
 }
 
+// lowBagPositions plays seeded static games and returns up to n positions
+// with one or two tiles in the bag, a game each, as CGPs with both racks.
+func lowBagPositions(t *testing.T, cfg *config.Config, bc boardCase, seed [32]byte, n int) []string {
+	t.Helper()
+	rules, err := game.NewBasicGameRules(cfg, bc.lexicon, bc.layout, bc.dist, game.CrossScoreAndSet, game.VarClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	players := []*pb.PlayerInfo{{Nickname: "p1", RealName: "p1"}, {Nickname: "p2", RealName: "p2"}}
+	var out []string
+	for gi := 0; len(out) < n && gi < 4*n; gi++ {
+		g, err := game.NewGame(rules, players)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s [32]byte
+		copy(s[:], seed[:])
+		s[0] ^= byte(gi)
+		g.SeedBag(s)
+		g.StartGame()
+		p := staticPlayer(t, cfg, g)
+		for g.Playing() == pb.PlayState_PLAYING {
+			if bag := g.Bag().TilesRemaining(); bag >= 1 && bag <= 2 {
+				alph := g.Alphabet()
+				me := g.PlayerOnTurn()
+				// The opponent's rack is given, so that only one or two
+				// tiles count as in the bag (a game's sim knows both racks;
+				// the opponent's is dealt anew each iteration all the same).
+				out = append(out, fmt.Sprintf("%s %s/%s %d/%d %d lex %s; ld %s; bdn %s;",
+					g.Board().ToFEN(alph), g.RackFor(me).TilesOn().UserVisible(alph), g.RackFor(1-me).TilesOn().UserVisible(alph),
+					g.PointsFor(me), g.PointsFor(1-me), g.ScorelessTurns(), bc.lexicon, bc.dist, bc.layout))
+				break
+			}
+			m := turnplayer.GenBestStaticTurn(g, p, g.PlayerOnTurn())
+			chosen := new(move.Move)
+			chosen.CopyFrom(m)
+			if err := g.PlayMove(chosen, false, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return out
+}
+
 // goSim sims the nplays best plays by static equity of a CGP position in
 // Go's engine, single-threaded, seeded with seed at turn 0, and returns each
 // play's statistics by UCGI move. The bag is sorted first: Go leaves it in
@@ -267,7 +341,7 @@ func goSim(t *testing.T, cfg *config.Config, cgpStr string, seed [32]byte, c sim
 	s := &montecarlo.Simmer{}
 	s.Init(g, []equity.EquityCalculator{calc}, calc, cfg)
 	s.SetThreads(1)
-	s.SetEndgameLeaves(false)
+	s.SetEndgameLeaves(c.leaves)
 	s.SetBAIBagCycle(c.cycle)
 	if err := s.PrepareSim(c.plies, plays); err != nil {
 		t.Fatal(err)

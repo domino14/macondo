@@ -275,6 +275,12 @@ pub const Options = struct {
     threads: usize = 1,
     /// How the threads share a search.
     parallel: Parallel = .pv_split,
+    /// Stop a search past this many positions (0: no limit): the solve
+    /// then answers from the last depth it finished.
+    node_limit: u64 = 0,
+    /// Search the best line on past the solve's depth for the result
+    /// (off where only the value is wanted, as for a sim's endgame leaf).
+    complete_line: bool = true,
 };
 
 /// How several threads share an endgame search.
@@ -1797,6 +1803,7 @@ pub const Solver = struct {
         if (self.halt) |h| {
             if (h.load(.monotonic)) return error.Stopped;
         }
+        if (self.opts.node_limit != 0 and self.nodes >= self.opts.node_limit) return error.Stopped;
         var alpha = alpha_in;
         var beta = beta_in;
         const on = self.on_turn;
@@ -2449,7 +2456,7 @@ pub const Solver = struct {
             if (progress) |f| f(ctx, &result);
             reported = true;
         }
-        if (result.depth > 0) {
+        if (result.depth > 0 and self.opts.complete_line) {
             self.stop = null;
             try self.completeLine(&result.line, result.depth, plies);
             result.nodes = self.searchedNodes();

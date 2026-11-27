@@ -136,6 +136,13 @@ first by win probability (then equity), and `bestmove`:
 < bestmove 8D.QUIZ
 ```
 
+With two tiles or fewer in the bag, a rollout that empties it stops there
+and its win is a quick result-only endgame search's (2 plies, as Macondo's
+sim endgame leaves): win, loss or tie for the player on turn, with the
+spread at the empty bag as its equity. Only endgames within 60 points are
+searched, each once a sim; a search that runs past a million positions
+leaves the rollout to play on. `leaves 0` turns this off.
+
 With `stop <90|95|98|99|999>` the sim is a best-arm identification run, as
 Macondo's elite bot runs its sims: each play gets 128 rollouts, then the
 rollouts go mostly to the leader and its closest challenger, and the sim
