@@ -2801,6 +2801,25 @@ test "a value is exact only once no line behind it stops short of the game's end
         try testing.expect(!seen.exact[3]);
         try testing.expectEqual(@as(i16, 21), r.value);
     }
+    // On several threads, solve after solve: never exact at 4 plies (where
+    // the first position's best line already ends the game), always exact
+    // when asked for 25.
+    for ([_]Parallel{ .pv_split, .abdada }) |parallel| {
+        for (0..20) |_| {
+            for ([_]struct { pos: *const position.Position, plies: u32, value: i16, exact: bool }{
+                .{ .pos = &after, .plies = 4, .value = -1, .exact = false },
+                .{ .pos = &after, .plies = max_variant, .value = -1, .exact = true },
+                .{ .pos = &before, .plies = 4, .value = 21, .exact = false },
+            }) |c| {
+                const s = try Solver.init(testing.allocator, c.pos, &z, &tt, .{ .tt_bytes = 1 << 20, .threads = 3, .parallel = parallel });
+                defer s.deinit();
+                s.io = testing.io;
+                const r = try s.solve(c.plies, null, null);
+                try testing.expectEqual(c.value, r.value);
+                try testing.expectEqual(c.exact, r.exact);
+            }
+        }
+    }
 }
 
 test "the speed options leave endgame values as they were" {
