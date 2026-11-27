@@ -37,19 +37,27 @@ pub fn generateAll(b: *Board, kwg: Kwg, ld: *const LetterDistribution) void {
 /// tiles were put on the board (whose anchors were up to date before),
 /// giving the same result as generateAll and updateAllAnchors. Port of
 /// Go's updateForMove (MAGPIE's update_cross_set_for_move): only the
-/// squares whose words changed are worked out again. Along the play, its
-/// own squares and one on each side; across it, for each new tile, its
-/// square and the squares just past each end of the word it makes.
-/// Anchors look only at a square's neighbours.
+/// squares whose words changed are worked out again. A new tile's own
+/// cross-sets are empty, as a filled square's are; the squares just past
+/// each end of the play, and of each word a new tile makes across it, are
+/// worked out from their words. Anchors look only at a square's
+/// neighbours.
 pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld: *const LetterDistribution, was_empty: bool, cache: ?*Cache) void {
     const along: Direction = if (m.vertical) .vertical else .horizontal;
     const lane: isize = if (m.vertical) m.col else m.row;
     const start: isize = if (m.vertical) m.row else m.col;
     const len: isize = m.len;
 
+    for (m.tileSlice(), 0..) |ml, i| {
+        if (ml == 0) continue;
+        const r = m.row + if (m.vertical) i else 0;
+        const c = m.col + if (m.vertical) 0 else i;
+        b.clearCrossSets(r, c);
+    }
+
     if (along == .vertical) b.transpose();
-    var col = start - 1;
-    while (col <= start + len) : (col += 1) generateCached(b, lane, col, along, kwg, ld, cache);
+    generateCached(b, lane, start - 1, along, kwg, ld, cache);
+    generateCached(b, lane, start + len, along, kwg, ld, cache);
     if (along == .vertical) b.transpose();
 
     const across = along.other();
@@ -61,7 +69,6 @@ pub fn updateForPlay(b: *Board, m: *const @import("move.zig").Move, kwg: Kwg, ld
         const left = b.wordEdge(row, lane, -1);
         generateCached(b, @intCast(row), right + 1, across, kwg, ld, cache);
         generateCached(b, @intCast(row), left - 1, across, kwg, ld, cache);
-        generateCached(b, @intCast(row), lane, across, kwg, ld, cache);
     }
     if (across == .vertical) b.transpose();
 

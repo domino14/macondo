@@ -306,6 +306,17 @@ pub const Board = struct {
         self.cross_sets[@backingInt(dir)][idx] = cs;
     }
 
+    /// Empties a square's cross-sets and cross-scores in both directions,
+    /// as a filled square's are.
+    pub inline fn clearCrossSets(self: *Board, row: usize, col: usize) void {
+        const idx = self.sqIdx(row, col);
+        self.touch(idx);
+        inline for (0..2) |d| {
+            self.cross_sets[d][idx] = 0;
+            self.cross_scores[d][idx] = 0;
+        }
+    }
+
     pub inline fn addToCrossSet(self: *Board, row: usize, col: usize, ml: MachineLetter, dir: Direction) void {
         const idx = self.sqIdx(row, col);
         self.touch(idx);
