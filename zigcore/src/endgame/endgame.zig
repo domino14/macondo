@@ -106,8 +106,39 @@ pub const SmallMove = struct {
     }
 };
 
-fn estimateFirst(_: void, a: SmallMove, b: SmallMove) bool {
-    return a.est > b.est;
+/// Sorts `moves` by estimate, best first, keeping equal estimates in
+/// order (MAGPIE's sort_small_moves_range): insertion sort for short runs,
+/// else each half sorted and merged through `scratch`, which holds half.
+fn sortByEstimateStable(moves: []SmallMove, scratch: []SmallMove) void {
+    const n = moves.len;
+    if (n <= 16) {
+        if (n < 2) return;
+        for (1..n) |i| {
+            const m = moves[i];
+            var pos = i;
+            while (pos > 0 and moves[pos - 1].est < m.est) : (pos -= 1) moves[pos] = moves[pos - 1];
+            moves[pos] = m;
+        }
+        return;
+    }
+    const half = n / 2;
+    sortByEstimateStable(moves[0..half], scratch);
+    sortByEstimateStable(moves[half..], scratch);
+    if (moves[half - 1].est >= moves[half].est) return;
+    @memcpy(scratch[0..half], moves[0..half]);
+    var left: usize = 0;
+    var right = half;
+    var out: usize = 0;
+    while (left < half and right < n) : (out += 1) {
+        if (scratch[left].est >= moves[right].est) {
+            moves[out] = scratch[left];
+            left += 1;
+        } else {
+            moves[out] = moves[right];
+            right += 1;
+        }
+    }
+    @memcpy(moves[out..][0 .. half - left], scratch[left..half]);
 }
 
 /// MAGPIE's lazy move ordering: puts `list`'s moves in place, best
@@ -117,12 +148,12 @@ fn estimateFirst(_: void, a: SmallMove, b: SmallMove) bool {
 /// held; the slot after that sorts the rest stably. Returns whether the
 /// rest is sorted. Equal estimates keep MAGPIE's order, which the swaps
 /// make other than a stable sort's.
-fn orderThrough(list: []SmallMove, ordered: *usize, through: usize) bool {
+fn orderThrough(list: []SmallMove, ordered: *usize, through: usize, scratch: []SmallMove) bool {
     while (ordered.* <= through) {
         const slot = ordered.*;
         ordered.* += 1;
         if (slot >= lazy_selection_limit) {
-            std.sort.block(SmallMove, list[slot..], {}, estimateFirst);
+            sortByEstimateStable(list[slot..], scratch);
             return true;
         }
         var best = slot;
@@ -1644,7 +1675,10 @@ pub const Solver = struct {
         var ordered: usize = 0;
         for (0..num_children) |idx| {
             // (Deeper nodes may move the arena.)
-            if (!tail_sorted) tail_sorted = orderThrough(self.arena.items[arena_mark..][0..num_children], &ordered, idx);
+            if (!tail_sorted) {
+                if (ordered == lazy_selection_limit) try self.sort_moves.resize(self.gpa, num_children / 2 + 1);
+                tail_sorted = orderThrough(self.arena.items[arena_mark..][0..num_children], &ordered, idx, self.sort_moves.items);
+            }
             // (Deeper nodes may move the arena.)
             const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
             if (first_reply) |fr| if (m.tm == fr.tm) continue;
@@ -1991,6 +2025,7 @@ test "the standard endgame is worth 11 at 4 plies" {
 test "the lazy move ordering sorts by estimate, ties in MAGPIE's order" {
     var prng: std.Random.DefaultPrng = .init(7);
     const r = prng.random();
+    var scratch: [40]SmallMove = undefined;
     for (0..500) |_| {
         var list: [40]SmallMove = undefined;
         const n = r.uintAtMost(usize, list.len);
@@ -2000,7 +2035,7 @@ test "the lazy move ordering sorts by estimate, ties in MAGPIE's order" {
         var sorted = false;
         var seen: u64 = 0;
         for (0..n) |idx| {
-            if (!sorted) sorted = orderThrough(list[0..n], &ordered, idx);
+            if (!sorted) sorted = orderThrough(list[0..n], &ordered, idx, &scratch);
             // Each move in its place once taken: none after it is better.
             for (list[idx + 1 .. n]) |m| try testing.expect(m.est <= list[idx].est);
             seen |= @as(u64, 1) << @intCast(list[idx].tm);
@@ -2011,10 +2046,29 @@ test "the lazy move ordering sorts by estimate, ties in MAGPIE's order" {
     // the 2, then the second 1, then the first.
     var three = [_]SmallMove{ .{ .tm = 0, .est = 1 }, .{ .tm = 1, .est = 1 }, .{ .tm = 2, .est = 2 } };
     var ordered: usize = 0;
-    _ = orderThrough(&three, &ordered, 2);
+    _ = orderThrough(&three, &ordered, 2, &scratch);
     try testing.expectEqual(2, three[0].tm);
     try testing.expectEqual(1, three[1].tm);
     try testing.expectEqual(0, three[2].tm);
+}
+
+test "the tail sort is stable" {
+    var prng: std.Random.DefaultPrng = .init(9);
+    const r = prng.random();
+    var scratch: [100]SmallMove = undefined;
+    for (0..300) |_| {
+        var list: [200]SmallMove = undefined;
+        const n = r.uintAtMost(usize, list.len);
+        for (list[0..n], 0..) |*m, i| m.* = .{ .tm = i, .est = r.intRangeAtMost(i16, -4, 4) };
+        var want = list;
+        std.sort.block(SmallMove, want[0..n], {}, struct {
+            fn f(_: void, a: SmallMove, b: SmallMove) bool {
+                return a.est > b.est;
+            }
+        }.f);
+        sortByEstimateStable(list[0..n], &scratch);
+        for (want[0..n], list[0..n]) |w, g| try testing.expectEqual(w.tm, g.tm);
+    }
 }
 
 test "the speed options leave endgame values as they were" {
