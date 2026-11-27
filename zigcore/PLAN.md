@@ -307,6 +307,10 @@ Woogles needs its source available.
   step 11.
 - `info` payloads: plain tokens, or JSON for the richer sim and inference
   output? (Leaning: tokens, with JSON allowed in specific `info` fields.)
+  The output format as a whole may change; to be decided with the Go side
+  switch-over (step 12). Whatever the format, an endgame result keeps
+  saying whether its value is exact (proven: no line behind it stopped
+  short of the game's end).
 - Should weaker bot levels (`ai/bot/filters.go`) move into the core so bots
   can run in the browser?
 - Does the socket bridge belong in the Zig binary (`--listen`) or in a small
