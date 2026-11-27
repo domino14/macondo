@@ -1220,6 +1220,20 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 	return nil
 }
 
+// genOurNestedPlays generates our plays at a nested turn into mg's small-play
+// list. With skipDeepPass we pass only right after a pass. The opponent's
+// replies below this turn are generated as everywhere else, so the movegen
+// generates passes again before this returns.
+func (s *Solver) genOurNestedPlays(g *game.Game, mg movegen.MoveGenerator) []tinymove.SmallMove {
+	if s.skipDeepPass {
+		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
+		mg.SetGenPass(lastMoveWasPass)
+		defer mg.SetGenPass(true)
+	}
+	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	return mg.SmallPlays()
+}
+
 // nestedOurTurnSolve handles the "our turn again with bag still non-empty" frame
 // under an imperfect-info model. We don't know which tile is in the bag; we only
 // know the multiset of unseen tiles (current bag ∪ opp's rack). We evaluate every
@@ -1341,13 +1355,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 	}
 
-	if s.skipDeepPass {
-		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
-		mg.SetGenPass(lastMoveWasPass)
-		defer mg.SetGenPass(true)
-	}
-	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	ourPlays := mg.SmallPlays()
+	ourPlays := s.genOurNestedPlays(g, mg)
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))

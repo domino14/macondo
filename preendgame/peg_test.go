@@ -17,7 +17,9 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/testhelpers"
+	"github.com/domino14/macondo/tinymove"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -632,4 +634,38 @@ func TestHiedInvestigation(t *testing.T) {
 		fmt.Print(peg.SolutionStats(len(winners)))
 	}
 	is.True(err == nil || err == ErrCanceledEarly)
+}
+
+// TestNestedOurPlaysKeepOpponentPasses: skip-deep-pass leaves out our pass at
+// a nested turn that doesn't follow a pass, but the opponent's replies below
+// that turn are generated with the same movegen and must still include a
+// pass (it can be their winning reply).
+func TestNestedOurPlaysKeepOpponentPasses(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	is.True(peg.skipDeepPass)
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	hasPass := func(plays []tinymove.SmallMove) bool {
+		for _, p := range plays {
+			if p.IsPass() {
+				return true
+			}
+		}
+		return false
+	}
+	// The last move wasn't a pass: our pass is left out.
+	is.True(!hasPass(peg.genOurNestedPlays(g.Game, mg)))
+	// The opponent's replies, generated next with the same movegen, keep it.
+	mg.GenAll(g.RackFor(1-g.PlayerOnTurn()), false)
+	is.True(hasPass(mg.SmallPlays()))
 }
