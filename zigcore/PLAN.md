@@ -168,16 +168,17 @@ as they land.
       `autoplay` command. Check: identical games from the same seed (port
       `frand`'s ChaCha generator exactly). Challenge rules are left for
       step 12: autoplay and sims play with VOID.
-- [ ] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
+- [x] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
       leaves; `go sim`, streaming `info`. Check: identical results with one
       thread and a fixed seed; statistical agreement with many threads.
-      Done: plain sims (until stopped) and best-arm sims (the elite bot's
-      rule) on any number of threads, as a std.Io group, best-arm results
-      the same on any number; `go sim` in the background with progress,
-      `stop` and `time`; endgame leaves (with two tiles or fewer in the
-      bag a rollout's endgame is searched, each once a sim), the
-      cross-check simming such positions too. Go's other stopping rules
-      (classic, paired) are not ported.
+      Plain sims (until stopped, or for a number of iterations or a time)
+      and best-arm sims (the elite bot's rule) on any number of threads, as
+      a std.Io group, best-arm results the same on any number; `go sim` in
+      the background with progress, `stop` and `time`; endgame leaves (with
+      two tiles or fewer in the bag a rollout's endgame is searched, each
+      once a sim), the cross-check simming such positions too. Go's other
+      stopping rules for `go sim` (classic, paired) are left out: the bots
+      use best-arm, and the inference's mini-sim has the classic rule.
 - [x] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
       The opponent's last move comes in the CGP's `lm` opcode (through
