@@ -275,7 +275,7 @@ func simPositionsFrom(t *testing.T, cfg *config.Config, bc boardCase, seed [32]b
 }
 
 // lowBagPositions plays seeded static games and returns up to n positions
-// with one or two tiles in the bag, a game each, as CGPs with both racks.
+// with one or two tiles in the bag, a game each, as CGPs.
 func lowBagPositions(t *testing.T, cfg *config.Config, bc boardCase, seed [32]byte, n int) []string {
 	t.Helper()
 	rules, err := game.NewBasicGameRules(cfg, bc.lexicon, bc.layout, bc.dist, game.CrossScoreAndSet, game.VarClassic)
@@ -299,11 +299,17 @@ func lowBagPositions(t *testing.T, cfg *config.Config, bc boardCase, seed [32]by
 			if bag := g.Bag().TilesRemaining(); bag >= 1 && bag <= 2 {
 				alph := g.Alphabet()
 				me := g.PlayerOnTurn()
-				// The opponent's rack is given, so that only one or two
-				// tiles count as in the bag (a game's sim knows both racks;
-				// the opponent's is dealt anew each iteration all the same).
+				// Every other position gives the opponent's rack, as a
+				// game's sim knows it, and the others leave it out, as a
+				// CGP of the player's own rack does, its tiles then in the
+				// bag; the sim deals the opponent a new rack each iteration
+				// either way.
+				opp := g.RackFor(1 - me).TilesOn().UserVisible(alph)
+				if len(out)%2 == 1 {
+					opp = ""
+				}
 				out = append(out, fmt.Sprintf("%s %s/%s %d/%d %d lex %s; ld %s; bdn %s;",
-					g.Board().ToFEN(alph), g.RackFor(me).TilesOn().UserVisible(alph), g.RackFor(1-me).TilesOn().UserVisible(alph),
+					g.Board().ToFEN(alph), g.RackFor(me).TilesOn().UserVisible(alph), opp,
 					g.PointsFor(me), g.PointsFor(1-me), g.ScorelessTurns(), bc.lexicon, bc.dist, bc.layout))
 				break
 			}

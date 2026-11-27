@@ -474,7 +474,7 @@ pub const Engine = struct {
         const turn = positionTurn(p);
         const sim = try sim_mod.Sim.create(self.gpa, g, game_seed, turn, moves, plies, win_table, self.options.threads);
         errdefer sim.destroy();
-        if (leaves and g.tilesInBag() <= sim_mod.leaf_max_bag) {
+        if (leaves and sim.leavesApply()) {
             // The endgame leaves' searches share the engine's table, kept
             // from sim to sim as Go keeps its.
             if (self.zobrist == null or self.zobrist.?.dim != p.board.dim) {

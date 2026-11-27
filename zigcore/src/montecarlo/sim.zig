@@ -504,10 +504,21 @@ pub const Sim = struct {
         self.posterior = null;
     }
 
+    /// Whether the position has few enough tiles in the bag for endgame
+    /// leaves (see leaf_max_bag), counting the bag as it is once each
+    /// iteration has dealt the opponent a full rack: a position whose
+    /// opponent rack isn't known (a CGP with only the player's rack) still
+    /// holds that rack's tiles in its bag (Go's egLeafBag).
+    pub fn leavesApply(self: *const Sim) bool {
+        const g = &self.workers[0].start;
+        const opp: i32 = g.pos.racks[1 - self.initial_player].num_tiles;
+        return @max(0, g.tilesInBag() + opp - game_mod.rack_tile_limit) <= leaf_max_bag;
+    }
+
     /// Has the rollouts search the endgames they reach (see leaf_max_bag),
     /// if the position has few enough tiles in the bag; `tt` must be sized.
     pub fn setEndgameLeaves(self: *Sim, leaves: EndgameLeaves) void {
-        if (self.workers[0].start.tilesInBag() <= leaf_max_bag) self.leaves = leaves;
+        if (self.leavesApply()) self.leaves = leaves;
     }
 
     pub fn destroy(self: *Sim) void {

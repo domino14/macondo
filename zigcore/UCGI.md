@@ -136,7 +136,9 @@ first by win probability (then equity), and `bestmove`:
 < bestmove 8D.QUIZ
 ```
 
-With two tiles or fewer in the bag, a rollout that empties it stops there
+With two tiles or fewer in the bag (once the opponent holds a full rack:
+a CGP without the opponent's rack has those tiles in the bag too), a
+rollout that empties it stops there
 and its win is a quick result-only endgame search's (2 plies, as Macondo's
 sim endgame leaves): win, loss or tie for the player on turn, with the
 spread at the empty bag as its equity. Only endgames within 60 points are
