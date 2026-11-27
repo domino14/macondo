@@ -650,7 +650,7 @@ func TestNestedOurPlaysKeepOpponentPasses(t *testing.T) {
 	is.NoErr(err)
 	peg := new(Solver)
 	is.NoErr(peg.Init(g.Game, gd))
-	is.True(peg.skipDeepPass)
+	peg.SetSkipDeepPass(true)
 
 	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 	mg.SetGenPass(true)
@@ -668,4 +668,29 @@ func TestNestedOurPlaysKeepOpponentPasses(t *testing.T) {
 	// The opponent's replies, generated next with the same movegen, keep it.
 	mg.GenAll(g.RackFor(1-g.PlayerOnTurn()), false)
 	is.True(hasPass(mg.SmallPlays()))
+}
+
+// TestNestedOurPassByDefault: by default a nested turn considers our pass even
+// when the last move was a tile play (it can be our winning reply: the
+// opponent must draw, or we keep a tile we need).
+func TestNestedOurPassByDefault(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	is.True(!peg.skipDeepPass)
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	hasPass := false
+	for _, p := range peg.genOurNestedPlays(g.Game, mg) {
+		hasPass = hasPass || p.IsPass()
+	}
+	is.True(hasPass)
 }

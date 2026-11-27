@@ -971,7 +971,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	skipDeepPass, err := cmd.options.BoolDefault("skip-deep-pass", true)
+	skipDeepPass, err := cmd.options.BoolDefault("skip-deep-pass", false)
 	if err != nil {
 		return nil, err
 	}

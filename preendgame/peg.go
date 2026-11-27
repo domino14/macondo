@@ -515,7 +515,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.maxTilesLeft = 1
 	s.skipTiebreaker = false
 	s.nestedDepthLimit = 1
-	s.skipDeepPass = true
+	s.skipDeepPass = false
 	s.explainRerunDepth = -1
 	return nil
 }

@@ -364,12 +364,10 @@ load xt 39443
 Here, Matthew played `13M P(AH)` for 32 points. We can examine this move by doing:
 
 ```
-peg -only-solve "13M P.." -skip-deep-pass false
+peg -only-solve "13M P.."
 ```
 
 **(Note, this is slow! See below)**
-
-We set `-skip-deep-pass` to false here to make sure that the algorithm examines passes. For this position and many others it likely doesn't really make a difference to examine passes though. They are quite rare in most pre-endgames.
 
 By not specifying endgame plies it defaults to 4, which is sufficient for many endgames.
 
@@ -424,7 +422,7 @@ Therefore, for the case that GRL is in the bag, in that order, the move P(AH) ca
 
 ##### Showing specific result for this permutation
 
-If you run `peg -only-solve "13M P.." -skip-deep-pass false -eventuality GRL` it will
+If you run `peg -only-solve "13M P.." -eventuality GRL` it will
 solve this particular play for only this eventuality. Note: this solve will be single-threaded, so it might not be as fast as you'd expect. On my computer this takes a
 bit over a minute:
 
@@ -465,7 +463,8 @@ Let's imagine for the sake of argument that there was another play that also won
 
 ## Shortcuts and when to disable them
 
-Three on-by-default settings make nested PEG practical on real positions.
+Two on-by-default settings make nested PEG practical on real positions, and a
+third shortcut can be turned on.
 
 ### `-max-nested-depth 1` (default)
 
@@ -499,22 +498,21 @@ Expect runtimes measured in days or weeks on positions with many tiles in the ba
 Use `-max-nested-depth 0` to skip all non-bag-emptying analysis entirely (equivalent
 to `-max-tiles-left 0`).
 
-### `-skip-deep-pass true` (default)
+### `-skip-deep-pass` (off by default)
 
-Passes are legal pre-endgame moves — sometimes the right call. But in the nested
-sub-PEG, a pass generates another candidate that can itself trigger further nesting.
-Repeated pass chains in nested sub-games are vanishingly rare in real positions, yet
-they multiply the search space.
+Passes are legal pre-endgame moves — sometimes the right call: the opponent must
+draw, or we keep a tile we need. By default every turn, nested or not, considers
+our pass. Two passes in a row end the game, so a pass adds little to the search.
 
-With this option on, passes are suppressed in the nested sub-PEG candidate
-generation *except* when the previous move was also a pass — so the bounded
-"pass → pass → game ends" branch is always evaluated correctly. Pass as one of our
-top-level PEG candidates is always considered regardless of this setting.
-
-To restore full pass generation in nested sub-games:
+With this option on, our pass is left out of a nested sub-PEG's candidates
+*except* right after the opponent passed, so the bounded "pass → pass → game
+ends" branch is still evaluated. Our pass as a top-level candidate and the
+opponent's passes are always considered. With the default `-max-tiles-left 1` a
+nested sub-PEG always follows the opponent's pass, so the option changes nothing
+there.
 
 ```
-peg -skip-deep-pass false
+peg -skip-deep-pass true
 ```
 
 ### `-max-tiles-left 1` (default)
