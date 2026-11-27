@@ -127,14 +127,25 @@ inline fn alongIndex(vertical: bool) usize {
     return if (vertical) @backingInt(Direction.vertical) else @backingInt(Direction.horizontal);
 }
 
-fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set: u64, cross_score: i32, left_ext: u64, right_ext: u64) u64 {
-    // The square's place hashed on its own first: xored straight into its
-    // contents, two squares could trade contents (cross-sets 2 and 0 at
-    // places 1 and 3, say) and leave the lane's key as it was.
-    var k = mix(finish(@as(u64, lane) << 8 | i), cross_set);
-    k = mix(k, @as(u64, letter) | @as(u64, @intFromBool(anchor)) << 8 | @as(u64, @as(u32, @bitCast(cross_score))) << 16);
-    k = mix(k, left_ext);
-    k = mix(k, right_ext);
+/// Each square's place in each lane, hashed: a square's part starts from
+/// its place's, so two squares that trade contents change the lane's key
+/// (xored straight into the contents, cross-sets 2 and 0 at places 1 and
+/// 3 would leave it as it was).
+const place_salt: [max_lanes][board_mod.max_dim]u64 = blk: {
+    @setEvalBranchQuota(100_000);
+    var t: [max_lanes][board_mod.max_dim]u64 = undefined;
+    for (0..max_lanes) |lane| {
+        for (0..board_mod.max_dim) |i| t[lane][i] = finish(@as(u64, lane) << 8 | i);
+    }
+    break :blk t;
+};
+
+/// The fields are multiplied by odd constants (each a bijection) and
+/// xored onto the place's salt, then one finalizer mixes them.
+inline fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set: u64, cross_score: i32, left_ext: u64, right_ext: u64) u64 {
+    const word = @as(u64, letter) | @as(u64, @intFromBool(anchor)) << 8 | @as(u64, @as(u32, @bitCast(cross_score))) << 16;
+    const k = place_salt[lane][i] ^ (cross_set *% 0x9E3779B97F4A7C15) ^ (word *% 0xC2B2AE3D27D4EB4F) ^
+        (left_ext *% 0x165667B19E3779F9) ^ std.math.rotl(u64, right_ext *% 0xD6E8FEB86659FD93, 32);
     return finish(k);
 }
 
@@ -142,15 +153,19 @@ fn squarePart(lane: usize, i: usize, letter: u8, anchor: bool, cross_set: u64, c
 /// (`sq`, as it was) to the board's square as it is.
 pub fn updateKeys(b: *const board_mod.Board, keys: *[max_lanes]u64, sq: *const board_mod.SavedSquare) void {
     const dim = b.dim;
-    const r = sq.idx / dim;
-    const c = sq.idx % dim;
+    const idx = sq.idx;
+    const r = idx / dim;
+    const c = idx % dim;
     inline for (.{ false, true }) |vertical| {
-        const lane = if (vertical) dim + c else r;
-        const i = if (vertical) r else c;
         const cs = acrossIndex(vertical);
         const an = alongIndex(vertical);
-        keys[lane] ^= squarePart(lane, i, sq.letter, sq.anchors[an], sq.cross_sets[cs], sq.cross_scores[cs], sq.left_ext[cs], sq.right_ext[cs]);
-        keys[lane] ^= squareKey(b, lane, i);
+        {
+            // An unchanged square's two parts cancel.
+            const lane = if (vertical) dim + c else r;
+            const i = if (vertical) r else c;
+            keys[lane] ^= squarePart(lane, i, sq.letter, sq.anchors[an], sq.cross_sets[cs], sq.cross_scores[cs], sq.left_ext[cs], sq.right_ext[cs]) ^
+                squarePart(lane, i, b.squares[idx], b.anchors[an][idx], b.cross_sets[cs][idx], b.cross_scores[cs][idx], b.left_ext[cs][idx], b.right_ext[cs][idx]);
+        }
     }
 }
 
@@ -281,18 +296,12 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
                 loaded[side] |= @as(u32, 1) << @intCast(a.row);
             }
             gen.tiles_played = 0;
-            gen.plays.clearRetainingCapacity();
-            gen.genForAnchor(rack);
-            for (gen.plays.items) |*mv| {
-                const m: SmallMove = .fromMove(mv);
-                const v: i32 = m.score + (if (m.tiles_played == rack.num_tiles) out_bonus else 0);
-                if (cand == null or v > cand_v or (v == cand_v and m.tm > cand.?.tm)) {
-                    cand = m;
-                    cand_v = v;
-                }
+            const sb = gen.genForAnchorSmallBest(rack, out_bonus);
+            if (sb.tm != 0) {
+                cand = .{ .tm = sb.tm, .score = @intCast(sb.score), .tiles_played = sb.tiles_played, .len = sb.len };
+                cand_v = sb.value;
             }
-            const c = cand orelse SmallMove{};
-            pe.* = .{ .key = pkey, .tm = c.tm, .value = cand_v, .score = c.score, .tiles_played = c.tiles_played, .len = c.len };
+            pe.* = .{ .key = pkey, .tm = sb.tm, .value = cand_v, .score = @intCast(sb.score), .tiles_played = sb.tiles_played, .len = sb.len };
         }
         if (cand) |c| {
             if (result == null or cand_v > best_v or (cand_v == best_v and c.tm > result.?.tm)) {

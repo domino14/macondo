@@ -805,9 +805,7 @@ pub const PathLists = struct {
         p.generated.clearRetainingCapacity();
         if (gen_mask != 0) {
             const gen = p.host.gen;
-            try gen.genLanes(rack, gen_mask, &p.wanted, &p.anchors, &p.ends, &p.gen_anchors);
-            try p.generated.ensureTotalCapacity(p.gpa, gen.plays.items.len);
-            for (gen.plays.items) |*mv| p.generated.appendAssumeCapacity(.fromMove(mv));
+            try gen.genLanes(rack, gen_mask, &p.wanted, &p.anchors, &p.ends, &p.gen_anchors, &p.generated);
         }
         const generated = p.generated.items;
         const gen_anchors = p.gen_anchors.items;

@@ -59,6 +59,25 @@ pub const CachedSquare = struct {
     word_mul: u8,
 };
 
+/// What the generator does with the plays it finds: keeps them all,
+/// keeps the best by equity (genBest), keeps the endgame's best by value
+/// (genForAnchorSmallBest), or keeps them all as the endgame's small
+/// moves (genLanes).
+const SmallMove = @import("../endgame/endgame.zig").SmallMove;
+
+const Record = enum { all, best, small_best, small_all };
+
+/// An anchor's best play for the endgame: its move code (as the
+/// endgame's SmallMove; 0 for none), value, score, tiles played and
+/// length.
+pub const SmallBest = struct {
+    tm: u64 = 0,
+    value: i32 = 0,
+    score: i32 = 0,
+    tiles_played: u8 = 0,
+    len: u8 = 0,
+};
+
 pub const Generator = struct {
     board: *Board,
     kwg: Kwg,
@@ -84,6 +103,13 @@ pub const Generator = struct {
     row: *[board_mod.max_dim]CachedSquare = undefined,
     row_buf: [board_mod.max_dim]CachedSquare = undefined,
     out_of_memory: bool = false,
+
+    // The endgame's best play of an anchor (genForAnchorSmallBest).
+    small_best: SmallBest = .{},
+    small_out_bonus: i32 = 0,
+    small_rack_tiles: u8 = 0,
+    /// Where genLanes puts its plays.
+    small_out: *std.ArrayList(SmallMove) = undefined,
 
     // The best-play search (genBest).
     best_only: bool = false,
@@ -154,8 +180,14 @@ pub const Generator = struct {
     /// before it). `anchor_of` gets each play's anchor (its index along the
     /// lane) and `ends[lane]` the count of plays after the lane. No pass or
     /// exchanges. The endgame's incremental move lists use it.
-    pub fn genLanes(self: *Generator, rack: *Rack, lanes: u64, wanted: *const [max_lanes]u32, anchors: *const [max_lanes]u32, ends: *[max_lanes]i32, anchor_of: *std.ArrayList(u8)) Allocator.Error!void {
-        self.plays.clearRetainingCapacity();
+    /// The plays of the wanted anchors of `lanes` (rows, then columns),
+    /// as the endgame's small moves, into `out`: lane by lane, anchor by
+    /// anchor, each play's anchor in `anchor_of`, and the end of each
+    /// lane's plays in `ends`.
+    pub fn genLanes(self: *Generator, rack: *Rack, lanes: u64, wanted: *const [max_lanes]u32, anchors: *const [max_lanes]u32, ends: *[max_lanes]i32, anchor_of: *std.ArrayList(u8), out: *std.ArrayList(SmallMove)) Allocator.Error!void {
+        out.clearRetainingCapacity();
+        self.small_out = out;
+        defer self.small_out = undefined;
         anchor_of.clearRetainingCapacity();
         self.out_of_memory = false;
         self.best_only = false;
@@ -179,6 +211,7 @@ pub const Generator = struct {
     }
 
     fn genLaneSet(self: *Generator, rack: *Rack, dir: Direction, rows: u64, offset: usize, wanted: *const [max_lanes]u32, anchors: *const [max_lanes]u32, ends: *[max_lanes]i32, anchor_of: *std.ArrayList(u8)) Allocator.Error!void {
+        const out = self.small_out;
         for (0..self.board.dim) |row| {
             if (rows & (@as(u64, 1) << @intCast(row)) == 0) continue;
             const lane_anchors = anchors[offset + row];
@@ -192,10 +225,10 @@ pub const Generator = struct {
                 const before = lane_anchors & ((@as(u32, 1) << @intCast(col)) - 1);
                 self.last_anchor_col = if (before != 0) 31 - @clz(before) else 100;
                 self.cur_anchor_col = col;
-                self.genForAnchor(rack);
-                try anchor_of.appendNTimes(self.gpa, @intCast(col), self.plays.items.len - anchor_of.items.len);
+                self.recursiveGen(.small_all, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+                try anchor_of.appendNTimes(self.gpa, @intCast(col), out.items.len - anchor_of.items.len);
             }
-            ends[offset + row] = @intCast(self.plays.items.len);
+            ends[offset + row] = @intCast(out.items.len);
         }
     }
 
@@ -405,10 +438,60 @@ pub const Generator = struct {
     pub fn genForAnchor(self: *Generator, rack: *Rack) void {
         const col = self.cur_anchor_col;
         if (self.best_only) {
-            self.recursiveGen(true, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+            self.recursiveGen(.best, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
         } else {
-            self.recursiveGen(false, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+            self.recursiveGen(.all, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
         }
+    }
+
+    /// The anchor's best tile play for the endgame (see SmallBest), with
+    /// `out_bonus` added to a play of all `rack`'s tiles.
+    pub fn genForAnchorSmallBest(self: *Generator, rack: *Rack, out_bonus: i32) SmallBest {
+        const col = self.cur_anchor_col;
+        self.small_best = .{};
+        self.small_out_bonus = out_bonus;
+        self.small_rack_tiles = rack.num_tiles;
+        self.recursiveGen(.small_best, col, rack, self.kwg.gaddagRoot(), col, col, !self.vertical, 0, 0, 1);
+        return self.small_best;
+    }
+
+    /// The endgame's encoding of the play at leftstrip..rightstrip
+    /// (SmallMove.tm).
+    inline fn smallCode(self: *const Generator, leftstrip: usize, rightstrip: usize) u64 {
+        var code: u64 = 0;
+        var t: usize = 0;
+        var blanks: u64 = 0;
+        for (self.strip[leftstrip .. rightstrip + 1]) |ml| {
+            if (ml == 0) continue;
+            if (tiles.isBlanked(ml)) blanks |= @as(u64, 1) << @intCast(t);
+            code |= @as(u64, tiles.unblank(ml)) << @intCast(20 + 6 * t);
+            t += 1;
+        }
+        const row = if (self.vertical) leftstrip else self.cur_row;
+        const col = if (self.vertical) self.cur_row else leftstrip;
+        return code | @intFromBool(self.vertical) | @as(u64, col) << 1 | @as(u64, row) << 6 | blanks << 12;
+    }
+
+    fn recordSmallAll(self: *Generator, leftstrip: usize, rightstrip: usize, score: i32) void {
+        const len = rightstrip - leftstrip + 1;
+        if (len < 2) return;
+        self.small_out.append(self.gpa, .{ .tm = self.smallCode(leftstrip, rightstrip), .score = @intCast(score), .tiles_played = @intCast(self.tiles_played), .len = @intCast(len) }) catch {
+            self.out_of_memory = true;
+        };
+    }
+
+    /// Keeps the play if it beats the best so far: by value (the score,
+    /// plus the out bonus for a play of the whole rack), ties to the
+    /// larger move code. The code is built only for a play that can win.
+    fn recordSmallBest(self: *Generator, leftstrip: usize, rightstrip: usize, score: i32) void {
+        const len = rightstrip - leftstrip + 1;
+        if (len < 2) return;
+        const v = score + if (self.tiles_played == self.small_rack_tiles) self.small_out_bonus else 0;
+        const sb = &self.small_best;
+        if (sb.tm != 0 and v < sb.value) return;
+        const code = self.smallCode(leftstrip, rightstrip);
+        if (sb.tm != 0 and v == sb.value and code <= sb.tm) return;
+        sb.* = .{ .tm = code, .value = v, .score = score, .tiles_played = @intCast(self.tiles_played), .len = @intCast(len) };
     }
 
     fn record(self: *Generator, m: Move) void {
@@ -469,7 +552,7 @@ pub const Generator = struct {
 
     /// Gordon's Gen, for the best-play search (`best`: plays valued from
     /// the leave map as they are found) or for every move.
-    fn recursiveGen(self: *Generator, comptime best: bool, col: usize, rack: *Rack, node: u32, leftstrip: usize, rightstrip: usize, unique_play: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
+    fn recursiveGen(self: *Generator, comptime mode: Record, col: usize, rack: *Rack, node: u32, leftstrip: usize, rightstrip: usize, unique_play: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
         const sq = &self.row[col];
         const nodes = self.kwg.nodes;
         const list_tiles = self.kwg.sibling_tiles[node];
@@ -485,7 +568,7 @@ pub const Generator = struct {
             }
             // Start loading the next list while this square is dealt with.
             @prefetch(&nodes[next], .{});
-            self.goOn(best, col, sq.letter, rack, next, accepts, leftstrip, rightstrip, unique_play, base_score + scores[sq.letter], cross_scores, word_mul);
+            self.goOn(mode, col, sq.letter, rack, next, accepts, leftstrip, rightstrip, unique_play, base_score + scores[sq.letter], cross_scores, word_mul);
             return;
         }
         if (rack.num_tiles == 0) return;
@@ -513,26 +596,26 @@ pub const Generator = struct {
                 if (n_ml > 0) {
                     rack.take(ml);
                     if (n_ml == 1) self.rack_bits &= ~(@as(u64, 1) << @intCast(ml));
-                    if (best) self.leave_map.take(ml, n_ml - 1);
+                    if (mode == .best) self.leave_map.take(ml, n_ml - 1);
                     self.tiles_played += 1;
                     const sml = scores[ml];
                     var addl_cross: i32 = 0;
                     if (!empty_adjacent) {
                         addl_cross = if (wm > 1) wm * (cs + sml) else cs + sml * lm;
                     }
-                    self.goOn(best, col, ml, rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score + sml * lm, cross_scores + addl_cross, word_mul * wm);
+                    self.goOn(mode, col, ml, rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score + sml * lm, cross_scores + addl_cross, word_mul * wm);
                     self.tiles_played -= 1;
-                    if (best) self.leave_map.add(ml, n_ml - 1);
+                    if (mode == .best) self.leave_map.add(ml, n_ml - 1);
                     rack.add(ml);
                     self.rack_bits |= @as(u64, 1) << @intCast(ml);
                 }
                 if (n_blank > 0) {
                     rack.take(0);
-                    if (best) self.leave_map.take(0, n_blank - 1);
+                    if (mode == .best) self.leave_map.take(0, n_blank - 1);
                     self.tiles_played += 1;
-                    self.goOn(best, col, tiles.blank(ml), rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score, cross_scores + cs * wm, word_mul * wm);
+                    self.goOn(mode, col, tiles.blank(ml), rack, arc, accepts, leftstrip, rightstrip, unique_play, base_score, cross_scores + cs * wm, word_mul * wm);
                     self.tiles_played -= 1;
-                    if (best) self.leave_map.add(0, n_blank - 1);
+                    if (mode == .best) self.leave_map.add(0, n_blank - 1);
                     rack.add(0);
                 }
             }
@@ -540,7 +623,7 @@ pub const Generator = struct {
     }
 
     /// Gordon's GoOn.
-    fn goOn(self: *Generator, comptime best: bool, cur_col: usize, letter: MachineLetter, rack: *Rack, new_node: u32, accepts: bool, leftstrip_in: usize, rightstrip_in: usize, unique_play_in: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
+    fn goOn(self: *Generator, comptime mode: Record, cur_col: usize, letter: MachineLetter, rack: *Rack, new_node: u32, accepts: bool, leftstrip_in: usize, rightstrip_in: usize, unique_play_in: bool, base_score: i32, cross_scores: i32, word_mul: i32) void {
         var leftstrip = leftstrip_in;
         var rightstrip = rightstrip_in;
         var unique_play = unique_play_in;
@@ -562,18 +645,18 @@ pub const Generator = struct {
             if (accepts and no_letter_left and self.tiles_played > 0 and
                 (unique_play or self.tiles_played > 1) and self.tiles_played <= self.max_tile_usage)
             {
-                self.recordFound(best, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
+                self.recordFound(mode, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
             }
             if (new_node == 0) return;
             if (cur_col > 0 and cur_col - 1 != self.last_anchor_col) {
-                self.recursiveGen(best, cur_col - 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+                self.recursiveGen(mode, cur_col - 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
             // The separator is tile 0, so in a sorted list it can only come
             // first.
             const first = self.kwg.nodes[new_node];
             if (first >> kwg_mod.tile_shift == 0 and no_letter_left and self.cur_anchor_col < dim - 1) {
                 const sep = first & kwg_mod.arc_mask;
-                if (sep != 0) self.recursiveGen(best, self.cur_anchor_col + 1, rack, sep, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+                if (sep != 0) self.recursiveGen(mode, self.cur_anchor_col + 1, rack, sep, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
         } else {
             rightstrip = cur_col;
@@ -581,16 +664,18 @@ pub const Generator = struct {
             if (accepts and no_letter_right and self.tiles_played > 0 and
                 (unique_play or self.tiles_played > 1) and self.tiles_played <= self.max_tile_usage)
             {
-                self.recordFound(best, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
+                self.recordFound(mode, rack, leftstrip, rightstrip, base_score * word_mul + cross_scores + bingo);
             }
             if (new_node != 0 and cur_col < dim - 1) {
-                self.recursiveGen(best, cur_col + 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
+                self.recursiveGen(mode, cur_col + 1, rack, new_node, leftstrip, rightstrip, unique_play, base_score, cross_scores, word_mul);
             }
         }
     }
 
-    inline fn recordFound(self: *Generator, comptime best: bool, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
-        if (best) return self.recordPlay(rack, leftstrip, rightstrip, score);
+    inline fn recordFound(self: *Generator, comptime mode: Record, rack: *const Rack, leftstrip: usize, rightstrip: usize, score: i32) void {
+        if (mode == .best) return self.recordPlay(rack, leftstrip, rightstrip, score);
+        if (mode == .small_best) return self.recordSmallBest(leftstrip, rightstrip, score);
+        if (mode == .small_all) return self.recordSmallAll(leftstrip, rightstrip, score);
         const len = rightstrip - leftstrip + 1;
         if (len < 2) return;
         var m: Move = .{
@@ -945,6 +1030,102 @@ test "best play agrees with the full move list" {
     try testing.expectEqual(cgps.len * 60, checked);
 }
 
+test "the endgame's small records agree with the full move list" {
+    const position_mod = @import("../board/position.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "15/15/15/15/15/15/1PROTEAN7/3WINDY7/15/15/15/15/15/15/15 / 0/0 0 lex CSW21;",
+        "5E1p7/1A1C1G1E5S1/1JIZ1G1R3V1P1/HO1APE1A3U1I1/OW1RAD1EXFIL1T1/MA2W2OI2G1T1/IN2K2N2MOBE1/E2FYRDS2o1ANS/3O6V1N1H/3U6ADD1E/3S6BOO1E/3T6LOR1L/INCITANT1AYRE2/3E5U5/3REQUITE5 / 0/0 0 lex CSW21;",
+        testdata.vs_matt ++ " / 0/0 0 lex NWL20;",
+        testdata.maven_vs_macondo ++ " / 0/0 0 lex NWL20;",
+    };
+    var prng: std.Random.DefaultPrng = .init(5);
+    const random = prng.random();
+    var small: std.ArrayList(SmallMove) = .empty;
+    defer small.deinit(testing.allocator);
+    var anchor_of: std.ArrayList(u8) = .empty;
+    defer anchor_of.deinit(testing.allocator);
+    for (cgps) |text| {
+        var p: position_mod.Position = try testdata.position(&store, text);
+        var gen = Generator.init(testing.allocator, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        const b = &p.board;
+        const dim = b.dim;
+        // Each lane's anchors: rows, then columns.
+        var anchors: [Generator.max_lanes]u32 = @splat(0);
+        for (0..dim) |r| {
+            for (0..dim) |c| {
+                if (b.anchors[@backingInt(Direction.horizontal)][r * dim + c]) anchors[r] |= @as(u32, 1) << @intCast(c);
+                if (b.anchors[@backingInt(Direction.vertical)][r * dim + c]) anchors[dim + c] |= @as(u32, 1) << @intCast(r);
+            }
+        }
+        const wanted: [Generator.max_lanes]u32 = @splat(~@as(u32, 0));
+        var ends: [Generator.max_lanes]i32 = undefined;
+        var pool: [100]MachineLetter = undefined;
+        for (&pool, 0..) |*t, i| t.* = @intCast(if (i % 13 == 0) 0 else 1 + i % 26);
+        for (0..12) |_| {
+            random.shuffle(MachineLetter, &pool);
+            var rack: Rack = .fromLetters(pool[0 .. 1 + random.uintLessThan(usize, 7)]);
+            try gen.genAll(&rack, false);
+            var want: std.ArrayList(SmallMove) = .empty;
+            defer want.deinit(testing.allocator);
+            for (gen.plays.items) |*mv| {
+                if (mv.kind == .play) try want.append(testing.allocator, .fromMove(mv));
+            }
+            const all_lanes = (@as(u64, 1) << @intCast(2 * dim)) - 1;
+            try gen.genLanes(&rack, all_lanes, &wanted, &anchors, &ends, &anchor_of, &small);
+            try testing.expectEqual(want.items.len, small.items.len);
+            for (want.items, small.items) |w, g| {
+                try testing.expectEqual(w.tm, g.tm);
+                try testing.expectEqual(w.score, g.score);
+                try testing.expectEqual(w.tiles_played, g.tiles_played);
+                try testing.expectEqual(w.len, g.len);
+            }
+            // Each anchor's best by value (an out bonus for the whole
+            // rack), ties to the larger code, from its plays in the list.
+            const out_bonus: i32 = random.intRangeAtMost(i32, 0, 30);
+            var start: usize = 0;
+            for (0..2 * dim) |lane| {
+                const end: usize = @intCast(ends[lane]);
+                defer start = end;
+                const vertical = lane >= dim;
+                const row = if (vertical) lane - dim else lane;
+                if (vertical) b.transpose();
+                defer if (vertical) b.transpose();
+                gen.vertical = vertical;
+                gen.cur_row = row;
+                gen.loadRow(row, if (vertical) .horizontal else .vertical);
+                gen.setRackBits(&rack);
+                var as = anchors[lane];
+                while (as != 0) : (as &= as - 1) {
+                    const col: usize = @ctz(as);
+                    const before = anchors[lane] & ((@as(u32, 1) << @intCast(col)) - 1);
+                    gen.last_anchor_col = if (before != 0) 31 - @clz(before) else 100;
+                    gen.cur_anchor_col = col;
+                    gen.tiles_played = 0;
+                    const got = gen.genForAnchorSmallBest(&rack, out_bonus);
+                    var best: ?SmallMove = null;
+                    var best_v: i32 = 0;
+                    for (small.items[start..end], anchor_of.items[start..end]) |m, a| {
+                        if (a != col) continue;
+                        const v = m.score + if (m.tiles_played == rack.num_tiles) out_bonus else 0;
+                        if (best == null or v > best_v or (v == best_v and m.tm > best.?.tm)) {
+                            best = m;
+                            best_v = v;
+                        }
+                    }
+                    if (best) |m| {
+                        try testing.expectEqual(m.tm, got.tm);
+                        try testing.expectEqual(best_v, got.value);
+                        try testing.expectEqual(@as(i32, m.score), got.score);
+                    } else try testing.expectEqual(0, got.tm);
+                }
+            }
+        }
+    }
+}
+
 test "shadow positions that once disagreed" {
     // From movegen/shadow_disagree_test.go, which replays seeded NWL23
     // games to these turns: the boards and racks it reaches. Scores only,
@@ -1000,7 +1181,7 @@ fn rowGen(gen: *Generator, rack: *Rack, row: usize, anchor_col: usize, vertical:
     gen.cur_anchor_col = anchor_col;
     gen.setRackBits(rack);
     gen.loadRow(row, if (vertical) .horizontal else .vertical);
-    gen.recursiveGen(false, anchor_col, rack, gen.kwg.gaddagRoot(), anchor_col, anchor_col, unique, 0, 0, 1);
+    gen.recursiveGen(.all, anchor_col, rack, gen.kwg.gaddagRoot(), anchor_col, anchor_col, unique, 0, 0, 1);
 }
 
 fn rackFrom(f: *const testdata.Fixture, text: []const u8) !Rack {
