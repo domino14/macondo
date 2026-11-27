@@ -47,6 +47,9 @@ const early_pass_bf: i16 = 1 << 13;
 const hash_move_bf: i16 = 1 << 12;
 const going_out_bf: i16 = 1 << 11;
 const conservation_tile_weight = 7;
+/// Salts the table key of a leaf valued with a capped playout (see
+/// Options.capped_first_depth), so that no deeper search reads its value.
+const capped_leaf_salt: u64 = 0x9E3779B97F4A7C15;
 /// The moves a node takes best first by selection before it sorts the
 /// rest (MAGPIE's LAZY_SELECTION_LIMIT).
 const lazy_selection_limit = 8;
@@ -249,10 +252,16 @@ pub const Options = struct {
     sibling: bool = true,
     /// With MAGPIE's ordering, take a node's first moves best first as the
     /// search reaches them, and sort the rest (stably) only if it gets
-    /// past them, as MAGPIE does (most nodes cut off on their first move);
-    /// else sort the whole list at once, as Go does. Equal estimates fall
-    /// in other orders, so the positions searched differ; not the value.
+    /// past them, as MAGPIE does (most nodes cut off on their first move),
+    /// and sort the root's moves stably; else sort whole lists at once, as
+    /// Go does. Equal estimates fall in other orders, so the positions
+    /// searched differ; not the value.
     lazy_order: bool = true,
+    /// In the first depth's search of a deeper solve, play the leaves out
+    /// one move only, and keep their values apart from deeper depths'
+    /// (MAGPIE's capped leaves): that depth only orders the root's moves
+    /// for the next.
+    capped_first_depth: bool = true,
     /// Search each depth after the first in a window around the last
     /// depth's value, widened on failure (MAGPIE's aspiration windows; Go's
     /// single-threaded search has none). The value is the same; the
@@ -738,6 +747,8 @@ pub const Solver = struct {
     initial_spread: i32 = 0,
     root_moves: []SmallMove = &.{},
     current_depth: i32 = -1,
+    /// The depth the solve searches to.
+    target_depth: u32 = 0,
     impure: u64 = 0,
     reach: u64 = 0,
     nodes: u64 = 0,
@@ -956,6 +967,12 @@ pub const Solver = struct {
 
     const max_non_going_out_estimate: i32 = going_out_bf - 1;
 
+    /// Sorts `moves` by estimate, best first, equal estimates in order.
+    fn sortStable(self: *Solver, moves: []SmallMove) Allocator.Error!void {
+        try self.sort_moves.resize(self.gpa, moves.len / 2 + 1);
+        sortByEstimateStable(moves, self.sort_moves.items);
+    }
+
     /// MAGPIE's move ordering, as Go's assignEstimatesHeuristic has it.
     fn assignEstimatesMagpie(self: *Solver, moves: []SmallMove, tt_move: u64, node_key: u64, sort: bool) Allocator.Error!void {
         const on = self.on_turn;
@@ -987,6 +1004,8 @@ pub const Solver = struct {
             if (last_was_pass and m.isPass()) m.est +%= early_pass_bf;
         }
         if (!sort) return;
+        // MAGPIE sorts a list in full (the root's) stably.
+        if (self.opts.lazy_order) return self.sortStable(moves);
         gosort.slice(SmallMove, moves, {}, struct {
             fn less(_: void, a: SmallMove, b: SmallMove) bool {
                 return a.est > b.est;
@@ -1191,6 +1210,17 @@ pub const Solver = struct {
         return bestsmall.best(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys);
     }
 
+    /// Whether leaves are played out one move only (Options.capped_first_depth).
+    inline fn cappedLeaves(self: *const Solver) bool {
+        return self.opts.capped_first_depth and self.opts.heuristics and self.current_depth <= 1 and self.target_depth > 1;
+    }
+
+    /// The table key of a leaf: its position's, salted where its value
+    /// comes from a capped playout. 0 (no key) stays 0.
+    inline fn leafKey(self: *const Solver, key: u64) u64 {
+        return if (key != 0 and self.cappedLeaves()) key ^ capped_leaf_salt else key;
+    }
+
     fn oppStuckFraction(self: *Solver, node_key: u64) Allocator.Error!f32 {
         if (node_key == 0) return self.oppStuckFractionFresh();
         // The fraction depends on the board and the opponent's rack only:
@@ -1374,7 +1404,7 @@ pub const Solver = struct {
     /// spread for the player on turn there.
     fn greedyPlayout(self: *Solver, pv: *Line, node_key: u64) Allocator.Error!i16 {
         const leaf_player = self.on_turn;
-        const budget = @min(max_playout, self.stackRemaining());
+        const budget = @min(if (self.cappedLeaves()) @as(usize, 1) else max_playout, self.stackRemaining());
         if (budget == 0) {
             pv.clear();
             return @intCast(self.spreadFor(leaf_player));
@@ -1514,8 +1544,8 @@ pub const Solver = struct {
         var placed: [board_mod.max_dim]MachineLetter = undefined;
         self.moveTiles(m, &placed);
         const child_key = self.zobrist.addTilePlayUnplayed(node_key, m.row(), m.col(), m.vertical(), placed[0..m.len], &self.racks[on], on == 0, self.scoreless);
-        const e = self.tt.lookup(child_key);
         const child_depth: u8 = @intCast(depth - 1);
+        const e = self.tt.lookup(if (child_depth == 0) self.leafKey(child_key) else child_key);
         const ed = e.depth();
         if (!e.valid() or !(ed == child_depth or (e.pure() and ed <= child_depth))) return null;
         const score = e.score() -% @as(i16, @intCast(our_spread + m.score));
@@ -1556,7 +1586,7 @@ pub const Solver = struct {
         const impure_at_entry = self.impure;
         var max_reach: u64 = 0;
         {
-            const e = self.tt.lookup(node_key);
+            const e = self.tt.lookup(if (depth == 0) self.leafKey(node_key) else node_key);
             const ed = e.depth();
             const d: u8 = @intCast(depth);
             const usable = e.valid() and (ed == d or (e.pure() and ed <= d));
@@ -1586,9 +1616,10 @@ pub const Solver = struct {
             if (self.opts.heuristics and self.playing) {
                 const val = try self.greedyPlayout(pv, node_key);
                 if (node_key != 0) {
-                    const existing = self.tt.lookup(node_key);
+                    const leaf_key = self.leafKey(node_key);
+                    const existing = self.tt.lookup(leaf_key);
                     if (!existing.valid() or existing.depth() == 0) {
-                        self.tt.store(node_key, val -% @as(i16, @intCast(our_spread)), ttable.exact << 6, ttable.invalid_move, false);
+                        self.tt.store(leaf_key, val -% @as(i16, @intCast(our_spread)), ttable.exact << 6, ttable.invalid_move, false);
                     }
                 }
                 self.reach = 0;
@@ -1788,6 +1819,7 @@ pub const Solver = struct {
         if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
         if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
         self.stuck_memo = @splat(.{});
+        self.target_depth = plies;
         for (0..2 * self.board.dim) |lane| self.lane_keys[lane] = bestsmall.laneKey(&self.board, lane);
         self.occupancyFromBoard(&self.occ);
         if (self.opts.pruned_kwg and self.pruned == null) {
@@ -1856,11 +1888,17 @@ pub const Solver = struct {
             }
             prev_value = val;
             const root_pure = self.impure == impure_before;
-            gosort.slice(SmallMove, self.root_moves, {}, struct {
-                fn less(_: void, a: SmallMove, b: SmallMove) bool {
-                    return a.est > b.est;
-                }
-            }.less);
+            // By this depth's values; MAGPIE's ordering keeps equal values
+            // in their last order (a stable sort).
+            if (self.opts.heuristics and self.opts.magpie_ordering and self.opts.lazy_order) {
+                try self.sortStable(self.root_moves);
+            } else {
+                gosort.slice(SmallMove, self.root_moves, {}, struct {
+                    fn less(_: void, a: SmallMove, b: SmallMove) bool {
+                        return a.est > b.est;
+                    }
+                }.less);
+            }
             result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.nodes - self.playout_nodes };
             if (root_pure) result.depth = plies;
             reported = false;
@@ -2079,6 +2117,7 @@ test "the speed options leave endgame values as they were" {
     const variants = [_]Options{
         .{ .tt_bytes = 0, .out_reply = false },
         .{ .tt_bytes = 0, .lazy_order = false },
+        .{ .tt_bytes = 0, .capped_first_depth = false },
         .{ .tt_bytes = 0, .sibling = false, .first_reply = false },
     };
     for (cgps) |text| {
@@ -2087,7 +2126,7 @@ test "the speed options leave endgame values as they were" {
         defer z.deinit(testing.allocator);
         var tt: ttable.Table = .{};
         defer tt.deinit(testing.allocator);
-        for ([_]u32{ 3, 4 }) |plies| {
+        for ([_]u32{ 1, 3, 4 }) |plies| {
             const want = blk: {
                 const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 0 });
                 defer s.deinit();
