@@ -21,8 +21,10 @@ import (
 	"time"
 )
 
-// DefaultTimeout bounds how long Engine waits for an expected response.
-const DefaultTimeout = 10 * time.Second
+// DefaultTimeout bounds how long Engine waits for an expected response. It
+// only guards against a hung engine: the cross-checks run side by side, and
+// on a small CI machine a lexicon load or a search can take many seconds.
+const DefaultTimeout = 2 * time.Minute
 
 // Engine is a UCGI session with a child engine process.
 type Engine struct {
