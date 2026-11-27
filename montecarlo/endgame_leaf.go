@@ -35,11 +35,26 @@ const (
 )
 
 var (
-	egTableOnce sync.Once
-	// egLeafTable is one shared, lock-free transposition table for every leaf
-	// search in the process, as the quick-endgame bots share theirs.
-	egLeafTable = &negamax.TranspositionTable{}
+	egTablesMu sync.Mutex
+	// egLeafTables holds, by board size, one shared, lock-free transposition
+	// table for every leaf search in the process, as the quick-endgame bots
+	// share theirs. A table's position keys are made for one board size.
+	egLeafTables = map[int]*negamax.TranspositionTable{}
 )
+
+// egLeafTable is the shared leaf table for boards of size dim, made the first
+// time it is asked for.
+func egLeafTable(dim int) *negamax.TranspositionTable {
+	egTablesMu.Lock()
+	defer egTablesMu.Unlock()
+	tt := egLeafTables[dim]
+	if tt == nil {
+		tt = &negamax.TranspositionTable{}
+		tt.Reset(0.02, dim)
+		egLeafTables[dim] = tt
+	}
+	return tt
+}
 
 // EndgameLeafSolves, EndgameLeafFallbacks and EndgameLeafCacheHits count the
 // endgame leaves searched, the ones left to static play instead (a search
@@ -84,9 +99,7 @@ func (s *Simmer) prepareEndgameLeaves() error {
 	if err != nil {
 		return err
 	}
-	egTableOnce.Do(func() {
-		egLeafTable.Reset(0.02, s.origGame.Board().Dim())
-	})
+	s.egTable = egLeafTable(s.origGame.Board().Dim())
 	solvers := make([]*negamax.Solver, len(s.gameCopies))
 	for i, g := range s.gameCopies {
 		g.SetStateStackLength(1 + EndgameLeafPlies + negamax.MaxGreedyPlayoutPlies + 5)
@@ -97,7 +110,7 @@ func (s *Simmer) prepareEndgameLeaves() error {
 		if err := es.Init(gen, g); err != nil {
 			return err
 		}
-		es.SetTTable(egLeafTable)
+		es.SetTTable(s.egTable)
 		es.SetThreads(1)
 		es.SetFirstWinOptim(true)
 		es.SetSkipMaterialize(true)
@@ -127,7 +140,7 @@ func (s *Simmer) endgameLeaf(g *game.Game, thread int) (winProb float64, ok bool
 		return 0, false
 	}
 	onTurnSpread := g.CurrentSpread()
-	key := egLeafKey{spread: onTurnSpread, hash: egLeafTable.Zobrist().Hash(g.Board().GetSquares(),
+	key := egLeafKey{spread: onTurnSpread, hash: s.egTable.Zobrist().Hash(g.Board().GetSquares(),
 		g.RackFor(onTurn), g.RackFor(1-onTurn), false, g.ScorelessTurns())}
 	if v, hit := s.egCache.Load(key); hit {
 		EndgameLeafCacheHits.Add(1)
