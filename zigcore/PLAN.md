@@ -215,8 +215,11 @@ as they land.
       and its cached best-play search; the board keeps its squares as
       MAGPIE's does. The defaults search MAGPIE's tree and solve at its
       speed with its values. On several threads (the `threads` option),
-      PV split by default, as Go's, or ABDADA (`abdada`); the threads
-      keep their caches between solves (Workspace). The cross-check runs
+      PV split by default, as Go's, or MAGPIE's ABDADA (`abdada`: each
+      thread deepens on its own, the helpers starting deeper, and a
+      younger move whose position another thread is in waits for a
+      second pass); the threads keep their caches between solves
+      (Workspace). The cross-check runs
       Go's ordering and MAGPIE's node for node, and the defaults by
       value, on one thread and on four with each parallel search.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.

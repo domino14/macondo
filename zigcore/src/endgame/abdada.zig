@@ -1,83 +1,52 @@
-//! The moves the endgame's threads are searching, for ABDADA (Weill, "The
-//! ABDADA Distributed Minimax Search Algorithm", 1996): port of
-//! endgame/negamax/abdada.go. A thread about to search a move another is
-//! already searching at the same depth or deeper puts it off, and searches
-//! it after the node's other moves, by when the other thread's result is
-//! in the transposition table. Lockless: each slot is a move's hash and
-//! depth, read and written atomically, and a lost or stale slot costs only
-//! a move searched twice or put off once.
+//! The positions the endgame's threads are in, for ABDADA (Weill, "The
+//! ABDADA Distributed Minimax Search Algorithm", 1996), kept as MAGPIE keeps
+//! them (its transposition table's nproc counters): a thread counts itself
+//! into each position it searches from min_depth up, and out when done
+//! there. A node's younger moves are searched exclusively: one whose
+//! position another thread is in is put off until the node's other moves
+//! are done, by when that thread's result may be in the transposition
+//! table. Lockless counters indexed by the position's key; two positions
+//! that share a counter cost only a move put off.
 const std = @import("std");
 
-/// The depth from which moves are put off: below it a subtree is cheaper
-/// than the bookkeeping (MAGPIE's, and Go's DEFER_DEPTH).
+/// The depth from which threads count themselves into positions: below it a
+/// subtree costs less than the bookkeeping (MAGPIE's ABDADA_MIN_DEPTH).
 pub const min_depth = 2;
 
-const sets = 1 << 15;
-const ways = 4;
-
-const Slot = struct {
-    hash: std.atomic.Value(u64) = .init(0),
-    depth: std.atomic.Value(u32) = .init(0),
-};
+const size = 1 << 18;
 
 pub const Table = struct {
-    slots: [sets][ways]Slot = @splat(@splat(.{})),
+    counts: [size]std.atomic.Value(u8) = @splat(.init(0)),
 
-    /// A move at a position, hashed (Go's moveHash); never 0 in practice,
-    /// which marks an empty slot.
-    inline fn moveHash(node_key: u64, tm: u64) u64 {
-        return node_key *% 1103515245 +% tm *% 12345;
+    /// Whether a thread is in the position `key`.
+    pub fn busy(self: *const Table, key: u64) bool {
+        return self.counts[key & (size - 1)].load(.monotonic) > 0;
     }
 
-    /// Whether another thread is searching move `tm` of the position
-    /// `node_key` at depth `depth` or deeper.
-    pub fn busy(self: *const Table, node_key: u64, tm: u64, depth: u32) bool {
-        const h = moveHash(node_key, tm);
-        for (&self.slots[h % sets]) |*s| {
-            if (s.hash.load(.monotonic) == h and s.depth.load(.monotonic) >= depth) return true;
-        }
-        return false;
+    /// Counts a thread into the position `key`.
+    pub fn enter(self: *Table, key: u64) void {
+        _ = self.counts[key & (size - 1)].fetchAdd(1, .monotonic);
     }
 
-    /// Notes that this thread is searching the move: in an empty slot of
-    /// its set if there is one, else over the set's first.
-    pub fn start(self: *Table, node_key: u64, tm: u64, depth: u32) void {
-        const h = moveHash(node_key, tm);
-        const set = &self.slots[h % sets];
-        for (set) |*s| {
-            if (s.hash.load(.monotonic) == 0 and s.hash.cmpxchgStrong(0, h, .monotonic, .monotonic) == null) {
-                s.depth.store(depth, .monotonic);
-                return;
-            }
-        }
-        set[0].hash.store(h, .monotonic);
-        set[0].depth.store(depth, .monotonic);
-    }
-
-    /// Notes that the move's search is over.
-    pub fn finish(self: *Table, node_key: u64, tm: u64) void {
-        const h = moveHash(node_key, tm);
-        for (&self.slots[h % sets]) |*s| {
-            if (s.hash.load(.monotonic) == h) {
-                s.hash.store(0, .monotonic);
-                s.depth.store(0, .monotonic);
-            }
-        }
+    /// Counts a thread out of the position `key`.
+    pub fn leave(self: *Table, key: u64) void {
+        _ = self.counts[key & (size - 1)].fetchSub(1, .monotonic);
     }
 };
 
 const testing = std.testing;
 
-test "a move is busy from its start to its finish, at its depth and below" {
+test "a position is busy while a thread is in it" {
     const t = try testing.allocator.create(Table);
     defer testing.allocator.destroy(t);
     t.* = .{};
-    try testing.expect(!t.busy(42, 7, 3));
-    t.start(42, 7, 3);
-    try testing.expect(t.busy(42, 7, 3));
-    try testing.expect(t.busy(42, 7, 2));
-    try testing.expect(!t.busy(42, 7, 4));
-    try testing.expect(!t.busy(42, 8, 3));
-    t.finish(42, 7);
-    try testing.expect(!t.busy(42, 7, 2));
+    try testing.expect(!t.busy(42));
+    t.enter(42);
+    t.enter(42);
+    try testing.expect(t.busy(42));
+    try testing.expect(!t.busy(43));
+    t.leave(42);
+    try testing.expect(t.busy(42));
+    t.leave(42);
+    try testing.expect(!t.busy(42));
 }

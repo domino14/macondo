@@ -39,6 +39,9 @@ pub const huge: i16 = 32000;
 pub const max_variant = 25;
 const max_playout = max_variant;
 const aspiration_window = 25;
+/// searchChild's answer for a move put off (ABDADA's ON_EVALUATION); no
+/// search value is this low.
+const on_evaluation: i16 = std.math.minInt(i16);
 const stuck_memo_size = 1 << 14;
 const StuckEntry = struct { key: u64 = 0, types: u64 = 0 };
 /// What a play that goes out adds to its value for the first reply (see
@@ -285,8 +288,10 @@ pub const Options = struct {
 
 /// How several threads share an endgame search.
 pub const Parallel = enum {
-    /// Every thread searches every depth, sharing the transposition table;
-    /// a move another thread is searching is put off (abdada.zig).
+    /// MAGPIE's ABDADA: every thread deepens iteratively on its own (the
+    /// helpers starting deeper), sharing the transposition table, until
+    /// one has searched the last depth; a node's younger moves whose
+    /// positions another thread is in are put off (abdada.zig).
     abdada,
     /// PV splitting (Marsland and Campbell, 1982; Go's pvsplit.go): this
     /// solver walks the principal variation; at each of its nodes it
@@ -921,7 +926,8 @@ pub const Solver = struct {
     helpers: []*Solver = &.{},
     /// Set when this solver's search of a depth ends, for its helpers.
     helpers_halt: std.atomic.Value(bool) = .init(false),
-    /// A helper's: its solver's helpers_halt.
+    /// A helper's: its solver's helpers_halt; in an ABDADA solve the
+    /// solver's own too.
     halt: ?*const std.atomic.Value(bool) = null,
     /// The caches of solves to come (initIn).
     workspace: ?*Workspace = null,
@@ -1804,6 +1810,10 @@ pub const Solver = struct {
             if (h.load(.monotonic)) return error.Stopped;
         }
         if (self.opts.node_limit != 0 and self.nodes >= self.opts.node_limit) return error.Stopped;
+        // ABDADA: this thread is in the position (see abdada.zig).
+        const counted = self.abdada != null and depth >= abdada_mod.min_depth;
+        if (counted) self.abdada.?.enter(node_key);
+        defer if (counted) self.abdada.?.leave(node_key);
         var alpha = alpha_in;
         var beta = beta_in;
         const on = self.on_turn;
@@ -1924,9 +1934,9 @@ pub const Solver = struct {
                 (on == 0 or self.opts.playout_out_bonus)));
         var leaves_played: usize = 0;
         var out_reply: OutReply = .{};
-        // ABDADA (threads > 1): moves another thread is searching are put
-        // off to a second pass.
-        const abdada_here = self.abdada != null and depth >= abdada_mod.min_depth;
+        // ABDADA (threads > 1): a younger move whose position another
+        // thread is in is put off to a second pass.
+        const abdada_here = self.abdada != null and depth - 1 >= abdada_mod.min_depth;
         const deferred_mark = self.deferred.items.len;
         defer self.deferred.shrinkRetainingCapacity(deferred_mark);
         // MAGPIE's lazy ordering: the moves before `ordered` are in place.
@@ -1982,14 +1992,6 @@ pub const Solver = struct {
                 child_pv.clear();
                 continue;
             }
-            if (abdada_here) {
-                // Another thread is searching it: after the others, when
-                // its value may be in the table.
-                if (self.abdada.?.busy(node_key, m.tm, @intCast(depth))) {
-                    try self.deferred.append(self.gpa, @intCast(idx));
-                    continue;
-                }
-            }
             if (depth == 1 and self.opts.heuristics) {
                 // The children are leaves, each played out starting with
                 // the other player's best play: once a second needs it,
@@ -2000,7 +2002,13 @@ pub const Solver = struct {
                     if (self.lists) |*l| _ = try l.get(self.frames.items.len, 1 - on);
                 }
             }
-            value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, abdada_here);
+            value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, abdada_here and idx > 0);
+            if (value == on_evaluation) {
+                // Another thread is in its position: after the others, when
+                // that thread's value may be in the table.
+                try self.deferred.append(self.gpa, @intCast(idx));
+                continue;
+            }
             max_reach = @max(max_reach, self.reach + 1);
             if (-value > best_value) {
                 best_value = -value;
@@ -2018,7 +2026,7 @@ pub const Solver = struct {
             const idx = self.deferred.items[d];
             const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
             child_pv.clear();
-            const value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, true);
+            const value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, false);
             max_reach = @max(max_reach, self.reach + 1);
             if (-value > best_value) {
                 best_value = -value;
@@ -2035,18 +2043,18 @@ pub const Solver = struct {
     /// Plays child `m` of the node `node_key` (the player on turn's move),
     /// searches it, and takes it back; returns its value, to its own
     /// player. `full` searches the window (alpha, beta) at once, else a
-    /// null window at alpha first, again in full only if it falls inside;
-    /// `shared` notes the search in the threads' table (ABDADA).
-    fn searchChild(self: *Solver, m: SmallMove, node_key: u64, depth: i32, alpha: i16, beta: i16, full: bool, pv_node: bool, child_pv: *Line, shared: bool) Error!i16 {
+    /// null window at alpha first, again in full only if it falls inside.
+    /// `exclusive` (ABDADA) returns on_evaluation instead if another thread
+    /// is in the child's position.
+    fn searchChild(self: *Solver, m: SmallMove, node_key: u64, depth: i32, alpha: i16, beta: i16, full: bool, pv_node: bool, child_pv: *Line, exclusive: bool) Error!i16 {
         const on = self.on_turn;
         var placed: [board_mod.max_dim]MachineLetter = undefined;
-        if (shared) self.abdada.?.start(node_key, m.tm, @intCast(depth));
-        defer if (shared) self.abdada.?.finish(node_key, m.tm);
         try self.play(m, &placed);
         defer self.unplay();
-        self.nodes += 1;
         const leave = &self.racks[on];
         const child_key = self.zobrist.addMove(node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], leave, self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+        if (exclusive and self.abdada.?.busy(child_key)) return on_evaluation;
+        self.nodes += 1;
         if (full) return self.negamax(child_key, depth - 1, -beta, -alpha, child_pv, pv_node);
         const value = try self.negamax(child_key, depth - 1, -alpha - 1, -alpha, child_pv, false);
         if (alpha < -value and -value < beta) return self.negamax(child_key, depth - 1, -beta, -alpha, child_pv, pv_node);
@@ -2135,37 +2143,13 @@ pub const Solver = struct {
     }
 
     /// Searches the root to `depth` in the window (alpha, beta): with the
-    /// helpers too from depth 2 (Parallel.abdada: every thread searches
-    /// the root, in this solver's order of its moves, until this one is
-    /// done).
+    /// helpers too from depth 2 under PV splitting (an ABDADA solve's
+    /// threads each search their own roots).
     fn searchRoot(self: *Solver, key: u64, depth: u32, alpha: i16, beta: i16, pv: *Line) Error!i16 {
-        if (self.helpers.len == 0 or depth < 2) return self.negamax(key, @intCast(depth), alpha, beta, pv, true);
-        const io = self.io.?;
-        if (self.opts.parallel == .pv_split) {
-            for (self.helpers) |h| h.current_depth = @intCast(depth);
-            self.split_path.clearRetainingCapacity();
-            return self.pvSplit(key, @intCast(depth), alpha, beta, pv);
-        }
-        self.helpers_halt.store(false, .monotonic);
-        for (self.helpers) |h| {
-            h.current_depth = @intCast(depth);
-            @memcpy(h.root_moves, self.root_moves);
-        }
-        const Helper = struct {
-            fn run(h: *Solver, k: u64, d: u32, a: i16, b: i16) void {
-                var line: Line = .{};
-                // A helper's result is in the table; its errors are its
-                // being stopped, or memory, which the solver's own search
-                // meets too.
-                _ = h.negamax(k, @intCast(d), a, b, &line, true) catch {};
-            }
-        };
-        var group: std.Io.Group = .init;
-        for (self.helpers) |h| group.concurrent(io, Helper.run, .{ h, key, depth, alpha, beta }) catch break;
-        const value = self.negamax(key, @intCast(depth), alpha, beta, pv, true);
-        self.helpers_halt.store(true, .monotonic);
-        group.await(io) catch {};
-        return value;
+        if (self.helpers.len == 0 or depth < 2 or self.opts.parallel != .pv_split) return self.negamax(key, @intCast(depth), alpha, beta, pv, true);
+        for (self.helpers) |h| h.current_depth = @intCast(depth);
+        self.split_path.clearRetainingCapacity();
+        return self.pvSplit(key, @intCast(depth), alpha, beta, pv);
     }
 
     /// negamax for a node of the principal variation, splitting its moves
@@ -2383,12 +2367,6 @@ pub const Solver = struct {
         if (self.workspace) |w| w.newSolve();
         try self.prepare(plies, null);
         const key = self.rootKey();
-        var alpha: i16 = -huge;
-        var beta: i16 = huge;
-        if (self.opts.first_win) {
-            alpha = -1;
-            beta = 1;
-        }
         self.current_depth = -1;
         const root = try self.generate();
         self.root_moves = try self.gpa.dupe(SmallMove, root);
@@ -2398,17 +2376,101 @@ pub const Solver = struct {
         if (self.opts.threads > 1 and self.io != null and plies >= 2) try self.startHelpers(plies);
         defer if (self.helpers.len > 0) self.stopHelpers();
 
+        const start: u32 = if (self.opts.iterative_deepening) 1 else plies;
+        var done: Deepened = undefined;
+        if (self.helpers.len > 0 and self.opts.parallel == .abdada) {
+            // MAGPIE's ABDADA: every thread deepens on its own, the helpers
+            // from deeper starts, until one has searched the last depth.
+            const io = self.io.?;
+            var shared: Shared = .{ .io = io, .halt = &self.helpers_halt };
+            self.helpers_halt.store(false, .monotonic);
+            self.halt = &self.helpers_halt;
+            defer self.halt = null;
+            const Helper = struct {
+                fn run(h: *Solver, k: u64, p: u32, first: u32, sh: *Shared) void {
+                    // A helper's errors are its being stopped, or memory,
+                    // which the solver's own search meets too.
+                    _ = h.deepen(k, p, first, sh, null, null) catch {};
+                }
+            };
+            var group: std.Io.Group = .init;
+            for (self.helpers, 1..) |h, i| {
+                group.concurrent(io, Helper.run, .{ h, key, plies, if (self.opts.iterative_deepening) helperStart(i, plies) else plies, &shared }) catch break;
+            }
+            const mine = self.deepen(key, plies, start, &shared, progress, ctx);
+            self.helpers_halt.store(true, .monotonic);
+            group.await(io) catch {};
+            done = mine catch |err| return err;
+            // The deepest result any thread finished.
+            if (shared.best.depth > done.result.depth) done = .{ .result = shared.best, .reported = false };
+        } else {
+            done = try self.deepen(key, plies, start, null, progress, ctx);
+        }
+        var result = done.result;
+        result.nodes = self.searchedNodes();
+        if (result.depth > 0 and self.opts.complete_line) {
+            self.stop = null;
+            try self.completeLine(&result.line, result.depth, plies);
+            result.nodes = self.searchedNodes();
+        }
+        if (!done.reported) {
+            if (progress) |f| f(ctx, &result);
+        }
+        return result;
+    }
+
+    /// What deepen ends with: its deepest result, and whether it reported
+    /// it already.
+    const Deepened = struct { result: Result, reported: bool };
+
+    /// What the threads of an ABDADA solve share: the deepest result any
+    /// of them has finished. The search is over when one has searched the
+    /// last depth (or its root search was exact); it then sets the
+    /// threads' halt.
+    const Shared = struct {
+        io: std.Io,
+        halt: *std.atomic.Value(bool),
+        mutex: std.Io.Mutex = .init,
+        best: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 },
+
+        fn offer(sh: *Shared, r: *const Result) void {
+            sh.mutex.lockUncancelable(sh.io);
+            defer sh.mutex.unlock(sh.io);
+            if (r.depth > sh.best.depth) sh.best = r.*;
+        }
+    };
+
+    /// The depth helper `i` (from 1) of an ABDADA solve starts at:
+    /// MAGPIE's, spread over up to four depths from 2 so the threads don't
+    /// all crowd the shallow ones; on the solve's sequence of depths.
+    fn helperStart(i: usize, plies: u32) u32 {
+        const offset: u32 = 1 + @as(u32, @intCast(i % @min(4, plies - 1)));
+        var p: u32 = 1;
+        while (p < @min(offset, plies)) p = nextDepth(p, plies);
+        return p;
+    }
+
+    /// Iterative deepening from depth `first` to `plies`, calling
+    /// `progress` with each depth's result but the last (the solve reports
+    /// that once its line is complete). With `shared` (ABDADA), offers each
+    /// result to the other threads, and halts them on finishing.
+    fn deepen(self: *Solver, key: u64, plies: u32, first: u32, shared: ?*Shared, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Deepened {
+        var alpha: i16 = -huge;
+        var beta: i16 = huge;
+        if (self.opts.first_win) {
+            alpha = -1;
+            beta = 1;
+        }
         var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
         var reported = true;
-        const start: u32 = if (self.opts.iterative_deepening) 1 else plies;
-        var p = start;
+        var p = first;
         var prev_value: i32 = 0;
         while (p <= plies) : (p = nextDepth(p, plies)) {
             self.current_depth = @intCast(p);
             var pv: Line = .{};
             var impure_before = self.impure;
             var val: i16 = undefined;
-            if (self.opts.aspiration and p > start and !self.opts.first_win) {
+            if (self.opts.aspiration and p > first and !self.opts.first_win) {
                 // MAGPIE's: 25 points either side, doubled each failure.
                 var window: i32 = aspiration_window;
                 var a: i32 = prev_value - window;
@@ -2417,7 +2479,7 @@ pub const Solver = struct {
                     pv = .{};
                     impure_before = self.impure;
                     val = self.searchRoot(key, p, @intCast(std.math.clamp(a, -huge, huge)), @intCast(std.math.clamp(b, -huge, huge)), &pv) catch |err| switch (err) {
-                        error.Stopped => break,
+                        error.Stopped => return .{ .result = result, .reported = reported },
                         else => |e| return e,
                     };
                     if (val <= a) {
@@ -2428,10 +2490,9 @@ pub const Solver = struct {
                         window *= 2;
                     } else break;
                 }
-                if (self.stop) |st| if (st.load(.monotonic)) break;
             } else {
                 val = self.searchRoot(key, p, alpha, beta, &pv) catch |err| switch (err) {
-                    error.Stopped => break,
+                    error.Stopped => return .{ .result = result, .reported = reported },
                     else => |e| return e,
                 };
             }
@@ -2443,28 +2504,24 @@ pub const Solver = struct {
                 try self.sortStable(self.root_moves);
             } else {
                 gosort.slice(SmallMove, self.root_moves, {}, struct {
-                    fn less(_: void, a: SmallMove, b: SmallMove) bool {
-                        return a.est > b.est;
+                    fn less(_: void, x: SmallMove, y: SmallMove) bool {
+                        return x.est > y.est;
                     }
                 }.less);
             }
             result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.searchedNodes() };
             if (root_pure) result.depth = plies;
             reported = false;
+            if (shared) |sh| sh.offer(&result);
             // The last depth is reported once its line is complete.
-            if (root_pure or nextDepth(p, plies) > plies) break;
+            if (root_pure or nextDepth(p, plies) > plies) {
+                if (shared) |sh| sh.halt.store(true, .monotonic);
+                break;
+            }
             if (progress) |f| f(ctx, &result);
             reported = true;
         }
-        if (result.depth > 0 and self.opts.complete_line) {
-            self.stop = null;
-            try self.completeLine(&result.line, result.depth, plies);
-            result.nodes = self.searchedNodes();
-        }
-        if (!reported) {
-            if (progress) |f| f(ctx, &result);
-        }
-        return result;
+        return .{ .result = result, .reported = reported };
     }
 
     /// The key of the position the solver is at, from scratch.
