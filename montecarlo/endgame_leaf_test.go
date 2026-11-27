@@ -47,6 +47,31 @@ func TestEndgameLeaves(t *testing.T) {
 	is.Equal(sim(false), int64(0))
 }
 
+// A position whose opponent rack isn't known holds that rack in its bag, but
+// the sim deals the opponent a full rack every iteration: leaves count the
+// bag as it is then (with nine tiles unseen, two).
+func TestEndgameLeavesWithTheOpponentRackUnknown(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ 356/378 0 lex NWL20;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	is.True(g.Bag().TilesRemaining() > EndgameLeafMaxBag)
+	is.True(egLeafBag(g.Game) <= EndgameLeafMaxBag)
+	calcs, leaves := defaultSimCalculators("NWL20")
+	gd, err := kwg.GetKWG(g.Config().WGLConfig(), g.LexiconName())
+	is.NoErr(err)
+	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Rules().LetterDistribution())
+	gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	s := &Simmer{}
+	s.Init(g.Game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
+	s.SetThreads(1)
+	is.NoErr(s.PrepareSim(2, gen.Plays()[:10]))
+	before := EndgameLeafSolves.Load()
+	s.SimSingleThread(50, 2)
+	is.True(EndgameLeafSolves.Load() > before)
+}
+
 // The leaf searches' shared table is made for a board size: a sim on the
 // 21x21 board after one on the 15x15 board must use a table of its own
 // (it indexed the other's position keys out of range).

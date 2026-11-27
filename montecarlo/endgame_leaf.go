@@ -91,7 +91,7 @@ func (s *Simmer) EndgameLeaves() bool {
 func (s *Simmer) prepareEndgameLeaves() error {
 	s.egSolvers = nil
 	s.egCache = sync.Map{}
-	if s.noEndgameLeaves || s.origGame.Bag().TilesRemaining() > EndgameLeafMaxBag ||
+	if s.noEndgameLeaves || egLeafBag(s.origGame) > EndgameLeafMaxBag ||
 		game.IsWordSmog(s.origGame.Rules().Variant()) {
 		return nil
 	}
@@ -121,6 +121,15 @@ func (s *Simmer) prepareEndgameLeaves() error {
 	}
 	s.egSolvers = solvers
 	return nil
+}
+
+// egLeafBag is the number of tiles in g's bag once the sim has dealt the
+// opponent of the player on turn a full rack, as every iteration does. A
+// position whose opponent rack isn't known (a CGP with only the player's
+// rack) still holds that rack's tiles in its bag.
+func egLeafBag(g *game.Game) int {
+	opp := int(g.RackFor(1 - g.PlayerOnTurn()).NumTiles())
+	return max(0, g.Bag().TilesRemaining()+opp-game.RackTileLimit)
 }
 
 // endgameLeafClose reports whether the empty-bag position g is close enough
