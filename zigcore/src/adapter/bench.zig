@@ -117,7 +117,9 @@ pub fn main(init: std.process.Init) !void {
         const profile = init.environ_map.get("BENCH_PROFILE");
         if (profile != null) Profiler.start();
         defer if (profile) |path| Profiler.stop(io, path) catch {};
-        return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, init.environ_map.get("BENCH_GO_ORDER") != null, &w.interface);
+        const threads = std.fmt.parseInt(usize, init.environ_map.get("BENCH_THREADS") orelse "1", 10) catch 1;
+        const parallel: macondo.endgame.Parallel = if (std.mem.eql(u8, init.environ_map.get("BENCH_PARALLEL") orelse "", "pvsplit")) .pv_split else .abdada;
+        return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, init.environ_map.get("BENCH_GO_ORDER") != null, threads, parallel, &w.interface);
     }
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "sim")) {
         const profile = init.environ_map.get("BENCH_PROFILE");
@@ -229,9 +231,11 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
 /// (the second argument) on one thread, with a table of 2^24 entries
 /// cleared before each, outside the timing (`go endgame plies <n>`). With BENCH_ROWS, a line
 /// per position; with BENCH_GO_ORDER, Go's move ordering.
-fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, plies: u32, rows: bool, go_order: bool, w: *Io.Writer) !void {
+fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, plies: u32, rows: bool, go_order: bool, threads: usize, parallel: macondo.endgame.Parallel, w: *Io.Writer) !void {
     var tt: macondo.ttable.Table = .{};
     defer tt.deinit(gpa);
+    var workspace: macondo.endgame.Workspace = .init(gpa);
+    defer workspace.deinit();
     var zobrist: ?macondo.zobrist.Zobrist = null;
     defer if (zobrist) |*z| z.deinit(gpa);
     var nodes: u64 = 0;
@@ -245,8 +249,9 @@ fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Po
         // As MAGPIE's benchmark: the table is cleared before the clock starts.
         try tt.reset(gpa, 256 << 20);
         const start = Io.Timestamp.now(io, .awake);
-        const solver = try macondo.endgame.Solver.init(gpa, p, &zobrist.?, &tt, .{ .clear_tt = false, .magpie_ordering = !go_order });
+        const solver = try macondo.endgame.Solver.initIn(gpa, p, &zobrist.?, &tt, .{ .clear_tt = false, .magpie_ordering = !go_order, .threads = threads, .parallel = parallel }, &workspace, 0);
         defer solver.deinit();
+        solver.io = io;
         const r = try solver.solve(plies, null, null);
         const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
         total_ns += ns;
@@ -254,8 +259,10 @@ fn benchEndgame(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Po
         value_sum += r.value;
         if (rows) try w.print("{d} value {d} depth {d} nodes {d} time {d:.4}\n", .{ i, r.value, r.depth, r.nodes, @as(f64, @floatFromInt(ns)) / 1e9 });
     }
-    try w.print("endgame ({d} plies, 1 thread): {d} positions in {d:.3} s, {d} nodes, {d:.0} nodes/s, value sum {d}\n", .{
+    try w.print("endgame ({d} plies, {d} thread{s}): {d} positions in {d:.3} s, {d} nodes, {d:.0} nodes/s, value sum {d}\n", .{
         plies,
+        threads,
+        if (threads == 1) "" else "s",
         positions.len,
         @as(f64, @floatFromInt(total_ns)) / 1e9,
         nodes,

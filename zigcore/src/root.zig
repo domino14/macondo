@@ -34,6 +34,7 @@ pub const gorand = @import("gocompat/gorand.zig");
 pub const infer = @import("rangefinder/infer.zig");
 pub const zobrist = @import("endgame/zobrist.zig");
 pub const ttable = @import("endgame/ttable.zig");
+pub const abdada = @import("endgame/abdada.zig");
 pub const endgame = @import("endgame/endgame.zig");
 pub const wordprune = @import("endgame/wordprune.zig");
 pub const pathlists = @import("endgame/pathlists.zig");

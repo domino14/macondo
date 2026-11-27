@@ -65,6 +65,8 @@ pub const Engine = struct {
     /// The endgame's position keys (made for the board's size on first
     /// use, or loaded with the zobrist-file option) and table.
     zobrist: ?zobrist_mod.Zobrist = null,
+    /// The endgame threads' caches, kept between solves.
+    endgame_workspace: ?endgame.Workspace = null,
     tt: ttable.Table = .{},
 
     /// `source` is how the engine reads data files; see data.Source.
@@ -85,6 +87,7 @@ pub const Engine = struct {
         self.stopSearch();
         if (self.cross_cache) |*c| c.deinit(self.gpa);
         if (self.zobrist) |*z| z.deinit(self.gpa);
+        if (self.endgame_workspace) |*w| w.deinit();
         self.tt.deinit(self.gpa);
         self.store.deinit();
         self.gpa.free(self.options.data_path);
@@ -503,13 +506,15 @@ pub const Engine = struct {
     /// [magpieorder|goorder] [goplayout] [gooutreply] [nofirstreply] [nopruned] [noaspiration] [nooutreply] [nokeepone]
     /// [noshortcuts] [checklists]`:
     /// solves the
-    /// endgame (the bag must be empty) to n plies on one thread, writing
+    /// endgame (the bag must be empty) to n plies on the `threads`
+    /// option's threads (`abdada`, `pvsplit`: how they share the search),
+    /// writing
     /// `info endgame depth <d> value <v> nodes <n> pv <moves>` after each
     /// depth (v: the change in the spread of the player on turn), then
     /// `bestmove`.
     fn goEndgame(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
         var plies: u32 = 0;
-        var opts: endgame.Options = .{ .tt_bytes = @as(u64, self.options.hash_mb) << 20 };
+        var opts: endgame.Options = .{ .tt_bytes = @as(u64, self.options.hash_mb) << 20, .threads = self.options.threads };
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             if (std.mem.eql(u8, key, "plies")) {
@@ -535,6 +540,10 @@ pub const Engine = struct {
                 opts.lazy_order = false;
             } else if (std.mem.eql(u8, key, "nocap")) {
                 opts.capped_first_depth = false;
+            } else if (std.mem.eql(u8, key, "abdada")) {
+                opts.parallel = .abdada;
+            } else if (std.mem.eql(u8, key, "pvsplit")) {
+                opts.parallel = .pv_split;
             } else if (std.mem.eql(u8, key, "gooutreply")) {
                 opts.go_out_reply = true;
             } else if (std.mem.eql(u8, key, "goplayout")) {
@@ -560,11 +569,13 @@ pub const Engine = struct {
             self.zobrist = null;
             self.zobrist = try .init(self.gpa, p.board.dim, @splat(0x5a));
         }
-        const solver = endgame.Solver.init(self.gpa, p, &self.zobrist.?, &self.tt, opts) catch |err| switch (err) {
+        if (self.endgame_workspace == null) self.endgame_workspace = .init(self.gpa);
+        const solver = endgame.Solver.initIn(self.gpa, p, &self.zobrist.?, &self.tt, opts, &self.endgame_workspace.?, 0) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| return out.print("error endgame {s}\n", .{@errorName(e)}),
         };
         defer solver.deinit();
+        solver.io = self.io;
         const Progress = struct {
             out: *Writer,
             solver: *endgame.Solver,

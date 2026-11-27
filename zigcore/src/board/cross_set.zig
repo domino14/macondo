@@ -137,6 +137,9 @@ pub const Cache = struct {
     entries: []Entry,
     /// 64 less the index bits: the key's top bits pick the entry.
     shift: u6,
+    /// Mixed into every key: a new salt makes the entries recorded under
+    /// another unreachable (the endgame's solves, see its Workspace).
+    salt: u64 = 0,
 
     const Entry = extern struct {
         key: u64 align(64) = 0,
@@ -171,9 +174,9 @@ pub const Cache = struct {
     /// square at col, with the lexicon: a multiply-add per letter (blank
     /// flag included), a separator for the square, then MurmurHash3's
     /// finalizer. Never 0, which marks an empty entry.
-    fn key(b: *const Board, row: usize, col: usize, left_col: usize, right_col: usize, kwg: Kwg) u64 {
+    fn key(b: *const Board, row: usize, col: usize, left_col: usize, right_col: usize, kwg: Kwg, salt: u64) u64 {
         const multiplier: u64 = 0x9E3779B97F4A7C15;
-        var k: u64 = @intFromPtr(kwg.nodes.ptr);
+        var k: u64 = @intFromPtr(kwg.nodes.ptr) ^ salt;
         for (left_col..right_col + 1) |c| {
             const symbol: u64 = if (c == col) 0x101 else @as(u64, b.getLetter(row, c)) + 1;
             k = k *% multiplier +% symbol;
@@ -218,7 +221,7 @@ pub fn generateCached(b: *Board, row_s: isize, col_s: isize, dir: Direction, kwg
 
     var v: Values = undefined;
     if (cache) |c| {
-        const k = Cache.key(b, row, col, @intCast(left_col), @intCast(right_col), kwg);
+        const k = Cache.key(b, row, col, @intCast(left_col), @intCast(right_col), kwg, c.salt);
         const e = c.entry(k);
         if (e.key == k) {
             v = .{

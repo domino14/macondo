@@ -60,6 +60,9 @@ pub const Cache = struct {
     plays: []align(32) PlayEntry,
     lane_shift: u6,
     play_shift: u6,
+    /// Mixed into every key: a new salt makes the entries recorded under
+    /// another unreachable (the endgame's solves, see its Workspace).
+    salt: u64 = 0,
 
     pub fn init(gpa: Allocator, lane_bits: u6, play_bits: u6) Allocator.Error!Cache {
         const lanes = try gpa.alignedAlloc(LaneEntry, .@"64", @as(usize, 1) << lane_bits);
@@ -173,7 +176,7 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
     s.best_leaves[0] = @floatFromInt(out_bonus);
     shadow.initShadow(gen, rack);
 
-    var rack_key: u64 = mix(@intFromPtr(gen.kwg.nodes.ptr), @as(u64, @bitCast(@as(i64, out_bonus))));
+    var rack_key: u64 = mix(@intFromPtr(gen.kwg.nodes.ptr) ^ cache.salt, @as(u64, @bitCast(@as(i64, out_bonus))));
     for (0..gen.ld.size) |ml| rack_key = mix(rack_key, rack.counts[ml]);
     rack_key = finish(rack_key);
 

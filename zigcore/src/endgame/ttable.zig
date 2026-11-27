@@ -57,9 +57,6 @@ const Slot = extern struct { word1: u64, word2: u64 };
 pub const Table = struct {
     slots: []Slot = &.{},
     mask: u64 = 0,
-    created: u64 = 0,
-    lookups: u64 = 0,
-    hits: u64 = 0,
 
     /// Sizes the table to the largest power of two of entries that fits in
     /// `bytes` (at least 2^24), and clears it.
@@ -74,9 +71,6 @@ pub const Table = struct {
         }
         @memset(self.slots, .{ .word1 = 0, .word2 = 0 });
         self.mask = n - 1;
-        self.created = 0;
-        self.lookups = 0;
-        self.hits = 0;
     }
 
     pub fn deinit(self: *Table, gpa: std.mem.Allocator) void {
@@ -110,14 +104,12 @@ pub const Table = struct {
 
     /// The entry for `zval`, or an invalid one.
     pub fn lookup(self: *Table, zval: u64) Entry {
-        self.lookups += 1;
         const base = (zval & self.mask) & ~@as(u64, bucket_size - 1);
         const want = bucketHash(zval);
         for (0..bucket_size) |i| {
             const e = self.load(base + i) orelse continue;
             if (!e.valid()) continue;
             if (fullHash(e, base) == want) {
-                self.hits += 1;
                 return e;
             }
         }
@@ -130,7 +122,6 @@ pub const Table = struct {
         const top4: u64 = zval >> 32;
         var fifth: u8 = @as(u8, @truncate(zval >> 24)) & ~pure_bit;
         if (pure) fifth |= pure_bit;
-        self.created += 1;
         const base = (zval & self.mask) & ~@as(u64, bucket_size - 1);
         const want = bucketHash(zval);
         var victim = base;

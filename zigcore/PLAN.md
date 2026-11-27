@@ -196,7 +196,7 @@ as they land.
       either), the exchange sampler modes, order-4 marginals and other
       tuning knobs the bot leaves at their defaults, and two-turn (carry)
       reads.
-- [ ] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
+- [x] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
       `go endgame`. Of the parallel searches only PV split and ABDADA are
       ported; the others in `endgame/negamax` are slower. (The Go Zobrist keys come from an unseeded RNG, so
       hashes are compared by property, e.g. incremental = from scratch.)
@@ -213,9 +213,11 @@ as they land.
       root lists, playouts whose first move comes from the move lists,
       and its cached best-play search; the board keeps its squares as
       MAGPIE's does. The defaults search MAGPIE's tree and solve at its
-      speed with its values. The cross-check runs Go's ordering and
-      MAGPIE's node for node, and the defaults by value. Left: PV split
-      and ABDADA.
+      speed with its values. On several threads (the `threads` option),
+      PV split by default, as Go's, or ABDADA (`abdada`); the threads
+      keep their caches between solves (Workspace). The cross-check runs
+      Go's ordering and MAGPIE's node for node, and the defaults by
+      value, on one thread and on four with each parallel search.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
 - [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.

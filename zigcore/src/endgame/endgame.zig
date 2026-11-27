@@ -25,6 +25,7 @@ const move_mod = @import("../board/move.zig");
 const position = @import("../board/position.zig");
 const zobrist_mod = @import("zobrist.zig");
 const ttable = @import("ttable.zig");
+const abdada_mod = @import("abdada.zig");
 const gosort = @import("../gocompat/gosort.zig");
 const pathlists = @import("pathlists.zig");
 const wordprune = @import("wordprune.zig");
@@ -204,7 +205,6 @@ pub const Options = struct {
     /// greedily (else by their spread).
     heuristics: bool = true,
     iterative_deepening: bool = true,
-    negascout: bool = true,
     /// Search the window (-1, 1) only: whether the solving player wins.
     first_win: bool = false,
     /// The transposition table's size in bytes (rounded down to a power
@@ -270,6 +270,191 @@ pub const Options = struct {
     /// Clear the table (to `tt_bytes`) before solving; off when the
     /// caller has just done so (benchmarks time the solve alone).
     clear_tt: bool = true,
+    /// Threads to search with: the solver's own, and threads - 1 helpers
+    /// on the solver's `io` (without one the solver searches alone).
+    threads: usize = 1,
+    /// How the threads share a search.
+    parallel: Parallel = .pv_split,
+};
+
+/// How several threads share an endgame search.
+pub const Parallel = enum {
+    /// Every thread searches every depth, sharing the transposition table;
+    /// a move another thread is searching is put off (abdada.zig).
+    abdada,
+    /// PV splitting (Marsland and Campbell, 1982; Go's pvsplit.go): this
+    /// solver walks the principal variation; at each of its nodes it
+    /// searches the first move alone, then hands the others to all the
+    /// threads, a null-window search each at the best bound so far. A
+    /// move that beats it becomes the new principal variation. A thread
+    /// with no move left joins one still being searched, and they put off
+    /// each other's moves as ABDADA's threads do.
+    pv_split,
+};
+
+/// PV splitting's smallest depth for a split: below it a node's moves are
+/// cheaper to search than to hand out.
+const pv_split_min_depth = 2;
+
+/// The caches a solver searches with.
+pub const Caches = struct {
+    best: bestsmall.Cache,
+    cross: cross_set.Cache,
+
+    fn create(gpa: Allocator) Allocator.Error!*Caches {
+        const c = try gpa.create(Caches);
+        errdefer gpa.destroy(c);
+        c.best = try .init(gpa, 18, 19);
+        errdefer c.best.deinit(gpa);
+        c.cross = try .init(gpa, cross_set.Cache.default_index_bits);
+        return c;
+    }
+
+    fn destroy(c: *Caches, gpa: Allocator) void {
+        c.best.deinit(gpa);
+        c.cross.deinit(gpa);
+        gpa.destroy(c);
+    }
+};
+
+/// What solves keep between them: each thread's caches, made once rather
+/// than for every solve (tens of megabytes to clear a thread). Each solve
+/// salts their keys, so that none reads an earlier one's entries.
+pub const Workspace = struct {
+    gpa: Allocator,
+    caches: std.ArrayList(*Caches) = .empty,
+    solves: u64 = 0,
+
+    pub fn init(gpa: Allocator) Workspace {
+        return .{ .gpa = gpa };
+    }
+
+    pub fn deinit(self: *Workspace) void {
+        for (self.caches.items) |c| c.destroy(self.gpa);
+        self.caches.deinit(self.gpa);
+        self.* = undefined;
+    }
+
+    /// Thread `index`'s caches, made if new.
+    fn get(self: *Workspace, index: usize) Allocator.Error!*Caches {
+        while (self.caches.items.len <= index) {
+            const c = try Caches.create(self.gpa);
+            errdefer c.destroy(self.gpa);
+            try self.caches.append(self.gpa, c);
+        }
+        return self.caches.items[index];
+    }
+
+    /// Salts every thread's caches for a new solve.
+    fn newSolve(self: *Workspace) void {
+        self.solves += 1;
+        const salt = (self.solves *% 0x9E3779B97F4A7C15) | 1;
+        for (self.caches.items) |c| {
+            c.best.salt = salt;
+            c.cross.salt = salt;
+        }
+    }
+};
+
+/// One round of null-window searches of a PV node's moves (Parallel.pv_split).
+const SplitPoint = struct {
+    io: std.Io,
+    mutex: std.Io.Mutex = .init,
+    /// The moves from the root to the node.
+    path: []const SmallMove,
+    node_key: u64,
+    depth: i32,
+    children: []const SmallMove,
+    /// The children to search this round, by index.
+    pending: []const u16,
+    /// Indexed like pending.
+    moves: []Claim,
+    /// Bounds on each child's value (by child index): from below where
+    /// fail_high, else from above.
+    vals: []i16,
+    fail_high: []bool,
+    /// The best lower bound on the node's value; a move that fails high
+    /// raises it for the moves still being searched.
+    alpha: std.atomic.Value(i32),
+    beta: i16,
+    /// Set when the round is over: a cutoff, or an error.
+    over: std.atomic.Value(bool) = .init(false),
+    /// The first pending move nobody has taken.
+    next: usize = 0,
+    impure: bool = false,
+    max_reach: u64 = 0,
+    err: ?Error = null,
+
+    const Claim = struct {
+        /// Set when the move has its result, or the round is over: its
+        /// searchers stop.
+        stop: std.atomic.Value(bool) = .init(false),
+        searchers: u32 = 0,
+        done: bool = false,
+    };
+
+    /// A move to search: the next nobody has taken, else the unfinished
+    /// one with the fewest threads on it; its place in pending.
+    fn claim(sp: *SplitPoint) ?usize {
+        sp.mutex.lockUncancelable(sp.io);
+        defer sp.mutex.unlock(sp.io);
+        var n: ?usize = null;
+        if (sp.next < sp.pending.len) {
+            n = sp.next;
+            sp.next += 1;
+        } else {
+            for (sp.moves, 0..) |*mv, i| {
+                if (!mv.done and (n == null or mv.searchers < sp.moves[n.?].searchers)) n = i;
+            }
+        }
+        if (n) |i| sp.moves[i].searchers += 1;
+        return n;
+    }
+
+    /// Records move n's null-window result `v` at bound `a`, unless
+    /// another thread got there first. False if it must be searched
+    /// again: it beat `a`, but the bound has risen past it since.
+    fn finish(sp: *SplitPoint, n: usize, v: i16, a: i16, impure: bool, reach: u64) bool {
+        sp.mutex.lockUncancelable(sp.io);
+        defer sp.mutex.unlock(sp.io);
+        const mv = &sp.moves[n];
+        if (mv.done) return true;
+        const fail_high = v > a;
+        if (fail_high and v < sp.beta) {
+            if (v <= sp.alpha.load(.monotonic)) return false;
+            sp.alpha.store(v, .monotonic);
+        }
+        mv.done = true;
+        mv.stop.store(true, .monotonic);
+        const idx = sp.pending[n];
+        sp.vals[idx] = v;
+        sp.fail_high[idx] = fail_high;
+        if (impure) sp.impure = true;
+        sp.max_reach = @max(sp.max_reach, reach + 1);
+        // A cutoff: the node's other moves no longer matter.
+        if (v >= sp.beta) sp.end();
+        return true;
+    }
+
+    /// Takes a thread off a move another thread finished.
+    fn leave(sp: *SplitPoint, n: usize) void {
+        sp.mutex.lockUncancelable(sp.io);
+        defer sp.mutex.unlock(sp.io);
+        sp.moves[n].searchers -= 1;
+    }
+
+    fn fail(sp: *SplitPoint, err: Error) void {
+        sp.mutex.lockUncancelable(sp.io);
+        if (sp.err == null) sp.err = err;
+        sp.mutex.unlock(sp.io);
+        sp.end();
+    }
+
+    /// Ends the round for every thread.
+    fn end(sp: *SplitPoint) void {
+        sp.over.store(true, .monotonic);
+        for (sp.moves) |*mv| mv.stop.store(true, .monotonic);
+    }
 };
 
 const max_lanes = 2 * board_mod.max_dim;
@@ -722,6 +907,25 @@ pub fn scanLoneTileOn(b: *const Board, occ: *const [board_mod.max_dim]u32, ld: *
 pub const Solver = struct {
     gpa: Allocator,
     opts: Options,
+    /// The position solved, which helpers are made from.
+    pos: *const position.Position,
+    /// Where helpers run (Options.threads).
+    io: ?std.Io = null,
+    /// The helper threads' solvers, during a solve.
+    helpers: []*Solver = &.{},
+    /// Set when this solver's search of a depth ends, for its helpers.
+    helpers_halt: std.atomic.Value(bool) = .init(false),
+    /// A helper's: its solver's helpers_halt.
+    halt: ?*const std.atomic.Value(bool) = null,
+    /// The caches of solves to come (initIn).
+    workspace: ?*Workspace = null,
+    /// The moves the threads are searching, shared (Parallel.abdada).
+    abdada: ?*abdada_mod.Table = null,
+    /// The moves the nodes on the path have put off, by index.
+    deferred: std.ArrayList(u16) = .empty,
+    /// The moves from the root to the PV node this solver is at
+    /// (Parallel.pv_split).
+    split_path: std.ArrayList(SmallMove) = .empty,
     board: Board,
     dist: *const tiles.LetterDistribution,
     kwg: @import("../data/kwg.zig").Kwg,
@@ -733,7 +937,7 @@ pub const Solver = struct {
     playing: bool = true,
 
     gen: movegen.Generator,
-    cross_cache: cross_set.Cache,
+    cross_cache: *cross_set.Cache,
     zobrist: *const zobrist_mod.Zobrist,
     tt: *ttable.Table,
 
@@ -756,7 +960,9 @@ pub const Solver = struct {
     stop: ?*const std.atomic.Value(bool) = null,
     lists: ?pathlists.PathLists = null,
     pruned: ?wordprune.Pruned = null,
-    best_cache: bestsmall.Cache,
+    best_cache: *bestsmall.Cache,
+    /// Whether the solver made its caches (else a Workspace's).
+    own_caches: bool,
     stuck_memo: [stuck_memo_size]StuckEntry = @splat(.{}),
     /// Set while the leaf under a first reply is searched.
     under_first_reply: bool = false,
@@ -773,25 +979,35 @@ pub const Solver = struct {
     /// and `tt` are shared with the caller, who sizes the table (Solve
     /// clears it).
     pub fn init(gpa: Allocator, p: *const position.Position, zobrist: *const zobrist_mod.Zobrist, tt: *ttable.Table, opts: Options) Error!*Solver {
+        return initIn(gpa, p, zobrist, tt, opts, null, 0);
+    }
+
+    /// init with thread `index`'s caches from `ws` (if any): kept across
+    /// solves, which salt them (see Workspace).
+    pub fn initIn(gpa: Allocator, p: *const position.Position, zobrist: *const zobrist_mod.Zobrist, tt: *ttable.Table, opts: Options, ws: ?*Workspace, index: usize) Error!*Solver {
         const s = try gpa.create(Solver);
         errdefer gpa.destroy(s);
         s.* = .{
             .gpa = gpa,
             .opts = opts,
+            .pos = p,
             .board = p.board,
             .dist = p.dist,
             .kwg = p.lexicon.kwg,
             .racks = p.racks,
             .scores = p.scores,
             .gen = undefined,
-            .cross_cache = try .init(gpa, 14),
+            .cross_cache = undefined,
             .best_cache = undefined,
+            .own_caches = ws == null,
+            .workspace = ws,
             .zobrist = zobrist,
             .tt = tt,
         };
-        errdefer s.cross_cache.deinit(gpa);
-        s.best_cache = try .init(gpa, 18, 19);
-        errdefer s.best_cache.deinit(gpa);
+        const caches = if (ws) |w| try w.get(index) else try Caches.create(gpa);
+        errdefer if (ws == null) caches.destroy(gpa);
+        s.cross_cache = &caches.cross;
+        s.best_cache = &caches.best;
         s.gen = .init(gpa, &s.board, s.kwg, s.dist);
         s.gen.gen_pass = true;
         s.journal = try .init(gpa, s.board.dim * s.board.dim);
@@ -813,9 +1029,8 @@ pub const Solver = struct {
         const gpa = self.gpa;
         if (self.lists) |*l| l.deinit();
         if (self.pruned) |*pr| pr.deinit(gpa);
-        self.best_cache.deinit(gpa);
+        if (self.own_caches) @as(*Caches, @fieldParentPtr("best", self.best_cache)).destroy(gpa);
         self.gen.deinit();
-        self.cross_cache.deinit(gpa);
         self.frames.deinit(gpa);
         self.journal.deinit(gpa);
         self.arena.deinit(gpa);
@@ -823,6 +1038,8 @@ pub const Solver = struct {
         self.bc_values.deinit(gpa);
         self.bc_order.deinit(gpa);
         self.sort_moves.deinit(gpa);
+        self.deferred.deinit(gpa);
+        self.split_path.deinit(gpa);
 
         gpa.destroy(self);
     }
@@ -883,7 +1100,7 @@ pub const Solver = struct {
                 mv.tiles[i] = placed[i];
             }
             b.tiles_played += m.tiles_played;
-            cross_set.updateForPlay(b, &mv, self.kwg, self.dist, was_empty, &self.cross_cache);
+            cross_set.updateForPlay(b, &mv, self.kwg, self.dist, was_empty, self.cross_cache);
             self.last_scoreless = self.scoreless;
             self.scoreless = 0;
             self.scores[p] += m.score;
@@ -1203,11 +1420,11 @@ pub const Solver = struct {
             if (self.lists) |*l| {
                 const found = if (alone) try l.aloneBest(self.frames.items.len, player, out_bonus) else try l.siblingBest(self.frames.items.len, player, out_bonus);
                 if (found) |sb| {
-                    return bestsmall.bestIn(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value);
+                    return bestsmall.bestIn(&self.gen, rack, out_bonus, self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value);
                 }
             }
         }
-        return bestsmall.best(&self.gen, rack, out_bonus, &self.best_cache, &self.lane_keys);
+        return bestsmall.best(&self.gen, rack, out_bonus, self.best_cache, &self.lane_keys);
     }
 
     /// Whether leaves are played out one move only (Options.capped_first_depth).
@@ -1450,7 +1667,7 @@ pub const Solver = struct {
                 const found = if (played == 0)
                     try self.bestPlay(on, 2 * rack_scores[1 - on], self.under_first_reply)
                 else
-                    try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], &self.best_cache, &self.lane_keys);
+                    try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], self.best_cache, &self.lane_keys);
                 if (self.opts.check_lists) try self.checkBestPlay(found, rack, 2 * rack_scores[1 - on]);
                 if (found) |m| {
                     buf[n] = m;
@@ -1577,6 +1794,9 @@ pub const Solver = struct {
         if (self.stop) |st| {
             if (st.load(.monotonic)) return error.Stopped;
         }
+        if (self.halt) |h| {
+            if (h.load(.monotonic)) return error.Stopped;
+        }
         var alpha = alpha_in;
         var beta = beta_in;
         const on = self.on_turn;
@@ -1697,6 +1917,11 @@ pub const Solver = struct {
                 (on == 0 or self.opts.playout_out_bonus)));
         var leaves_played: usize = 0;
         var out_reply: OutReply = .{};
+        // ABDADA (threads > 1): moves another thread is searching are put
+        // off to a second pass.
+        const abdada_here = self.abdada != null and depth >= abdada_mod.min_depth;
+        const deferred_mark = self.deferred.items.len;
+        defer self.deferred.shrinkRetainingCapacity(deferred_mark);
         // MAGPIE's lazy ordering: the moves before `ordered` are in place.
         var tail_sorted = at_root or !(self.opts.heuristics and self.opts.magpie_ordering and self.opts.lazy_order);
         var ordered: usize = 0;
@@ -1734,7 +1959,7 @@ pub const Solver = struct {
                 }
             }
             var value: i16 = undefined;
-            if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, (idx == 0 and first_full) or !self.opts.negascout, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
+            if (self.valueChildUnplayed(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, our_spread, on, stm_tiles, out_bonus)) |v| {
                 value = v;
                 self.nodes += 1;
                 child_pv.clear();
@@ -1750,6 +1975,14 @@ pub const Solver = struct {
                 child_pv.clear();
                 continue;
             }
+            if (abdada_here) {
+                // Another thread is searching it: after the others, when
+                // its value may be in the table.
+                if (self.abdada.?.busy(node_key, m.tm, @intCast(depth))) {
+                    try self.deferred.append(self.gpa, @intCast(idx));
+                    continue;
+                }
+            }
             if (depth == 1 and self.opts.heuristics) {
                 // The children are leaves, each played out starting with
                 // the other player's best play: once a second needs it,
@@ -1760,28 +1993,7 @@ pub const Solver = struct {
                     if (self.lists) |*l| _ = try l.get(self.frames.items.len, 1 - on);
                 }
             }
-            try self.play(m, &placed);
-            self.nodes += 1;
-            const leave = &self.racks[on];
-            const child_key = self.zobrist.addMove(node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], leave, self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
-            if ((idx == 0 and first_full) or !self.opts.negascout) {
-                value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
-                    self.unplay();
-                    return err;
-                };
-            } else {
-                value = self.negamax(child_key, depth - 1, -alpha - 1, -alpha, &child_pv, false) catch |err| {
-                    self.unplay();
-                    return err;
-                };
-                if (alpha < -value and -value < beta) {
-                    value = self.negamax(child_key, depth - 1, -beta, -alpha, &child_pv, pv_node) catch |err| {
-                        self.unplay();
-                        return err;
-                    };
-                }
-            }
-            self.unplay();
+            value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, abdada_here);
             max_reach = @max(max_reach, self.reach + 1);
             if (-value > best_value) {
                 best_value = -value;
@@ -1793,8 +2005,45 @@ pub const Solver = struct {
             if (best_value >= beta) break;
             child_pv.clear();
         }
+        // The moves put off, now searched (ABDADA's second pass).
+        var d = deferred_mark;
+        while (d < self.deferred.items.len and best_value < beta) : (d += 1) {
+            const idx = self.deferred.items[d];
+            const m = if (at_root) self.root_moves[idx] else self.arena.items[arena_mark + idx];
+            child_pv.clear();
+            const value = try self.searchChild(m, node_key, depth, alpha, beta, idx == 0 and first_full, pv_node, &child_pv, true);
+            max_reach = @max(max_reach, self.reach + 1);
+            if (-value > best_value) {
+                best_value = -value;
+                best_move = m;
+                pv.update(best_move, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+            }
+            if (at_root) self.root_moves[idx].est = -value;
+            alpha = @max(alpha, best_value);
+        }
 
         return self.storeNode(node_key, depth, best_value, alpha_orig, beta, our_spread, best_move, impure_at_entry, max_reach);
+    }
+
+    /// Plays child `m` of the node `node_key` (the player on turn's move),
+    /// searches it, and takes it back; returns its value, to its own
+    /// player. `full` searches the window (alpha, beta) at once, else a
+    /// null window at alpha first, again in full only if it falls inside;
+    /// `shared` notes the search in the threads' table (ABDADA).
+    fn searchChild(self: *Solver, m: SmallMove, node_key: u64, depth: i32, alpha: i16, beta: i16, full: bool, pv_node: bool, child_pv: *Line, shared: bool) Error!i16 {
+        const on = self.on_turn;
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        if (shared) self.abdada.?.start(node_key, m.tm, @intCast(depth));
+        defer if (shared) self.abdada.?.finish(node_key, m.tm);
+        try self.play(m, &placed);
+        defer self.unplay();
+        self.nodes += 1;
+        const leave = &self.racks[on];
+        const child_key = self.zobrist.addMove(node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], leave, self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+        if (full) return self.negamax(child_key, depth - 1, -beta, -alpha, child_pv, pv_node);
+        const value = try self.negamax(child_key, depth - 1, -alpha - 1, -alpha, child_pv, false);
+        if (alpha < -value and -value < beta) return self.negamax(child_key, depth - 1, -beta, -alpha, child_pv, pv_node);
+        return value;
     }
 
     /// Stores a node's result in the table and returns its value.
@@ -1808,21 +2057,17 @@ pub const Solver = struct {
         return best_value;
     }
 
-    /// The root position's key.
-    fn rootKey(self: *const Solver) u64 {
-        return self.zobrist.hash(self.board.squares[0 .. self.board.dim * self.board.dim], &self.racks[0], &self.racks[1], self.numLetters(), false, self.scoreless);
-    }
-
-    /// Solves to `plies` (iterativelyDeepen), calling `progress` with each
-    /// depth's result.
-    pub fn solve(self: *Solver, plies: u32, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Result {
-        if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
-        if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
+    /// Readies the solver to search to `plies`: its memos and lane keys,
+    /// the pruned word graph (`main`'s, for a helper), and both root lists.
+    fn prepare(self: *Solver, plies: u32, main: ?*const Solver) Error!void {
         self.stuck_memo = @splat(.{});
         self.target_depth = plies;
         for (0..2 * self.board.dim) |lane| self.lane_keys[lane] = bestsmall.laneKey(&self.board, lane);
         self.occupancyFromBoard(&self.occ);
-        if (self.opts.pruned_kwg and self.pruned == null) {
+        if (main) |m| {
+            self.kwg = m.kwg;
+            self.gen.kwg = self.kwg;
+        } else if (self.opts.pruned_kwg and self.pruned == null) {
             if (try wordprune.generate(self.gpa, &self.board, &self.racks[0], &self.racks[1], self.numLetters(), self.kwg)) |pr| {
                 self.pruned = pr;
                 self.kwg = self.pruned.?.kwg();
@@ -1842,6 +2087,294 @@ pub const Solver = struct {
         self.nodes = 0;
         self.playout_nodes = 0;
         self.impure = 0;
+    }
+
+    /// Makes the helper threads' solvers (Options.threads), each readied
+    /// to search to `plies` from the root, with the root's moves.
+    fn startHelpers(self: *Solver, plies: u32) Error!void {
+        const n = self.opts.threads - 1;
+        const table = try self.gpa.create(abdada_mod.Table);
+        table.* = .{};
+        self.abdada = table;
+        errdefer self.stopHelpers();
+        self.helpers = try self.gpa.alloc(*Solver, n);
+        var made: usize = 0;
+        errdefer self.helpers = self.helpers[0..made];
+        var opts = self.opts;
+        opts.threads = 1;
+        opts.clear_tt = false;
+        for (self.helpers, 1..) |*h, i| {
+            const helper = try Solver.initIn(self.gpa, self.pos, self.zobrist, self.tt, opts, self.workspace, i);
+            errdefer helper.deinit();
+            helper.halt = &self.helpers_halt;
+            helper.stop = self.stop;
+            helper.abdada = table;
+            try helper.prepare(plies, self);
+            helper.root_moves = try self.gpa.dupe(SmallMove, self.root_moves);
+            h.* = helper;
+            made += 1;
+        }
+    }
+
+    fn stopHelpers(self: *Solver) void {
+        for (self.helpers) |h| {
+            self.gpa.free(h.root_moves);
+            h.deinit();
+        }
+        self.gpa.free(self.helpers);
+        self.helpers = &.{};
+        if (self.abdada) |t| self.gpa.destroy(t);
+        self.abdada = null;
+    }
+
+    /// Searches the root to `depth` in the window (alpha, beta): with the
+    /// helpers too from depth 2 (Parallel.abdada: every thread searches
+    /// the root, in this solver's order of its moves, until this one is
+    /// done).
+    fn searchRoot(self: *Solver, key: u64, depth: u32, alpha: i16, beta: i16, pv: *Line) Error!i16 {
+        if (self.helpers.len == 0 or depth < 2) return self.negamax(key, @intCast(depth), alpha, beta, pv, true);
+        const io = self.io.?;
+        if (self.opts.parallel == .pv_split) {
+            for (self.helpers) |h| h.current_depth = @intCast(depth);
+            self.split_path.clearRetainingCapacity();
+            return self.pvSplit(key, @intCast(depth), alpha, beta, pv);
+        }
+        self.helpers_halt.store(false, .monotonic);
+        for (self.helpers) |h| {
+            h.current_depth = @intCast(depth);
+            @memcpy(h.root_moves, self.root_moves);
+        }
+        const Helper = struct {
+            fn run(h: *Solver, k: u64, d: u32, a: i16, b: i16) void {
+                var line: Line = .{};
+                // A helper's result is in the table; its errors are its
+                // being stopped, or memory, which the solver's own search
+                // meets too.
+                _ = h.negamax(k, @intCast(d), a, b, &line, true) catch {};
+            }
+        };
+        var group: std.Io.Group = .init;
+        for (self.helpers) |h| group.concurrent(io, Helper.run, .{ h, key, depth, alpha, beta }) catch break;
+        const value = self.negamax(key, @intCast(depth), alpha, beta, pv, true);
+        self.helpers_halt.store(true, .monotonic);
+        group.await(io) catch {};
+        return value;
+    }
+
+    /// negamax for a node of the principal variation, splitting its moves
+    /// among the threads (Parallel.pv_split); returns what negamax would.
+    fn pvSplit(self: *Solver, node_key: u64, depth: i32, alpha_in: i16, beta: i16, pv: *Line) Error!i16 {
+        if (depth < pv_split_min_depth or !self.playing) return self.negamax(node_key, depth, alpha_in, beta, pv, true);
+        if (self.stop) |st| {
+            if (st.load(.monotonic)) return error.Stopped;
+        }
+        const io = self.io.?;
+        var alpha = alpha_in;
+        const on = self.on_turn;
+        const our_spread = self.spreadFor(on);
+        const at_root = self.current_depth == depth;
+        const alpha_orig = alpha;
+        const impure_at_entry = self.impure;
+        var max_reach: u64 = 0;
+
+        // As negamax at a PV node: the table's entry only orders the moves.
+        var tt_move: u64 = ttable.invalid_move;
+        const e = self.tt.lookup(node_key);
+        if (e.valid()) tt_move = e.play();
+
+        // The node's moves, best first, in memory of their own: the threads
+        // read them while deeper nodes grow the arena.
+        const children = blk: {
+            if (at_root) break :blk try self.gpa.dupe(SmallMove, self.root_moves);
+            const arena_mark = self.arena.items.len;
+            defer self.arena.shrinkRetainingCapacity(arena_mark);
+            const list = try self.generate();
+            try self.assignEstimates(list, depth, tt_move, node_key, true);
+            break :blk try self.gpa.dupe(SmallMove, list);
+        };
+        defer self.gpa.free(children);
+        const vals = try self.gpa.alloc(i16, children.len);
+        defer self.gpa.free(vals);
+        const fail_high = try self.gpa.alloc(bool, children.len);
+        defer self.gpa.free(fail_high);
+        var pending: std.ArrayList(u16) = try .initCapacity(self.gpa, children.len);
+        defer pending.deinit(self.gpa);
+
+        var best_value: i16 = -huge;
+        var best_move: SmallMove = .{};
+        var child_pv: Line = .{};
+
+        // Child idx searched as the principal variation, splitting along it.
+        const searchPv = struct {
+            fn f(s: *Solver, key: u64, d: i32, idx: usize, kids: []const SmallMove, a: *i16, b: i16, best_v: *i16, best_m: *SmallMove, line: *Line, cpv: *Line, reach: *u64, root: bool) Error!void {
+                const m = kids[idx];
+                cpv.clear();
+                var placed: [board_mod.max_dim]MachineLetter = undefined;
+                const player = s.on_turn;
+                try s.play(m, &placed);
+                defer s.unplay();
+                s.nodes += 1;
+                const child_key = s.zobrist.addMove(key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], &s.racks[player], s.numLetters(), player == 0, s.scoreless, s.last_scoreless);
+                try s.split_path.append(s.gpa, m);
+                defer _ = s.split_path.pop();
+                const value = -(try s.pvSplit(child_key, d - 1, -b, -a.*, cpv));
+                reach.* = @max(reach.*, s.reach + 1);
+                if (value > best_v.*) {
+                    best_v.* = value;
+                    best_m.* = m;
+                    line.update(m, cpv, value -% @as(i16, @intCast(s.initial_spread)));
+                }
+                if (root) s.root_moves[idx].est = value;
+                a.* = @max(a.*, best_v.*);
+            }
+        }.f;
+
+        if (children.len > 0) try searchPv(self, node_key, depth, 0, children, &alpha, beta, &best_value, &best_move, pv, &child_pv, &max_reach, at_root);
+        for (1..children.len) |i| pending.appendAssumeCapacity(@intCast(i));
+
+        while (best_value < beta and pending.items.len > 0) {
+            const moves = try self.gpa.alloc(SplitPoint.Claim, pending.items.len);
+            defer self.gpa.free(moves);
+            @memset(moves, .{});
+            var sp: SplitPoint = .{
+                .io = io,
+                .path = self.split_path.items,
+                .node_key = node_key,
+                .depth = depth,
+                .children = children,
+                .pending = pending.items,
+                .moves = moves,
+                .vals = vals,
+                .fail_high = fail_high,
+                .alpha = .init(alpha),
+                .beta = beta,
+            };
+            const Helper = struct {
+                fn run(h: *Solver, point: *SplitPoint) void {
+                    var placed: [board_mod.max_dim]MachineLetter = undefined;
+                    var played: usize = 0;
+                    defer for (0..played) |_| h.unplay();
+                    for (point.path) |m| {
+                        h.play(m, &placed) catch |err| return point.fail(err);
+                        played += 1;
+                    }
+                    h.splitWork(point);
+                }
+            };
+            var group: std.Io.Group = .init;
+            for (self.helpers) |h| group.concurrent(io, Helper.run, .{ h, &sp }) catch break;
+            self.splitWork(&sp);
+            group.await(io) catch {};
+            if (self.stop) |st| {
+                if (st.load(.monotonic)) return error.Stopped;
+            }
+            if (sp.err) |err| return err;
+            if (sp.impure) self.impure += 1;
+            max_reach = @max(max_reach, sp.max_reach);
+
+            // The move with the highest lower bound is the one to search as
+            // the new principal variation; one at or past beta ends the node.
+            var cand: ?u16 = null;
+            for (pending.items) |idx| {
+                if (fail_high[idx] and (cand == null or vals[idx] > vals[cand.?])) cand = idx;
+            }
+            if (cand) |c| {
+                if (vals[c] >= beta) {
+                    best_value = vals[c];
+                    best_move = children[c];
+                    child_pv.clear();
+                    pv.update(best_move, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+                    if (at_root) self.root_moves[c].est = best_value;
+                    break;
+                }
+            } else {
+                // Every move failed low against alpha, which did not move:
+                // their values are upper bounds, as a search alone has them.
+                for (pending.items) |idx| {
+                    if (vals[idx] > best_value) {
+                        best_value = vals[idx];
+                        best_move = children[idx];
+                        child_pv.clear();
+                        pv.update(best_move, &child_pv, best_value -% @as(i16, @intCast(self.initial_spread)));
+                    }
+                    if (at_root) self.root_moves[idx].est = vals[idx];
+                }
+                break;
+            }
+            try searchPv(self, node_key, depth, cand.?, children, &alpha, beta, &best_value, &best_move, pv, &child_pv, &max_reach, at_root);
+            // Left to search against the new alpha: the other moves that
+            // failed high (they beat only an older bound), and any whose
+            // upper bound is above alpha.
+            var kept: usize = 0;
+            for (pending.items) |idx| {
+                if (idx == cand.?) continue;
+                if (fail_high[idx] or vals[idx] > alpha) {
+                    pending.items[kept] = idx;
+                    kept += 1;
+                } else if (at_root) self.root_moves[idx].est = vals[idx];
+            }
+            pending.shrinkRetainingCapacity(kept);
+        }
+        _ = our_spread;
+        return self.storeNode(node_key, depth, best_value, alpha_orig, beta, self.spreadFor(on), best_move, impure_at_entry, max_reach);
+    }
+
+    /// Takes moves from a split point and searches each with a null window
+    /// at its best bound, until none is left. The solver must be at the
+    /// split point's node.
+    fn splitWork(self: *Solver, sp: *SplitPoint) void {
+        const on = self.on_turn;
+        var child_pv: Line = .{};
+        var placed: [board_mod.max_dim]MachineLetter = undefined;
+        const halt = self.halt;
+        defer self.halt = halt;
+        while (!sp.over.load(.monotonic)) {
+            const n = sp.claim() orelse return;
+            const m = sp.children[sp.pending[n]];
+            self.halt = &sp.moves[n].stop;
+            self.play(m, &placed) catch |err| return sp.fail(err);
+            self.nodes += 1;
+            const child_key = self.zobrist.addMove(sp.node_key, m.isPass(), m.row(), m.col(), m.vertical(), placed[0..m.len], &self.racks[on], self.numLetters(), on == 0, self.scoreless, self.last_scoreless);
+            const impure_before = self.impure;
+            var reach: u64 = 0;
+            const failed: ?Error = while (true) {
+                const a: i16 = @intCast(sp.alpha.load(.monotonic));
+                const value = self.negamax(child_key, sp.depth - 1, -a - 1, -a, &child_pv, false) catch |err| break err;
+                reach = @max(reach, self.reach);
+                if (sp.finish(n, -value, a, self.impure != impure_before, reach)) break null;
+            };
+            self.unplay();
+            if (failed) |err| {
+                if (sp.over.load(.monotonic)) return;
+                if (err == error.Stopped and sp.moves[n].stop.load(.monotonic)) {
+                    // Another thread finished this move.
+                    sp.leave(n);
+                    continue;
+                }
+                return sp.fail(err);
+            }
+        }
+    }
+
+    /// Positions searched by every thread, playouts left out.
+    fn searchedNodes(self: *const Solver) u64 {
+        var n = self.nodes - self.playout_nodes;
+        for (self.helpers) |h| n += h.nodes - h.playout_nodes;
+        return n;
+    }
+
+    /// The root position's key.
+    fn rootKey(self: *const Solver) u64 {
+        return self.zobrist.hash(self.board.squares[0 .. self.board.dim * self.board.dim], &self.racks[0], &self.racks[1], self.numLetters(), false, self.scoreless);
+    }
+
+    /// Solves to `plies` (iterativelyDeepen), calling `progress` with each
+    /// depth's result.
+    pub fn solve(self: *Solver, plies: u32, progress: ?*const fn (ctx: ?*anyopaque, r: *const Result) void, ctx: ?*anyopaque) Error!Result {
+        if (self.racks[1].num_tiles == 0) return error.NoOpponentTiles;
+        if (self.opts.clear_tt) try self.tt.reset(self.gpa, self.opts.tt_bytes);
+        if (self.workspace) |w| w.newSolve();
+        try self.prepare(plies, null);
         const key = self.rootKey();
         var alpha: i16 = -huge;
         var beta: i16 = huge;
@@ -1855,6 +2388,8 @@ pub const Solver = struct {
         defer self.gpa.free(self.root_moves);
         self.arena.clearRetainingCapacity();
         try self.assignEstimates(self.root_moves, 0, ttable.invalid_move, key, true);
+        if (self.opts.threads > 1 and self.io != null and plies >= 2) try self.startHelpers(plies);
+        defer if (self.helpers.len > 0) self.stopHelpers();
 
         var result: Result = .{ .value = 0, .line = .{}, .depth = 0, .nodes = 0 };
         var reported = true;
@@ -1874,7 +2409,7 @@ pub const Solver = struct {
                 while (true) {
                     pv = .{};
                     impure_before = self.impure;
-                    val = self.negamax(key, @intCast(p), @intCast(std.math.clamp(a, -huge, huge)), @intCast(std.math.clamp(b, -huge, huge)), &pv, true) catch |err| switch (err) {
+                    val = self.searchRoot(key, p, @intCast(std.math.clamp(a, -huge, huge)), @intCast(std.math.clamp(b, -huge, huge)), &pv) catch |err| switch (err) {
                         error.Stopped => break,
                         else => |e| return e,
                     };
@@ -1888,7 +2423,7 @@ pub const Solver = struct {
                 }
                 if (self.stop) |st| if (st.load(.monotonic)) break;
             } else {
-                val = self.negamax(key, @intCast(p), alpha, beta, &pv, true) catch |err| switch (err) {
+                val = self.searchRoot(key, p, alpha, beta, &pv) catch |err| switch (err) {
                     error.Stopped => break,
                     else => |e| return e,
                 };
@@ -1906,7 +2441,7 @@ pub const Solver = struct {
                     }
                 }.less);
             }
-            result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.nodes - self.playout_nodes };
+            result = .{ .value = val -% @as(i16, @intCast(self.initial_spread)), .line = pv, .depth = p, .nodes = self.searchedNodes() };
             if (root_pure) result.depth = plies;
             reported = false;
             // The last depth is reported once its line is complete.
@@ -1917,7 +2452,7 @@ pub const Solver = struct {
         if (result.depth > 0) {
             self.stop = null;
             try self.completeLine(&result.line, result.depth, plies);
-            result.nodes = self.nodes - self.playout_nodes;
+            result.nodes = self.searchedNodes();
         }
         if (!reported) {
             if (progress) |f| f(ctx, &result);
@@ -2105,6 +2640,38 @@ test "the tail sort is stable" {
         }.f);
         sortByEstimateStable(list[0..n], &scratch);
         for (want[0..n], list[0..n]) |w, g| try testing.expectEqual(w.tm, g.tm);
+    }
+}
+
+test "the parallel searches give the values one thread does" {
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "CATENOID7/O14/IT1S11/FERN11/1GOY2Q3V4/1UTE1BI1TEIID2/1LI2U1WAWL4/TA1VERSO2LAZAR/AR3R4O4/X3BY1AMUSE3/I3A1PRETENDS1/N1FUCK9/GEE1HOG8/1N3HI8/1D1JuLEP7 AIMOO/?EN 354/408 0 lex NWL23;",
+        "1OAK3D7/OHIA3U7/M6C7/I5LI7/C3JEU8/RHINO1V4P3/O1NUB1V4R3/N4OYEZ1TE3/5B1FA1AS3/ALTERERS2XI1W1/5Y4AD1I1/3UnSWEAR1I1P1/1QAT4GEMOTE1/FILED8R1/EST1EaNLING4 ADGT/ENOO 358/440 0 lex NWL23;",
+        "3SECONDO1C1FA/5I3WARNER/5L4BEAD1/3MOI3N1T3/3AHA3AHI3/V2US4GIN3/A2Z2ROB1L4/U2YOKED2LAMIA/L1Q1WIFEY5N/TOUTER2E5O/1PEED3G5i/JEST4G5N/E1O11t/U1SPIV8E/X13R IIT/RT 437/391 0 lex NWL23;",
+        standard_cgp,
+    };
+    for (cgps) |text| {
+        const p = try testdata.position(&store, text);
+        var z = try zobrist_mod.Zobrist.init(testing.allocator, p.board.dim, @splat(1));
+        defer z.deinit(testing.allocator);
+        var tt: ttable.Table = .{};
+        defer tt.deinit(testing.allocator);
+        for ([_]u32{ 2, 4 }) |plies| {
+            const want = blk: {
+                const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 0 });
+                defer s.deinit();
+                break :blk (try s.solve(plies, null, null)).value;
+            };
+            for ([_]Parallel{ .abdada, .pv_split }) |parallel| {
+                const s = try Solver.init(testing.allocator, &p, &z, &tt, .{ .tt_bytes = 0, .threads = 3, .parallel = parallel });
+                defer s.deinit();
+                s.io = testing.io;
+                try testing.expectEqual(want, (try s.solve(plies, null, null)).value);
+            }
+        }
     }
 }
 

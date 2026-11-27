@@ -171,19 +171,34 @@ type endgameVariant struct {
 	// difference: for its defaults, whose values at a depth short of the
 	// end of the game are MAGPIE's rather than Go's.
 	selfCheck bool
+	// threads is the Zig engine's thread count (0: one).
+	threads int
 }
 
 var endgameVariants = []endgameVariant{
-	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply nofirstreply nocap", true, false},
-	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply nolazyorder nocap", true, false},
+	{"go-ordering", func(*negamax.Solver) {}, "goorder noaspiration goplayout gooutreply nofirstreply nocap", true, false, 0},
+	{"magpie-ordering", func(s *negamax.Solver) { s.SetMagpieOrdering(true) }, "magpieorder noaspiration goplayout gooutreply nofirstreply nolazyorder nocap", true, false, 0},
 	// The engine's defaults but the playout's pick, which changes the
 	// values of searches that stop short of the end of the game.
-	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false, false},
-	{"zig-defaults-selfcheck", nil, "checklists", false, true},
+	{"zig-defaults", func(*negamax.Solver) {}, "goplayout", false, false, 0},
+	{"zig-defaults-selfcheck", nil, "checklists", false, true, 0},
+	// The parallel searches, which must find the values one thread does.
+	{"zig-defaults-pvsplit", func(*negamax.Solver) {}, "goplayout pvsplit", false, false, 4},
+	{"zig-defaults-abdada", func(*negamax.Solver) {}, "goplayout abdada", false, false, 4},
 }
 
 func compareEndgame(t *testing.T, e *Engine, cfg *config.Config, cgpStr string, plies int, v endgameVariant) {
 	t.Helper()
+	if v.threads > 1 {
+		if err := e.Send(fmt.Sprintf("setoption name threads value %d", v.threads)); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := e.Send("setoption name threads value 1"); err != nil {
+				t.Fatal(err)
+			}
+		}()
+	}
 	if v.selfCheck {
 		if err := e.Send("position cgp " + cgpStr); err != nil {
 			t.Fatal(err)
