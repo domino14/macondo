@@ -127,9 +127,6 @@ pub const Engine = struct {
     pub fn handle(self: *Engine, line: []const u8) (Writer.Error || Allocator.Error)!Status {
         var tokens = std.mem.tokenizeAny(u8, line, " \t\r");
         const cmd = tokens.next() orelse return .@"continue";
-        if (self.search) |s| {
-            if (s.done.load(.acquire)) self.waitSearch();
-        }
         if (std.mem.eql(u8, cmd, "quit")) {
             self.stopSearch();
             return .quit;
@@ -142,6 +139,12 @@ pub const Engine = struct {
         defer self.out_mutex.unlock(self.io);
         defer self.out.flush() catch {};
         const out = self.out;
+        // Under the output lock: a search marks itself done before it lets
+        // go of the lock that wrote its bestmove, so a command sent after
+        // the bestmove is never refused as busy.
+        if (self.search) |s| {
+            if (s.done.load(.acquire)) self.waitSearch();
+        }
         if (self.search != null and !std.mem.eql(u8, cmd, "isready")) {
             try out.writeAll("error busy\n");
             return .@"continue";
@@ -951,7 +954,6 @@ const Search = struct {
         }
         if (computing) |*f| f.await(io);
         s.writeResult(order);
-        s.done.store(true, .release);
     }
 
     fn elapsedMs(s: *const Search) i64 {
@@ -983,6 +985,8 @@ const Search = struct {
         const e = s.engine;
         e.out_mutex.lockUncancelable(e.io);
         defer e.out_mutex.unlock(e.io);
+        // Done once the bestmove is flushed, before the lock is let go.
+        defer s.done.store(true, .release);
         const out = e.out;
         defer out.flush() catch {};
         if (s.err) |err| out.print("error sim-failed {t}\n", .{err}) catch {};
