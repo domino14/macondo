@@ -125,7 +125,9 @@ Commands (from `zigcore/`): `zig build` (engine binary at
 <file>`, then time them with `zig build bench -Doptimize=ReleaseFast --
 <file>` and `go test ./zigcore/crosscheck/ -run XXX -bench BenchmarkStatic
 -crosscheck.positions <file>`; sims with `BENCH_MODE=sim` (iterations as the
-second argument), `-bench BenchmarkSim` and `zigcore/bench/magpie_sim.sh`.
+second argument), `-bench BenchmarkSim` and `zigcore/bench/magpie_sim.sh`. Move
+generation against MAGPIE's: `zigcore/bench/magpie_movegen.py <positions>
+<lexicon>`.
 
 ## Development Notes
 

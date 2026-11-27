@@ -92,8 +92,8 @@ pub const Generator = struct {
     rack_bits: u64 = 0,
     strip: [board_mod.max_dim]MachineLetter = undefined,
     exchange_strip: [rack_tile_limit]MachineLetter = undefined,
-    /// The squares of the row being generated: row_buf, or a lane the
-    /// shadow pass loaded.
+    /// The squares of the row being generated: the board's lane, or a copy
+    /// in row_buf (see loadRow).
     row: *const [board_mod.max_dim]CachedSquare = undefined,
     row_buf: [board_mod.max_dim]CachedSquare = undefined,
     out_of_memory: bool = false,

@@ -363,10 +363,6 @@ pub const Board = struct {
         }
     }
 
-    pub inline fn addToCrossSet(self: *Board, row: usize, col: usize, ml: MachineLetter, dir: Direction) void {
-        self.viewMut(dir.other(), row, col).cross_set |= @as(CrossSet, 1) << @intCast(ml);
-    }
-
     pub inline fn crossScore(self: *const Board, row: usize, col: usize, dir: Direction) i32 {
         return self.view(dir.other(), row, col).cross_score;
     }

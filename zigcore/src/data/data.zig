@@ -345,13 +345,6 @@ pub const Store = struct {
         return lv;
     }
 
-    /// The leave values of lexicon `name` itself, lexica/gaddag/<name>.klv2.
-    pub fn leaveValues(self: *Store, data_path: []const u8, name: []const u8) Error!*Leaves {
-        if (!validName(name)) return error.InvalidName;
-        var buf: [128]u8 = undefined;
-        return self.leaveFile(data_path, std.fmt.bufPrint(&buf, "lexica/gaddag/{s}.klv2", .{name}) catch return error.InvalidName);
-    }
-
     /// The leave values a game in lexicon `name` is played with, or null if
     /// there are none (plays are then valued by score alone). Searched as
     /// Macondo's dataloaders.LeavesFileForLexicon does: the lexicon's own

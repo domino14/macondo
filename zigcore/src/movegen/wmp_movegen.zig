@@ -334,10 +334,6 @@ pub const MoveGen = struct {
         self.tiles_to_play = tiles_to_play;
     }
 
-    pub inline fn numSubracks(self: *const MoveGen) usize {
-        return self.count_by_size[self.tiles_to_play];
-    }
-
     pub inline fn tileScoreSum(self: *const MoveGen, idx: usize) i32 {
         return self.tile_score_sums[combination_offsets[self.tiles_to_play] + idx];
     }
@@ -470,14 +466,6 @@ pub const MoveGen = struct {
             self.blank_used += n;
         }
         return true;
-    }
-
-    /// The words of subrack `idx` by a plain lookup of it with the
-    /// playthrough tiles, written to `buf`; for checking subrackWords.
-    pub fn referenceSubrackWords(self: *const MoveGen, idx: usize, buf: []u8) usize {
-        var br = self.nonplaythroughSubrack(idx);
-        if (self.word_length > self.tiles_to_play) br += self.playthrough;
-        return self.wmp.?.writeWords(br, self.word_length, buf);
     }
 };
 

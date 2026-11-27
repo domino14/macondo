@@ -60,10 +60,6 @@ pub const Cache = struct {
     plays: []align(32) PlayEntry,
     lane_shift: u6,
     play_shift: u6,
-    lane_hits: u64 = 0,
-    lane_misses: u64 = 0,
-    play_hits: u64 = 0,
-    play_misses: u64 = 0,
 
     pub fn init(gpa: Allocator, lane_bits: u6, play_bits: u6) Allocator.Error!Cache {
         const lanes = try gpa.alignedAlloc(LaneEntry, .@"64", @as(usize, 1) << lane_bits);
@@ -168,7 +164,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
     gen.ctx = &eq_ctx;
     defer gen.ctx = undefined;
     gen.out_of_memory = false;
-    gen.best_only = false;
     gen.wmp_gen.init(gen.ld, rack, null);
     const s = &gen.shadow;
     s.tiles_in_bag = 1;
@@ -204,7 +199,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
             const key = keys[side][row];
             const e = &cache.lanes[key >> cache.lane_shift];
             if (e.key == key) {
-                cache.lane_hits += 1;
                 for (0..e.count) |i| {
                     // Its best play will be wanted if it is taken.
                     @prefetch(&cache.plays[finish(mix(key, @as(u64, e.cols[i]) << 8 | e.lasts[i])) >> cache.play_shift], .{});
@@ -220,7 +214,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
                 e.count = 0;
                 continue;
             }
-            cache.lane_misses += 1;
             const first = s.heap.anchors.items.len;
             shadow.shadowLane(gen, row, mask, dir);
             const added = s.heap.anchors.items[first..];
@@ -253,13 +246,11 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
         var cand: ?SmallMove = null;
         var cand_v: i32 = 0;
         if (pe.key == pkey) {
-            cache.play_hits += 1;
             if (pe.tm != 0) {
                 cand = .{ .tm = pe.tm, .score = pe.score, .tiles_played = pe.tiles_played, .len = pe.len };
                 cand_v = pe.value;
             }
         } else {
-            cache.play_misses += 1;
             const need_transposed = a.dir == .vertical;
             if (need_transposed != transposed) {
                 gen.board.transpose();
@@ -286,7 +277,6 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
         }
     }
     if (transposed) gen.board.transpose();
-    gen.plays.clearRetainingCapacity();
     gen.tiles_played = 0;
     if (gen.out_of_memory) return error.OutOfMemory;
     return result;

@@ -359,8 +359,8 @@ const lane_hash_keys = blk: {
     break :blk keys;
 };
 
-/// Notes lane (dir, lane) for the generation, loaded into the shadow
-/// state's lanes if it has anchors, and finds its remembered bound.
+/// Notes lane (dir, lane) for the generation, with its anchors, and finds
+/// its remembered bound.
 pub fn noteLane(gen: *Generator, dir: usize, lane: usize, anchors: u32) void {
     const c = gen.carry.?;
     c.anchors[dir][lane] = anchors;
@@ -524,7 +524,7 @@ pub fn remember(gen: *Generator) void {
     }
     const dim = gen.board.dim;
     if (best.kind == .play) {
-        // Its lane has an anchor, so it is loaded.
+        // Its squares, as the board holds them.
         const dir: usize = @intFromBool(best.vertical);
         const lane: usize = if (best.vertical) best.col else best.row;
         const start: usize = if (best.vertical) best.row else best.col;

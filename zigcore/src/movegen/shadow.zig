@@ -314,8 +314,8 @@ pub fn genShadow(gen: *Generator, rack: *const Rack) void {
 }
 
 /// genShadow for a generation that uses the memory of best plays: every
-/// lane is loaded and looked up first, then only the lanes not skipped
-/// are given bounds.
+/// lane is looked up first, then only the lanes not skipped are given
+/// bounds.
 fn genShadowCarried(gen: *Generator, rack: *const Rack) void {
     const dim = gen.board.dim;
     var masks: [2][board_mod.max_dim]u32 = undefined;
@@ -353,7 +353,8 @@ pub inline fn anchorMask(gen: *const Generator, row: usize, comptime dir: Direct
     return mask;
 }
 
-/// Bounds the anchors of a lane loaded into the shadow state.
+/// Bounds the anchors of a lane (the board's own squares, see
+/// Generator.lanePtr).
 pub fn shadowLane(gen: *Generator, row: usize, anchors: u32, comptime dir: Direction) void {
     gen.cur_row = row;
     gen.last_anchor_col = 100;

@@ -206,11 +206,16 @@ as they land.
       over (`zobrist-file`) and the same table size identical to Go's in
       value, best move and positions searched (`TestEndgameCrossCheck`),
       incremental move lists, keep-one and out-reply bounds and the pruned
-      word graph included. From MAGPIE: its move ordering (Go's
-      magpieOrdering, the default here) and aspiration windows; the
-      cross-check runs Go's ordering and MAGPIE's node for node, and the
-      defaults by value. Left: PV split and ABDADA, and MAGPIE's speed
-      (its leaf playouts take their first move from the move lists).
+      word graph included. From MAGPIE, by default: its move ordering
+      (Go's magpieOrdering) with its lazy selection and stable root
+      sort, aspiration windows, first replies one ply above the leaves,
+      capped leaves in the first depth of a deeper search, both sides'
+      root lists, playouts whose first move comes from the move lists,
+      and its cached best-play search; the board keeps its squares as
+      MAGPIE's does. The defaults search MAGPIE's tree and solve at its
+      speed with its values. The cross-check runs Go's ordering and
+      MAGPIE's node for node, and the defaults by value. Left: PV split
+      and ABDADA.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
 - [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.
