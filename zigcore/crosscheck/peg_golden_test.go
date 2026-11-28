@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,12 +37,21 @@ type pegCase struct {
 	cutoff       bool
 	only         []string // moves in UCGI notation
 	oppRack      string
+	// One ordering of the bag only (draw order), solved as Go's
+	// eventuality mode solves it.
+	eventuality string
 }
 
 const (
 	pegStraightforward = "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
 	pegPassFRA20       = "11ONZE/10J2O1/8A1E1DO1/7QUETEE1H/10E1F1U/8ECUMERA/8C1R1TIR/7WOKS2ET/6DUR6/5G2N1M4/4HALLALiS3/1G1P1P1OM1XI3/VIVONS1BETEL3/IF1N3AS1RYAL1/ETUDIAIS7 AEINRST/ 301/300 0 lex FRA20; ld french;"
 	pegTwoInBag        = "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	// The manual's positions (docs/manual/preendgame.md): Josh Sokol and
+	// Noah Walton, and after 2L P(O)ND drawing III, Noah to move; Matthew
+	// Tunnicliffe and Jim Brennan.
+	pegManual1     = "12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/ 394/365 0 lex NWL20;"
+	pegManualNoah  = "12D2/1U9POND/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 AEGRSTU/ 365/408 0 lex NWL20;"
+	pegManual2     = "BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEGILNS 344/368 0 lex CSW21;"
 	pegPolish          = "13P1/12SYĆ/11HET1/11IMA1/3C6T1EN1/2PiLŻE2WOŹNI1/1K1C5SI1Y2/DASHI2ZATNĘ3/1R1A4BAO4/1M1C1Z1ROŃ5/3ZŁU1A7/3Y1PÓKI1WERS1/GOJ2Y1IWIE4/1BOA3JĄŁ5/KANADZIE7 GLLMNOŚ/?DEFRUZ 307/288 0 lex OSPS49; ld polish;"
 )
 
@@ -53,6 +63,11 @@ var pegCases = []pegCase{
 	{name: "two-in-bag-x", cgp: pegTwoInBag, plies: 1, maxTilesLeft: 1, nested: 1, tiebreak: true, only: []string{"6F..X."}},
 	{name: "two-in-bag-capped", cgp: pegTwoInBag, plies: 1, maxTilesLeft: 1, nested: 0, only: []string{"12C.A."}},
 	{name: "polish-cutoff", cgp: pegPolish, plies: 1, maxTilesLeft: 1, nested: 1, tiebreak: true, cutoff: true},
+	{name: "manual-noah", cgp: pegManualNoah, plies: 4, maxTilesLeft: 1, nested: 1, tiebreak: true, only: []string{"2A.A.GUSTER", "15H.....TER", "15H.....URA"}},
+	{name: "manual-pond-iiia", cgp: pegManual1, plies: 4, maxTilesLeft: 1, nested: 1, only: []string{"2L.P.ND"}, eventuality: "IIIA"},
+	{name: "manual-fet-iiia", cgp: pegManual1, plies: 4, maxTilesLeft: 1, nested: 1, only: []string{"E5.FET"}, eventuality: "IIIA"},
+	{name: "manual-pant-aiii", cgp: pegManual1, plies: 4, maxTilesLeft: 1, nested: 1, only: []string{"I3.P.NT"}, eventuality: "AIII"},
+	{name: "manual-pah-grl", cgp: pegManual2, plies: 4, maxTilesLeft: 1, nested: 1, only: []string{"13M.P.."}, eventuality: "GRL"},
 }
 
 // TestWritePEGGoldens solves each pegCase with the Go engine and writes its
@@ -121,6 +136,16 @@ func solvePEGCase(t *testing.T, cfg *config.Config, pc pegCase) string {
 		}
 		s.SetKnownOppRack(mw)
 	}
+	if pc.eventuality != "" {
+		mw, err := tilemapping.ToMachineLetters(pc.eventuality, alph)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.SetTraceWriter(io.Discard)
+		s.SetTraceTargetBagTail(mw)
+		s.SetTraceOnce(true)
+		s.SetExplainMode(true)
+	}
 	plays, err := s.Solve(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +161,9 @@ func solvePEGCase(t *testing.T, cfg *config.Config, pc pegCase) string {
 	}
 	if pc.oppRack != "" {
 		fmt.Fprintf(&b, "opprack %s\n", pc.oppRack)
+	}
+	if pc.eventuality != "" {
+		fmt.Fprintf(&b, "eventuality %s\n", pc.eventuality)
 	}
 	for _, p := range plays {
 		mv := ucgiMove(p.Play, alph)

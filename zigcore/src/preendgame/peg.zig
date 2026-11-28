@@ -1447,6 +1447,10 @@ fn checkGoldenOn(text: []const u8, sample_in: ?usize, threads: usize) !void {
         } else if (std.mem.eql(u8, kw, "opprack")) {
             const n = try p.dist.toMachineLetters(f.next().?, &known);
             opts.known_opp = known[0..n];
+        } else if (std.mem.eql(u8, kw, "eventuality")) {
+            var ev: Draw = .{};
+            ev.len = @intCast(try p.dist.toMachineLetters(f.next().?, &ev.tiles));
+            opts.eventuality = ev;
         } else if (std.mem.eql(u8, kw, "play")) {
             const parsed = try move_mod.parse(f.next().?, p.dist, p.board.dim);
             var g: GoldenPlay = .{ .move = parsed.move };
@@ -1623,5 +1627,101 @@ test "an eventuality explained: two in the bag" {
             try testing.expect(e.decisive == null);
         }
         try testing.expect(e.replies > 0);
+    }
+}
+
+/// The larger golden files: only with -Dpeg-full.
+fn needFull() !void {
+    if (!@import("build_options").peg_full) return error.SkipZigTest;
+}
+
+test "golden: the manual, Noah's one in the bag after P(O)ND" {
+    // A(U)GUSTER wins two orderings, and (TEMP)URA is the only play to win
+    // with the A in the bag.
+    try checkGolden(@embedFile("testdata/manual-noah.txt"), null);
+}
+
+test "golden: the manual, P(O)ND drawing III" {
+    try needFull();
+    try checkGolden(@embedFile("testdata/manual-pond-iiia.txt"), null);
+}
+
+test "golden: the manual, FET drawing III" {
+    try needFull();
+    try checkGolden(@embedFile("testdata/manual-fet-iiia.txt"), null);
+}
+
+test "golden: the manual, P(A)NT drawing AII" {
+    try needFull();
+    try checkGolden(@embedFile("testdata/manual-pant-aiii.txt"), null);
+}
+
+test "golden: the manual, P(AH) with GRL in the bag" {
+    try needFull();
+    try checkGolden(@embedFile("testdata/manual-pah-grl.txt"), null);
+}
+
+/// Solves `play` of `cgp` for the eventuality `order` at `plies` and
+/// explains it.
+fn manualExplain(store: *@import("../data/data.zig").Store, cgp: []const u8, play_text: []const u8, order: []const u8, plies: u32) !struct { e: Explanation, ld: *const tiles.LetterDistribution } {
+    const gpa = testing.allocator;
+    const testdata = @import("../testing/testdata.zig");
+    const p = try testdata.position(store, cgp);
+    const only = try findMoves(gpa, &p, &.{play_text});
+    defer gpa.free(only);
+    var z = try zobrist_mod.Zobrist.init(gpa, p.board.dim, @splat(1));
+    defer z.deinit(gpa);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(gpa);
+    try tt.reset(gpa, 0);
+    var ev: Draw = .{};
+    ev.len = @intCast(try p.dist.toMachineLetters(order, &ev.tiles));
+    var s = try Solver.init(gpa, &p, &z, &tt, .{ .plies = plies, .iterative_deepening = false, .tiebreak = false, .only = only, .eventuality = ev });
+    defer s.deinit();
+    var res = try s.solve(null, null);
+    defer res.deinit(gpa);
+    return .{ .e = try s.explain(&res.plays[0].move), .ld = p.dist };
+}
+
+fn expectMove(ld: *const tiles.LetterDistribution, want: []const u8, got: ?Move) !void {
+    var buf: [64]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    if (got) |m| try m.format(ld, &w) else try w.writeAll("none");
+    try testing.expectEqualStrings(want, w.buffered());
+}
+
+test "the manual's eventualities explained" {
+    try needFull();
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const pond = "12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/ 394/365 0 lex NWL20;";
+    {
+        // 2L P(O)ND, Josh drawing III: Noah's (TEMP)URA beats him.
+        var r = try manualExplain(&store, pond, "2L.P.ND", "IIIA", 4);
+        defer r.e.deinit(testing.allocator);
+        try testing.expectEqual(.loss, r.e.outcome);
+        try expectMove(r.ld, "15H.....URA", r.e.decisive);
+        try testing.expectEqual(0, r.e.levels.len);
+    }
+    {
+        // 13M P(AH) with G, R, L in the bag: Jim's (Z)A(s) leaves Matthew a
+        // one in the bag where ANONYm wins every ordering but the actual
+        // one, the L.
+        var r = try manualExplain(&store, "BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEGILNS 344/368 0 lex CSW21;", "13M.P..", "GRL", 4);
+        defer r.e.deinit(testing.allocator);
+        try testing.expectEqual(.loss, r.e.outcome);
+        try expectMove(r.ld, "10J..A.", r.e.decisive);
+        try testing.expectEqual(1, r.e.levels.len);
+        const l = &r.e.levels[0];
+        try expectMove(r.ld, "1H.ANONYm", l.best);
+        try testing.expectEqual(.loss, l.verdict);
+        for (l.subs) |sv| {
+            const letter = r.ld.letter(sv.draw.tiles[0], false);
+            const want: Outcome = if (std.mem.eql(u8, letter, "L")) .loss else .win;
+            try testing.expectEqual(want, sv.outcome);
+            try testing.expectEqual(std.mem.eql(u8, letter, "L"), sv.actual);
+            if (std.mem.eql(u8, letter, "E")) try testing.expectEqual(3, sv.count);
+        }
     }
 }

@@ -13,6 +13,11 @@ go test ./zigcore/crosscheck/ -run TestWritePEGGoldens -crosscheck.peggoldens $P
 Rewrite them only when the Go engine's pre-endgame is meant to change its
 results, and say why in the commit.
 
+The `manual-` cases are the examples of the pre-endgame manual
+(`docs/manual/preendgame.md`). Most cases are small enough for every test
+run; the larger ones are checked only with `-Dpeg-full=true` (see
+`src/preendgame/peg.zig`), best in ReleaseFast.
+
 ## Format
 
 One file a case, line by line:
@@ -25,6 +30,9 @@ One file a case, line by line:
 - `only <moves>` (optional): only these moves are solved.
 - `opprack <tiles>` (optional): the opponent's rack, known in whole or in
   part.
+- `eventuality <tiles>` (optional): only this ordering of the bag is
+  solved (its tiles in the order they are drawn), as Go's eventuality mode
+  solves it.
 - `play <move> points <p> [spread <s>]`: a play's points (wins plus half
   the draws, each bag ordering weighted by its count) and, when the
   tiebreak worked it out, its total spread over the orderings. `play <move>

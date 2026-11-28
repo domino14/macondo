@@ -1,0 +1,8 @@
+# manual-pond-iiia: the Go engine's result, written by TestWritePEGGoldens (zigcore/crosscheck).
+cgp 12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/ 394/365 0 lex NWL20;
+options plies 4 id 0 maxtilesleft 1 nested 1 tiebreak 0 cutoff 0
+only 2L.P.ND
+eventuality IIIA
+play 2L.P.ND points 0
+outcome IIIA loss 12
+best 2L.P.ND
