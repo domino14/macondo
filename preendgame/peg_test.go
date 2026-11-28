@@ -694,3 +694,36 @@ func TestNestedOurPassByDefault(t *testing.T) {
 	}
 	is.True(hasPass)
 }
+
+// TestLinePastNestedLimitIsFinished: past max-nested-depth, our turn with
+// tiles in the bag is played with our best move by score plus leave, and the
+// opponent's replies after it are searched as usual, instead of the line
+// being dropped. With the limit at 0, 12C A. (one tile, one left in the bag)
+// meets the opponent passing back when O and R, or two Os, are in the bag;
+// our best move then loses, and those orderings had been counted as wins.
+func TestLinePastNestedLimitIsFinished(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	peg.maxEndgamePlies = 2
+	peg.iterativeDeepening = false
+	peg.skipTiebreaker = true
+	peg.earlyCutoffOptim = false
+	peg.nestedDepthLimit = 0
+	peg.threads = 1
+	peg.solveOnlyMoves = []*move.Move{move.NewScoringMoveSimple(12, "12C", "A.", "EFGSTX", g.Alphabet())}
+
+	winners, err := peg.Solve(context.Background())
+	is.NoErr(err)
+	is.Equal(winners[0].Points, float32(36)) // 46 when the line was dropped
+	o, r := tilemapping.MachineLetter(15), tilemapping.MachineLetter(18)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{r, o}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, r}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, o}), PEGLoss)
+}

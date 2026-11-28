@@ -481,9 +481,13 @@ When a non-emptying line goes deep, the recursion proceeds as follows:
 
 The default cap of `1` therefore means: Josh gets **one** nested sub-PEG (step 4).
 If within that sub-PEG further non-emptying exchanges would require a second nested
-sub-PEG, those continuations are skipped. This is an approximation: a skipped
-continuation might have been a loss for Josh, so the win count can be slightly
-optimistic compared to the unlimited solve.
+sub-PEG, Josh's turn there is not solved: he plays his best move by score plus
+leave, and the opponent's replies after it are still enumerated, until the bag is
+empty and the endgame is solved as usual. This is an approximation (Josh
+might have a better move than the one he plays), but a win is counted only where
+the line he plays wins against every reply.
+With the default `-max-tiles-left 1` the cap is never reached (two passes in a row
+end the game), so it matters with `-max-tiles-left 2` or more.
 
 Without any cap, this particular position produced 4.6 million nested calls and 518
 million endgame solves in three hours with only 29 candidate plays processed.
@@ -495,8 +499,9 @@ peg -max-nested-depth -1 -maxtime 3600
 ```
 
 Expect runtimes measured in days or weeks on positions with many tiles in the bag.
-Use `-max-nested-depth 0` to skip all non-bag-emptying analysis entirely (equivalent
-to `-max-tiles-left 0`).
+With `-max-nested-depth 0` no nested sub-PEG is solved: every turn of Josh's with
+tiles in the bag is played with his best move by score plus leave. To skip
+non-bag-emptying plays entirely, use `-max-tiles-left 0`.
 
 ### `-skip-deep-pass` (off by default)
 
