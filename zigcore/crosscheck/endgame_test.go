@@ -188,6 +188,8 @@ var endgameVariants = []endgameVariant{
 	// values of searches that stop short of the end of the game.
 	{"zig-defaults", func(*negamax.Solver) {}, goGame + "goplayout", false, false, 0},
 	{"zig-defaults-selfcheck", nil, "checklists", false, true, 0},
+	// Go's playout pick, found best first, checked against the full list.
+	{"goplayout-selfcheck", nil, "goplayout checklists", false, true, 0},
 	// The parallel searches, which must find the values one thread does.
 	{"zig-defaults-pvsplit", func(*negamax.Solver) {}, goGame + "goplayout pvsplit", false, false, 4},
 	{"zig-defaults-abdada", func(*negamax.Solver) {}, goGame + "goplayout abdada", false, false, 4},

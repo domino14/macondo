@@ -11,7 +11,8 @@
 //! anchor whose key is known generated again.
 //!
 //! Ties go to the larger move code, so the play found does not depend on
-//! the order anchors are taken in.
+//! the order anchors are taken in; or, as Go's greedy playouts pick, to
+//! the first in the order a full generation lists the plays (Ties).
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -151,17 +152,35 @@ pub fn updateKeys(b: *const board_mod.Board, keys: *[max_lanes]u64, sq: *const b
     keys[dim + c] ^= squarePart(dim + c, r, &sq.sq[1]) ^ squarePart(dim + c, r, &b.views[1][sq.v_idx]);
 }
 
+/// Which of the plays tied on value is the best.
+pub const Ties = enum {
+    /// The larger move code (MAGPIE's pick).
+    larger_code,
+    /// The first in the order a full generation lists the plays (the
+    /// endgame's move lists, Go's pick): rows before columns, lane by
+    /// lane, anchor by anchor from the left, and an anchor's plays in the
+    /// order its generation finds them.
+    first_generated,
+};
+
 /// The best tile play for `rack` by score plus, for a play of the whole
 /// rack, `out_bonus`, ties to the larger move code; null if there is none.
 /// The rack must hold 1 to 7 tiles.
 /// `lane_keys` are the board's lanes' keys (laneKey).
 pub fn best(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64) Allocator.Error!?SmallMove {
-    return bestIn(gen, rack, out_bonus, cache, lane_keys, ~@as(u64, 0), null, 0);
+    return bestIn(gen, rack, out_bonus, cache, lane_keys, ~@as(u64, 0), null, 0, .larger_code);
+}
+
+/// As best, with the tie to the first play a full generation lists.
+pub fn bestFirstGenerated(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64) Allocator.Error!?SmallMove {
+    return bestIn(gen, rack, out_bonus, cache, lane_keys, ~@as(u64, 0), null, 0, .first_generated);
 }
 
 /// As best, among `incumbent` (of value `incumbent_value`), if any, and
-/// the plays in the lanes of `lanes` (rows 0..dim, then columns).
-pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64, lanes: u64, incumbent: ?SmallMove, incumbent_value: i32) Allocator.Error!?SmallMove {
+/// the plays in the lanes of `lanes` (rows 0..dim, then columns), ties
+/// as `ties` has them (first_generated takes no incumbent).
+pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_keys: *const [max_lanes]u64, lanes: u64, incumbent: ?SmallMove, incumbent_value: i32, ties: Ties) Allocator.Error!?SmallMove {
+    std.debug.assert(ties == .larger_code or incumbent == null);
     if (lanes == 0) return incumbent;
     const eq_ctx: equity.Context = .{ .ld = gen.ld, .klv = null, .board_dim = gen.board.dim, .board_empty = false, .tiles_in_bag = 1, .opp_rack_score = 0 };
     gen.ctx = &eq_ctx;
@@ -176,7 +195,8 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
     s.best_leaves[0] = @floatFromInt(out_bonus);
     shadow.initShadow(gen, rack);
 
-    var rack_key: u64 = mix(@intFromPtr(gen.kwg.nodes.ptr) ^ cache.salt, @as(u64, @bitCast(@as(i64, out_bonus))));
+    // An anchor's best play depends on the tie rule: it is in the key.
+    var rack_key: u64 = mix(@intFromPtr(gen.kwg.nodes.ptr) ^ cache.salt ^ @backingInt(ties), @as(u64, @bitCast(@as(i64, out_bonus))));
     for (0..gen.ld.size) |ml| rack_key = mix(rack_key, rack.counts[ml]);
     rack_key = finish(rack_key);
 
@@ -237,8 +257,12 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
     try s.heap.heapifyAll(gen.gpa);
 
     gen.setRackBits(rack);
+    gen.small_first = ties == .first_generated;
+    defer gen.small_first = false;
     var result: ?SmallMove = incumbent;
     var best_v: i32 = incumbent_value;
+    // The result's anchor in generation order (first_generated).
+    var best_order: u32 = 0;
     var transposed = false;
     while (s.heap.keys.items.len > 0) {
         const a = s.heap.extractMax().anchor;
@@ -273,9 +297,15 @@ pub fn bestIn(gen: *Generator, rack: *Rack, out_bonus: i32, cache: *Cache, lane_
             pe.* = .{ .key = pkey, .tm = sb.tm, .value = cand_v, .score = @intCast(sb.score), .tiles_played = sb.tiles_played, .len = sb.len };
         }
         if (cand) |c| {
-            if (result == null or cand_v > best_v or (cand_v == best_v and c.tm > result.?.tm)) {
+            const order: u32 = @as(u32, @intCast(side)) << 16 | @as(u32, a.row) << 8 | a.col;
+            const better = if (result) |r| cand_v > best_v or (cand_v == best_v and switch (ties) {
+                .larger_code => c.tm > r.tm,
+                .first_generated => order < best_order,
+            }) else true;
+            if (better) {
                 result = c;
                 best_v = cand_v;
+                best_order = order;
             }
         }
     }
@@ -333,4 +363,68 @@ test "changing any one square of a lane changes its key" {
         }
         try testing.expect(laneKey(&b, lane) != before);
     }
+}
+
+test "the best play by either tie rule is the full generation's" {
+    const position_mod = @import("../board/position.zig");
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const cgps = [_][]const u8{
+        "15/15/15/15/15/15/1PROTEAN7/3WINDY7/15/15/15/15/15/15/15 / 0/0 0 lex CSW21;",
+        "5E1p7/1A1C1G1E5S1/1JIZ1G1R3V1P1/HO1APE1A3U1I1/OW1RAD1EXFIL1T1/MA2W2OI2G1T1/IN2K2N2MOBE1/E2FYRDS2o1ANS/3O6V1N1H/3U6ADD1E/3S6BOO1E/3T6LOR1L/INCITANT1AYRE2/3E5U5/3REQUITE5 / 0/0 0 lex CSW21;",
+        testdata.vs_matt ++ " / 0/0 0 lex NWL20;",
+        testdata.maven_vs_macondo ++ " / 0/0 0 lex NWL20;",
+    };
+    var prng: std.Random.DefaultPrng = .init(7);
+    const random = prng.random();
+    var cache: Cache = try .init(testing.allocator, 10, 11);
+    defer cache.deinit(testing.allocator);
+    var tied: usize = 0;
+    for (cgps) |text| {
+        var p: position_mod.Position = try testdata.position(&store, text);
+        var gen = Generator.init(testing.allocator, &p.board, p.lexicon.kwg, p.dist);
+        defer gen.deinit();
+        var lane_keys: [max_lanes]u64 = undefined;
+        for (0..2 * p.board.dim) |lane| lane_keys[lane] = laneKey(&p.board, lane);
+        var pool: [100]tiles.MachineLetter = undefined;
+        for (&pool, 0..) |*t, i| t.* = @intCast(if (i % 13 == 0) 0 else 1 + i % 26);
+        for (0..100) |_| {
+            random.shuffle(tiles.MachineLetter, &pool);
+            var rack: Rack = .fromLetters(pool[0 .. 1 + random.uintLessThan(usize, 7)]);
+            const out_bonus: i32 = if (random.boolean()) 0 else random.intRangeAtMost(i32, 1, 30);
+            try gen.genAll(&rack, false);
+            // By value, ties to the larger code or to the first listed.
+            var larger: ?SmallMove = null;
+            var first: ?SmallMove = null;
+            var best_v: i32 = 0;
+            var ties: usize = 0;
+            for (gen.plays.items) |*mv| {
+                if (mv.kind != .play) continue;
+                const m: SmallMove = .fromMove(mv);
+                const v: i32 = m.score + (if (m.tiles_played == rack.num_tiles) out_bonus else 0);
+                if (first == null or v > best_v) {
+                    first = m;
+                    larger = m;
+                    best_v = v;
+                    ties = 0;
+                } else if (v == best_v) {
+                    ties += 1;
+                    if (m.tm > larger.?.tm) larger = m;
+                }
+            }
+            if (ties > 0) tied += 1;
+            // Twice: the second from the caches.
+            for (0..2) |_| {
+                const got_larger = try best(&gen, &rack, out_bonus, &cache, &lane_keys);
+                const got_first = try bestFirstGenerated(&gen, &rack, out_bonus, &cache, &lane_keys);
+                try testing.expectEqual(larger == null, got_larger == null);
+                try testing.expectEqual(first == null, got_first == null);
+                if (larger) |m| try testing.expectEqual(m.tm, got_larger.?.tm);
+                if (first) |m| try testing.expectEqual(m.tm, got_first.?.tm);
+            }
+        }
+    }
+    // The racks give the tie rules something to tell apart.
+    try testing.expect(tied >= 30);
 }

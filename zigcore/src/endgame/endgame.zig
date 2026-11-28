@@ -262,8 +262,9 @@ pub const Options = struct {
     kwg: ?@import("../data/kwg.zig").Kwg = null,
     /// The greedy playout picks plays by score plus, for a play that goes
     /// out, twice the opponent's rack (MAGPIE's pick; Go's is the score
-    /// alone). It changes the values of searches that stop short of the
-    /// end of the game.
+    /// alone, of tied plays the first in its move list). It changes the
+    /// values of searches that stop short of the end of the game. Both
+    /// picks are found best first (bestsmall), without the move list.
     playout_out_bonus: bool = true,
     /// One ply above the leaves, search the best play by score first and
     /// make the move list only if it does not cut off (MAGPIE's; speed
@@ -1494,7 +1495,7 @@ pub const Solver = struct {
             if (self.lists) |*l| {
                 const found = if (alone) try l.aloneBest(self.frames.items.len, player, out_bonus) else try l.siblingBest(self.frames.items.len, player, out_bonus);
                 if (found) |sb| {
-                    return bestsmall.bestIn(&self.gen, rack, out_bonus, self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value);
+                    return bestsmall.bestIn(&self.gen, rack, out_bonus, self.best_cache, &self.lane_keys, sb.own, sb.best, sb.value, .larger_code);
                 }
             }
         }
@@ -1670,8 +1671,9 @@ pub const Solver = struct {
         return .{ .tm = code, .score = @intCast(score), .tiles_played = 1, .len = @intCast(end - start + 1) };
     }
 
-    /// Checks a best play against the best of the full move list (tests).
-    fn checkBestPlay(self: *Solver, found: ?SmallMove, rack: *Rack, out_bonus: i32) Allocator.Error!void {
+    /// Checks a best play against the best of the full move list, ties
+    /// as `ties` has them (tests).
+    fn checkBestPlay(self: *Solver, found: ?SmallMove, rack: *Rack, out_bonus: i32, ties: bestsmall.Ties) Allocator.Error!void {
         for (0..2 * self.board.dim) |lane| {
             if (self.lane_keys[lane] != bestsmall.laneKey(&self.board, lane)) std.debug.panic("lane {d}'s key is stale", .{lane});
         }
@@ -1682,7 +1684,7 @@ pub const Solver = struct {
             if (mv.kind != .play) continue;
             const m: SmallMove = .fromMove(mv);
             const v: i32 = m.score + (if (m.tiles_played == rack.num_tiles) out_bonus else 0);
-            if (want == null or v > want_v or (v == want_v and m.tm > want.?.tm)) {
+            if (want == null or v > want_v or (v == want_v and ties == .larger_code and m.tm > want.?.tm)) {
                 want = m;
                 want_v = v;
             }
@@ -1734,16 +1736,24 @@ pub const Solver = struct {
                     n += 1;
                 }
                 plays = buf[0..n];
-            } else if (self.opts.playout_out_bonus and !(frac > 0 and on == 0)) {
-                // MAGPIE's pick wants only the best play: a best-first
+            } else if (!(frac > 0 and on == 0)) {
+                // Either pick wants only the best play: a best-first
                 // search for it, with MAGPIE's caches of lane bounds and
-                // anchors' best plays.
+                // anchors' best plays. Go's is by score alone, of tied
+                // plays the first its move list has.
                 var n: usize = 0;
-                const found = if (played == 0)
+                const found = if (!self.opts.playout_out_bonus)
+                    try bestsmall.bestFirstGenerated(&self.gen, rack, 0, self.best_cache, &self.lane_keys)
+                else if (played == 0)
                     try self.bestPlay(on, 2 * rack_scores[1 - on], self.under_first_reply)
                 else
                     try bestsmall.best(&self.gen, rack, 2 * rack_scores[1 - on], self.best_cache, &self.lane_keys);
-                if (self.opts.check_lists) try self.checkBestPlay(found, rack, 2 * rack_scores[1 - on]);
+                if (self.opts.check_lists) {
+                    if (self.opts.playout_out_bonus)
+                        try self.checkBestPlay(found, rack, 2 * rack_scores[1 - on], .larger_code)
+                    else
+                        try self.checkBestPlay(found, rack, 0, .first_generated);
+                }
                 if (found) |m| {
                     buf[n] = m;
                     n += 1;
@@ -1953,7 +1963,7 @@ pub const Solver = struct {
             self.scoreless == 0 and self.racks[on].num_tiles >= 2 and try self.oppStuckFraction(node_key) == 0)
         {
             const found = try self.bestPlay(on, first_reply_out_priority, false);
-            if (self.opts.check_lists) try self.checkBestPlay(found, &self.racks[on], first_reply_out_priority);
+            if (self.opts.check_lists) try self.checkBestPlay(found, &self.racks[on], first_reply_out_priority, .larger_code);
             if (found) |fr| {
                 try self.play(fr, &placed);
                 self.nodes += 1;

@@ -102,6 +102,9 @@ pub const Generator = struct {
     small_best: SmallBest = .{},
     small_out_bonus: i32 = 0,
     small_rack_tiles: u8 = 0,
+    /// Of an anchor's plays tied on value, keep the first found rather
+    /// than the larger move code (see recordSmallBest).
+    small_first: bool = false,
     /// Where genLanes puts its plays.
     small_out: *std.ArrayList(SmallMove) = undefined,
 
@@ -476,13 +479,15 @@ pub const Generator = struct {
 
     /// Keeps the play if it beats the best so far: by value (the score,
     /// plus the out bonus for a play of the whole rack), ties to the
-    /// larger move code. The code is built only for a play that can win.
+    /// larger move code, or with small_first to the first found (the
+    /// first in the order a full generation lists them). The code is built
+    /// only for a play that can win.
     fn recordSmallBest(self: *Generator, leftstrip: usize, rightstrip: usize, score: i32) void {
         const len = rightstrip - leftstrip + 1;
         if (len < 2) return;
         const v = score + if (self.tiles_played == self.small_rack_tiles) self.small_out_bonus else 0;
         const sb = &self.small_best;
-        if (sb.tm != 0 and v < sb.value) return;
+        if (sb.tm != 0 and (v < sb.value or (self.small_first and v == sb.value))) return;
         const code = self.smallCode(leftstrip, rightstrip);
         if (sb.tm != 0 and v == sb.value and code <= sb.tm) return;
         sb.* = .{ .tm = code, .value = v, .score = score, .tiles_played = @intCast(self.tiles_played), .len = @intCast(len) };
