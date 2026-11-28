@@ -92,7 +92,7 @@ Go. New subsystems (pre-endgame, WordSmog, ML) get a folder of their own.
 | Move generation | `movegen` (incl. shadow, row cache, wordmap gen, `wordprune`) | First big milestone. |
 | Equity | `equity` (KLV2 reader, exhaustive leave, opening, endgame and preendgame adjustments, combined) | |
 | Static players | `ai/turnplayer`, `ai/simplesimmer` | |
-| Simulation | `montecarlo` (incl. `bai`, stopping conditions, paired stops, candidates, endgame leaves) | `montecarlo/stats` presentation (heatmaps, lanes) stays in Go; the core reports raw stats. |
+| Simulation | `montecarlo` (incl. `bai`, stopping conditions, paired stops, candidates, endgame leaves) | The core records each rollout (step 9); what `montecarlo/stats` builds from the records (heat maps, play stats, lanes, tile stats) is presentation, outside the engine. |
 | Inference | `rangefinder` | |
 | Endgame | `endgame/negamax` (TT, ABDADA, PV split, heuristics, prefetch) | Assembly prefetch becomes `@prefetch`. Huge pages become an adapter option. |
 | Preendgame | `preendgame` | |
@@ -223,12 +223,30 @@ as they land.
       Go's ordering and MAGPIE's node for node, and the defaults by
       value, on one thread and on four with each parallel search.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
-- [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
+- [ ] **9. What the interfaces read from searches.** The shell, the game
+      analyzer, the bot and the ML explainer use more than a search's best
+      move. Each item is small and stays out of the hot loops when unused:
+      - Rollout records: the sim hands each finished rollout (per ply: play,
+        rack, leave, points, bingo; the win; the inferred rack) to an
+        optional callback, and the adapter writes them to a file named in
+        `go sim`, in Go's log format (up to 7,500 a play), which
+        `montecarlo/stats` and the explainer read as they read Go's.
+        Check: on one thread with a fixed seed, the same records as Go's.
+      - Per-ply stats on the `info sim` lines: mean score, its deviation and
+        bingo rate for each ply (Go's `CandidateStats`), already kept.
+      - The sim's candidates given as moves (the shell's play list, the
+        played move in game analysis), not only the best by static equity.
+      - A known opponent rack, whole or in part, in sims (game analysis
+        knows it from the GCG; the bot's `UseOppRacksInAnalysis`).
+      - The endgame's value of a given move as well as the best one (game
+        analysis: the move played), and the best several moves
+        (`endgame -multiple-vars`).
+      - The best several static plays with their equities as a search
+        command (weaker bot levels filter them), not only the `gen` debug
+        list.
+- [ ] **10. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.
-- [ ] **10. WordSmog.** Alpha DAWG, alpha cross-sets, alpha movegen.
-- [ ] **11. WASM build.** `wasm32` with shared memory and a Web Worker pool
-      (or the `wasm32-emscripten` target with pthreads; decide at this step),
-      postMessage adapter, a demo page. Needs COOP/COEP headers on Woogles.
+- [ ] **11. WordSmog.** Alpha DAWG, alpha cross-sets, alpha movegen.
 - [ ] **12. Go side switch-over.** Shell setting `engine zig|go`; the Go
       engine stays available until the Zig core has covered a release.
       Challenge rules (single, double, void, five-point) come here, with
@@ -241,6 +259,9 @@ as they land.
       results, and the Go cross-checks are retired.
 - [ ] **14. ML.** Feature extraction, `Evaluator` interface, `ort` and
       `remote` backends.
+- [ ] **15. WASM build.** `wasm32` with shared memory and a Web Worker pool
+      (or the `wasm32-emscripten` target with pthreads; decide at this step),
+      postMessage adapter, a demo page. Needs COOP/COEP headers on Woogles.
 
 ## Testing
 
@@ -312,7 +333,7 @@ Woogles needs its source available.
   (worker groups, mutexes, events), so the WASM build supplies one: Zig's
   `Io.Threaded` on wasm32 with atomics and shared memory, or an `Io` of our
   own over a Web Worker pool. Which, and on which target, is decided at
-  step 11.
+  step 15.
 - `info` payloads: plain tokens, or JSON for the richer sim and inference
   output? (Leaning: tokens, with JSON allowed in specific `info` fields.)
   The output format as a whole may change; to be decided with the Go side
