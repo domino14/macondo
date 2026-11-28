@@ -1,0 +1,39 @@
+# two-in-bag-x: the Go engine's result, written by TestWritePEGGoldens (zigcore/crosscheck).
+cgp 1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;
+options plies 2 id 0 maxtilesleft 1 nested 1 tiebreak 1 cutoff 0
+only 6F..X.
+play 6F..X. points 70
+outcome IE loss 2
+outcome EI win 2
+outcome EO win 4
+outcome OE win 4
+outcome RE win 4
+outcome OR win 4
+outcome ER win 4
+outcome RO win 4
+outcome OO win 2
+outcome TO win 2
+outcome EE win 2
+outcome RT win 2
+outcome IO win 2
+outcome RI win 2
+outcome OI win 2
+outcome TI win 1
+outcome ET win 2
+outcome TE win 2
+outcome IR win 2
+outcome OT win 2
+outcome RR win 2
+outcome IT win 1
+outcome TR win 2
+outcome SO win 2
+outcome IS win 1
+outcome OS win 2
+outcome RS win 2
+outcome TS win 1
+outcome ES win 2
+outcome SR win 2
+outcome SE win 2
+outcome SI win 1
+outcome ST win 1
+best 6F..X.
