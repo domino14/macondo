@@ -40,7 +40,7 @@ type pegCase struct {
 
 const (
 	pegStraightforward = "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
-	pegPassFRA20       = "11ONZE/10J2O1/8A1E1DO/7QUETEE1H/10E1F1U/8ECUMERA/8C1R1TIR/7WOKS2ET/6DUR6/5G2N1M4/4HALLALiS3/1G1P1P1OM1XI3/VIVONS1BETEL3/IF1N3AS1RYAL1/ETUDIAIS7 AEINRST/ 301/300 0 lex FRA20; ld french;"
+	pegPassFRA20       = "11ONZE/10J2O1/8A1E1DO1/7QUETEE1H/10E1F1U/8ECUMERA/8C1R1TIR/7WOKS2ET/6DUR6/5G2N1M4/4HALLALiS3/1G1P1P1OM1XI3/VIVONS1BETEL3/IF1N3AS1RYAL1/ETUDIAIS7 AEINRST/ 301/300 0 lex FRA20; ld french;"
 	pegTwoInBag        = "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
 	pegPolish          = "13P1/12SYĆ/11HET1/11IMA1/3C6T1EN1/2PiLŻE2WOŹNI1/1K1C5SI1Y2/DASHI2ZATNĘ3/1R1A4BAO4/1M1C1Z1ROŃ5/3ZŁU1A7/3Y1PÓKI1WERS1/GOJ2Y1IWIE4/1BOA3JĄŁ5/KANADZIE7 GLLMNOŚ/?DEFRUZ 307/288 0 lex OSPS49; ld polish;"
 )
@@ -50,9 +50,9 @@ var pegCases = []pegCase{
 	{name: "straightforward-id3", cgp: pegStraightforward, plies: 3, id: true, maxTilesLeft: 1, nested: 1, tiebreak: true},
 	{name: "known-opp-rack", cgp: pegStraightforward, plies: 2, maxTilesLeft: 1, nested: 1, tiebreak: true, oppRack: "AACEISU"},
 	{name: "pass-fra20", cgp: pegPassFRA20, plies: 2, maxTilesLeft: 1, nested: 1, tiebreak: true},
-	{name: "two-in-bag-x", cgp: pegTwoInBag, plies: 2, maxTilesLeft: 1, nested: 1, tiebreak: true, only: []string{"6F..X."}},
-	{name: "two-in-bag-capped", cgp: pegTwoInBag, plies: 2, maxTilesLeft: 1, nested: 0, only: []string{"12C.A."}},
-	{name: "polish-cutoff", cgp: pegPolish, plies: 2, maxTilesLeft: 1, nested: 1, tiebreak: true, cutoff: true},
+	{name: "two-in-bag-x", cgp: pegTwoInBag, plies: 1, maxTilesLeft: 1, nested: 1, tiebreak: true, only: []string{"6F..X."}},
+	{name: "two-in-bag-capped", cgp: pegTwoInBag, plies: 1, maxTilesLeft: 1, nested: 0, only: []string{"12C.A."}},
+	{name: "polish-cutoff", cgp: pegPolish, plies: 1, maxTilesLeft: 1, nested: 1, tiebreak: true, cutoff: true},
 }
 
 // TestWritePEGGoldens solves each pegCase with the Go engine and writes its

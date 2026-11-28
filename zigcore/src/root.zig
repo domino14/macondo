@@ -39,6 +39,7 @@ pub const endgame = @import("endgame/endgame.zig");
 pub const wordprune = @import("endgame/wordprune.zig");
 pub const pathlists = @import("endgame/pathlists.zig");
 pub const bestsmall = @import("movegen/bestsmall.zig");
+pub const preendgame = @import("preendgame/peg.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());

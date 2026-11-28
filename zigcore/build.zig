@@ -10,8 +10,11 @@ pub fn build(b: *std.Build) void {
 
     const test_repeats = b.option(u32, "test-repeats", "Solves of each case in the tests that repeat a search (default 1), e.g. on several threads") orelse 1;
 
+    const peg_full = b.option(bool, "peg-full", "Solve every play of the pre-endgame golden files in the tests (default: a sample of the big ones)") orelse false;
+
     const options = b.addOptions();
     options.addOption(u32, "test_repeats", test_repeats);
+    options.addOption(bool, "peg_full", peg_full);
     options.addOption([]const u8, "version", zon.version);
     options.addOption([]const u8, "data_path", data_path);
 
@@ -75,8 +78,9 @@ pub fn build(b: *std.Build) void {
     const bench_step = b.step("bench", "Time the best-move search on a file of positions");
     bench_step.dependOn(&run_bench.step);
 
-    const core_tests = b.addTest(.{ .root_module = core });
-    const exe_tests = b.addTest(.{ .root_module = exe.root_module });
+    const test_filters = b.option([]const []const u8, "test-filter", "Run only the tests whose names contain this text (may be given more than once)") orelse &.{};
+    const core_tests = b.addTest(.{ .root_module = core, .filters = test_filters });
+    const exe_tests = b.addTest(.{ .root_module = exe.root_module, .filters = test_filters });
     const test_step = b.step("test", "Run unit tests");
     // Tests read data files relative to zigcore/.
     const run_core_tests = b.addRunArtifact(core_tests);
