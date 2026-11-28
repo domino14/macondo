@@ -47,6 +47,35 @@ Rules for the layers:
   and reports progress through a callback the engine turns into `info` lines.
 - **Determinism:** with one thread and a fixed seed, every search must give
   the same result as the Go code. This is what the cross-checks rely on.
+  Matching Go bit for bit takes Go's own algorithms where they decide a
+  result: its sort (pdqsort's order of equal elements), math/rand, the
+  ChaCha8 stream of its frand, its amd64 `exp`/`log` and `Lgamma`. These
+  live apart from the engine (see Source layout) and go once Go is no
+  longer the reference (step 13).
+
+### Source layout
+
+`src/` is grouped by subsystem, as the Go code is by package:
+
+| Folder | What |
+|---|---|
+| `src/` | `root.zig` (the module's exports), `ucgi.zig` (the engine) |
+| `src/adapter/` | the native adapter: `main.zig`, `files.zig`, `bench.zig` |
+| `src/data/` | `tiles.zig`, `kwg.zig`, `data.zig` (loading), `wmp.zig`, `wmp_maker.zig`, `rit.zig` |
+| `src/board/` | `board.zig`, `cross_set.zig`, `move.zig`, `cgp.zig`, `position.zig` |
+| `src/movegen/` | `movegen.zig`, `shadow.zig`, `wmp_movegen.zig`, `wordmap_gen.zig`, `leavemap.zig`, `carry.zig` |
+| `src/equity/` | `equity.zig` |
+| `src/game/` | `game.zig` (bag, turns, autoplay) |
+| `src/montecarlo/` | `sim.zig`, `bai.zig`, `classic.zig` |
+| `src/rangefinder/` | `infer.zig` |
+| `src/endgame/` | `endgame.zig`, `ttable.zig`, `zobrist.zig`, `pathlists.zig`, `wordprune.zig` |
+| `src/gocompat/` | Go-exact algorithms and their golden files: `gosort.zig`, `gorand.zig`, `gomath.zig`, `chacha8.zig` (frand's generator, which the bag draws with) |
+| `src/testing/` | `testdata.zig` |
+
+A folder is only grouping: Zig's privacy is per file (a declaration
+without `pub` is private to its file) and its package boundary is the
+module `build.zig` declares, so there is no folder-level `internal` as in
+Go. New subsystems (pre-endgame, WordSmog, ML) get a folder of their own.
 
 ## What moves to Zig and what stays in Go
 
@@ -55,14 +84,15 @@ Rules for the layers:
 | Area | Go packages today | Notes |
 |---|---|---|
 | Tiles and lexica | `word-golib` (`tilemapping`, `kwg`, `cache`, letter distributions) | Port the parts the engine uses: machine letters, racks, distributions, KWG reading. Go keeps `word-golib` for the shell. |
-| Word maps | `wmp` (reader, lookup, `movegen.go`, `bitrack.go`, `policy.go`) | Reading and lookup only. `wmp/maker.go` and `cmd/make_wmp` stay in Go as offline tools. |
+| Word maps | `wmp` (reader, lookup, maker, `movegen.go`, `bitrack.go`, `policy.go`) | The maker too, with Go's output byte for byte: word maps are tens of times the size of their KWGs and aren't published, so an engine with no Go beside it (the WASM build above all) makes its own. The engine makes one in memory when the file is missing; writing it to disk is the adapter's choice. |
+| Rack info tables | none in Go: MAGPIE's `rack_info_table` and its maker | Ported from MAGPIE with exact leave values (MAGPIE rounds to thousandths), so results stay Go's: they only make the best-play search faster. Optional (`rack-tables`), made and saved on request; checked against MAGPIE's tables made from the same files. |
 | WordSmog | `alphadawg`, `cross_set/alpha_cross_set.go`, `movegen/alpha_gen.go`, `ai/turnplayer/wordsmog.go` | `.kad` files are plain DAWG-only KWGs. |
 | Board and rules | `board` (incl. layouts, cross-sets), `cross_set`, `zobrist`, the rules part of `game` (`rules.go`, `turn.go`, `pairedbag.go`, bag and racks, challenge rules) | Game history, GCG, display and backup stay in Go. |
 | Moves | `move`, `tinymove`, `leavemap` | |
 | Move generation | `movegen` (incl. shadow, row cache, wordmap gen, `wordprune`) | First big milestone. |
 | Equity | `equity` (KLV2 reader, exhaustive leave, opening, endgame and preendgame adjustments, combined) | |
 | Static players | `ai/turnplayer`, `ai/simplesimmer` | |
-| Simulation | `montecarlo` (incl. `bai`, stopping conditions, paired stops, candidates, endgame leaves) | `montecarlo/stats` presentation (heatmaps, lanes) stays in Go; the core reports raw stats. |
+| Simulation | `montecarlo` (incl. `bai`, stopping conditions, paired stops, candidates, endgame leaves) | The core records each rollout (step 9); what `montecarlo/stats` builds from the records (heat maps, play stats, lanes, tile stats) is presentation, outside the engine. |
 | Inference | `rangefinder` | |
 | Endgame | `endgame/negamax` (TT, ABDADA, PV split, heuristics, prefetch) | Assembly prefetch becomes `@prefetch`. Huge pages become an adapter option. |
 | Preendgame | `preendgame` | |
@@ -113,43 +143,125 @@ Runtime (cgo) or Triton (gRPC). Plan:
 Each step is done when its cross-check passes (see Testing). Check items off
 as they land.
 
-- [ ] **0. Scaffolding.** `zigcore/` with `build.zig`, pinned Zig version, CI
-      job, a `ucgi` binary that answers `ucgi` / `isready` / `quit`, and the
+- [x] **0. Scaffolding.** `zigcore/` with `build.zig`, pinned Zig version, CI
+      job, a `macondo-zig` binary that answers `ucgi` / `isready` / `quit`, and the
       Go cross-check harness skeleton (`zigcore/crosscheck`, a Go test
       package that starts the binary).
-- [ ] **1. Data and board.** Machine letters, letter distributions, racks,
+- [x] **1. Data and board.** Machine letters, letter distributions, racks,
       KWG reader, KLV2 reader, board layouts, board state, cross-sets and
-      cross-scores, Zobrist hashing, CGP parsing.
-      Check: cross-sets and cross-scores identical to Go on random positions.
-- [ ] **2. Movegen + minimal protocol.** Full movegen incl. exchanges, shadow
-      pruning and WMP-based generation; `position cgp`, `gen` (debug list of
-      all moves with scores). Check: identical move lists and scores on
-      thousands of random positions, all lexica and board sizes in testdata.
-- [ ] **3. Equity and static player.** Leave values, opening and endgame
-      adjustments, static best move; `go static`.
+      cross-scores (with anchors and extension sets), CGP parsing;
+      `position cgp`, `load`, and the debug commands `crosssets` and
+      `leave`. Check: every square identical to Go on positions from random
+      games and on random-tile boards (phonies), for several lexica and both
+      board sizes; leave values identical.
+- [x] **2. Movegen + minimal protocol.** GADDAG generation of every move
+      (tile plays, exchanges, pass) with scores; `gen` (debug list of all
+      moves). Check: identical move lists and scores on the step 1
+      positions (random games and random-tile boards, several lexica, both
+      board sizes).
+- [x] **3. Equity and static player.** Leave values, opening and endgame
+      adjustments; best-play search with shadow pruning and WMP-based
+      generation (these only pay off when looking for the best play, so
+      they are checked here); static best move; `go static`.
       Check: identical equities and best moves.
-- [ ] **4. Game rules and autoplay.** Bag, racks, turn logic, challenge rules,
-      paired bags; `autoplay` command. Check: identical games from the same
-      seed (port `frand`'s ChaCha generator exactly).
-- [ ] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
+- [x] **4. Game rules and autoplay.** Bag, racks, turn logic, paired bags;
+      `autoplay` command. Check: identical games from the same seed (port
+      `frand`'s ChaCha generator exactly). Challenge rules are left for
+      step 12: autoplay and sims play with VOID.
+- [x] **5. Montecarlo sim + BAI.** Sim, BAI, stopping conditions, endgame
       leaves; `go sim`, streaming `info`. Check: identical results with one
       thread and a fixed seed; statistical agreement with many threads.
-- [ ] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
+      Plain sims (until stopped, or for a number of iterations or a time)
+      and best-arm sims (the elite bot's rule) on any number of threads, as
+      a std.Io group, best-arm results the same on any number; `go sim` in
+      the background with progress, `stop` and `time`; endgame leaves (with
+      two tiles or fewer in the bag a rollout's endgame is searched, each
+      once a sim), the cross-check simming such positions too. Go's other
+      stopping rules for `go sim` (classic, paired) are left out: the bots
+      use best-arm, and the inference's mini-sim has the classic rule.
+- [x] **6. Inference.** `rangefinder`; `go infer`. Check: identical with one
       thread and a fixed seed.
-- [ ] **7. Endgame.** Negamax, TT, ABDADA, PV split; `go endgame`.
+      The opponent's last move comes in the CGP's `lm` opcode (through
+      tiles in parentheses, as open-protocols now specifies); the engine
+      takes it back to get the position before it. Ported: the elite bot's
+      path in budget mode (the deterministic one): mini-sims under the
+      classic Stop99 rule (ported for them only), exhaustive enumeration
+      of small leave spaces, prior sampling, the imputed complete
+      posterior (marginal lifts to order 3, the value-first term for
+      six-tile leaves, cross-fitted calibration), refinement rounds, and
+      exchanges read by leave value. Leaves are dealt in Go's single-thread
+      order and their mini-sims run in parallel, so the read is Go's
+      one-thread read on any number of threads. `go sim ... infer <budget>`
+      deals the opponent's racks from the posterior (best-arm and plain
+      sims). Not ported: time-limited reads (not reproducible in Go
+      either), the exchange sampler modes, order-4 marginals and other
+      tuning knobs the bot leaves at their defaults, and two-turn (carry)
+      reads.
+- [x] **7. Endgame.** Zobrist hashing, negamax, TT, ABDADA, PV split;
+      `go endgame`. Of the parallel searches only PV split and ABDADA are
+      ported; the others in `endgame/negamax` are slower. (The Go Zobrist keys come from an unseeded RNG, so
+      hashes are compared by property, e.g. incremental = from scratch.)
       Check: identical values (not PVs; ties can differ) on the endgame
       test suite.
+      Done: the single-threaded search (`go endgame`), with Go's keys handed
+      over (`zobrist-file`) and the same table size identical to Go's in
+      value, best move and positions searched (`TestEndgameCrossCheck`),
+      incremental move lists, keep-one and out-reply bounds and the pruned
+      word graph included. From MAGPIE, by default: its move ordering
+      (Go's magpieOrdering) with its lazy selection and stable root
+      sort, aspiration windows, first replies one ply above the leaves,
+      capped leaves in the first depth of a deeper search, both sides'
+      root lists, playouts whose first move comes from the move lists,
+      and its cached best-play search; the board keeps its squares as
+      MAGPIE's does. The defaults search MAGPIE's tree and solve at its
+      speed with its values. On several threads (the `threads` option),
+      PV split by default, as Go's, or MAGPIE's ABDADA (`abdada`: each
+      thread deepens on its own, the helpers starting deeper, and a
+      younger move whose position another thread is in waits for a
+      second pass); the threads keep their caches between solves
+      (Workspace). The cross-check runs
+      Go's ordering and MAGPIE's node for node, and the defaults by
+      value, on one thread and on four with each parallel search.
 - [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
-- [ ] **9. Best-move policy.** `go auto` (the elite bot's choice of
+- [ ] **9. What the interfaces read from searches.** The shell, the game
+      analyzer, the bot and the ML explainer use more than a search's best
+      move. Each item is small and stays out of the hot loops when unused:
+      - Rollout records: the sim hands each finished rollout (per ply: play,
+        rack, leave, points, bingo; the win; the inferred rack) to an
+        optional callback, and the adapter writes them to a file named in
+        `go sim`, in Go's log format (up to 7,500 a play), which
+        `montecarlo/stats` and the explainer read as they read Go's.
+        Check: on one thread with a fixed seed, the same records as Go's.
+      - Per-ply stats on the `info sim` lines: mean score, its deviation and
+        bingo rate for each ply (Go's `CandidateStats`), already kept.
+      - The sim's candidates given as moves (the shell's play list, the
+        played move in game analysis), not only the best by static equity.
+      - A known opponent rack, whole or in part, in sims (game analysis
+        knows it from the GCG; the bot's `UseOppRacksInAnalysis`).
+      - The endgame's value of a given move as well as the best one (game
+        analysis: the move played), and the best several moves
+        (`endgame -multiple-vars`).
+      - The best several static plays with their equities as a search
+        command (weaker bot levels filter them), not only the `gen` debug
+        list.
+- [ ] **10. Best-move policy.** `go auto` (the elite bot's choice of
       algorithm). Check: identical choices.
-- [ ] **10. WordSmog.** Alpha DAWG, alpha cross-sets, alpha movegen.
-- [ ] **11. WASM build.** `wasm32` with shared memory and a Web Worker pool
-      (or the `wasm32-emscripten` target with pthreads; decide at this step),
-      postMessage adapter, a demo page. Needs COOP/COEP headers on Woogles.
+- [ ] **11. WordSmog.** Alpha DAWG, alpha cross-sets, alpha movegen.
 - [ ] **12. Go side switch-over.** Shell setting `engine zig|go`; the Go
       engine stays available until the Zig core has covered a release.
-- [ ] **13. ML.** Feature extraction, `Evaluator` interface, `ort` and
+      Challenge rules (single, double, void, five-point) come here, with
+      games played through the interface.
+- [ ] **13. Drop the Go-exact code.** Once the Go engine is no longer the
+      reference: the engine uses Zig's own sort, `std.Random` (ChaCha) and
+      `std.math` instead of `src/gocompat/`, which goes with its golden
+      files and `tools/gogolden`. Seeded results change, so the tests that
+      pin them are re-baselined in the same step against the engine's own
+      results, and the Go cross-checks are retired.
+- [ ] **14. ML.** Feature extraction, `Evaluator` interface, `ort` and
       `remote` backends.
+- [ ] **15. WASM build.** `wasm32` with shared memory and a Web Worker pool
+      (or the `wasm32-emscripten` target with pthreads; decide at this step),
+      postMessage adapter, a demo page. Needs COOP/COEP headers on Woogles.
 
 ## Testing
 
@@ -157,13 +269,50 @@ as they land.
   `testdata`.
 - **Cross-check harness** (Go, in `zigcore/crosscheck`): generates random
   positions with the Go engine, sends them to the Zig binary over UCGI and
-  compares results. Runs in CI on a fixed number of positions and can be run
-  longer locally.
+  compares results. CI runs a quick pass (a case or two per lexicon, in
+  `-short` mode, a few minutes); the full cross-checks run locally when a
+  step is checked off. The harness is scaffolding for the port: the Go
+  engine is to be retired.
+- **Golden files:** once a module's port matches Go, its Go results on a
+  fixed set of inputs can be written once into golden files (a generator
+  in the harness, the files committed with a README) that `zig build test`
+  checks without Go. Modules ported from here on (the pre-endgame first)
+  start that way, and the live cross-checks move to golden files over
+  time, so that retiring the Go engine leaves the tests in place.
+- **Every way to reach a board:** a board the engine reaches without
+  loading it (moves played on with incremental cross-set updates, a move
+  played and taken back, a position loaded with its last move and taken
+  back, as inference does) must give the same squares, moves, scores and
+  best move as Go's board loaded from scratch (`TestBoardPathsCrossCheck`,
+  `-crosscheck.pathgames`, `-crosscheck.takebacks`, using the debug
+  commands `play`, `takeback` and `cgp`). Any new way of changing a board
+  joins this test.
+- **Memory:** unit tests allocate through `std.testing.allocator`, which
+  fails a test that leaks or frees twice. Debug and ReleaseSafe builds of
+  the engine report leaks at exit, and the cross-check harness fails a test
+  whose engine reports one (CI runs it on a ReleaseSafe build). Long
+  searches (sims, endgames) also get a soak test that watches the
+  process's memory over many runs (`TestSoak`, `-crosscheck.soak <n>`:
+  resident anonymous memory must stop growing after warm-up; mapped files
+  don't count).
 - **Determinism first:** compare single-threaded, fixed-seed results exactly.
   Multithreaded results are compared statistically.
 - **Benchmarks:** keep a `zig build bench` with movegen-per-second,
   sim-iterations-per-second and endgame nodes-per-second, and record numbers
-  next to Go and MAGPIE on the same machine.
+  next to Go and MAGPIE on the same machine. For the best-move search, the
+  positions come from `TestWritePositions` in the cross-check package, Go
+  times them with `BenchmarkStatic` and MAGPIE with
+  `bench/magpie_bench.sh`; `zig build bench` can also break the search into
+  phases (`BENCH_MODE=phases`) and sample a profile
+  (`BENCH_PROFILE=<file>`, read with `llvm-symbolizer --inlining`). Sims
+  are timed on the same kind of file (midgame positions): `BENCH_MODE=sim`
+  (the second argument is the iterations; BENCH_PLIES, BENCH_THREADS,
+  BENCH_BAI, BENCH_RIT), Go's `BenchmarkSim` and `bench/magpie_sim.sh`
+  (a driver timing MAGPIE's own commands by wall clock: the sim time
+  MAGPIE's CLI prints leaves part of the work out). Pre-endgames:
+  `BENCH_MODE=peg` (the second argument is the endgame plies;
+  BENCH_THREADS, BENCH_NO_ID, BENCH_MAX_TILES_LEFT).
+  `zig build test -Dtsan=true` runs the tests under ThreadSanitizer.
 
 ## Zig version policy
 
@@ -182,10 +331,17 @@ Woogles needs its source available.
 
 ## Open questions
 
-- WASM threading: own Web Worker pool on `wasm32-freestanding`, or
-  `wasm32-emscripten` with pthreads? (Leaning: own pool.)
+- WASM threading: the core takes its concurrency from a `std.Io` passed in
+  (worker groups, mutexes, events), so the WASM build supplies one: Zig's
+  `Io.Threaded` on wasm32 with atomics and shared memory, or an `Io` of our
+  own over a Web Worker pool. Which, and on which target, is decided at
+  step 15.
 - `info` payloads: plain tokens, or JSON for the richer sim and inference
   output? (Leaning: tokens, with JSON allowed in specific `info` fields.)
+  The output format as a whole may change; to be decided with the Go side
+  switch-over (step 12). Whatever the format, an endgame result keeps
+  saying whether its value is exact (proven: no line behind it stopped
+  short of the game's end).
 - Should weaker bot levels (`ai/bot/filters.go`) move into the core so bots
   can run in the browser?
 - Does the socket bridge belong in the Zig binary (`--listen`) or in a small

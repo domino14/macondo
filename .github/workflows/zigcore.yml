@@ -1,0 +1,82 @@
+name: Zig core
+
+# Every push: the cross-check compares against the Go engine, so a change
+# to the Go code it ports can break it too.
+on:
+  push:
+    branches:
+      - "*"
+
+jobs:
+  zigcore:
+    runs-on: ubuntu-latest
+    env:
+      MACONDO_DATA_PATH: /opt/data
+    defaults:
+      run:
+        working-directory: zigcore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Exactly the version pinned in zigcore/build.zig.zon.
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The published lexica, as in the main build (same cache key).
+      - name: Cache lexicon data
+        uses: actions/cache@v4
+        with:
+          path: lexica-cache/lexica/gaddag
+          key: lexica-${{ hashFiles('cmd/fetch_lexica/lexica.txt') }}
+
+      - name: Fetch lexicon data
+        working-directory: .
+        run: go run ./cmd/fetch_lexica -data-path lexica-cache
+
+      - name: Install lexicon data
+        working-directory: .
+        run: |
+          cp -r data /opt/data
+          mkdir -p /opt/data/lexica/gaddag
+          cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
+
+      # Word maps are made locally, not published. Go's maker makes the ones
+      # the Zig tests read (and check the Zig maker against).
+      - name: Make word maps
+        working-directory: .
+        run: |
+          for lex in NWL20 NWL23 CSW21 CSW24; do
+            go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/$lex.kwg -out /opt/data/lexica/$lex.wmp -lex $lex
+          done
+
+      - name: Check formatting
+        run: zig fmt --check .
+
+      - name: Unit tests
+        run: zig build test --summary all -Ddata-path=/opt/data
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Cross-check against the Go engine
+        env:
+          MACONDO_ZIG_ENGINE: ${{ github.workspace }}/zigcore/zig-out/bin/macondo-zig
+        # A quick pass: a case or two per lexicon at shallow depths, the
+        # tests side by side, the SuperCrosswordGame sims and inferences
+        # left out (-short). The full cross-checks (their default sizes) are
+        # run locally when a step of zigcore/PLAN.md is checked off.
+        run: >-
+          go test -count=1 -v -short ./crosscheck/...
+          -crosscheck.games 2 -crosscheck.autoplay 3
+          -crosscheck.pathgames 1 -crosscheck.takebacks 1
+          -crosscheck.endgames 2 -crosscheck.endgameplies 2
+          -crosscheck.infers 1 -crosscheck.inferbudget 10
+          -crosscheck.sims 1 -crosscheck.simiters 20

@@ -1,0 +1,8 @@
+# manual-pah-grl: the Go engine's result, written by TestWritePEGGoldens (zigcore/crosscheck).
+cgp BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEGILNS 344/368 0 lex CSW21;
+options plies 4 id 0 maxtilesleft 1 nested 1 tiebreak 0 cutoff 0
+only 13M.P..
+eventuality GRL
+play 13M.P.. points 0
+outcome GRL loss 1
+best 13M.P..

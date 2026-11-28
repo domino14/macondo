@@ -1018,7 +1018,16 @@ func fitValueTerm(mod *imputationModel, measured map[string]*measuredLeave,
 	var sumU, sumUV, sumUR float64
 	type pt struct{ u, v, r float64 }
 	var pts []pt
-	for key, ml := range measured {
+	// In key order, as accFromMeasured and calibrateLogConstant go: the
+	// sums below are floating point, and a map's order changes from run to
+	// run.
+	keys := make([]string, 0, len(measured))
+	for key := range measured {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		ml := measured[key]
 		if nFolds > 0 && foldForKey(key, nFolds) == excl {
 			continue
 		}

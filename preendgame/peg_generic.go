@@ -30,12 +30,15 @@ import (
 
 // nestedCacheKey uniquely identifies an information state at which
 // nestedOurTurnSolve is entered. The result is a pure function of this state
-// (given fixed solver config), so we can memoize it.
+// (given fixed solver config), so we can memoize it. The spread is part of
+// it: two lines can reach the same board and racks with different scores
+// (each side playing the same letter on the other's square).
 type nestedCacheKey struct {
 	board          uint64                               // board-only Zobrist hash
 	ourRack        [zobrist.MaxLetters]uint8            // Rack.LetArr narrowed to uint8
 	unseen         [tilemapping.MaxAlphabetSize]uint8   // bag.Peek() ∪ opp.rack multiset
 	scorelessTurns uint8                                // 0 or 1 in practice (2 ends the game)
+	spread         int32                                // the spread of the player on turn
 }
 
 // nestedCache is a shared, thread-safe memo table for nestedOurTurnSolve
@@ -94,6 +97,7 @@ func (s *Solver) buildNestedCacheKey(g *game.Game) nestedCacheKey {
 		k.unseen[int(t)]++
 	}
 	k.scorelessTurns = uint8(g.ScorelessTurns())
+	k.spread = int32(g.CurrentSpread())
 	return k
 }
 
@@ -1112,7 +1116,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		if g.PlayerOnTurn() == s.solvingForPlayer {
 			// Our turn: run a nested PEG to find if any reply guarantees a win
 			// across all bag orderings we might face.
-			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, pegPlayEmptiesBag, nestedDepth)
+			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, depth, pegPlayEmptiesBag, nestedDepth)
 		} else {
 			// Opp's turn: enumerate all replies exhaustively (pessimistic).
 			genPlays := s.allocSortedReplies(thread, moveToMake)
@@ -1201,12 +1205,21 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 // a nested PEG: finds if any reply guarantees a win across all bag orderings
 // consistent with our current info state, then records that outcome on the outer
 // inbagOption.
+//
+// Past the nested depth limit the turn is not solved: we finish the line with
+// our best play by the estimate nested turns order plays by (score plus
+// leave), and the opponent's replies after it are still searched in full, so
+// every bag permutation gets an outcome.
 func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
-	inbagOption option, pegPlayEmptiesBag bool, nestedDepth int) error {
+	inbagOption option, depth int, pegPlayEmptiesBag bool, nestedDepth int) error {
 	if s.nestedDepthLimit >= 0 && nestedDepth+1 > s.nestedDepthLimit {
-		// Bag not empty but recursion cap reached; skip this bag permutation.
-		// Only bag-emptying continuations are evaluated at the cap depth.
-		return nil
+		g := s.endgameSolvers[thread].Game()
+		best := s.bestNestedPlay(g, s.genOurNestedPlays(g, s.endgameSolvers[thread].Movegen()))
+		if s.traceWriter != nil {
+			s.trace(depth+nestedDepth*4, "[d=%d n=%d] past the nested depth limit: our best play %s",
+				depth, nestedDepth, smallMoveStr(best))
+		}
+		return s.recursiveSolve(ctx, thread, pegPlay, best, inbagOption, nil, depth+1, pegPlayEmptiesBag, false, nestedDepth)
 	}
 	outcome, err := s.nestedOurTurnSolve(ctx, thread, nestedDepth+1)
 	if err != nil {
@@ -1218,6 +1231,71 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 		pegPlay.setUnfinalizedWinPctStat(outcome, inbagOption.ct, inbagOption.mls)
 	}
 	return nil
+}
+
+// genOurNestedPlays generates our plays at a nested turn into mg's small-play
+// list. With skipDeepPass we pass only right after a pass. The opponent's
+// replies below this turn are generated as everywhere else, so the movegen
+// generates passes again before this returns.
+func (s *Solver) genOurNestedPlays(g *game.Game, mg movegen.MoveGenerator) []tinymove.SmallMove {
+	if s.skipDeepPass {
+		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
+		mg.SetGenPass(lastMoveWasPass)
+		defer mg.SetGenPass(true)
+	}
+	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	return mg.SmallPlays()
+}
+
+// estimateNestedPlays sets each of our plays' estimated value to its score
+// plus the value of its leave (the score alone without a leave calculator).
+func (s *Solver) estimateNestedPlays(g *game.Game, plays []tinymove.SmallMove) {
+	if s.leaveCalc == nil {
+		for i := range plays {
+			plays[i].SetEstimatedValue(int16(plays[i].Score()))
+		}
+		return
+	}
+	tmpMove := &move.Move{}
+	rack := g.RackFor(g.PlayerOnTurn())
+	for i := range plays {
+		var est float64
+		if plays[i].IsPass() {
+			est = s.leaveCalc.LeaveValue(tilemapping.MachineWord(rack.TilesOn()))
+		} else {
+			conversions.SmallMoveToMove(plays[i], tmpMove, g.Alphabet(), g.Board(), rack)
+			est = float64(plays[i].Score()) + s.leaveCalc.LeaveValue(tmpMove.Leave())
+		}
+		plays[i].SetEstimatedValue(int16(est))
+	}
+}
+
+// bestNestedPlay returns the play with the highest score plus leave value
+// (score alone without a leave calculator), ties going by
+// move.TiebreaksBetter, so the choice doesn't depend on the order the plays
+// were generated in. plays is not empty: without a tile play the movegen
+// generates a pass.
+func (s *Solver) bestNestedPlay(g *game.Game, plays []tinymove.SmallMove) tinymove.SmallMove {
+	rack := g.RackFor(g.PlayerOnTurn())
+	var best, cur move.Move
+	bestIdx := -1
+	bestEst := 0.0
+	for i := range plays {
+		if plays[i].IsPass() {
+			cur = *move.NewPassMove(rack.TilesOn(), g.Alphabet())
+		} else {
+			conversions.SmallMoveToMove(plays[i], &cur, g.Alphabet(), g.Board(), rack)
+		}
+		est := float64(plays[i].Score())
+		if s.leaveCalc != nil {
+			est += s.leaveCalc.LeaveValue(cur.Leave())
+		}
+		if bestIdx < 0 || est > bestEst || (est == bestEst && cur.TiebreaksBetter(&best)) {
+			bestIdx, bestEst = i, est
+			best.CopyFrom(&cur)
+		}
+	}
+	return plays[bestIdx]
 }
 
 // nestedOurTurnSolve handles the "our turn again with bag still non-empty" frame
@@ -1341,36 +1419,13 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 	}
 
-	if s.skipDeepPass {
-		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
-		mg.SetGenPass(lastMoveWasPass)
-		defer mg.SetGenPass(true)
-	}
-	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	ourPlays := mg.SmallPlays()
+	ourPlays := s.genOurNestedPlays(g, mg)
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))
 	// Sort sub-plays by score + leave so the strongest play is evaluated first,
 	// tightening minLossesSoFar quickly and enabling the strict->cutoff to fire.
-	if s.leaveCalc != nil {
-		tmpMove := &move.Move{}
-		rack := g.RackFor(g.PlayerOnTurn())
-		for i := range subPlays {
-			var est float64
-			if subPlays[i].IsPass() {
-				est = s.leaveCalc.LeaveValue(tilemapping.MachineWord(rack.TilesOn()))
-			} else {
-				conversions.SmallMoveToMove(subPlays[i], tmpMove, g.Alphabet(), g.Board(), rack)
-				est = float64(subPlays[i].Score()) + s.leaveCalc.LeaveValue(tmpMove.Leave())
-			}
-			subPlays[i].SetEstimatedValue(int16(est))
-		}
-	} else {
-		for i := range subPlays {
-			subPlays[i].SetEstimatedValue(int16(subPlays[i].Score()))
-		}
-	}
+	s.estimateNestedPlays(g, subPlays)
 	slices.SortFunc(subPlays, func(a, b tinymove.SmallMove) int {
 		return int(b.EstimatedValue()) - int(a.EstimatedValue())
 	})

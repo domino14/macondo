@@ -59,8 +59,11 @@ func (gen *GordonGenerator) wordmapGen(rack *tilemapping.Rack, anchor *Anchor) {
 
 	// All plays emitted by this anchor have exactly anchor.TilesToPlay
 	// new tiles. Set tilesPlayed once so the bingo bonus and the
-	// recorder's per-play state are consistent.
+	// recorder's per-play state are consistent, and put it back to 0 after:
+	// recursiveGen counts from what it finds, so a generation after this
+	// one would start from this anchor's count.
 	gen.tilesPlayed = tilesToPlay
+	defer func() { gen.tilesPlayed = 0 }()
 
 	// A subrack's plays all leave the same tiles, so with the recorder that
 	// keeps only the best play (and prices a play as its score plus the leave

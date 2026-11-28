@@ -109,10 +109,25 @@ checklist) and `zigcore/UCGI.md` (the protocol) before working on it.
 - Use the pinned Zig version only. A Zig upgrade is its own PR.
 - Compute code does no I/O: data comes in as byte slices, allocators are
   passed in, searches can be stopped and report progress through callbacks.
+  Concurrency comes in as a `std.Io` (worker groups, mutexes, events),
+  used for nothing else, so a WASM build can supply its own.
 - Every ported module needs its Go tests ported and a passing cross-check
   against the Go implementation (single thread, fixed seed, exact match).
 - Do not remove or change the Go implementation of a module while porting
   it; the Go code is the reference.
+
+Commands (from `zigcore/`): `zig build` (engine binary at
+`zig-out/bin/macondo-zig`), `zig build test` (unit tests),
+`zig fmt --check .`, and from the repo root `go test ./zigcore/crosscheck/`
+(cross-checks; they skip if the binary isn't built, and use
+`MACONDO_ZIG_ENGINE` if set). Speed: write positions with
+`go test ./zigcore/crosscheck/ -run TestWritePositions -crosscheck.positions
+<file>`, then time them with `zig build bench -Doptimize=ReleaseFast --
+<file>` and `go test ./zigcore/crosscheck/ -run XXX -bench BenchmarkStatic
+-crosscheck.positions <file>`; sims with `BENCH_MODE=sim` (iterations as the
+second argument), `-bench BenchmarkSim` and `zigcore/bench/magpie_sim.sh`. Move
+generation against MAGPIE's: `zigcore/bench/magpie_movegen.py <positions>
+<lexicon>`.
 
 ## Development Notes
 

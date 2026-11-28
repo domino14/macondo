@@ -1,0 +1,114 @@
+# polish-cutoff: the Go engine's result, written by TestWritePEGGoldens (zigcore/crosscheck).
+cgp 13P1/12SYĆ/11HET1/11IMA1/3C6T1EN1/2PiLŻE2WOŹNI1/1K1C5SI1Y2/DASHI2ZATNĘ3/1R1A4BAO4/1M1C1Z1ROŃ5/3ZŁU1A7/3Y1PÓKI1WERS1/GOJ2Y1IWIE4/1BOA3JĄŁ5/KANADZIE7 GLLMNOŚ/?DEFRUZ 307/288 0 lex OSPS49; ld polish;
+options plies 1 id 0 maxtilesleft 1 nested 1 tiebreak 1 cutoff 1
+play G4.ŚL. points 2
+outcome F loss 1
+outcome ? win 1
+outcome R loss 1
+outcome W loss 1
+outcome Z loss 1
+outcome D loss 1
+outcome E loss 1
+outcome U win 1
+play L10.ŚL. cut
+play G1.GNOLL.M cut
+play G2.GLON.M cut
+play G5.L.G cut
+play G6..Ś cut
+play G3.MGL. cut
+play G1.GNOLL. cut
+play G3.GOL.M cut
+play E3.GMO. cut
+play G3.OŚL. cut
+play G4.LN.M cut
+play G2.GMOL. cut
+play N9.GLO. cut
+play G3.GOL. cut
+play G3.MON.L cut
+play E4.LO. cut
+play G5.L.N cut
+play G3.GON.M cut
+play E4.GO. cut
+play F3.LON. cut
+play pass cut
+play N12..ONG cut
+play M11.G.ON cut
+play G5.M.L cut
+play B12.L... cut
+play N12..MOL cut
+play 9D..L cut
+play G5.G.N cut
+play G2.MOLL. cut
+play M12..OŚ cut
+play N12..MOG cut
+play M11.G.OM cut
+play 4L....G cut
+play 11C.G... cut
+play G6..L cut
+play E4.MO. cut
+play G5.G.M cut
+play 11K.OM cut
+play 5G.MOL cut
+play G3.MOL. cut
+play G5.N.M cut
+play M10.MO.N cut
+play M10.NO.M cut
+play N12..NOM cut
+play G5.M.N cut
+play N10.LO. cut
+play M12..OL cut
+play N12..OL cut
+play 4L....M cut
+play G4.OM.G cut
+play 11A.GO cut
+play 11A.NO cut
+play A10.OŚ cut
+play A11.LO. cut
+play 5F.OM cut
+play G6..N cut
+play 13E.N. cut
+play M11.G.O cut
+play 7G.NO cut
+play 11N.OŚ cut
+play N10.OL. cut
+play 9D..M cut
+play 5G.MON cut
+play A8..OM cut
+play 5B.NO. cut
+play F4.NO. cut
+play G6..M cut
+play G4.OM.N cut
+play N12..ON cut
+play G4.OL. cut
+play M10.LO. cut
+play L10.OL. cut
+play 13E.M. cut
+play 10A.M. cut
+play A10.ON cut
+play N10.NO. cut
+play L11.M. cut
+play G5.M. cut
+play A6.MO. cut
+play 5B.MO. cut
+play N12..OM cut
+play 11N.ON cut
+play M10.OG. cut
+play M10.NO. cut
+play L10.ON. cut
+play G4.ON. cut
+play A10.OM cut
+play 11N.OM cut
+play B7.....O cut
+play M10.MO. cut
+play N11.O.M cut
+play F5.O. cut
+play K11.O.. cut
+play 7A.O. cut
+play 10B..O. cut
+play 9A.O. cut
+play M12..O cut
+play 10A.O. cut
+play M11.O. cut
+play N11.O. cut
+play H7.O. cut
+best G4.ŚL.

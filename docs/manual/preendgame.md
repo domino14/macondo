@@ -145,21 +145,57 @@ peg -endgameplies 4
 ```
 Winner:  2A A.GUSTER
 Play                Wins    %Win    Spread   Outcomes
- 2A A(U)GUSTER      2.0     25.00   0.12     👍: [F] [T] 👎: [A] [E] [I] [N]
-15H (TEMP)TER       2.0     25.00   -16.38   👍: [E] [F] 👎: [A] [I] [N] [T]
+ 2A A(U)GUSTER      2.0     25.00            👍: [F] [T] 👎: [A] [E] [I] [N]
 15H (TEMP)URA       1.0     12.50            👍: [A] 👎: [E] [F] [I] [N] [T]
+15H (TEMP)TER       0.5     6.25              🤝: [E] 👎: [A] [F] [I] [N] [T]
 ```
 
 (All other plays lose every endgame.)
 
-Noah's two best plays — `A(U)GUSTER` and `(TEMP)TER` — each win exactly 2 of the
-8 possible bag draws. Crucially, **neither of them wins when A is the bag tile**.
-`(TEMP)URA` is the only Noah play that wins the A-in-bag endgame, and it wins just
-that one eventuality out of eight (12.5 %).
+Noah's best play, `A(U)GUSTER`, wins 2 of the 8 possible bag draws.
+Crucially, **it does not win when A is the bag tile**. `(TEMP)URA` is the only
+Noah play that wins the A-in-bag endgame, and it wins just that one eventuality
+out of eight (12.5 %). `(TEMP)TER` ties when the E is in the bag and loses the
+rest.
 
 Noah does not know what is in the bag. From his perspective TEMPURA looks like an
-inferior play: it has fewer wins and worse expected spread than his top options.
-A rational opponent will not choose TEMPURA.
+inferior play: it wins half as many draws as AUGUSTER. A rational opponent will
+not choose TEMPURA.
+
+#### A note on depth: `(TEMP)TER`
+
+Each of these results comes from a 4-ply endgame search, and 4 plies is not
+always enough to see an endgame through. `(TEMP)TER` shows what that can do.
+
+After `(TEMP)TER`, Josh is to move, 31 points up, with an endgame to play.
+Solved to the end of the game, these endgames come out as:
+
+| Tile in the bag | Josh's rack | Noah's rack | Best result for Josh | Outcome |
+|---|---|---|---|---|
+| E | AFIIINT | AEGSU | loses 31 points | tie |
+| F | AEIIINT | AFGSU | loses 22 points | Josh wins by 9 |
+
+The search stops at its ply limit and values the position it reaches. By
+default it does this by playing the rest of the game out greedily, and at 4
+plies that finds the right outcome for both draws. With `-heuristics false`, the
+endgame solver values the position at its ply limit by the spread alone. That
+undervalues Josh's position after 4 plies: it scores the E draw as a 36-point
+loss and the F draw as a 33-point loss, both wins for Noah. A pre-endgame
+searched that way at 4 plies credits `(TEMP)TER` with 2 wins, [E] and [F], a
+tie with `A(U)GUSTER`. At 6 plies or more, both ways of valuing the leaves agree
+on the table above, and `(TEMP)TER` is worth 0.5.
+
+To check this yourself, replay a draw and solve the endgame both ways:
+
+```
+commit 15H ....TER -tileorder E
+endgame -plies 4 -heuristics false
+endgame -plies 25
+```
+
+The first search reports a value of −36 and the second −31. When a pre-endgame
+verdict hinges on a close endgame, raise `-endgameplies` and see whether it
+holds.
 
 ### Why `[III]A` is marked a loss — guaranteed wins vs "both sides solve PEG"
 
@@ -175,10 +211,9 @@ Result: `[III]A` is `👎` — not a guaranteed win for Josh, even though it wou
 #### Full PEG on both sides (hypothetical — not yet implemented)
 
 Imagine a mode where both players solve their sub-PEG optimally. Noah would look at
-his 1-in-bag position, compute his best EV plays, and pick among them — specifically
-AUGUSTER or TEMPTER, both of which **lose** when A is the bag tile. Under this
-model, Josh *does* win the `[III]A` eventuality, because Noah's objectively optimal
-responses all lose it.
+his 1-in-bag position, compute his best EV play, and pick it — AUGUSTER, which
+**loses** when A is the bag tile. Under this model, Josh *does* win the `[III]A`
+eventuality, because Noah's objectively optimal response loses it.
 
 In this mode `[III]A` would be a `👍` for Josh's 2L P(O)ND.
 
@@ -364,12 +399,10 @@ load xt 39443
 Here, Matthew played `13M P(AH)` for 32 points. We can examine this move by doing:
 
 ```
-peg -only-solve "13M P.." -skip-deep-pass false
+peg -only-solve "13M P.."
 ```
 
 **(Note, this is slow! See below)**
-
-We set `-skip-deep-pass` to false here to make sure that the algorithm examines passes. For this position and many others it likely doesn't really make a difference to examine passes though. They are quite rare in most pre-endgames.
 
 By not specifying endgame plies it defaults to 4, which is sufficient for many endgames.
 
@@ -424,7 +457,7 @@ Therefore, for the case that GRL is in the bag, in that order, the move P(AH) ca
 
 ##### Showing specific result for this permutation
 
-If you run `peg -only-solve "13M P.." -skip-deep-pass false -eventuality GRL` it will
+If you run `peg -only-solve "13M P.." -eventuality GRL` it will
 solve this particular play for only this eventuality. Note: this solve will be single-threaded, so it might not be as fast as you'd expect. On my computer this takes a
 bit over a minute:
 
@@ -465,7 +498,8 @@ Let's imagine for the sake of argument that there was another play that also won
 
 ## Shortcuts and when to disable them
 
-Three on-by-default settings make nested PEG practical on real positions.
+Two on-by-default settings make nested PEG practical on real positions, and a
+third shortcut can be turned on.
 
 ### `-max-nested-depth 1` (default)
 
@@ -482,9 +516,13 @@ When a non-emptying line goes deep, the recursion proceeds as follows:
 
 The default cap of `1` therefore means: Josh gets **one** nested sub-PEG (step 4).
 If within that sub-PEG further non-emptying exchanges would require a second nested
-sub-PEG, those continuations are skipped. This is an approximation: a skipped
-continuation might have been a loss for Josh, so the win count can be slightly
-optimistic compared to the unlimited solve.
+sub-PEG, Josh's turn there is not solved: he plays his best move by score plus
+leave, and the opponent's replies after it are still enumerated, until the bag is
+empty and the endgame is solved as usual. This is an approximation (Josh
+might have a better move than the one he plays), but a win is counted only where
+the line he plays wins against every reply.
+With the default `-max-tiles-left 1` the cap is never reached (two passes in a row
+end the game), so it matters with `-max-tiles-left 2` or more.
 
 Without any cap, this particular position produced 4.6 million nested calls and 518
 million endgame solves in three hours with only 29 candidate plays processed.
@@ -496,25 +534,25 @@ peg -max-nested-depth -1 -maxtime 3600
 ```
 
 Expect runtimes measured in days or weeks on positions with many tiles in the bag.
-Use `-max-nested-depth 0` to skip all non-bag-emptying analysis entirely (equivalent
-to `-max-tiles-left 0`).
+With `-max-nested-depth 0` no nested sub-PEG is solved: every turn of Josh's with
+tiles in the bag is played with his best move by score plus leave. To skip
+non-bag-emptying plays entirely, use `-max-tiles-left 0`.
 
-### `-skip-deep-pass true` (default)
+### `-skip-deep-pass` (off by default)
 
-Passes are legal pre-endgame moves — sometimes the right call. But in the nested
-sub-PEG, a pass generates another candidate that can itself trigger further nesting.
-Repeated pass chains in nested sub-games are vanishingly rare in real positions, yet
-they multiply the search space.
+Passes are legal pre-endgame moves — sometimes the right call: the opponent must
+draw, or we keep a tile we need. By default every turn, nested or not, considers
+our pass. Two passes in a row end the game, so a pass adds little to the search.
 
-With this option on, passes are suppressed in the nested sub-PEG candidate
-generation *except* when the previous move was also a pass — so the bounded
-"pass → pass → game ends" branch is always evaluated correctly. Pass as one of our
-top-level PEG candidates is always considered regardless of this setting.
-
-To restore full pass generation in nested sub-games:
+With this option on, our pass is left out of a nested sub-PEG's candidates
+*except* right after the opponent passed, so the bounded "pass → pass → game
+ends" branch is still evaluated. Our pass as a top-level candidate and the
+opponent's passes are always considered. With the default `-max-tiles-left 1` a
+nested sub-PEG always follows the opponent's pass, so the option changes nothing
+there.
 
 ```
-peg -skip-deep-pass false
+peg -skip-deep-pass true
 ```
 
 ### `-max-tiles-left 1` (default)

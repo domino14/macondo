@@ -1,0 +1,26 @@
+# manual-noah: the Go engine's result, written by TestWritePEGGoldens (zigcore/crosscheck).
+cgp 12D2/1U9POND/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 AEGRSTU/ 365/408 0 lex NWL20;
+options plies 4 id 0 maxtilesleft 1 nested 1 tiebreak 1 cutoff 0
+only 2A.A.GUSTER 15H.....TER 15H.....URA
+play 2A.A.GUSTER points 2
+outcome A loss 1
+outcome E loss 1
+outcome I loss 3
+outcome N loss 1
+outcome T win 1
+outcome F win 1
+play 15H.....URA points 1
+outcome I loss 3
+outcome T loss 1
+outcome A win 1
+outcome E loss 1
+outcome N loss 1
+outcome F loss 1
+play 15H.....TER points 0.5
+outcome I loss 3
+outcome T loss 1
+outcome A loss 1
+outcome E draw 1
+outcome N loss 1
+outcome F loss 1
+best 2A.A.GUSTER

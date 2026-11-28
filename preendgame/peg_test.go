@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -17,7 +18,9 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/testhelpers"
+	"github.com/domino14/macondo/tinymove"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -632,4 +635,160 @@ func TestHiedInvestigation(t *testing.T) {
 		fmt.Print(peg.SolutionStats(len(winners)))
 	}
 	is.True(err == nil || err == ErrCanceledEarly)
+}
+
+// TestNestedOurPlaysKeepOpponentPasses: skip-deep-pass leaves out our pass at
+// a nested turn that doesn't follow a pass, but the opponent's replies below
+// that turn are generated with the same movegen and must still include a
+// pass (it can be their winning reply).
+func TestNestedOurPlaysKeepOpponentPasses(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	peg.SetSkipDeepPass(true)
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	hasPass := func(plays []tinymove.SmallMove) bool {
+		for _, p := range plays {
+			if p.IsPass() {
+				return true
+			}
+		}
+		return false
+	}
+	// The last move wasn't a pass: our pass is left out.
+	is.True(!hasPass(peg.genOurNestedPlays(g.Game, mg)))
+	// The opponent's replies, generated next with the same movegen, keep it.
+	mg.GenAll(g.RackFor(1-g.PlayerOnTurn()), false)
+	is.True(hasPass(mg.SmallPlays()))
+}
+
+// TestNestedOurPassByDefault: by default a nested turn considers our pass even
+// when the last move was a tile play (it can be our winning reply: the
+// opponent must draw, or we keep a tile we need).
+func TestNestedOurPassByDefault(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	is.True(!peg.skipDeepPass)
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	hasPass := false
+	for _, p := range peg.genOurNestedPlays(g.Game, mg) {
+		hasPass = hasPass || p.IsPass()
+	}
+	is.True(hasPass)
+}
+
+// TestLinePastNestedLimitIsFinished: past max-nested-depth, our turn with
+// tiles in the bag is played with our best move by score plus leave, and the
+// opponent's replies after it are searched as usual, instead of the line
+// being dropped. With the limit at 0, 12C A. (one tile, one left in the bag)
+// meets the opponent passing back when O and R, or two Os, are in the bag;
+// our best move then loses, and those orderings had been counted as wins.
+func TestLinePastNestedLimitIsFinished(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+	peg.maxEndgamePlies = 2
+	peg.iterativeDeepening = false
+	peg.skipTiebreaker = true
+	peg.earlyCutoffOptim = false
+	peg.nestedDepthLimit = 0
+	peg.threads = 1
+	peg.solveOnlyMoves = []*move.Move{move.NewScoringMoveSimple(12, "12C", "A.", "EFGSTX", g.Alphabet())}
+
+	winners, err := peg.Solve(context.Background())
+	is.NoErr(err)
+	is.Equal(winners[0].Points, float32(36)) // 46 when the line was dropped
+	o, r := tilemapping.MachineLetter(15), tilemapping.MachineLetter(18)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{r, o}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, r}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, o}), PEGLoss)
+}
+
+// TestBestNestedPlayIgnoresOrder: the play that finishes a line past the
+// nested depth limit doesn't depend on the order the plays were generated
+// in (ties go by move.TiebreaksBetter). Without a leave calculator plays
+// are valued by score alone, so many tie.
+func TestBestNestedPlayIgnoresOrder(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	plays := slices.Clone(peg.genOurNestedPlays(g.Game, mg))
+	// Keep only the plays of the highest score that more than one play has.
+	count := map[int]int{}
+	for _, p := range plays {
+		count[p.Score()]++
+	}
+	top := -1
+	for sc, n := range count {
+		if n > 1 && sc > top {
+			top = sc
+		}
+	}
+	is.True(top >= 0)
+	plays = slices.DeleteFunc(plays, func(p tinymove.SmallMove) bool { return p.Score() != top })
+	forward := peg.bestNestedPlay(g.Game, plays)
+	slices.Reverse(plays)
+	backward := peg.bestNestedPlay(g.Game, plays)
+	is.Equal(backward.TinyMove(), forward.TinyMove())
+}
+
+// TestNestedCacheKeyHasSpread: a nested pre-endgame's verdict depends on the
+// score, so positions alike but for the scores (two lines that play the
+// same letters on each other's squares) must not share a cache entry.
+func TestNestedCacheKeyHasSpread(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	other := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 380/341 0 lex CSW19;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	var keys []nestedCacheKey
+	peg := new(Solver)
+	for i, c := range []string{cgpStr, other} {
+		g, err := cgp.ParseCGP(DefaultConfig, c)
+		is.NoErr(err)
+		g.RecalculateBoard()
+		if i == 0 {
+			is.NoErr(peg.Init(g.Game, gd))
+			peg.ttable.Reset(0.01, g.Board().Dim())
+		}
+		keys = append(keys, peg.buildNestedCacheKey(g.Game))
+	}
+	is.True(keys[0] != keys[1])
+	keys[1].spread = keys[0].spread
+	is.Equal(keys[0], keys[1])
 }

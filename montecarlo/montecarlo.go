@@ -428,8 +428,10 @@ type Simmer struct {
 	// egSolvers search the endgames the rollouts reach, one per thread, and
 	// egCache keeps each searched endgame's result for the rest of the sim.
 	noEndgameLeaves bool
-	egSolvers       []*negamax.Solver
-	egCache         sync.Map
+	// egTable is the leaf searches' transposition table, for the board's size.
+	egTable   *negamax.TranspositionTable
+	egSolvers []*negamax.Solver
+	egCache   sync.Map
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
