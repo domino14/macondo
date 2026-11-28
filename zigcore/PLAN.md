@@ -309,7 +309,9 @@ as they land.
   (the second argument is the iterations; BENCH_PLIES, BENCH_THREADS,
   BENCH_BAI, BENCH_RIT), Go's `BenchmarkSim` and `bench/magpie_sim.sh`
   (a driver timing MAGPIE's own commands by wall clock: the sim time
-  MAGPIE's CLI prints leaves part of the work out).
+  MAGPIE's CLI prints leaves part of the work out). Pre-endgames:
+  `BENCH_MODE=peg` (the second argument is the endgame plies;
+  BENCH_THREADS, BENCH_NO_ID, BENCH_MAX_TILES_LEFT).
   `zig build test -Dtsan=true` runs the tests under ThreadSanitizer.
 
 ## Zig version policy

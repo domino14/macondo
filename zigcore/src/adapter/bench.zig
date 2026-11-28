@@ -121,6 +121,18 @@ pub fn main(init: std.process.Init) !void {
         const parallel: macondo.endgame.Parallel = if (std.mem.eql(u8, init.environ_map.get("BENCH_PARALLEL") orelse "", "pvsplit")) .pv_split else .abdada;
         return benchEndgame(io, gpa, positions.items, rounds, init.environ_map.get("BENCH_ROWS") != null, init.environ_map.get("BENCH_GO_ORDER") != null, init.environ_map.get("BENCH_NO_FORCED_PASS") == null, threads, parallel, &w.interface);
     }
+    if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "peg")) {
+        const profile = init.environ_map.get("BENCH_PROFILE");
+        if (profile != null) Profiler.start();
+        defer if (profile) |path| Profiler.stop(io, path) catch {};
+        var opts: macondo.preendgame.Options = .{
+            .plies = rounds,
+            .iterative_deepening = init.environ_map.get("BENCH_NO_ID") == null,
+            .threads = if (init.environ_map.get("BENCH_THREADS")) |v| try std.fmt.parseInt(usize, v, 10) else 1,
+        };
+        if (init.environ_map.get("BENCH_MAX_TILES_LEFT")) |v| opts.max_tiles_left = try std.fmt.parseInt(i32, v, 10);
+        return benchPeg(io, gpa, positions.items, opts, &w.interface);
+    }
     if (std.mem.eql(u8, init.environ_map.get("BENCH_MODE") orelse "", "sim")) {
         const profile = init.environ_map.get("BENCH_PROFILE");
         if (profile != null) Profiler.start();
@@ -224,6 +236,48 @@ fn benchSim(io: Io, gpa: std.mem.Allocator, store: *macondo.data.Store, data_pat
         @as(f64, @floatFromInt(nodes)) * 1e9 / @as(f64, @floatFromInt(total_ns)),
     });
     try w.print("best-move memory: {d} generations, {d:.1}% found their rack\n", .{ gens, 100 * @as(f64, @floatFromInt(hits)) / @as(f64, @floatFromInt(@max(gens, 1))) });
+    try w.flush();
+}
+
+/// BENCH_MODE=peg: solves each position's pre-endgame (`go preendgame`) with
+/// endgames of `plies` plies (the second argument), iterative deepening
+/// (unless BENCH_NO_ID), on BENCH_THREADS threads (default 1), with
+/// BENCH_MAX_TILES_LEFT (default 1), and a table of 2^24 entries cleared
+/// before each, outside the timing.
+fn benchPeg(io: Io, gpa: std.mem.Allocator, positions: []macondo.position.Position, opts: macondo.preendgame.Options, w: *Io.Writer) !void {
+    var tt: macondo.ttable.Table = .{};
+    defer tt.deinit(gpa);
+    var zobrist: ?macondo.zobrist.Zobrist = null;
+    defer if (zobrist) |*z| z.deinit(gpa);
+    var total_ns: i96 = 0;
+    var endgames: u64 = 0;
+    for (positions, 0..) |*p, i| {
+        if (zobrist == null or zobrist.?.dim != p.board.dim) {
+            if (zobrist) |*z| z.deinit(gpa);
+            zobrist = try .init(gpa, p.board.dim, @splat(0x5a));
+        }
+        try tt.reset(gpa, 256 << 20);
+        const start = Io.Timestamp.now(io, .awake);
+        var solver = try macondo.preendgame.Solver.init(gpa, p, &zobrist.?, &tt, opts);
+        defer solver.deinit();
+        var res = try solver.solve(io, null);
+        defer res.deinit(gpa);
+        const ns = start.durationTo(Io.Timestamp.now(io, .awake)).nanoseconds;
+        total_ns += ns;
+        endgames += res.endgames;
+        try w.print("{d} best ", .{i});
+        try res.plays[0].move.format(p.dist, w);
+        try w.print(" points {d} plays {d} endgames {d} time {d:.3}\n", .{ @as(f64, @floatFromInt(res.plays[0].points2)) / 2, res.plays.len, res.endgames, @as(f64, @floatFromInt(ns)) / 1e9 });
+        try w.flush();
+    }
+    try w.print("preendgame ({d} plies, {d} thread{s}): {d} positions in {d:.3} s, {d} endgames\n", .{
+        opts.plies,
+        opts.threads,
+        if (opts.threads == 1) "" else "s",
+        positions.len,
+        @as(f64, @floatFromInt(total_ns)) / 1e9,
+        endgames,
+    });
     try w.flush();
 }
 
