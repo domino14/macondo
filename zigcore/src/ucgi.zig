@@ -23,6 +23,7 @@ const endgame = @import("endgame/endgame.zig");
 const zobrist_mod = @import("endgame/zobrist.zig");
 const ttable = @import("endgame/ttable.zig");
 const bai_mod = @import("montecarlo/bai.zig");
+const peg = @import("preendgame/peg.zig");
 
 pub const engine_name = "MacondoZig";
 pub const engine_author = "the Macondo authors";
@@ -353,9 +354,11 @@ pub const Engine = struct {
         const is_sim = std.mem.eql(u8, kind, "sim");
         const is_infer = std.mem.eql(u8, kind, "infer");
         const is_endgame = std.mem.eql(u8, kind, "endgame");
-        if (!is_sim and !is_infer and !is_endgame and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
+        const is_peg = std.mem.eql(u8, kind, "preendgame");
+        if (!is_sim and !is_infer and !is_endgame and !is_peg and !std.mem.eql(u8, kind, "static")) return out.print("error bad-go {s}\n", .{kind});
         const p = &(self.position orelse return out.writeAll("error no-position\n"));
         if (is_endgame) return self.goEndgame(p, tokens.rest(), out);
+        if (is_peg) return self.goPreendgame(p, tokens.rest(), out);
         if (is_sim) return self.goSim(p, tokens.rest(), out);
         if (is_infer) return self.goInfer(p, tokens.rest(), out);
         var rack = p.racks[0];
@@ -643,6 +646,111 @@ pub const Engine = struct {
         var moves: [endgame.max_variant]Move = undefined;
         const n = try solver.lineMoves(&result.line, &moves);
         if (n == 0) try out.writeAll("pass") else try moves[0].format(p.dist, out);
+        try out.writeAll("\n");
+    }
+
+    /// `go preendgame`: every play of the player on turn valued by the
+    /// endgames it leads to for each ordering of the unseen tiles (see
+    /// preendgame/peg.zig and UCGI.md).
+    fn goPreendgame(self: *Engine, p: *const Position, args: []const u8, out: *Writer) (Writer.Error || Allocator.Error)!void {
+        const gpa = self.gpa;
+        var opts: peg.Options = .{ .threads = self.options.threads };
+        var only: std.ArrayList([]const u8) = .empty;
+        defer only.deinit(gpa);
+        var avoid: std.ArrayList([]const u8) = .empty;
+        defer avoid.deinit(gpa);
+        var known: [movegen.rack_tile_limit]tiles.MachineLetter = undefined;
+        var outcomes = false;
+        var max_plays: usize = std.math.maxInt(usize);
+        var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
+        while (tokens.next()) |key| {
+            if (std.mem.eql(u8, key, "noid")) {
+                opts.iterative_deepening = false;
+            } else if (std.mem.eql(u8, key, "notiebreak")) {
+                opts.tiebreak = false;
+            } else if (std.mem.eql(u8, key, "cutoff")) {
+                opts.early_cutoff = true;
+            } else if (std.mem.eql(u8, key, "skiploss")) {
+                opts.skip_loss = true;
+            } else if (std.mem.eql(u8, key, "outcomes")) {
+                outcomes = true;
+            } else {
+                const v = tokens.next() orelse return out.writeAll("error bad-preendgame\n");
+                if (std.mem.eql(u8, key, "plies")) {
+                    opts.plies = std.fmt.parseInt(u32, v, 10) catch return out.writeAll("error bad-preendgame\n");
+                    if (opts.plies == 0 or opts.plies > endgame.max_variant) return out.writeAll("error bad-preendgame\n");
+                } else if (std.mem.eql(u8, key, "maxtilesleft")) {
+                    opts.max_tiles_left = std.fmt.parseInt(i32, v, 10) catch return out.writeAll("error bad-preendgame\n");
+                } else if (std.mem.eql(u8, key, "nested")) {
+                    opts.nested_depth_limit = std.fmt.parseInt(i32, v, 10) catch return out.writeAll("error bad-preendgame\n");
+                } else if (std.mem.eql(u8, key, "plays")) {
+                    max_plays = std.fmt.parseInt(usize, v, 10) catch return out.writeAll("error bad-preendgame\n");
+                } else if (std.mem.eql(u8, key, "only")) {
+                    try only.append(gpa, v);
+                } else if (std.mem.eql(u8, key, "avoid")) {
+                    try avoid.append(gpa, v);
+                } else if (std.mem.eql(u8, key, "opprack")) {
+                    const n = p.dist.toMachineLetters(v, &known) catch return out.writeAll("error bad-preendgame opprack\n");
+                    opts.known_opp = known[0..n];
+                } else return out.print("error bad-preendgame {s}\n", .{key});
+            }
+        }
+        const only_moves = peg.findMoves(gpa, p, only.items) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return out.writeAll("error bad-preendgame only\n"),
+        };
+        defer gpa.free(only_moves);
+        opts.only = only_moves;
+        const avoid_moves = peg.findMoves(gpa, p, avoid.items) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return out.writeAll("error bad-preendgame avoid\n"),
+        };
+        defer gpa.free(avoid_moves);
+        opts.avoid_prune = avoid_moves;
+
+        if (self.zobrist == null or self.zobrist.?.dim != p.board.dim) {
+            if (self.zobrist) |*z| z.deinit(gpa);
+            self.zobrist = null;
+            self.zobrist = try .init(gpa, p.board.dim, @splat(0x5a));
+        }
+        try self.tt.reset(gpa, @as(u64, self.options.hash_mb) << 20);
+        var solver = peg.Solver.init(gpa, p, &self.zobrist.?, &self.tt, opts) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return out.print("error preendgame {s}\n", .{@errorName(e)}),
+        };
+        defer solver.deinit();
+        const start = std.Io.Clock.Timestamp.now(self.io, .awake);
+        var res = solver.solve(self.io, null) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return out.print("error preendgame {s}\n", .{@errorName(e)}),
+        };
+        defer res.deinit(gpa);
+        const ms = start.durationTo(std.Io.Clock.Timestamp.now(self.io, .awake)).raw.toMilliseconds();
+        var total: u64 = 0;
+        for (solver.perms.items) |perm| total += perm.count;
+        try out.print("info preendgame plies {d} endgames {d} time {d} orderings {d}\n", .{ res.plies, res.endgames, ms, total });
+        for (res.plays[0..@min(max_plays, res.plays.len)]) |*r| {
+            try out.writeAll("info preendgame play ");
+            try r.move.format(p.dist, out);
+            if (r.cut) {
+                try out.writeAll(" cut 1\n");
+                continue;
+            }
+            try out.print(" points {d}", .{@as(f64, @floatFromInt(r.points2)) / 2});
+            if (r.spread) |sp| try out.print(" spread {d}", .{sp});
+            try out.writeAll("\n");
+            if (!outcomes) continue;
+            for (r.outcomes) |o| {
+                try out.writeAll("info preendgame outcome ");
+                try r.move.format(p.dist, out);
+                try out.writeAll(" bag ");
+                for (o.draw.slice()) |ml| try out.writeAll(p.dist.letter(ml, false));
+                try out.print(" {s} count {d}\n", .{ o.outcome.name(), o.count });
+            }
+        }
+        try out.writeAll("bestmove ");
+        if (res.plays.len == 0) return out.writeAll("pass\n");
+        try res.plays[0].move.format(p.dist, out);
         try out.writeAll("\n");
     }
 
@@ -1214,4 +1322,27 @@ test "go sim runs in the background" {
     out.clearRetainingCapacity();
     _ = try engine.handle("isready");
     try testing.expectEqualStrings("readyok\n", out.written());
+}
+
+test "go preendgame with a known opponent rack" {
+    const testdata = @import("testing/testdata.zig");
+    const build_options = @import("build_options");
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", testdata.file_source, &out.writer);
+    defer engine.deinit();
+    var buf: [256]u8 = undefined;
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
+    _ = try engine.handle("position cgp 15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;");
+    if (out.written().len > 0) return error.SkipZigTest;
+    // The opponent holds AACEISU, so the Y is in the bag: STEY, STYE and
+    // XYST win, STEY by the most (Macondo's TestKnownTilesPEG).
+    _ = try engine.handle("go preendgame plies 2 noid opprack AACEISU plays 1 outcomes");
+    _ = try engine.handle("go preendgame maxtiles 9");
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    try testing.expect(std.mem.startsWith(u8, lines.next().?, "info preendgame plies 2 endgames "));
+    try testing.expectEqualStrings("info preendgame play N3.STEY points 1 spread 10", lines.next().?);
+    try testing.expectEqualStrings("info preendgame outcome N3.STEY bag Y win count 1", lines.next().?);
+    try testing.expectEqualStrings("bestmove N3.STEY", lines.next().?);
+    try testing.expectEqualStrings("error bad-preendgame maxtiles", lines.next().?);
 }

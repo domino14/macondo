@@ -91,7 +91,7 @@ and saves it; `false` never uses one.
 
 ## Searching
 
-All `go` commands but `go static`, `go infer` and `go endgame` run in the background. While a search runs the engine
+All `go` commands but `go static`, `go infer`, `go endgame` and `go preendgame` run in the background. While a search runs the engine
 accepts `stop`, `isready` and `quit`; any other command gets
 `error busy`. Every search ends with exactly one `bestmove` line, also after
 `stop`.
@@ -248,6 +248,49 @@ endgame mode. `firstwin` searches only whether the player on turn wins
 deepening, the greedy playout that values the positions the search stops
 at, and the incremental move lists. `go endgame` answers before the engine
 reads the next command.
+
+`go preendgame` solves a pre-endgame (one to six tiles in the bag; the
+player on turn holds a full rack, and the opponent's rack in the CGP counts
+as unseen) as Macondo's pre-endgame solver does. Each play is valued for
+every ordering of the tiles the player on turn can't see: the opponent,
+who knows what is in the bag, tries every reply, and one that beats us
+makes that ordering a loss (one that ties, a draw); when it is our turn
+again with tiles in the bag, we choose a play across the orderings we
+can't tell apart, and that ordering's result is the worst among the plays
+tied for best. A play's points are its wins plus half its draws, each
+ordering counted as often as the unseen tiles can make it. The endgames
+are result-only searches to `plies` plies (default 3), deepening
+iteratively from one (`noid`: at once). Options:
+
+- `maxtilesleft <n>`: only plays leaving at most n tiles in the bag
+  (default 1; -1 for all);
+- `nested <n>`: how many levels of our turns with tiles still in the bag
+  are solved (default 1; -1 for all); past them we play our best move by
+  score plus leave value;
+- `notiebreak`: don't tell the plays tied for first that empty the bag
+  apart by spread (their total spread over the orderings, from
+  full-window endgames; the best 20 by score);
+- `cutoff`: stop solving a play once it has more losses than the best play
+  that empties the bag can still have; `skiploss`: at its first loss (its
+  line then says `cut 1`);
+- `only <move>` (repeatable): solve only these plays; `avoid <move>`
+  (repeatable): plays the cutoffs never stop;
+- `opprack <tiles>`: tiles known to be on the opponent's rack;
+- `outcomes`: each play's result for every ordering, by the tiles in the
+  bag in the order they are drawn; `plays <n>`: write only the best n.
+
+It runs on the `threads` option's threads, with a transposition table of
+`hash-mb`, and gives the same results on any number of threads (but for
+which plays the cutoffs stop). It answers before the engine reads the next
+command:
+
+```
+> go preendgame opprack AACEISU outcomes plays 1
+< info preendgame plies 3 endgames 1886 time 897 orderings 1
+< info preendgame play N3.STEY points 1 spread 10
+< info preendgame outcome N3.STEY bag Y win count 1
+< bestmove N3.STEY
+```
 
 Progress, as often as the engine likes:
 

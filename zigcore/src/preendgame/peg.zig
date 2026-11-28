@@ -395,7 +395,9 @@ fn play(parent: *const Node, child: *Node, m: *const Move) void {
     child.us = !parent.us;
 }
 
-fn sameMove(a: *const Move, b: *const Move) bool {
+/// Whether `a` and `b` are the same move (placement and tiles; scores
+/// aside).
+pub fn sameMove(a: *const Move, b: *const Move) bool {
     if (a.kind != b.kind) return false;
     if (a.kind == .pass) return true;
     return a.row == b.row and a.col == b.col and a.vertical == b.vertical and
@@ -1049,6 +1051,29 @@ fn estimateTrunc(n: *const Node, m: *const Move) i32 {
     return @intFromFloat(estimate(n, m));
 }
 
+/// The moves `texts` (UCGI notation) as the player on turn at `p` can make
+/// them, with their scores (error.MoveNotFound for one they can't).
+pub fn findMoves(gpa: Allocator, p: *const Position, texts: []const []const u8) (Allocator.Error || move_mod.ParseError || error{MoveNotFound})![]Move {
+    var pos = p.*;
+    var gen: movegen.Generator = .init(gpa, &pos.board, p.lexicon.kwg, p.dist);
+    defer gen.deinit();
+    gen.gen_pass = true;
+    var rack = pos.racks[0];
+    try gen.genAll(&rack, false);
+    const out = try gpa.alloc(Move, texts.len);
+    errdefer gpa.free(out);
+    for (texts, out) |text, *m| {
+        const parsed = try move_mod.parse(text, p.dist, p.board.dim);
+        for (gen.plays.items) |*g| {
+            if (sameMove(g, &parsed.move)) {
+                m.* = g.*;
+                break;
+            }
+        } else return error.MoveNotFound;
+    }
+    return out;
+}
+
 // Tests ----------------------------------------------------------------------
 
 const testing = std.testing;
@@ -1068,29 +1093,6 @@ test "the orderings of two tiles from AAB" {
     try testing.expectEqual(2, out.items[1].count);
     try testing.expectEqualSlices(MachineLetter, &.{ 2, 1 }, out.items[2].draw.slice());
     try testing.expectEqual(2, out.items[2].count);
-}
-
-/// The plays of `moves` (as UCGI text) among every move of the player on
-/// turn, with their scores.
-fn findMoves(gpa: Allocator, p: *const Position, texts: []const []const u8) ![]Move {
-    var pos = p.*;
-    var gen: movegen.Generator = .init(gpa, &pos.board, p.lexicon.kwg, p.dist);
-    defer gen.deinit();
-    gen.gen_pass = true;
-    var rack = pos.racks[0];
-    try gen.genAll(&rack, false);
-    const out = try gpa.alloc(Move, texts.len);
-    errdefer gpa.free(out);
-    for (texts, out) |text, *m| {
-        const parsed = try move_mod.parse(text, p.dist, p.board.dim);
-        for (gen.plays.items) |*g| {
-            if (sameMove(g, &parsed.move)) {
-                m.* = g.*;
-                break;
-            }
-        } else return error.MoveNotFound;
-    }
-    return out;
 }
 
 const GoldenPlay = struct {
