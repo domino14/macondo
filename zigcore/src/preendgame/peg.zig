@@ -444,7 +444,12 @@ const Thread = struct {
             .gpa = gpa,
             .index = index,
             .gen = undefined,
-            .ws = .init(gpa),
+            // The endgames share the pre-endgame's word graph.
+            .ws = blk: {
+                var ws: endgame.Workspace = .init(gpa);
+                ws.same_inputs = true;
+                break :blk ws;
+            },
             .nodes = nodes,
             .lists = lists,
         };

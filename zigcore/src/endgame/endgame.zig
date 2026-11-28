@@ -357,6 +357,10 @@ pub const Workspace = struct {
     gpa: Allocator,
     caches: std.ArrayList(*Caches) = .empty,
     solves: u64 = 0,
+    /// The solves share their word graph, board layout and letter scores
+    /// (a pre-endgame's endgames): the caches keep their entries from one
+    /// to the next, whose keys cover the rest (the squares, the racks).
+    same_inputs: bool = false,
 
     pub fn init(gpa: Allocator) Workspace {
         return .{ .gpa = gpa };
@@ -380,6 +384,7 @@ pub const Workspace = struct {
 
     /// Salts every thread's caches for a new solve.
     fn newSolve(self: *Workspace) void {
+        if (self.same_inputs and self.solves > 0) return;
         self.solves += 1;
         const salt = (self.solves *% 0x9E3779B97F4A7C15) | 1;
         for (self.caches.items) |c| {
