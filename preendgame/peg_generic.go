@@ -30,12 +30,15 @@ import (
 
 // nestedCacheKey uniquely identifies an information state at which
 // nestedOurTurnSolve is entered. The result is a pure function of this state
-// (given fixed solver config), so we can memoize it.
+// (given fixed solver config), so we can memoize it. The spread is part of
+// it: two lines can reach the same board and racks with different scores
+// (each side playing the same letter on the other's square).
 type nestedCacheKey struct {
 	board          uint64                               // board-only Zobrist hash
 	ourRack        [zobrist.MaxLetters]uint8            // Rack.LetArr narrowed to uint8
 	unseen         [tilemapping.MaxAlphabetSize]uint8   // bag.Peek() ∪ opp.rack multiset
 	scorelessTurns uint8                                // 0 or 1 in practice (2 ends the game)
+	spread         int32                                // the spread of the player on turn
 }
 
 // nestedCache is a shared, thread-safe memo table for nestedOurTurnSolve
@@ -94,6 +97,7 @@ func (s *Solver) buildNestedCacheKey(g *game.Game) nestedCacheKey {
 		k.unseen[int(t)]++
 	}
 	k.scorelessTurns = uint8(g.ScorelessTurns())
+	k.spread = int32(g.CurrentSpread())
 	return k
 }
 

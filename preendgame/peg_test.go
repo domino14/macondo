@@ -766,3 +766,29 @@ func TestBestNestedPlayIgnoresOrder(t *testing.T) {
 	backward := peg.bestNestedPlay(g.Game, plays)
 	is.Equal(backward.TinyMove(), forward.TinyMove())
 }
+
+// TestNestedCacheKeyHasSpread: a nested pre-endgame's verdict depends on the
+// score, so positions alike but for the scores (two lines that play the
+// same letters on each other's squares) must not share a cache entry.
+func TestNestedCacheKeyHasSpread(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	other := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 380/341 0 lex CSW19;"
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	var keys []nestedCacheKey
+	peg := new(Solver)
+	for i, c := range []string{cgpStr, other} {
+		g, err := cgp.ParseCGP(DefaultConfig, c)
+		is.NoErr(err)
+		g.RecalculateBoard()
+		if i == 0 {
+			is.NoErr(peg.Init(g.Game, gd))
+			peg.ttable.Reset(0.01, g.Board().Dim())
+		}
+		keys = append(keys, peg.buildNestedCacheKey(g.Game))
+	}
+	is.True(keys[0] != keys[1])
+	keys[1].spread = keys[0].spread
+	is.Equal(keys[0], keys[1])
+}
