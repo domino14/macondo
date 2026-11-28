@@ -59,7 +59,7 @@ pub const Engine = struct {
     /// in the background, one at a time.
     out: *Writer,
     out_mutex: std.Io.Mutex = .init,
-    search: ?*Search = null,
+    search: ?*Background = null,
     /// The cross-set cache `play` updates the board with (made on first
     /// use; its keys include the word graph, so positions can share it).
     cross_cache: ?cross_set.Cache = null,
@@ -110,7 +110,7 @@ pub const Engine = struct {
     pub fn waitSearch(self: *Engine) void {
         const s = self.search orelse return;
         if (s.future) |*f| f.await(self.io);
-        s.destroy();
+        s.destroy(s);
         self.search = null;
     }
 
@@ -120,6 +120,20 @@ pub const Engine = struct {
         const s = self.search orelse return;
         s.stop.store(true, .monotonic);
         self.waitSearch();
+    }
+
+    /// Runs `bg` in the background as the engine's search (without
+    /// concurrency, here, the command waiting for it). Called with the
+    /// output locked: the search's writes come once the command lets go.
+    fn startSearch(self: *Engine, bg: *Background, comptime run: fn (*Background) void) void {
+        self.search = bg;
+        bg.future = self.io.concurrent(run, .{bg}) catch null;
+        if (bg.future == null) {
+            self.out_mutex.unlock(self.io);
+            defer self.out_mutex.lockUncancelable(self.io);
+            run(bg);
+            self.waitSearch();
+        }
     }
 
     /// Handles one input line (without its trailing newline), writing the
@@ -154,8 +168,8 @@ pub const Engine = struct {
         if (std.mem.eql(u8, cmd, "ucgi")) {
             try self.identify(out);
         } else if (std.mem.eql(u8, cmd, "isready")) {
-            // Commands run synchronously for now, so everything sent before
-            // this one has finished.
+            // Every command but a background search finishes before the
+            // next is read, and a search doesn't hold this up.
             try out.writeAll("readyok\n");
         } else if (std.mem.eql(u8, cmd, "setoption")) {
             try self.setOption(tokens.rest(), out);
@@ -512,16 +526,7 @@ pub const Engine = struct {
             .playing = g.playing,
             .reading = reading,
         };
-        self.search = search;
-        // Writes happen once this command's lock is released.
-        search.future = self.io.concurrent(Search.run, .{search}) catch null;
-        if (search.future == null) {
-            // No concurrency: the search runs here, and the command waits.
-            self.out_mutex.unlock(self.io);
-            defer self.out_mutex.lockUncancelable(self.io);
-            search.run();
-            self.waitSearch();
-        }
+        self.startSearch(&search.bg, Search.runBg);
     }
 
     /// `go endgame plies <n> [firstwin] [alldepths] [noid] [noheur] [nolists]
@@ -660,8 +665,10 @@ pub const Engine = struct {
         var avoid: std.ArrayList([]const u8) = .empty;
         defer avoid.deinit(gpa);
         var known: [movegen.rack_tile_limit]tiles.MachineLetter = undefined;
+        var num_known: usize = 0;
         var outcomes = false;
         var max_plays: usize = std.math.maxInt(usize);
+        var time_ms: u64 = 0;
         var tokens = std.mem.tokenizeAny(u8, args, " \t\r");
         while (tokens.next()) |key| {
             if (std.mem.eql(u8, key, "noid")) {
@@ -685,13 +692,14 @@ pub const Engine = struct {
                     opts.nested_depth_limit = std.fmt.parseInt(i32, v, 10) catch return out.writeAll("error bad-preendgame\n");
                 } else if (std.mem.eql(u8, key, "plays")) {
                     max_plays = std.fmt.parseInt(usize, v, 10) catch return out.writeAll("error bad-preendgame\n");
+                } else if (std.mem.eql(u8, key, "time")) {
+                    time_ms = std.fmt.parseInt(u64, v, 10) catch return out.writeAll("error bad-preendgame\n");
                 } else if (std.mem.eql(u8, key, "only")) {
                     try only.append(gpa, v);
                 } else if (std.mem.eql(u8, key, "avoid")) {
                     try avoid.append(gpa, v);
                 } else if (std.mem.eql(u8, key, "opprack")) {
-                    const n = p.dist.toMachineLetters(v, &known) catch return out.writeAll("error bad-preendgame opprack\n");
-                    opts.known_opp = known[0..n];
+                    num_known = p.dist.toMachineLetters(v, &known) catch return out.writeAll("error bad-preendgame opprack\n");
                 } else if (std.mem.eql(u8, key, "eventuality")) {
                     var ev: peg.Draw = .{};
                     ev.len = @intCast(p.dist.toMachineLetters(v, &ev.tiles) catch return out.writeAll("error bad-preendgame eventuality\n"));
@@ -703,14 +711,14 @@ pub const Engine = struct {
             error.OutOfMemory => return error.OutOfMemory,
             else => return out.writeAll("error bad-preendgame only\n"),
         };
-        defer gpa.free(only_moves);
-        opts.only = only_moves;
+        // The search owns these once it starts.
+        var started = false;
+        defer if (!started) gpa.free(only_moves);
         const avoid_moves = peg.findMoves(gpa, p, avoid.items) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return out.writeAll("error bad-preendgame avoid\n"),
         };
-        defer gpa.free(avoid_moves);
-        opts.avoid_prune = avoid_moves;
+        defer if (!started) gpa.free(avoid_moves);
 
         if (self.zobrist == null or self.zobrist.?.dim != p.board.dim) {
             if (self.zobrist) |*z| z.deinit(gpa);
@@ -718,52 +726,31 @@ pub const Engine = struct {
             self.zobrist = try .init(gpa, p.board.dim, @splat(0x5a));
         }
         try self.tt.reset(gpa, @as(u64, self.options.hash_mb) << 20);
-        var solver = peg.Solver.init(gpa, p, &self.zobrist.?, &self.tt, opts) catch |err| switch (err) {
+        const search = try gpa.create(PegSearch);
+        defer if (!started) gpa.destroy(search);
+        search.* = .{
+            .engine = self,
+            .dist = p.dist,
+            .solver = undefined,
+            .only = only_moves,
+            .avoid = avoid_moves,
+            .known = known,
+            .outcomes = outcomes,
+            .max_plays = max_plays,
+            .time_ms = time_ms,
+            .started = undefined,
+        };
+        opts.only = search.only;
+        opts.avoid_prune = search.avoid;
+        opts.known_opp = search.known[0..num_known];
+        opts.progress = .{ .ctx = search, .report = PegSearch.report };
+        search.solver = peg.Solver.init(gpa, p, &self.zobrist.?, &self.tt, opts) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| return out.print("error preendgame {s}\n", .{@errorName(e)}),
         };
-        defer solver.deinit();
-        const start = std.Io.Clock.Timestamp.now(self.io, .awake);
-        var res = solver.solve(self.io, null) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| return out.print("error preendgame {s}\n", .{@errorName(e)}),
-        };
-        defer res.deinit(gpa);
-        const ms = start.durationTo(std.Io.Clock.Timestamp.now(self.io, .awake)).raw.toMilliseconds();
-        var total: u64 = 0;
-        for (solver.perms.items) |perm| total += perm.count;
-        try out.print("info preendgame plies {d} endgames {d} time {d} orderings {d}\n", .{ res.plies, res.endgames, ms, total });
-        for (res.plays[0..@min(max_plays, res.plays.len)]) |*r| {
-            try out.writeAll("info preendgame play ");
-            try r.move.format(p.dist, out);
-            if (r.cut) {
-                try out.writeAll(" cut 1\n");
-                continue;
-            }
-            try out.print(" points {d}", .{@as(f64, @floatFromInt(r.points2)) / 2});
-            if (r.spread) |sp| try out.print(" spread {d}", .{sp});
-            try out.writeAll("\n");
-            if (!outcomes) continue;
-            for (r.outcomes) |o| {
-                try out.writeAll("info preendgame outcome ");
-                try r.move.format(p.dist, out);
-                try out.writeAll(" bag ");
-                for (o.draw.slice()) |ml| try out.writeAll(p.dist.letter(ml, false));
-                try out.print(" {s} count {d}\n", .{ o.outcome.name(), o.count });
-            }
-        }
-        if (opts.eventuality != null and res.plays.len > 0 and !res.stopped) {
-            var e = solver.explain(&res.plays[0].move) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |x| return out.print("error preendgame {s}\n", .{@errorName(x)}),
-            };
-            defer e.deinit(gpa);
-            try writeExplanation(&e, p.dist, out);
-        }
-        try out.writeAll("bestmove ");
-        if (res.plays.len == 0) return out.writeAll("pass\n");
-        try res.plays[0].move.format(p.dist, out);
-        try out.writeAll("\n");
+        search.started = std.Io.Clock.Timestamp.now(self.io, .awake);
+        started = true;
+        self.startSearch(&search.bg, PegSearch.runBg);
     }
 
     /// The `info preendgame eventuality` lines of an explanation.
@@ -1029,7 +1016,18 @@ pub const Engine = struct {
 
 /// Writes "TooManyTiles" as "too-many-tiles", for error tokens.
 /// A sim running in the background: it owns its game, moves and sim.
+/// What the engine knows of the search running in the background (a sim
+/// or a pre-endgame): it stops it, waits for it and frees it through this.
+const Background = struct {
+    stop: std.atomic.Value(bool) = .init(false),
+    /// Set once the bestmove is written, before the output lock is let go.
+    done: std.atomic.Value(bool) = .init(false),
+    future: ?std.Io.Future(void) = null,
+    destroy: *const fn (*Background) void,
+};
+
 const Search = struct {
+    bg: Background = .{ .destroy = destroyBg },
     engine: *Engine,
     dist: *const tiles.LetterDistribution,
     game: *game_mod.Game,
@@ -1041,11 +1039,8 @@ const Search = struct {
     started: std.Io.Clock.Timestamp,
     /// False if the game is already over: nothing to sim.
     playing: bool,
-    stop: std.atomic.Value(bool) = .init(false),
-    /// The sim is done (computed); the search is done (bestmove written).
+    /// The sim is done.
     computed: std.Io.Event = .unset,
-    done: std.atomic.Value(bool) = .init(false),
-    future: ?std.Io.Future(void) = null,
     bai_result: ?bai_mod.Result = null,
     err: ?anyerror = null,
     /// Inference first, the sim dealing the opponent's racks from what it
@@ -1063,6 +1058,14 @@ const Search = struct {
 
     /// How often progress lines are written.
     const progress_ms = 1000;
+
+    fn destroyBg(bg: *Background) void {
+        destroy(@alignCast(@fieldParentPtr("bg", bg)));
+    }
+
+    fn runBg(bg: *Background) void {
+        run(@alignCast(@fieldParentPtr("bg", bg)));
+    }
 
     fn destroy(s: *Search) void {
         const gpa = s.engine.gpa;
@@ -1083,13 +1086,13 @@ const Search = struct {
         if (s.reading) |*r| s.infer(r);
         if (s.bai) |opts_in| {
             var opts = opts_in;
-            opts.stop = &s.stop;
+            opts.stop = &s.bg.stop;
             s.bai_result = s.sim.runBai(io, opts) catch |e| {
                 s.err = e;
                 return;
             };
         } else {
-            s.sim.run(io, .{ .iterations = s.iterations, .stop = &s.stop }) catch |e| {
+            s.sim.run(io, .{ .iterations = s.iterations, .stop = &s.bg.stop }) catch |e| {
                 s.err = e;
             };
         }
@@ -1130,7 +1133,7 @@ const Search = struct {
             if (s.time_ms > 0) {
                 const left = @as(i64, @intCast(s.time_ms)) - s.elapsedMs();
                 if (left <= 0) {
-                    s.stop.store(true, .monotonic);
+                    s.bg.stop.store(true, .monotonic);
                     wait_ms = progress_ms;
                 } else wait_ms = @min(wait_ms, left);
             }
@@ -1172,7 +1175,7 @@ const Search = struct {
         e.out_mutex.lockUncancelable(e.io);
         defer e.out_mutex.unlock(e.io);
         // Done once the bestmove is flushed, before the lock is let go.
-        defer s.done.store(true, .release);
+        defer s.bg.done.store(true, .release);
         const out = e.out;
         defer out.flush() catch {};
         if (s.err) |err| out.print("error sim-failed {t}\n", .{err}) catch {};
@@ -1192,6 +1195,145 @@ const Search = struct {
         out.writeAll("bestmove ") catch return;
         if (order.len > 0) order[0].move.format(s.dist, out) catch return else out.writeAll("pass") catch return;
         out.writeAll("\n") catch {};
+    }
+};
+
+/// `go preendgame` running in the background: the solve (and, for an
+/// eventuality, its explanation) on its own task, stopped by `stop` or
+/// after `time_ms`; a progress line after each endgame depth but the last.
+const PegSearch = struct {
+    bg: Background = .{ .destroy = destroyBg },
+    engine: *Engine,
+    dist: *const tiles.LetterDistribution,
+    solver: peg.Solver,
+    /// The solver's options point into these.
+    only: []Move,
+    avoid: []Move,
+    known: [movegen.rack_tile_limit]tiles.MachineLetter,
+    outcomes: bool,
+    max_plays: usize,
+    time_ms: u64,
+    started: std.Io.Clock.Timestamp,
+    /// The solve is done.
+    computed: std.Io.Event = .unset,
+    result: ?peg.Result = null,
+    solve_ms: i64 = 0,
+    explanation: ?peg.Explanation = null,
+    err: ?anyerror = null,
+
+    fn destroyBg(bg: *Background) void {
+        const s: *PegSearch = @alignCast(@fieldParentPtr("bg", bg));
+        const gpa = s.engine.gpa;
+        if (s.explanation) |*e| e.deinit(gpa);
+        if (s.result) |*r| r.deinit(gpa);
+        s.solver.deinit();
+        gpa.free(s.only);
+        gpa.free(s.avoid);
+        gpa.destroy(s);
+    }
+
+    fn runBg(bg: *Background) void {
+        const s: *PegSearch = @alignCast(@fieldParentPtr("bg", bg));
+        const io = s.engine.io;
+        var computing = io.concurrent(compute, .{s}) catch null;
+        if (computing == null) compute(s);
+        while (!s.computed.isSet()) {
+            var timeout: std.Io.Timeout = .none;
+            if (s.time_ms > 0) {
+                const left = @as(i64, @intCast(s.time_ms)) - s.elapsedMs();
+                if (left <= 0) {
+                    s.bg.stop.store(true, .monotonic);
+                } else timeout = .{ .duration = .{ .raw = .fromMilliseconds(left), .clock = .awake } };
+            }
+            if (s.bg.stop.load(.monotonic)) break;
+            s.computed.waitTimeout(io, timeout) catch {};
+        }
+        if (computing) |*f| f.await(io);
+        s.writeResult();
+    }
+
+    fn elapsedMs(s: *const PegSearch) i64 {
+        return s.started.durationTo(std.Io.Clock.Timestamp.now(s.engine.io, .awake)).raw.toMilliseconds();
+    }
+
+    fn compute(s: *PegSearch) void {
+        const e = s.engine;
+        defer s.computed.set(e.io);
+        s.result = s.solver.solve(e.io, &s.bg.stop) catch |err| {
+            s.err = err;
+            return;
+        };
+        s.solve_ms = s.elapsedMs();
+        const res = &s.result.?;
+        if (s.solver.opts.eventuality == null or res.plays.len == 0 or res.stopped) return;
+        s.explanation = s.solver.explain(&res.plays[0].move) catch |err| {
+            // Stopped while explaining: the results stand without it.
+            if (err != error.Stopped) s.err = err;
+            return;
+        };
+    }
+
+    /// `info preendgame depth <d> endgames <n> time <ms> best <move>
+    /// points <p>` for a depth before the last.
+    fn report(ctx: ?*anyopaque, r: *const peg.Result) void {
+        const s: *PegSearch = @ptrCast(@alignCast(ctx.?));
+        if (r.plies >= s.solver.opts.plies or r.plays.len == 0) return;
+        const e = s.engine;
+        e.out_mutex.lockUncancelable(e.io);
+        defer e.out_mutex.unlock(e.io);
+        const out = e.out;
+        out.print("info preendgame depth {d} endgames {d} time {d} best ", .{ r.plies, r.endgames, s.elapsedMs() }) catch return;
+        r.plays[0].move.format(s.dist, out) catch return;
+        out.print(" points {d}\n", .{@as(f64, @floatFromInt(r.plays[0].points2)) / 2}) catch return;
+        out.flush() catch {};
+    }
+
+    fn writeResult(s: *PegSearch) void {
+        const e = s.engine;
+        e.out_mutex.lockUncancelable(e.io);
+        defer e.out_mutex.unlock(e.io);
+        // Done once the bestmove is flushed, before the lock is let go.
+        defer s.bg.done.store(true, .release);
+        const out = e.out;
+        defer out.flush() catch {};
+        s.write(out) catch {};
+    }
+
+    fn write(s: *PegSearch, out: *Writer) Writer.Error!void {
+        const res = if (s.result) |*r| r else {
+            try out.print("error preendgame {t}\n", .{s.err.?});
+            return out.writeAll("bestmove pass\n");
+        };
+        if (s.err) |err| try out.print("error preendgame {t}\n", .{err});
+        var total: u64 = 0;
+        for (s.solver.perms.items) |perm| total += perm.count;
+        try out.print("info preendgame plies {d} endgames {d} time {d} orderings {d}", .{ res.plies, res.endgames, s.solve_ms, total });
+        if (res.stopped) try out.writeAll(" stopped 1");
+        try out.writeAll("\n");
+        for (res.plays[0..@min(s.max_plays, res.plays.len)]) |*r| {
+            try out.writeAll("info preendgame play ");
+            try r.move.format(s.dist, out);
+            if (r.cut) {
+                try out.writeAll(" cut 1\n");
+                continue;
+            }
+            try out.print(" points {d}", .{@as(f64, @floatFromInt(r.points2)) / 2});
+            if (r.spread) |sp| try out.print(" spread {d}", .{sp});
+            try out.writeAll("\n");
+            if (!s.outcomes) continue;
+            for (r.outcomes) |o| {
+                try out.writeAll("info preendgame outcome ");
+                try r.move.format(s.dist, out);
+                try out.writeAll(" bag ");
+                for (o.draw.slice()) |ml| try out.writeAll(s.dist.letter(ml, false));
+                try out.print(" {s} count {d}\n", .{ o.outcome.name(), o.count });
+            }
+        }
+        if (s.explanation) |*x| try Engine.writeExplanation(x, s.dist, out);
+        try out.writeAll("bestmove ");
+        if (res.plays.len == 0) return out.writeAll("pass\n");
+        try res.plays[0].move.format(s.dist, out);
+        try out.writeAll("\n");
     }
 };
 
@@ -1416,6 +1558,7 @@ test "go preendgame with a known opponent rack" {
     // The opponent holds AACEISU, so the Y is in the bag: STEY, STYE and
     // XYST win, STEY by the most (Macondo's TestKnownTilesPEG).
     _ = try engine.handle("go preendgame plies 2 noid opprack AACEISU plays 1 outcomes");
+    engine.waitSearch();
     _ = try engine.handle("go preendgame maxtiles 9");
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     try testing.expect(std.mem.startsWith(u8, lines.next().?, "info preendgame plies 2 endgames "));
@@ -1438,6 +1581,7 @@ test "go preendgame explains an eventuality" {
     if (out.written().len > 0) return error.SkipZigTest;
     // We draw the I, the opponent the last E, and bingoes.
     _ = try engine.handle("go preendgame only 6F..X. eventuality IE plies 1 noid");
+    engine.waitSearch();
     var lines = std.mem.splitScalar(u8, out.written(), '\n');
     try testing.expect(std.mem.startsWith(u8, lines.next().?, "info preendgame plies 1 endgames "));
     try testing.expectEqualStrings("info preendgame play 6F..X. points 0", lines.next().?);
@@ -1445,4 +1589,54 @@ test "go preendgame explains an eventuality" {
     try testing.expectEqualStrings("info preendgame eventuality drawn rack AEFGIST bag E", lines.next().?);
     try testing.expectEqualStrings("info preendgame eventuality reply L2.TOREROS tried 1 opprack E bag -", lines.next().?);
     try testing.expectEqualStrings("bestmove 6F..X.", lines.next().?);
+}
+
+test "go preendgame runs in the background: progress, stop and time" {
+    const testdata = @import("testing/testdata.zig");
+    const build_options = @import("build_options");
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", testdata.file_source, &out.writer);
+    defer engine.deinit();
+    var buf: [256]u8 = undefined;
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
+    _ = try engine.handle("position cgp 15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;");
+    if (out.written().len > 0) return error.SkipZigTest;
+
+    // Deepening to 2 plies: a progress line for depth 1, then the result.
+    _ = try engine.handle("go preendgame plies 2 opprack AACEISU plays 1");
+    engine.waitSearch();
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    try testing.expect(std.mem.startsWith(u8, lines.next().?, "info preendgame depth 1 endgames "));
+    const summary = lines.next().?;
+    try testing.expect(std.mem.startsWith(u8, summary, "info preendgame plies 2 endgames "));
+    try testing.expect(std.mem.indexOf(u8, summary, "stopped") == null);
+    try testing.expectEqualStrings("info preendgame play N3.STEY points 1 spread 10", lines.next().?);
+    try testing.expectEqualStrings("bestmove N3.STEY", lines.next().?);
+
+    // Every ordering at 6 plies takes far longer than the test: stop ends
+    // it with what it has, and only stop, isready and quit are taken
+    // meanwhile.
+    out.clearRetainingCapacity();
+    _ = try engine.handle("go preendgame plies 6");
+    try testing.expect(engine.search != null);
+    _ = try engine.handle("isready");
+    _ = try engine.handle("gen");
+    _ = try engine.handle("stop");
+    engine.waitSearch();
+    try testing.expect(std.mem.indexOf(u8, out.written(), "readyok\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "error busy\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), " stopped 1\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "\nbestmove ") != null);
+
+    // A time limit stops it by itself.
+    out.clearRetainingCapacity();
+    _ = try engine.handle("go preendgame plies 6 time 200");
+    engine.waitSearch();
+    try testing.expect(std.mem.indexOf(u8, out.written(), " stopped 1\n") != null);
+    try testing.expect(std.mem.endsWith(u8, out.written(), "\n") and std.mem.indexOf(u8, out.written(), "bestmove ") != null);
+    // After a search the engine takes commands again.
+    out.clearRetainingCapacity();
+    _ = try engine.handle("isready");
+    try testing.expectEqualStrings("readyok\n", out.written());
 }

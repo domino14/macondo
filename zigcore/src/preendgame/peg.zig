@@ -144,6 +144,15 @@ pub const Options = struct {
     /// The results are the same on any number, but for which plays the
     /// early cutoff stops.
     threads: usize = 1,
+    /// Called with the results of each endgame depth finished (iterative
+    /// deepening), on the thread that called solve, before the next depth
+    /// starts.
+    progress: ?Progress = null,
+};
+
+pub const Progress = struct {
+    ctx: ?*anyopaque,
+    report: *const fn (ctx: ?*anyopaque, r: *const Result) void,
 };
 
 pub const PlayOutcome = struct {
@@ -770,6 +779,7 @@ pub const Solver = struct {
             if (last) |*l| l.deinit(gpa);
             last = null;
             last = try self.result(plays.items);
+            if (self.opts.progress) |pr| pr.report(pr.ctx, &last.?);
         }
         return last.?;
     }

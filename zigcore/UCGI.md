@@ -91,7 +91,7 @@ and saves it; `false` never uses one.
 
 ## Searching
 
-All `go` commands but `go static`, `go infer`, `go endgame` and `go preendgame` run in the background. While a search runs the engine
+All `go` commands but `go static`, `go infer` and `go endgame` run in the background. While a search runs the engine
 accepts `stop`, `isready` and `quit`; any other command gets
 `error busy`. Every search ends with exactly one `bestmove` line, also after
 `stop`.
@@ -101,7 +101,7 @@ accepts `stop`, `isready` and `quit`; any other command gets
 > go sim plies 2                  Monte Carlo sim until stop (also: iterations, time <ms>, stop <confidence>)
 > go infer                        rack inference for the last opponent play
 > go endgame plies 6
-> go preendgame
+> go preendgame                  pre-endgame until done (also: stop, time <ms>)
 > go auto                         choose the algorithm by game state, as the bot does
 > stop
 ```
@@ -276,6 +276,7 @@ iteratively from one (`noid`: at once). Options:
 - `only <move>` (repeatable): solve only these plays; `avoid <move>`
   (repeatable): plays the cutoffs never stop;
 - `opprack <tiles>`: tiles known to be on the opponent's rack;
+- `time <ms>`: stop after this many milliseconds;
 - `outcomes`: each play's result for every ordering, by the tiles in the
   bag in the order they are drawn; `plays <n>`: write only the best n;
 - `eventuality <tiles>`: solve for this one ordering of the bag (all its
@@ -288,17 +289,35 @@ iteratively from one (`noid`: at once). Options:
   verdict (`actual 1` the one the bag holds), and the opponent's deciding
   reply to that play.
 
-It runs on the `threads` option's threads, with a transposition table of
-`hash-mb`, and gives the same results on any number of threads (but for
-which plays the cutoffs stop). It answers before the engine reads the next
-command:
+It runs in the background on the `threads` option's threads, with a
+transposition table of `hash-mb`, and gives the same results on any number
+of threads (but for which plays the cutoffs stop). After each endgame depth
+but the last it writes the best play so far,
+`info preendgame depth <d> endgames <n> time <ms> best <move> points <p>`;
+at the end, the depth of its results, the endgames searched, the time and
+the number of orderings of the unseen tiles, then the plays and `bestmove`:
 
 ```
 > go preendgame opprack AACEISU outcomes plays 1
-< info preendgame plies 3 endgames 1886 time 897 orderings 1
+< info preendgame depth 1 endgames 624 time 89 best N3.STYE points 1
+< info preendgame depth 2 endgames 1253 time 674 best N3.STEY points 1
+< info preendgame plies 3 endgames 1880 time 847 orderings 1
 < info preendgame play N3.STEY points 1 spread 10
 < info preendgame outcome N3.STEY bag Y win count 1
 < bestmove N3.STEY
+```
+
+`stop` (or the `time` limit) ends it with the results of the last depth
+finished, marked `stopped 1` (if no depth was finished, the results so far,
+which are partial), and without an eventuality's explanation:
+
+```
+> go preendgame plies 5 time 3000 plays 2
+< info preendgame depth 1 endgames 4396 time 707 best N10.SEXTON points 2
+< info preendgame plies 1 endgames 4396 time 3000 orderings 8 stopped 1
+< info preendgame play N10.SEXTON points 2 spread -128
+< info preendgame play 13J.EXONS points 2 spread -136
+< bestmove N10.SEXTON
 ```
 
 An eventuality (Macondo's manual's example, CSW21: 13M P(AH) when we draw
