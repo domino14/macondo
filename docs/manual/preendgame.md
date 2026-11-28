@@ -145,21 +145,57 @@ peg -endgameplies 4
 ```
 Winner:  2A A.GUSTER
 Play                Wins    %Win    Spread   Outcomes
- 2A A(U)GUSTER      2.0     25.00   0.12     👍: [F] [T] 👎: [A] [E] [I] [N]
-15H (TEMP)TER       2.0     25.00   -16.38   👍: [E] [F] 👎: [A] [I] [N] [T]
+ 2A A(U)GUSTER      2.0     25.00            👍: [F] [T] 👎: [A] [E] [I] [N]
 15H (TEMP)URA       1.0     12.50            👍: [A] 👎: [E] [F] [I] [N] [T]
+15H (TEMP)TER       0.5     6.25              🤝: [E] 👎: [A] [F] [I] [N] [T]
 ```
 
 (All other plays lose every endgame.)
 
-Noah's two best plays — `A(U)GUSTER` and `(TEMP)TER` — each win exactly 2 of the
-8 possible bag draws. Crucially, **neither of them wins when A is the bag tile**.
-`(TEMP)URA` is the only Noah play that wins the A-in-bag endgame, and it wins just
-that one eventuality out of eight (12.5 %).
+Noah's best play, `A(U)GUSTER`, wins 2 of the 8 possible bag draws.
+Crucially, **it does not win when A is the bag tile**. `(TEMP)URA` is the only
+Noah play that wins the A-in-bag endgame, and it wins just that one eventuality
+out of eight (12.5 %). `(TEMP)TER` ties when the E is in the bag and loses the
+rest.
 
 Noah does not know what is in the bag. From his perspective TEMPURA looks like an
-inferior play: it has fewer wins and worse expected spread than his top options.
-A rational opponent will not choose TEMPURA.
+inferior play: it wins half as many draws as AUGUSTER. A rational opponent will
+not choose TEMPURA.
+
+#### A note on depth: `(TEMP)TER`
+
+Each of these results comes from a 4-ply endgame search, and 4 plies is not
+always enough to see an endgame through. `(TEMP)TER` shows what that can do.
+
+After `(TEMP)TER`, Josh is to move, 31 points up, with an endgame to play.
+Solved to the end of the game, these endgames come out as:
+
+| Tile in the bag | Josh's rack | Noah's rack | Best result for Josh | Outcome |
+|---|---|---|---|---|
+| E | AFIIINT | AEGSU | loses 31 points | tie |
+| F | AEIIINT | AFGSU | loses 22 points | Josh wins by 9 |
+
+The search stops at its ply limit and values the position it reaches. By
+default it does this by playing the rest of the game out greedily, and at 4
+plies that finds the right outcome for both draws. With `-heuristics false`, the
+endgame solver values the position at its ply limit by the spread alone. That
+undervalues Josh's position after 4 plies: it scores the E draw as a 36-point
+loss and the F draw as a 33-point loss, both wins for Noah. A pre-endgame
+searched that way at 4 plies credits `(TEMP)TER` with 2 wins, [E] and [F], a
+tie with `A(U)GUSTER`. At 6 plies or more, both ways of valuing the leaves agree
+on the table above, and `(TEMP)TER` is worth 0.5.
+
+To check this yourself, replay a draw and solve the endgame both ways:
+
+```
+commit 15H ....TER -tileorder E
+endgame -plies 4 -heuristics false
+endgame -plies 25
+```
+
+The first search reports a value of −36 and the second −31. When a pre-endgame
+verdict hinges on a close endgame, raise `-endgameplies` and see whether it
+holds.
 
 ### Why `[III]A` is marked a loss — guaranteed wins vs "both sides solve PEG"
 
@@ -175,10 +211,9 @@ Result: `[III]A` is `👎` — not a guaranteed win for Josh, even though it wou
 #### Full PEG on both sides (hypothetical — not yet implemented)
 
 Imagine a mode where both players solve their sub-PEG optimally. Noah would look at
-his 1-in-bag position, compute his best EV plays, and pick among them — specifically
-AUGUSTER or TEMPTER, both of which **lose** when A is the bag tile. Under this
-model, Josh *does* win the `[III]A` eventuality, because Noah's objectively optimal
-responses all lose it.
+his 1-in-bag position, compute his best EV play, and pick it — AUGUSTER, which
+**loses** when A is the bag tile. Under this model, Josh *does* win the `[III]A`
+eventuality, because Noah's objectively optimal response loses it.
 
 In this mode `[III]A` would be a `👍` for Josh's 2L P(O)ND.
 
