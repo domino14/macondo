@@ -136,6 +136,11 @@ pub const Options = struct {
     avoid_prune: []const Move = &.{},
     /// Tiles known to be on the opponent's rack (some or all of it).
     known_opp: []const MachineLetter = &.{},
+    /// Threads to solve on (with an io): the plays, or when there are
+    /// fewer plays than threads the orderings of each play, are shared out.
+    /// The results are the same on any number, but for which plays the
+    /// early cutoff stops.
+    threads: usize = 1,
 };
 
 pub const PlayOutcome = struct {
@@ -163,6 +168,11 @@ pub const Result = struct {
     plays: []PlayResult,
     /// Endgames searched.
     endgames: u64,
+    /// The endgame depth of the results: the last depth finished.
+    plies: u32,
+    /// The solve was stopped: the results are the last depth finished, or
+    /// partial if none was.
+    stopped: bool = false,
 
     pub fn deinit(self: *Result, gpa: Allocator) void {
         for (self.plays) |p| gpa.free(p.outcomes);
@@ -187,23 +197,39 @@ const Row = struct {
     finalized: bool = false,
 };
 
+/// The totals are atomic: when there are fewer plays than threads, a
+/// play's orderings are solved on several threads at once (each its own
+/// row).
 const Acc = struct {
     rows: []Row,
-    points2: u64 = 0,
-    losses2: u64 = 0,
-    spread: i64 = 0,
-    spread_set: bool = false,
+    points2: std.atomic.Value(u64) = .init(0),
+    losses2: std.atomic.Value(u64) = .init(0),
+    spread: std.atomic.Value(i64) = .init(0),
+    spread_set: std.atomic.Value(bool) = .init(false),
 
     fn credit(self: *Acc, o: Outcome, ct: u32) void {
         switch (o) {
-            .win => self.points2 += 2 * @as(u64, ct),
+            .win => _ = self.points2.fetchAdd(2 * @as(u64, ct), .monotonic),
             .draw => {
-                self.points2 += ct;
-                self.losses2 += ct;
+                _ = self.points2.fetchAdd(ct, .monotonic);
+                _ = self.losses2.fetchAdd(ct, .monotonic);
             },
-            .loss => self.losses2 += 2 * @as(u64, ct),
+            .loss => _ = self.losses2.fetchAdd(2 * @as(u64, ct), .monotonic),
             .none => {},
         }
+    }
+
+    fn points(self: *const Acc) u64 {
+        return self.points2.load(.monotonic);
+    }
+
+    fn losses(self: *const Acc) u64 {
+        return self.losses2.load(.monotonic);
+    }
+
+    fn addSpread(self: *Acc, v: i64) void {
+        _ = self.spread.fetchAdd(v, .monotonic);
+        self.spread_set.store(true, .monotonic);
     }
 
     /// A final outcome for ordering `idx` (addWinPctStat).
@@ -381,7 +407,21 @@ const Play = struct {
     move: Move,
     equity: f64,
     acc: Acc,
-    cut: bool = false,
+    cut: std.atomic.Value(bool) = .init(false),
+};
+
+/// Work shared out among the threads: the plays (each solved whole), or
+/// each play's orderings, or the tiebreak's (play, ordering) pairs.
+const Jobs = struct {
+    plays: []Play,
+    per_perm: bool,
+    /// The plays the tiebreak solves (by index), each ordering a job.
+    tiebreak: ?[]const usize = null,
+    total: usize,
+    next: std.atomic.Value(usize) = .init(0),
+    failed: std.atomic.Value(bool) = .init(false),
+    /// The first error, set by the thread that set `failed`.
+    err: Error = undefined,
 };
 
 pub const Solver = struct {
@@ -399,13 +439,18 @@ pub const Solver = struct {
     plies: u32 = 0,
     /// Losses (doubled) that the best play emptying the bag can still
     /// have (the early cutoff's bound).
-    min_potential2: u64 = std.math.maxInt(u64),
+    min_potential2: std.atomic.Value(u64) = .init(std.math.maxInt(u64)),
     cache: std.AutoHashMapUnmanaged(CacheKey, []Verdict) = .empty,
+    cache_mutex: std.Io.Mutex = .init,
+    /// During a solve: the threads' io (null on one thread) and the stop
+    /// flag.
+    io: ?std.Io = null,
+    stop: ?*const std.atomic.Value(bool) = null,
     /// The words the tiles in play can make on the board (Go builds the
     /// same graph): moves and endgames are generated over it.
     pruned: ?wordprune.Pruned = null,
     kwg: Kwg,
-    thread: *Thread,
+    threads: []*Thread,
 
     /// `p` has the player to solve for on turn, with a full rack. The
     /// opponent's rack in `p` counts as unseen (`known_opp` gives what is
@@ -420,7 +465,7 @@ pub const Solver = struct {
             .zobrist = zobrist,
             .tt = tt,
             .kwg = p.lexicon.kwg,
-            .thread = undefined,
+            .threads = &.{},
         };
         s.root.last_move = null;
         // Unseen: every tile less the board's and our rack's.
@@ -448,7 +493,16 @@ pub const Solver = struct {
         s.pruned = try wordprune.generate(gpa, &p.board, &p.racks[0], &pool, ld.size, p.lexicon.kwg);
         errdefer if (s.pruned) |*pr| pr.deinit(gpa);
         if (s.pruned) |*pr| s.kwg = pr.kwg();
-        s.thread = try Thread.init(gpa, 0, &s.root, s.kwg);
+        s.threads = try gpa.alloc(*Thread, @max(1, opts.threads));
+        var made: usize = 0;
+        errdefer {
+            for (s.threads[0..made]) |t| t.deinit();
+            gpa.free(s.threads);
+        }
+        for (s.threads, 0..) |*t, i| {
+            t.* = try Thread.init(gpa, i, &s.root, s.kwg);
+            made += 1;
+        }
         return s;
     }
 
@@ -456,7 +510,8 @@ pub const Solver = struct {
         self.clearCache();
         self.cache.deinit(self.gpa);
         self.perms.deinit(self.gpa);
-        self.thread.deinit();
+        for (self.threads) |t| t.deinit();
+        self.gpa.free(self.threads);
         if (self.pruned) |*pr| pr.deinit(self.gpa);
         self.* = undefined;
     }
@@ -497,9 +552,18 @@ pub const Solver = struct {
         return c;
     }
 
-    pub fn solve(self: *Solver) Error!Result {
+    /// Solves the pre-endgame on the solver's threads, as a group on `io`
+    /// if there are several. With `stop`, the solve ends when it is set,
+    /// with the last endgame depth finished (Result.stopped).
+    pub fn solve(self: *Solver, io: ?std.Io, stop: ?*const std.atomic.Value(bool)) Error!Result {
         const gpa = self.gpa;
-        const t = self.thread;
+        const t = self.threads[0];
+        self.io = if (self.threads.len > 1) io else null;
+        self.stop = stop;
+        defer {
+            self.io = null;
+            self.stop = null;
+        }
         var plays: std.ArrayList(Play) = .empty;
         defer {
             for (plays.items) |*p| gpa.free(p.acc.rows);
@@ -533,27 +597,56 @@ pub const Solver = struct {
             }
         }
 
+        var last: ?Result = null;
+        errdefer if (last) |*l| l.deinit(gpa);
         self.plies = if (self.opts.iterative_deepening) 1 else self.opts.plies;
         while (self.plies <= self.opts.plies) : (self.plies += 1) {
             for (plays.items) |*p| {
                 @memset(p.acc.rows, .{});
                 p.acc = .{ .rows = p.acc.rows };
-                p.cut = false;
+                p.cut.store(false, .monotonic);
             }
-            self.min_potential2 = std.math.maxInt(u64);
+            self.min_potential2.store(std.math.maxInt(u64), .monotonic);
             self.clearCache();
-            for (plays.items) |*p| try self.solvePlay(p);
-            std.sort.insertion(Play, plays.items, {}, byPoints);
-            if (self.opts.tiebreak) try self.tiebreak(plays.items);
+            const stopped = blk: {
+                self.solvePlays(plays.items) catch |err| switch (err) {
+                    error.Stopped => break :blk true,
+                    else => |e| return e,
+                };
+                std.sort.insertion(Play, plays.items, {}, byPoints);
+                if (self.opts.tiebreak) self.tiebreak(plays.items) catch |err| switch (err) {
+                    error.Stopped => break :blk true,
+                    else => |e| return e,
+                };
+                break :blk false;
+            };
+            if (stopped) {
+                if (last) |*l| {
+                    l.stopped = true;
+                    return l.*;
+                }
+                std.sort.insertion(Play, plays.items, {}, byPoints);
+                var r = try self.result(plays.items);
+                r.stopped = true;
+                return r;
+            }
+            if (last) |*l| l.deinit(gpa);
+            last = null;
+            last = try self.result(plays.items);
         }
+        return last.?;
+    }
 
-        const out = try gpa.alloc(PlayResult, plays.items.len);
+    /// The results of `plays` as they stand.
+    fn result(self: *Solver, plays: []Play) Allocator.Error!Result {
+        const gpa = self.gpa;
+        const out = try gpa.alloc(PlayResult, plays.len);
         var done: usize = 0;
         errdefer {
             for (out[0..done]) |r| gpa.free(r.outcomes);
             gpa.free(out);
         }
-        for (plays.items, out) |*p, *r| {
+        for (plays, out) |*p, *r| {
             var n: usize = 0;
             for (p.acc.rows) |row| {
                 if (row.outcome != .none) n += 1;
@@ -567,15 +660,82 @@ pub const Solver = struct {
             }
             r.* = .{
                 .move = p.move,
-                .points2 = p.acc.points2,
-                .losses2 = p.acc.losses2,
-                .spread = if (p.acc.spread_set) p.acc.spread else null,
-                .cut = p.cut,
+                .points2 = p.acc.points(),
+                .losses2 = p.acc.losses(),
+                .spread = if (p.acc.spread_set.load(.monotonic)) p.acc.spread.load(.monotonic) else null,
+                .cut = p.cut.load(.monotonic),
                 .outcomes = outcomes,
             };
             done += 1;
         }
-        return .{ .plays = out, .endgames = t.endgames };
+        var endgames: u64 = 0;
+        for (self.threads) |th| endgames += th.endgames;
+        return .{ .plays = out, .endgames = endgames, .plies = self.plies };
+    }
+
+    /// Solves every play: each a job, or each ordering of each play when
+    /// there are fewer plays than threads (Go's per-permutation jobs).
+    fn solvePlays(self: *Solver, plays: []Play) Error!void {
+        const per_perm = plays.len < self.threads.len;
+        var jobs: Jobs = .{
+            .plays = plays,
+            .per_perm = per_perm,
+            .total = if (per_perm) plays.len * self.perms.items.len else plays.len,
+        };
+        try self.runJobs(&jobs);
+        if (per_perm) {
+            for (plays) |*p| p.acc.finalize();
+        }
+    }
+
+    fn runJobs(self: *Solver, jobs: *Jobs) Error!void {
+        if (self.io) |io| {
+            var group: std.Io.Group = .init;
+            for (self.threads[1..]) |t| group.concurrent(io, work, .{ self, t, jobs }) catch break;
+            self.work(self.threads[0], jobs);
+            group.await(io) catch {};
+        } else self.work(self.threads[0], jobs);
+        if (jobs.failed.load(.monotonic)) return jobs.err;
+    }
+
+    fn work(self: *Solver, t: *Thread, jobs: *Jobs) void {
+        while (!jobs.failed.load(.monotonic)) {
+            const j = jobs.next.fetchAdd(1, .monotonic);
+            if (j >= jobs.total) return;
+            self.job(t, jobs, j) catch |err| {
+                if (!jobs.failed.swap(true, .monotonic)) jobs.err = err;
+                return;
+            };
+        }
+    }
+
+    fn job(self: *Solver, t: *Thread, jobs: *Jobs, j: usize) Error!void {
+        const nperms = self.perms.items.len;
+        if (jobs.tiebreak) |idxs| {
+            const p = &jobs.plays[idxs[j / nperms]];
+            const idx = j % nperms;
+            self.rootNode(&self.perms.items[idx], &t.nodes[0]);
+            return self.recurse(t, &p.acc, 0, &p.move, idx, self.perms.items[idx].count, true, true, 0, true);
+        }
+        if (!jobs.per_perm) return self.solvePlay(t, &jobs.plays[j]);
+        const p = &jobs.plays[j / nperms];
+        const idx = j % nperms;
+        if (p.cut.load(.monotonic)) return;
+        if (self.cutNow(p)) {
+            p.cut.store(true, .monotonic);
+            return;
+        }
+        if (self.skipped(p)) return;
+        self.rootNode(&self.perms.items[idx], &t.nodes[0]);
+        try self.recurse(t, &p.acc, 0, &p.move, idx, self.perms.items[idx].count, self.emptiesBag(&p.move), false, 0, true);
+    }
+
+    /// Plays leaving more than max_tiles_left tiles in the bag aren't
+    /// solved (unless the plays to solve were named).
+    fn skipped(self: *const Solver, p: *const Play) bool {
+        const tp = if (p.move.kind == .play) p.move.tiles_played else 0;
+        const left = @as(i32, self.num_in_bag) - @as(i32, tp);
+        return self.opts.max_tiles_left >= 0 and left > self.opts.max_tiles_left and self.opts.only.len == 0;
     }
 
     const SortCtx = struct {
@@ -587,29 +747,27 @@ pub const Solver = struct {
     };
 
     fn byPoints(_: void, a: Play, b: Play) bool {
-        return a.acc.points2 > b.acc.points2;
+        return a.acc.points() > b.acc.points();
     }
 
     /// Whether the cutoffs stop play `p` now.
     fn cutNow(self: *const Solver, p: *const Play) bool {
         if (self.avoidPrune(&p.move)) return false;
-        if (self.opts.skip_loss and p.acc.losses2 > 0) return true;
-        return self.opts.early_cutoff and p.acc.losses2 > self.min_potential2;
+        if (self.opts.skip_loss and p.acc.losses() > 0) return true;
+        return self.opts.early_cutoff and p.acc.losses() > self.min_potential2.load(.monotonic);
     }
 
-    fn solvePlay(self: *Solver, p: *Play) Error!void {
+    /// Solves play `p` for every ordering on thread `t` (Go's per-play job).
+    fn solvePlay(self: *Solver, t: *Thread, p: *Play) Error!void {
         if (self.cutNow(p)) {
-            p.cut = true;
+            p.cut.store(true, .monotonic);
             return;
         }
-        const tp = if (p.move.kind == .play) p.move.tiles_played else 0;
-        const left = @as(i32, self.num_in_bag) - @as(i32, tp);
-        if (self.opts.max_tiles_left >= 0 and left > self.opts.max_tiles_left and self.opts.only.len == 0) return;
-        const empties = tp >= self.num_in_bag;
-        const t = self.thread;
+        if (self.skipped(p)) return;
+        const empties = self.emptiesBag(&p.move);
         for (self.perms.items, 0..) |*perm, idx| {
-            if (self.opts.early_cutoff and !self.avoidPrune(&p.move) and p.acc.losses2 > self.min_potential2) {
-                p.cut = true;
+            if (self.opts.early_cutoff and !self.avoidPrune(&p.move) and p.acc.losses() > self.min_potential2.load(.monotonic)) {
+                p.cut.store(true, .monotonic);
                 return;
             }
             self.rootNode(perm, &t.nodes[0]);
@@ -625,21 +783,21 @@ pub const Solver = struct {
     /// spread; `top`: a play of the root (whose emptying endgames feed the
     /// early cutoff).
     fn recurse(self: *Solver, t: *Thread, acc: *Acc, level: usize, m: *const Move, idx: usize, ct: u32, empties: bool, full: bool, nested: u32, top: bool) Error!void {
+        if (self.stop) |st| if (st.load(.monotonic)) return error.Stopped;
         if (!full and acc.hasLoss(idx)) return;
         const child = &t.nodes[level + 1];
         play(&t.nodes[level], child, m);
         if (child.over or child.bag.len == 0) {
             const final = try self.evaluate(t, child, full);
             if (full and top) {
-                acc.spread += @as(i64, final) * ct;
-                acc.spread_set = true;
+                acc.addSpread(@as(i64, final) * ct);
                 return;
             }
             const o: Outcome = if (final > 0) .win else if (final < 0) .loss else .draw;
             acc.record(o, idx, ct, empties);
             if (empties and top) {
-                const bound = 2 * self.num_combos -| acc.points2;
-                self.min_potential2 = @min(self.min_potential2, bound);
+                const bound = 2 * self.num_combos -| acc.points();
+                _ = self.min_potential2.fetchMin(bound, .monotonic);
             }
             return;
         }
@@ -681,9 +839,10 @@ pub const Solver = struct {
             eg.reset(pos, opts);
             break :blk eg;
         } else blk: {
-            t.eg = try endgame.Solver.initIn(self.gpa, pos, self.zobrist, self.tt, opts, &t.ws, t.index);
+            t.eg = try endgame.Solver.initIn(self.gpa, pos, self.zobrist, self.tt, opts, &t.ws, 0);
             break :blk t.eg.?;
         };
+        solver.stop = self.stop;
         const res = try solver.solve(self.plies, null, null);
         t.endgames += 1;
         const final = @as(i32, res.value) + pos.scores[0] - pos.scores[1];
@@ -733,7 +892,7 @@ pub const Solver = struct {
             .scoreless = n.scoreless,
         };
         for (n.bag.slice()) |ml| key.unseen[ml] += 1;
-        if (self.cache.get(key)) |vs| {
+        if (self.cacheGet(key)) |vs| {
             for (vs) |v| {
                 if (v.draw.eql(&n.bag)) return v.outcome;
             }
@@ -779,11 +938,11 @@ pub const Solver = struct {
                 }
                 n.bag = sp.draw;
                 try self.recurse(t, a, level, m, pi, sp.count, sub_empties, false, depth, false);
-                if (a.losses2 > min_losses) break;
+                if (a.losses() > min_losses) break;
             }
             a.finalize();
-            if (a.losses2 < min_losses) {
-                min_losses = a.losses2;
+            if (a.losses() < min_losses) {
+                min_losses = a.losses();
                 if (min_losses == 0) {
                     early_win = true;
                     break;
@@ -798,7 +957,7 @@ pub const Solver = struct {
             if (early_win) {
                 worst = .win;
             } else for (accs[0..made]) |*a| {
-                if (a.losses2 > min_losses) continue;
+                if (a.losses() > min_losses) continue;
                 worst = @fromBackingInt(@intCast(@max(@backingInt(worst), @backingInt(a.rows[pi].outcome))));
             }
             v.* = .{ .draw = sp.draw, .outcome = worst };
@@ -807,17 +966,28 @@ pub const Solver = struct {
         for (vs) |v| {
             if (v.draw.eql(&saved.bag)) verdict = v.outcome;
         }
+        // Another thread may have stored the same verdicts meanwhile: the
+        // first stored stays (a reader may hold it).
+        if (self.io) |io| self.cache_mutex.lockUncancelable(io);
+        defer if (self.io) |io| self.cache_mutex.unlock(io);
         const gop = try self.cache.getOrPut(gpa, key);
-        if (gop.found_existing) gpa.free(gop.value_ptr.*);
-        gop.value_ptr.* = vs;
+        if (gop.found_existing) gpa.free(vs) else gop.value_ptr.* = vs;
         return verdict;
+    }
+
+    /// The verdicts stored for `key`; they stay until the cache is cleared
+    /// between depths.
+    fn cacheGet(self: *Solver, key: CacheKey) ?[]Verdict {
+        if (self.io) |io| self.cache_mutex.lockUncancelable(io);
+        defer if (self.io) |io| self.cache_mutex.unlock(io);
+        return self.cache.get(key);
     }
 
     /// Breaks the tie among the plays level with the first on points that
     /// empty the bag by their spread (maybeTiebreak).
     fn tiebreak(self: *Solver, plays: []Play) Error!void {
         var i: usize = 0;
-        while (i + 1 < plays.len and plays[i].acc.points2 == plays[i + 1].acc.points2) i += 1;
+        while (i + 1 < plays.len and plays[i].acc.points() == plays[i + 1].acc.points()) i += 1;
         if (i == 0) return;
         const num_winners = i + 1;
         var top: std.ArrayList(usize) = .empty;
@@ -841,20 +1011,21 @@ pub const Solver = struct {
             if (self.avoidPrune(&plays[k].move) and self.emptiesBag(&plays[k].move) and
                 std.mem.indexOfScalar(usize, top.items, k) == null) try top.append(self.gpa, k);
         }
-        const t = self.thread;
-        for (top.items) |k| {
-            const p = &plays[k];
-            for (self.perms.items, 0..) |*perm, idx| {
-                self.rootNode(perm, &t.nodes[0]);
-                try self.recurse(t, &p.acc, 0, &p.move, idx, perm.count, true, true, 0, true);
-            }
-        }
+        var jobs: Jobs = .{
+            .plays = plays,
+            .per_perm = true,
+            .tiebreak = top.items,
+            .total = top.items.len * self.perms.items.len,
+        };
+        try self.runJobs(&jobs);
         // By points, then those with a spread by spread (sortPlaysAfterTiebreak).
         std.sort.insertion(Play, plays, {}, struct {
             fn lt(_: void, a: Play, b: Play) bool {
-                if (a.acc.points2 != b.acc.points2) return a.acc.points2 > b.acc.points2;
-                if (a.acc.spread_set != b.acc.spread_set) return a.acc.spread_set;
-                return a.acc.spread_set and a.acc.spread > b.acc.spread;
+                if (a.acc.points() != b.acc.points()) return a.acc.points() > b.acc.points();
+                const sa = a.acc.spread_set.load(.monotonic);
+                const sb = b.acc.spread_set.load(.monotonic);
+                if (sa != sb) return sa;
+                return sa and a.acc.spread.load(.monotonic) > b.acc.spread.load(.monotonic);
             }
         }.lt);
     }
@@ -937,6 +1108,11 @@ const GoldenPlay = struct {
 /// the tiebreak takes does, so spreads and the best play are then left
 /// out.
 fn checkGolden(text: []const u8, sample_in: ?usize) !void {
+    return checkGoldenOn(text, sample_in, 1);
+}
+
+/// checkGolden on `threads` threads.
+fn checkGoldenOn(text: []const u8, sample_in: ?usize, threads: usize) !void {
     const sample = if (@import("build_options").peg_full) null else sample_in;
     const gpa = testing.allocator;
     const testdata = @import("../testing/testdata.zig");
@@ -1009,6 +1185,7 @@ fn checkGolden(text: []const u8, sample_in: ?usize) !void {
     const only = try findMoves(gpa, &p, only_texts.items);
     defer gpa.free(only);
     opts.only = only;
+    opts.threads = threads;
 
     var z = try zobrist_mod.Zobrist.init(gpa, p.board.dim, @splat(1));
     defer z.deinit(gpa);
@@ -1017,7 +1194,7 @@ fn checkGolden(text: []const u8, sample_in: ?usize) !void {
     try tt.reset(gpa, 0);
     var s = try Solver.init(gpa, &p, &z, &tt, opts);
     defer s.deinit();
-    var res = try s.solve();
+    var res = try s.solve(testing.io, null);
     defer res.deinit(gpa);
 
     try testing.expectEqual(if (sample != null) only.len else golden.items.len, res.plays.len);
@@ -1095,4 +1272,16 @@ test "golden: one in the bag" {
 
 test "golden: one in the bag, iterative deepening to 3 plies" {
     try checkGolden(@embedFile("testdata/straightforward-id3.txt"), 20);
+}
+
+test "golden: on four threads, the plays shared out" {
+    try checkGoldenOn(@embedFile("testdata/known-opp-rack.txt"), null, 4);
+}
+
+test "golden: on four threads, one play's orderings shared out" {
+    try checkGoldenOn(@embedFile("testdata/two-in-bag-x.txt"), null, 4);
+}
+
+test "golden: on four threads, the early cutoff" {
+    try checkGoldenOn(@embedFile("testdata/polish-cutoff.txt"), null, 4);
 }
