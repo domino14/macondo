@@ -140,9 +140,10 @@ pub const Options = struct {
     /// they are drawn, as many as the bag holds): see Solver.explain.
     eventuality: ?Draw = null,
     /// Threads to solve on (with an io): the plays, or when there are
-    /// fewer plays than threads the orderings of each play, are shared out.
-    /// The results are the same on any number, but for which plays the
-    /// early cutoff stops.
+    /// fewer plays than threads the orderings of each play, are shared out,
+    /// and when there are fewer (play, ordering) pairs than threads (an
+    /// eventuality, say), the opponent's replies to each. The results are
+    /// the same on any number, but for which plays the early cutoff stops.
     threads: usize = 1,
     /// Called with the results of each endgame depth finished (iterative
     /// deepening), on the thread that called solve, before the next depth
@@ -424,6 +425,13 @@ const Thread = struct {
     /// position it searches.
     eg: ?*endgame.Solver = null,
     eg_pos: Position = undefined,
+    /// The reply job the thread is on (solveByReplies), and whether it is
+    /// to give it up: a reply before it beats us. Under job_mutex, so that
+    /// a cancel reaches only the job it is meant for.
+    unit: ?*Unit = null,
+    reply: usize = 0,
+    cancel: std.atomic.Value(bool) = .init(false),
+    job_mutex: std.Io.Mutex = .init,
 
     fn init(gpa: Allocator, index: usize, root: *const Position, kwg: Kwg) Allocator.Error!*Thread {
         const t = try gpa.create(Thread);
@@ -519,13 +527,37 @@ const Play = struct {
     trace: Trace = .{},
 };
 
+/// A play and an ordering whose opponent replies are shared out among the
+/// threads, one job each, when there are fewer (play, ordering) pairs than
+/// threads (as MAGPIE lends idle threads to the work in progress).
+const Unit = struct {
+    play: *Play,
+    idx: usize,
+    /// Best score first, as the replies are tried; empty when the play
+    /// empties the bag or ends the game (one job, solved whole).
+    replies: []Move = &.{},
+    /// Each reply's outcome (none: not solved).
+    outcomes: []Outcome = &.{},
+    /// The first reply found to beat us: the replies after it aren't
+    /// needed.
+    first_loss: std.atomic.Value(usize) = .init(std.math.maxInt(usize)),
+    /// The unit's first job.
+    first_job: usize = 0,
+
+    fn jobs(u: *const Unit) usize {
+        return @max(1, u.replies.len);
+    }
+};
+
 /// Work shared out among the threads: the plays (each solved whole), or
-/// each play's orderings, or the tiebreak's (play, ordering) pairs.
+/// each play's orderings, or the tiebreak's (play, ordering) pairs, or the
+/// units' replies.
 const Jobs = struct {
     plays: []Play,
     per_perm: bool,
     /// The plays the tiebreak solves (by index), each ordering a job.
     tiebreak: ?[]const usize = null,
+    units: ?[]Unit = null,
     total: usize,
     next: std.atomic.Value(usize) = .init(0),
     failed: std.atomic.Value(bool) = .init(false),
@@ -866,6 +898,17 @@ pub const Solver = struct {
     /// there are fewer plays than threads (Go's per-permutation jobs).
     fn solvePlays(self: *Solver, plays: []Play) Error!void {
         const per_perm = plays.len < self.threads.len;
+        if (per_perm and self.threads.len > 1) {
+            var units: usize = 0;
+            for (plays) |*p| {
+                if (self.skipped(p)) continue;
+                const k = self.drawn(&p.move);
+                for (0..self.perms.items.len) |i| {
+                    if (self.rep(k, i) == i) units += 1;
+                }
+            }
+            if (units < self.threads.len) return self.solveByReplies(plays, units);
+        }
         var jobs: Jobs = .{
             .plays = plays,
             .per_perm = per_perm,
@@ -882,6 +925,126 @@ pub const Solver = struct {
                 p.acc.finalize();
             }
         }
+    }
+
+    /// solvePlays with each (play, ordering) a unit whose replies are the
+    /// jobs. A unit's outcome is the worst of its replies' (each solved as
+    /// the reply loop of recurse would), and the replies after the first
+    /// that beats us aren't solved.
+    fn solveByReplies(self: *Solver, plays: []Play, num_units: usize) Error!void {
+        const gpa = self.gpa;
+        const t = self.threads[0];
+        const units = try gpa.alloc(Unit, num_units);
+        var made: usize = 0;
+        defer {
+            for (units[0..made]) |*u| {
+                gpa.free(u.replies);
+                gpa.free(u.outcomes);
+            }
+            gpa.free(units);
+        }
+        var total: usize = 0;
+        for (plays) |*p| {
+            if (self.skipped(p)) continue;
+            const k = self.drawn(&p.move);
+            for (self.perms.items, 0..) |*perm, i| {
+                if (self.rep(k, i) != i) continue;
+                const u = &units[made];
+                u.* = .{ .play = p, .idx = i, .first_job = total };
+                made += 1;
+                if (!self.emptiesBag(&p.move)) {
+                    self.rootNode(perm, &t.nodes[0]);
+                    play(&t.nodes[0], &t.nodes[1], &p.move);
+                    if (!t.nodes[1].over and t.nodes[1].bag.len > 0) {
+                        u.replies = try gpa.dupe(Move, try t.genAll(&t.nodes[1], 1));
+                        sortReplies(u.replies, p.move.kind == .pass);
+                        u.outcomes = try gpa.alloc(Outcome, u.replies.len);
+                        @memset(u.outcomes, .none);
+                    }
+                }
+                total += u.jobs();
+            }
+        }
+        var jobs: Jobs = .{ .plays = plays, .per_perm = true, .units = units, .total = total };
+        try self.runJobs(&jobs);
+        for (units) |*u| {
+            const p = u.play;
+            if (u.replies.len == 0 or p.cut.load(.monotonic)) continue;
+            var o: Outcome = .win;
+            var tr: Trace = .{ .replies = @intCast(u.replies.len) };
+            for (u.outcomes, u.replies, 0..) |ro, *r, i| {
+                if (ro == .loss) {
+                    o = .loss;
+                    tr.loss = r.*;
+                    tr.tried = @intCast(i + 1);
+                    break;
+                }
+                if (ro == .draw and o != .draw) {
+                    o = .draw;
+                    tr.draw = r.*;
+                }
+            }
+            p.acc.record(o, u.idx, self.perms.items[u.idx].count, false);
+            if (p.acc.trace) |pt| pt.* = tr;
+        }
+        for (plays) |*p| {
+            const k = self.drawn(&p.move);
+            for (0..self.perms.items.len) |i| {
+                const r = self.rep(k, i);
+                if (r != i) self.copyRow(&p.acc, r, i, self.emptiesBag(&p.move));
+            }
+            p.acc.finalize();
+        }
+    }
+
+    /// Job `j` of the units: one reply of one, or a unit solved whole.
+    fn unitJob(self: *Solver, t: *Thread, units: []Unit, j: usize) Error!void {
+        var ui: usize = 0;
+        while (ui + 1 < units.len and units[ui + 1].first_job <= j) ui += 1;
+        const u = &units[ui];
+        const p = u.play;
+        if (p.cut.load(.monotonic)) return;
+        if (self.cutNow(p)) {
+            p.cut.store(true, .monotonic);
+            return;
+        }
+        const perm = &self.perms.items[u.idx];
+        self.rootNode(perm, &t.nodes[0]);
+        if (u.replies.len == 0) return self.recurse(t, &p.acc, 0, &p.move, u.idx, perm.count, self.emptiesBag(&p.move), false, 0, true);
+        const ri = j - u.first_job;
+        self.setJob(t, u, ri);
+        defer self.setJob(t, null, 0);
+        if (ri > u.first_loss.load(.monotonic)) return;
+        play(&t.nodes[0], &t.nodes[1], &p.move);
+        var row: [1]Row = .{.{}};
+        var acc: Acc = .{ .rows = &row };
+        self.recurse(t, &acc, 1, &u.replies[ri], 0, perm.count, false, false, 0, false) catch |err| {
+            // Cancelled: an earlier reply beats us, so this one isn't
+            // needed.
+            if (err == error.Stopped and t.cancel.load(.monotonic)) {
+                if (self.stop) |st| if (st.load(.monotonic)) return err;
+                return;
+            }
+            return err;
+        };
+        u.outcomes[ri] = row[0].outcome;
+        if (row[0].outcome != .loss) return;
+        _ = u.first_loss.fetchMin(ri, .monotonic);
+        for (self.threads) |other| {
+            if (other == t) continue;
+            if (self.io) |io| other.job_mutex.lockUncancelable(io);
+            defer if (self.io) |io| other.job_mutex.unlock(io);
+            if (other.unit == u and other.reply > ri) other.cancel.store(true, .monotonic);
+        }
+    }
+
+    /// Thread `t` takes up reply job `ri` of `u` (null: none), uncancelled.
+    fn setJob(self: *Solver, t: *Thread, u: ?*Unit, ri: usize) void {
+        if (self.io) |io| t.job_mutex.lockUncancelable(io);
+        defer if (self.io) |io| t.job_mutex.unlock(io);
+        t.unit = u;
+        t.reply = ri;
+        t.cancel.store(false, .monotonic);
     }
 
     fn runJobs(self: *Solver, jobs: *Jobs) Error!void {
@@ -907,6 +1070,7 @@ pub const Solver = struct {
 
     fn job(self: *Solver, t: *Thread, jobs: *Jobs, j: usize) Error!void {
         const nperms = self.perms.items.len;
+        if (jobs.units) |units| return self.unitJob(t, units, j);
         if (jobs.tiebreak) |idxs| {
             const p = &jobs.plays[idxs[j / nperms]];
             const idx = j % nperms;
@@ -990,6 +1154,7 @@ pub const Solver = struct {
     /// early cutoff).
     fn recurse(self: *Solver, t: *Thread, acc: *Acc, level: usize, m: *const Move, idx: usize, ct: u32, empties: bool, full: bool, nested: u32, top: bool) Error!void {
         if (self.stop) |st| if (st.load(.monotonic)) return error.Stopped;
+        if (t.cancel.load(.monotonic)) return error.Stopped;
         if (!full and acc.hasLoss(idx)) return;
         const child = &t.nodes[level + 1];
         play(&t.nodes[level], child, m);
@@ -1056,6 +1221,7 @@ pub const Solver = struct {
             break :blk t.eg.?;
         };
         solver.stop = self.stop;
+        solver.halt = &t.cancel;
         const res = try solver.solve(self.plies, null, null);
         t.endgames += 1;
         const final = @as(i32, res.value) + pos.scores[0] - pos.scores[1];
@@ -1687,6 +1853,51 @@ test "an eventuality explained: two in the bag" {
             try testing.expect(e.decisive == null);
         }
         try testing.expect(e.replies > 0);
+    }
+}
+
+test "an eventuality on four threads: the replies shared out" {
+    // One play and one ordering: the threads take the opponent's replies.
+    // The results and the deciding reply are the one thread's; with the I
+    // drawn the first reply beats us, and the threads on the replies after
+    // it are cancelled.
+    const gpa = testing.allocator;
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const p = try testdata.position(&store, "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;");
+    const only = try findMoves(gpa, &p, &.{"6F..X."});
+    defer gpa.free(only);
+    var z = try zobrist_mod.Zobrist.init(gpa, p.board.dim, @splat(1));
+    defer z.deinit(gpa);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(gpa);
+    for ([_][]const u8{ "IE", "EI" }) |order| {
+        var ev: Draw = .{};
+        ev.len = @intCast(try p.dist.toMachineLetters(order, &ev.tiles));
+        var got: [2]struct { outcome: Outcome, replies: u32, decisive: ?Move } = undefined;
+        for ([_]usize{ 1, 4 }, &got) |threads, *g| {
+            try tt.reset(gpa, 0);
+            var s = try Solver.init(gpa, &p, &z, &tt, .{ .plies = 2, .iterative_deepening = false, .tiebreak = false, .only = only, .eventuality = ev, .threads = threads });
+            defer s.deinit();
+            var res = try s.solve(testing.io, null);
+            defer res.deinit(gpa);
+            var e = try s.explain(&res.plays[0]);
+            defer e.deinit(gpa);
+            try testing.expectEqual(res.plays[0].outcomes[0].outcome, e.outcome);
+            g.* = .{ .outcome = e.outcome, .replies = e.replies, .decisive = e.decisive };
+        }
+        try testing.expectEqual(got[0].outcome, got[1].outcome);
+        try testing.expectEqual(got[0].replies, got[1].replies);
+        try testing.expectEqual(got[0].decisive == null, got[1].decisive == null);
+        if (got[0].decisive) |d| try testing.expect(sameMove(&d, &got[1].decisive.?));
+        if (order[0] == 'I') {
+            try testing.expectEqual(.loss, got[0].outcome);
+            try testing.expectEqual(1, got[0].replies);
+        } else {
+            try testing.expectEqual(.win, got[0].outcome);
+            try testing.expect(got[0].replies > 1);
+        }
     }
 }
 
