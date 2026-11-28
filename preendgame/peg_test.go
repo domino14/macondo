@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -726,4 +727,42 @@ func TestLinePastNestedLimitIsFinished(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{r, o}), PEGLoss)
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, r}), PEGLoss)
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{o, o}), PEGLoss)
+}
+
+// TestBestNestedPlayIgnoresOrder: the play that finishes a line past the
+// nested depth limit doesn't depend on the order the plays were generated
+// in (ties go by move.TiebreaksBetter). Without a leave calculator plays
+// are valued by score alone, so many tie.
+func TestBestNestedPlayIgnoresOrder(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+	is.NoErr(peg.Init(g.Game, gd))
+
+	mg := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+	mg.SetGenPass(true)
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	plays := slices.Clone(peg.genOurNestedPlays(g.Game, mg))
+	// Keep only the plays of the highest score that more than one play has.
+	count := map[int]int{}
+	for _, p := range plays {
+		count[p.Score()]++
+	}
+	top := -1
+	for sc, n := range count {
+		if n > 1 && sc > top {
+			top = sc
+		}
+	}
+	is.True(top >= 0)
+	plays = slices.DeleteFunc(plays, func(p tinymove.SmallMove) bool { return p.Score() != top })
+	forward := peg.bestNestedPlay(g.Game, plays)
+	slices.Reverse(plays)
+	backward := peg.bestNestedPlay(g.Game, plays)
+	is.Equal(backward.TinyMove(), forward.TinyMove())
 }

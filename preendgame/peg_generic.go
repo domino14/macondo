@@ -1266,18 +1266,32 @@ func (s *Solver) estimateNestedPlays(g *game.Game, plays []tinymove.SmallMove) {
 	}
 }
 
-// bestNestedPlay returns the first of plays with the highest estimate (see
-// estimateNestedPlays). plays is not empty: without a tile play the movegen
+// bestNestedPlay returns the play with the highest score plus leave value
+// (score alone without a leave calculator), ties going by
+// move.TiebreaksBetter, so the choice doesn't depend on the order the plays
+// were generated in. plays is not empty: without a tile play the movegen
 // generates a pass.
 func (s *Solver) bestNestedPlay(g *game.Game, plays []tinymove.SmallMove) tinymove.SmallMove {
-	s.estimateNestedPlays(g, plays)
-	best := 0
-	for i := 1; i < len(plays); i++ {
-		if plays[i].EstimatedValue() > plays[best].EstimatedValue() {
-			best = i
+	rack := g.RackFor(g.PlayerOnTurn())
+	var best, cur move.Move
+	bestIdx := -1
+	bestEst := 0.0
+	for i := range plays {
+		if plays[i].IsPass() {
+			cur = *move.NewPassMove(rack.TilesOn(), g.Alphabet())
+		} else {
+			conversions.SmallMoveToMove(plays[i], &cur, g.Alphabet(), g.Board(), rack)
+		}
+		est := float64(plays[i].Score())
+		if s.leaveCalc != nil {
+			est += s.leaveCalc.LeaveValue(cur.Leave())
+		}
+		if bestIdx < 0 || est > bestEst || (est == bestEst && cur.TiebreaksBetter(&best)) {
+			bestIdx, bestEst = i, est
+			best.CopyFrom(&cur)
 		}
 	}
-	return plays[best]
+	return plays[bestIdx]
 }
 
 // nestedOurTurnSolve handles the "our turn again with bag still non-empty" frame
