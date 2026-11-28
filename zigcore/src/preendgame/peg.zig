@@ -355,13 +355,14 @@ const Node = struct {
 };
 
 /// Nested pre-endgames are solved once for each information state: the
-/// board, our rack, the unseen tiles and the scoreless turns (Go's
-/// nestedCacheKey). The verdict for each ordering of the bag is kept.
+/// board, our rack, the unseen tiles, the scoreless turns and the spread
+/// (Go's nestedCacheKey). The verdict for each ordering of the bag is kept.
 const CacheKey = struct {
     board: u64,
     ours: [max_alpha]u8,
     unseen: [max_alpha]u8,
     scoreless: u8,
+    spread: i32,
 };
 
 const Verdict = struct { draw: Draw, outcome: Outcome };
@@ -980,6 +981,7 @@ pub const Solver = struct {
             .ours = n.pos.racks[0].counts,
             .unseen = n.pos.racks[1].counts,
             .scoreless = n.scoreless,
+            .spread = n.pos.scores[0] - n.pos.scores[1],
         };
         for (n.bag.slice()) |ml| key.unseen[ml] += 1;
         if (detail == null) {
