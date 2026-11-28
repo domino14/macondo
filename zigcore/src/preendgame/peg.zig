@@ -136,6 +136,9 @@ pub const Options = struct {
     avoid_prune: []const Move = &.{},
     /// Tiles known to be on the opponent's rack (some or all of it).
     known_opp: []const MachineLetter = &.{},
+    /// Solve for this one ordering of the bag only (its tiles in the order
+    /// they are drawn, as many as the bag holds): see Solver.explain.
+    eventuality: ?Draw = null,
     /// Threads to solve on (with an io): the plays, or when there are
     /// fewer plays than threads the orderings of each play, are shared out.
     /// The results are the same on any number, but for which plays the
@@ -181,6 +184,62 @@ pub const Result = struct {
     }
 };
 
+/// A nested pre-endgame's verdict for one ordering of the bag.
+pub const SubVerdict = struct {
+    draw: Draw,
+    count: u32,
+    outcome: Outcome,
+    /// The ordering the bag actually holds on the line explained.
+    actual: bool,
+};
+
+/// One of our turns with tiles in the bag on the line explained: the
+/// nested pre-endgame that chose our play.
+pub const Level = struct {
+    /// 1 for our first such turn, and so on.
+    depth: u32,
+    our_rack: Rack,
+    opp_rack: Rack,
+    bag: Draw,
+    /// What we can't see: the bag and the opponent's rack.
+    unseen: [max_alpha]u8,
+    /// Our best play across the orderings (the first of those tied).
+    best: Move,
+    subs: []SubVerdict,
+    /// The verdict for the actual ordering.
+    verdict: Outcome,
+    /// The opponent's reply to our best play that decides it (as
+    /// Explanation.decisive), if the line goes on with tiles in the bag.
+    reply: ?Move = null,
+};
+
+/// Why a play has the result it has for the eventuality's ordering
+/// (Solver.explain; Go's EventualityExplanation).
+pub const Explanation = struct {
+    play: Move,
+    outcome: Outcome,
+    rack_before: Rack,
+    opp_rack: Rack,
+    bag_before: Draw,
+    /// Our rack after the play and the draw, and what is left in the bag.
+    rack_after: Rack,
+    bag_after: Draw,
+    /// The opponent's replies tried until the decisive one (all of them
+    /// if none decides it).
+    replies: u32 = 0,
+    /// The first reply that beats us, else the first that ties.
+    decisive: ?Move = null,
+    opp_rack_after: Rack = .{},
+    bag_after_reply: Draw = .{},
+    levels: []Level = &.{},
+
+    pub fn deinit(self: *Explanation, gpa: Allocator) void {
+        for (self.levels) |l| gpa.free(l.subs);
+        gpa.free(self.levels);
+        self.* = undefined;
+    }
+};
+
 pub const Error = Allocator.Error || error{
     /// The player on turn must hold a full rack.
     RackNotFull,
@@ -188,6 +247,8 @@ pub const Error = Allocator.Error || error{
     BagSize,
     /// A known opponent tile isn't among the unseen tiles.
     BadKnownRack,
+    /// The eventuality's tiles aren't an ordering of what the bag can hold.
+    BadEventuality,
 } || endgame.Error;
 
 /// A play's results as they are gathered (Go's PreEndgamePlay).
@@ -491,6 +552,13 @@ pub const Solver = struct {
         for (0..s.num_in_bag) |i| s.num_combos *= rack_tile_limit + s.num_in_bag - i;
         try permutations(gpa, &s.maybe_in_bag, s.num_in_bag, &s.perms);
         errdefer s.perms.deinit(gpa);
+        if (opts.eventuality) |*ev| {
+            const keep = for (s.perms.items) |perm| {
+                if (perm.draw.eql(ev)) break perm;
+            } else return error.BadEventuality;
+            s.perms.items[0] = keep;
+            s.perms.shrinkRetainingCapacity(1);
+        }
         const pool: Rack = .{ .counts = s.unseenCounts(), .num_tiles = @intCast(unseen) };
         s.pruned = try wordprune.generate(gpa, &p.board, &p.racks[0], &pool, ld.size, p.lexicon.kwg);
         errdefer if (s.pruned) |*pr| pr.deinit(gpa);
@@ -807,6 +875,10 @@ pub const Solver = struct {
             try self.ourTurn(t, acc, level + 1, idx, ct, empties, nested);
         } else {
             const replies = try t.genAll(child, level + 1);
+            // Best score first (a pass first after a pass), as Go tries
+            // them: a reply that beats us ends the ordering, and is often
+            // a big play. Only the time changes.
+            sortReplies(replies, m.kind == .pass);
             for (replies) |*r| {
                 try self.recurse(t, acc, level + 1, r, idx, ct, empties, full, nested, top);
                 if (!full and acc.hasLoss(idx)) break;
@@ -884,6 +956,22 @@ pub const Solver = struct {
     /// in the bag, solved across every ordering of what we can't see
     /// (nestedOurTurnSolve). Returns the verdict for the node's own bag.
     fn nestedSolve(self: *Solver, t: *Thread, level: usize, depth: u32) Error!Outcome {
+        return self.nestedSolveDetail(t, level, depth, null);
+    }
+
+    /// What a nested pre-endgame found, for an explanation.
+    const Detail = struct {
+        /// The first of the plays tied for best (in the order tried).
+        best: Move = undefined,
+        /// The verdict for each ordering, and how many orderings of the
+        /// unseen tiles it stands for.
+        subs: []SubVerdict = &.{},
+        unseen: [max_alpha]u8 = undefined,
+    };
+
+    /// nestedSolve; with `detail` (owned by the caller after), solved
+    /// afresh and described.
+    fn nestedSolveDetail(self: *Solver, t: *Thread, level: usize, depth: u32, detail: ?*Detail) Error!Outcome {
         const gpa = self.gpa;
         const n = &t.nodes[level];
         const dim = n.pos.board.dim;
@@ -894,9 +982,11 @@ pub const Solver = struct {
             .scoreless = n.scoreless,
         };
         for (n.bag.slice()) |ml| key.unseen[ml] += 1;
-        if (self.cacheGet(key)) |vs| {
-            for (vs) |v| {
-                if (v.draw.eql(&n.bag)) return v.outcome;
+        if (detail == null) {
+            if (self.cacheGet(key)) |vs| {
+                for (vs) |v| {
+                    if (v.draw.eql(&n.bag)) return v.outcome;
+                }
             }
         }
 
@@ -968,6 +1058,22 @@ pub const Solver = struct {
         for (vs) |v| {
             if (v.draw.eql(&saved.bag)) verdict = v.outcome;
         }
+        if (detail) |d| {
+            d.unseen = key.unseen;
+            for (accs[0..made], 0..) |*a, mi| {
+                if (a.losses() <= min_losses) {
+                    d.best = ours[mi];
+                    break;
+                }
+            }
+            d.subs = try gpa.alloc(SubVerdict, sub.items.len);
+            for (sub.items, vs, d.subs) |sp, v, *out| out.* = .{
+                .draw = sp.draw,
+                .count = sp.count,
+                .outcome = v.outcome,
+                .actual = sp.draw.eql(&saved.bag),
+            };
+        }
         // Another thread may have stored the same verdicts meanwhile: the
         // first stored stays (a reader may hold it).
         if (self.io) |io| self.cache_mutex.lockUncancelable(io);
@@ -983,6 +1089,100 @@ pub const Solver = struct {
         if (self.io) |io| self.cache_mutex.lockUncancelable(io);
         defer if (self.io) |io| self.cache_mutex.unlock(io);
         return self.cache.get(key);
+    }
+
+    /// Explains the result of play `m` for the eventuality's ordering (the
+    /// solver must have been made with Options.eventuality, and solved, so
+    /// that its endgames are the solve's depth): our play and draw; the
+    /// opponent's reply that decides it (the first that beats us, or ties);
+    /// then at each of our turns with tiles in the bag, within the nested
+    /// depth limit, the nested pre-endgame that chose our play, and the
+    /// opponent's deciding reply to that play.
+    pub fn explain(self: *Solver, m: *const Move) Error!Explanation {
+        if (self.opts.eventuality == null) return error.BadEventuality;
+        const gpa = self.gpa;
+        const t = self.threads[0];
+        const perm = &self.perms.items[0];
+        self.rootNode(perm, &t.nodes[0]);
+        var row: [1]Row = .{.{}};
+        var acc: Acc = .{ .rows = &row };
+        try self.recurse(t, &acc, 0, m, 0, perm.count, self.emptiesBag(m), false, 0, false);
+
+        self.rootNode(perm, &t.nodes[0]);
+        var e: Explanation = .{
+            .play = m.*,
+            .outcome = row[0].outcome,
+            .rack_before = t.nodes[0].pos.racks[0],
+            .opp_rack = t.nodes[0].pos.racks[1],
+            .bag_before = t.nodes[0].bag,
+            .rack_after = undefined,
+            .bag_after = undefined,
+        };
+        play(&t.nodes[0], &t.nodes[1], m);
+        e.rack_after = t.nodes[1].pos.racks[1];
+        e.bag_after = t.nodes[1].bag;
+        var levels: std.ArrayList(Level) = .empty;
+        errdefer {
+            for (levels.items) |l| gpa.free(l.subs);
+            levels.deinit(gpa);
+        }
+        var level: usize = 1;
+        var depth: u32 = 0;
+        while (level + 2 < max_levels) {
+            const n = &t.nodes[level];
+            if (n.over or n.bag.len == 0) break;
+            // The opponent to move: their deciding reply.
+            const replies = try gpa.dupe(Move, try t.genAll(n, level));
+            defer gpa.free(replies);
+            sortReplies(replies, t.nodes[level].scoreless > 0);
+            var decisive: ?Move = null;
+            var tried: u32 = @intCast(replies.len);
+            var tie: ?Move = null;
+            for (replies, 0..) |*r, i| {
+                var rrow: [1]Row = .{.{}};
+                var racc: Acc = .{ .rows = &rrow };
+                try self.recurse(t, &racc, level, r, 0, 1, false, false, depth, false);
+                if (rrow[0].outcome == .loss) {
+                    decisive = r.*;
+                    tried = @intCast(i + 1);
+                    break;
+                }
+                if (rrow[0].outcome == .draw and tie == null) tie = r.*;
+            }
+            if (decisive == null) decisive = tie;
+            if (levels.items.len == 0) {
+                e.replies = tried;
+                e.decisive = decisive;
+            } else levels.items[levels.items.len - 1].reply = decisive;
+            const reply = decisive orelse break;
+            play(n, &t.nodes[level + 1], &reply);
+            const ours = &t.nodes[level + 1];
+            if (levels.items.len == 0) {
+                e.opp_rack_after = ours.pos.racks[1];
+                e.bag_after_reply = ours.bag;
+            }
+            if (ours.over or ours.bag.len == 0) break;
+            const limit = self.opts.nested_depth_limit;
+            if (limit >= 0 and depth + 1 > limit) break;
+            var d: Detail = .{};
+            const verdict = try self.nestedSolveDetail(t, level + 1, depth + 1, &d);
+            errdefer gpa.free(d.subs);
+            try levels.append(gpa, .{
+                .depth = depth + 1,
+                .our_rack = ours.pos.racks[0],
+                .opp_rack = ours.pos.racks[1],
+                .bag = ours.bag,
+                .unseen = d.unseen,
+                .best = d.best,
+                .subs = d.subs,
+                .verdict = verdict,
+            });
+            play(ours, &t.nodes[level + 2], &d.best);
+            level += 2;
+            depth += 1;
+        }
+        e.levels = try levels.toOwnedSlice(gpa);
+        return e;
     }
 
     /// Breaks the tie among the plays level with the first on points that
@@ -1036,6 +1236,19 @@ pub const Solver = struct {
         return m.kind == .play and m.tiles_played >= self.num_in_bag;
     }
 };
+
+/// Sorts replies best score first; after a pass, a pass first
+/// (Go's allocSortedReplies with its early-pass bonus).
+fn sortReplies(replies: []Move, after_pass: bool) void {
+    std.sort.pdq(Move, replies, after_pass, struct {
+        fn key(m: *const Move, ap: bool) i32 {
+            return if (ap and m.kind == .pass) std.math.maxInt(i32) else m.score;
+        }
+        fn lt(ap: bool, a: Move, b: Move) bool {
+            return key(&a, ap) > key(&b, ap);
+        }
+    }.lt);
+}
 
 /// Score plus the value of the leave of the player on turn at `n`.
 fn estimate(n: *const Node, m: *const Move) f64 {
@@ -1286,4 +1499,44 @@ test "golden: on four threads, one play's orderings shared out" {
 
 test "golden: on four threads, the early cutoff" {
     try checkGoldenOn(@embedFile("testdata/polish-cutoff.txt"), null, 4);
+}
+
+test "an eventuality explained: two in the bag" {
+    const gpa = testing.allocator;
+    const testdata = @import("../testing/testdata.zig");
+    var store = testdata.store();
+    defer store.deinit();
+    const p = try testdata.position(&store, "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;");
+    const only = try findMoves(gpa, &p, &.{"6F..X."});
+    defer gpa.free(only);
+    var z = try zobrist_mod.Zobrist.init(gpa, p.board.dim, @splat(1));
+    defer z.deinit(gpa);
+    var tt: ttable.Table = .{};
+    defer tt.deinit(gpa);
+    try tt.reset(gpa, 0);
+    // 6F ..X. loses when we draw the I and the opponent the E (Macondo's
+    // TestTwoInBagSingleMove), and wins when the E comes first.
+    for ([_][]const u8{ "IE", "EI" }) |order| {
+        var ev: Draw = .{};
+        ev.len = @intCast(try p.dist.toMachineLetters(order, &ev.tiles));
+        var s = try Solver.init(gpa, &p, &z, &tt, .{ .plies = 1, .iterative_deepening = false, .tiebreak = false, .only = only, .eventuality = ev });
+        defer s.deinit();
+        var res = try s.solve(null, null);
+        defer res.deinit(gpa);
+        try testing.expectEqual(1, res.plays[0].outcomes.len);
+        var e = try s.explain(&res.plays[0].move);
+        defer e.deinit(gpa);
+        try testing.expectEqual(res.plays[0].outcomes[0].outcome, e.outcome);
+        // We drew the first tile; the opponent's rack is the rest.
+        try testing.expectEqual(1, e.bag_after.len);
+        try testing.expect(e.rack_after.has(ev.tiles[0]));
+        if (order[0] == 'I') {
+            try testing.expectEqual(.loss, e.outcome);
+            try testing.expect(e.decisive != null);
+        } else {
+            try testing.expectEqual(.win, e.outcome);
+            try testing.expect(e.decisive == null);
+        }
+        try testing.expect(e.replies > 0);
+    }
 }

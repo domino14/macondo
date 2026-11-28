@@ -277,7 +277,16 @@ iteratively from one (`noid`: at once). Options:
   (repeatable): plays the cutoffs never stop;
 - `opprack <tiles>`: tiles known to be on the opponent's rack;
 - `outcomes`: each play's result for every ordering, by the tiles in the
-  bag in the order they are drawn; `plays <n>`: write only the best n.
+  bag in the order they are drawn; `plays <n>`: write only the best n;
+- `eventuality <tiles>`: solve for this one ordering of the bag (all its
+  tiles, in the order they are drawn) and explain the best play's result
+  (use with `only` to choose the play): our play and draw; the opponent's
+  reply that decides it (the first that beats us, else the first that
+  ties) and how many replies were tried to find it; then at each of our
+  turns with tiles in the bag, within `nested`, the nested pre-endgame: our
+  best play across the orderings we can't tell apart, each ordering's
+  verdict (`actual 1` the one the bag holds), and the opponent's deciding
+  reply to that play.
 
 It runs on the `threads` option's threads, with a transposition table of
 `hash-mb`, and gives the same results on any number of threads (but for
@@ -290,6 +299,26 @@ command:
 < info preendgame play N3.STEY points 1 spread 10
 < info preendgame outcome N3.STEY bag Y win count 1
 < bestmove N3.STEY
+```
+
+An eventuality (Macondo's manual's example, CSW21: 13M P(AH) when we draw
+the G and the opponent the R, leaving the L):
+
+```
+> go preendgame only 13M.P.. eventuality GRL noid
+< info preendgame plies 3 endgames 2469 time 9010 orderings 1
+< info preendgame play 13M.P.. points 0
+< info preendgame eventuality play 13M.P.. outcome loss rack ?ANNOPY opprack AEEEINS bag GRL
+< info preendgame eventuality drawn rack ?AGNNOY bag RL
+< info preendgame eventuality reply 10J..A. tried 9 opprack EEEINRS bag L
+< info preendgame eventuality nested depth 1 rack ?AGNNOY opprack EEEINRS bag L unseen EEEILNRS best 1H.ANONYm verdict loss
+< info preendgame eventuality nested depth 1 bag E count 3 win
+< info preendgame eventuality nested depth 1 bag I count 1 win
+< info preendgame eventuality nested depth 1 bag L count 1 loss actual 1
+< info preendgame eventuality nested depth 1 bag N count 1 win
+< info preendgame eventuality nested depth 1 bag R count 1 win
+< info preendgame eventuality nested depth 1 bag S count 1 win
+< bestmove 13M.P..
 ```
 
 Progress, as often as the engine likes:

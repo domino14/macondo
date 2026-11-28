@@ -692,6 +692,10 @@ pub const Engine = struct {
                 } else if (std.mem.eql(u8, key, "opprack")) {
                     const n = p.dist.toMachineLetters(v, &known) catch return out.writeAll("error bad-preendgame opprack\n");
                     opts.known_opp = known[0..n];
+                } else if (std.mem.eql(u8, key, "eventuality")) {
+                    var ev: peg.Draw = .{};
+                    ev.len = @intCast(p.dist.toMachineLetters(v, &ev.tiles) catch return out.writeAll("error bad-preendgame eventuality\n"));
+                    opts.eventuality = ev;
                 } else return out.print("error bad-preendgame {s}\n", .{key});
             }
         }
@@ -748,10 +752,84 @@ pub const Engine = struct {
                 try out.print(" {s} count {d}\n", .{ o.outcome.name(), o.count });
             }
         }
+        if (opts.eventuality != null and res.plays.len > 0 and !res.stopped) {
+            var e = solver.explain(&res.plays[0].move) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |x| return out.print("error preendgame {s}\n", .{@errorName(x)}),
+            };
+            defer e.deinit(gpa);
+            try writeExplanation(&e, p.dist, out);
+        }
         try out.writeAll("bestmove ");
         if (res.plays.len == 0) return out.writeAll("pass\n");
         try res.plays[0].move.format(p.dist, out);
         try out.writeAll("\n");
+    }
+
+    /// The `info preendgame eventuality` lines of an explanation.
+    fn writeExplanation(e: *const peg.Explanation, ld: *const tiles.LetterDistribution, out: *Writer) Writer.Error!void {
+        const W = struct {
+            fn rack(r: tiles.Rack, l: *const tiles.LetterDistribution, o: *Writer) Writer.Error!void {
+                var buf: [tiles.max_alphabet_size]tiles.MachineLetter = undefined;
+                const n = r.tiles(&buf);
+                if (n == 0) return o.writeAll("-");
+                for (buf[0..n]) |ml| try o.writeAll(l.letter(ml, false));
+            }
+            fn draw(d: peg.Draw, l: *const tiles.LetterDistribution, o: *Writer) Writer.Error!void {
+                if (d.len == 0) return o.writeAll("-");
+                for (d.slice()) |ml| try o.writeAll(l.letter(ml, false));
+            }
+            fn move(m: ?Move, l: *const tiles.LetterDistribution, o: *Writer) Writer.Error!void {
+                if (m) |mv| try mv.format(l, o) else try o.writeAll("none");
+            }
+        };
+        try out.writeAll("info preendgame eventuality play ");
+        try e.play.format(ld, out);
+        try out.print(" outcome {s} rack ", .{e.outcome.name()});
+        try W.rack(e.rack_before, ld, out);
+        try out.writeAll(" opprack ");
+        try W.rack(e.opp_rack, ld, out);
+        try out.writeAll(" bag ");
+        try W.draw(e.bag_before, ld, out);
+        try out.writeAll("\ninfo preendgame eventuality drawn rack ");
+        try W.rack(e.rack_after, ld, out);
+        try out.writeAll(" bag ");
+        try W.draw(e.bag_after, ld, out);
+        try out.writeAll("\n");
+        if (e.replies == 0) return;
+        try out.writeAll("info preendgame eventuality reply ");
+        try W.move(e.decisive, ld, out);
+        try out.print(" tried {d}", .{e.replies});
+        if (e.decisive != null) {
+            try out.writeAll(" opprack ");
+            try W.rack(e.opp_rack_after, ld, out);
+            try out.writeAll(" bag ");
+            try W.draw(e.bag_after_reply, ld, out);
+        }
+        try out.writeAll("\n");
+        for (e.levels) |*l| {
+            try out.print("info preendgame eventuality nested depth {d} rack ", .{l.depth});
+            try W.rack(l.our_rack, ld, out);
+            try out.writeAll(" opprack ");
+            try W.rack(l.opp_rack, ld, out);
+            try out.writeAll(" bag ");
+            try W.draw(l.bag, ld, out);
+            try out.writeAll(" unseen ");
+            try W.rack(.{ .counts = l.unseen }, ld, out);
+            try out.writeAll(" best ");
+            try l.best.format(ld, out);
+            try out.print(" verdict {s}\n", .{l.verdict.name()});
+            for (l.subs) |sv| {
+                try out.print("info preendgame eventuality nested depth {d} bag ", .{l.depth});
+                try W.draw(sv.draw, ld, out);
+                try out.print(" count {d} {s}{s}\n", .{ sv.count, sv.outcome.name(), if (sv.actual) " actual 1" else "" });
+            }
+            if (l.reply) |r| {
+                try out.print("info preendgame eventuality nested depth {d} reply ", .{l.depth});
+                try r.format(ld, out);
+                try out.writeAll("\n");
+            }
+        }
     }
 
     /// `go infer`: what the opponent kept after the position's last move
@@ -1345,4 +1423,26 @@ test "go preendgame with a known opponent rack" {
     try testing.expectEqualStrings("info preendgame outcome N3.STEY bag Y win count 1", lines.next().?);
     try testing.expectEqualStrings("bestmove N3.STEY", lines.next().?);
     try testing.expectEqualStrings("error bad-preendgame maxtiles", lines.next().?);
+}
+
+test "go preendgame explains an eventuality" {
+    const testdata = @import("testing/testdata.zig");
+    const build_options = @import("build_options");
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    var engine = try Engine.init(testing.allocator, testing.io, "0.0.0", testdata.file_source, &out.writer);
+    defer engine.deinit();
+    var buf: [256]u8 = undefined;
+    _ = try engine.handle(try std.fmt.bufPrint(&buf, "setoption name data-path value {s}", .{build_options.data_path}));
+    _ = try engine.handle("position cgp 1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;");
+    if (out.written().len > 0) return error.SkipZigTest;
+    // We draw the I, the opponent the last E, and bingoes.
+    _ = try engine.handle("go preendgame only 6F..X. eventuality IE plies 1 noid");
+    var lines = std.mem.splitScalar(u8, out.written(), '\n');
+    try testing.expect(std.mem.startsWith(u8, lines.next().?, "info preendgame plies 1 endgames "));
+    try testing.expectEqualStrings("info preendgame play 6F..X. points 0", lines.next().?);
+    try testing.expectEqualStrings("info preendgame eventuality play 6F..X. outcome loss rack AEFGSTX opprack EOORRST bag IE", lines.next().?);
+    try testing.expectEqualStrings("info preendgame eventuality drawn rack AEFGIST bag E", lines.next().?);
+    try testing.expectEqualStrings("info preendgame eventuality reply L2.TOREROS tried 1 opprack E bag -", lines.next().?);
+    try testing.expectEqualStrings("bestmove 6F..X.", lines.next().?);
 }
