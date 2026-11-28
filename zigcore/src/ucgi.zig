@@ -1266,7 +1266,7 @@ const PegSearch = struct {
         s.solve_ms = s.elapsedMs();
         const res = &s.result.?;
         if (s.solver.opts.eventuality == null or res.plays.len == 0 or res.stopped) return;
-        s.explanation = s.solver.explain(&res.plays[0].move) catch |err| {
+        s.explanation = s.solver.explain(&res.plays[0]) catch |err| {
             // Stopped while explaining: the results stand without it.
             if (err != error.Stopped) s.err = err;
             return;

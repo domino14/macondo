@@ -173,6 +173,12 @@ pub const PlayResult = struct {
     cut: bool,
     /// One for each ordering of the bag the play was solved for.
     outcomes: []PlayOutcome,
+    /// With an eventuality, for a play that leaves tiles in the bag: the
+    /// opponent's replies tried until one decided the result (all of them
+    /// if none did), and that reply (the first that beats us, else the
+    /// first that ties), as the solve found them (Solver.explain).
+    replies: u32 = 0,
+    decisive: ?Move = null,
 };
 
 pub const Result = struct {
@@ -267,11 +273,35 @@ const Row = struct {
     finalized: bool = false,
 };
 
+/// The opponent's replies to a play of the root as the solve tries them,
+/// for an eventuality's explanation: the first that turned the ordering
+/// into a loss, and the first that turned it into a draw.
+const Trace = struct {
+    loss: ?Move = null,
+    tried: u32 = 0,
+    draw: ?Move = null,
+    replies: u32 = 0,
+
+    /// Reply `i` of `n` (`r`) took the ordering from `before` to `after`.
+    fn note(self: *Trace, r: *const Move, i: usize, n: usize, before: Outcome, after: Outcome) void {
+        self.replies = @intCast(n);
+        if (after == .loss and before != .loss and self.loss == null) {
+            self.loss = r.*;
+            self.tried = @intCast(i + 1);
+        } else if (after == .draw and before != .draw and before != .loss and self.draw == null) {
+            self.draw = r.*;
+        }
+    }
+};
+
 /// The totals are atomic: when there are fewer plays than threads, a
 /// play's orderings are solved on several threads at once (each its own
 /// row).
 const Acc = struct {
     rows: []Row,
+    /// A play of the root solved for an eventuality: where its replies
+    /// are traced.
+    trace: ?*Trace = null,
     points2: std.atomic.Value(u64) = .init(0),
     losses2: std.atomic.Value(u64) = .init(0),
     spread: std.atomic.Value(i64) = .init(0),
@@ -375,6 +405,11 @@ const CacheKey = struct {
 };
 
 const Verdict = struct { draw: Draw, outcome: Outcome };
+
+/// A nested pre-endgame's result: the verdict for each ordering (in the
+/// order `permutations` makes them) and our best play (the first of
+/// those tied), which an explanation reads.
+const CacheEntry = struct { verdicts: []Verdict, best: Move };
 
 /// One thread's search state.
 const Thread = struct {
@@ -481,6 +516,7 @@ const Play = struct {
     equity: f64,
     acc: Acc,
     cut: std.atomic.Value(bool) = .init(false),
+    trace: Trace = .{},
 };
 
 /// Work shared out among the threads: the plays (each solved whole), or
@@ -521,7 +557,7 @@ pub const Solver = struct {
     /// Losses (doubled) that the best play emptying the bag can still
     /// have (the early cutoff's bound).
     min_potential2: std.atomic.Value(u64) = .init(std.math.maxInt(u64)),
-    cache: std.AutoHashMapUnmanaged(CacheKey, []Verdict) = .empty,
+    cache: std.AutoHashMapUnmanaged(CacheKey, CacheEntry) = .empty,
     cache_mutex: std.Io.Mutex = .init,
     /// During a solve: the threads' io (null on one thread) and the stop
     /// flag.
@@ -664,7 +700,7 @@ pub const Solver = struct {
 
     fn clearCache(self: *Solver) void {
         var it = self.cache.valueIterator();
-        while (it.next()) |v| self.gpa.free(v.*);
+        while (it.next()) |v| self.gpa.free(v.verdicts);
         self.cache.clearRetainingCapacity();
     }
 
@@ -749,8 +785,9 @@ pub const Solver = struct {
         while (self.plies <= self.opts.plies) : (self.plies += 1) {
             for (plays.items) |*p| {
                 @memset(p.acc.rows, .{});
-                p.acc = .{ .rows = p.acc.rows };
+                p.acc = .{ .rows = p.acc.rows, .trace = if (self.opts.eventuality != null) &p.trace else null };
                 p.cut.store(false, .monotonic);
+                p.trace = .{};
             }
             self.min_potential2.store(std.math.maxInt(u64), .monotonic);
             self.clearCache();
@@ -769,6 +806,7 @@ pub const Solver = struct {
             if (stopped) {
                 if (last) |*l| {
                     l.stopped = true;
+                    self.plies = l.plies;
                     return l.*;
                 }
                 std.sort.insertion(Play, plays.items, {}, byPoints);
@@ -781,6 +819,8 @@ pub const Solver = struct {
             last = try self.result(plays.items);
             if (self.opts.progress) |pr| pr.report(pr.ctx, &last.?);
         }
+        // The depth of the results, which an explanation searches at.
+        self.plies = last.?.plies;
         return last.?;
     }
 
@@ -812,6 +852,8 @@ pub const Solver = struct {
                 .spread = if (p.acc.spread_set.load(.monotonic)) p.acc.spread.load(.monotonic) else null,
                 .cut = p.cut.load(.monotonic),
                 .outcomes = outcomes,
+                .replies = if (p.trace.loss != null) p.trace.tried else p.trace.replies,
+                .decisive = p.trace.loss orelse p.trace.draw,
             };
             done += 1;
         }
@@ -973,8 +1015,11 @@ pub const Solver = struct {
             // them: a reply that beats us ends the ordering, and is often
             // a big play. Only the time changes.
             sortReplies(replies, m.kind == .pass);
-            for (replies) |*r| {
+            const trace = if (level == 0 and top and !full) acc.trace else null;
+            for (replies, 0..) |*r, i| {
+                const before = acc.rows[idx].outcome;
                 try self.recurse(t, acc, level + 1, r, idx, ct, empties, full, nested, top);
+                if (trace) |tr| tr.note(r, i, replies.len, before, acc.rows[idx].outcome);
                 if (!full and acc.hasLoss(idx)) break;
             }
         }
@@ -1063,8 +1108,8 @@ pub const Solver = struct {
         unseen: [max_alpha]u8 = undefined,
     };
 
-    /// nestedSolve; with `detail` (owned by the caller after), solved
-    /// afresh and described.
+    /// nestedSolve; with `detail`, described too (from the cache if the
+    /// solve stored it; `detail.subs` is the caller's after).
     fn nestedSolveDetail(self: *Solver, t: *Thread, level: usize, depth: u32, detail: ?*Detail) Error!Outcome {
         const gpa = self.gpa;
         const n = &t.nodes[level];
@@ -1077,16 +1122,18 @@ pub const Solver = struct {
             .spread = n.pos.scores[0] - n.pos.scores[1],
         };
         for (n.bag.slice()) |ml| key.unseen[ml] += 1;
-        if (detail == null) {
-            if (self.cacheGet(key)) |vs| {
-                for (vs) |v| {
-                    if (v.draw.eql(&n.bag)) return v.outcome;
-                }
-            }
-        }
-
         var sub: std.ArrayList(Perm) = .empty;
         defer sub.deinit(gpa);
+        if (self.cacheGet(key)) |entry| {
+            if (detail) |d| {
+                try permutations(gpa, &key.unseen, n.bag.len, &sub);
+                try describe(gpa, d, &key, entry.best, sub.items, entry.verdicts, &n.bag);
+            }
+            for (entry.verdicts) |v| {
+                if (v.draw.eql(&n.bag)) return v.outcome;
+            }
+            return .none;
+        }
         try permutations(gpa, &key.unseen, n.bag.len, &sub);
 
         const ours = try gpa.dupe(Move, try t.genAll(n, level));
@@ -1153,60 +1200,61 @@ pub const Solver = struct {
         for (vs) |v| {
             if (v.draw.eql(&saved.bag)) verdict = v.outcome;
         }
-        if (detail) |d| {
-            d.unseen = key.unseen;
-            for (accs[0..made], 0..) |*a, mi| {
-                if (a.losses() <= min_losses) {
-                    d.best = ours[mi];
-                    break;
-                }
-            }
-            d.subs = try gpa.alloc(SubVerdict, sub.items.len);
-            for (sub.items, vs, d.subs) |sp, v, *out| out.* = .{
-                .draw = sp.draw,
-                .count = sp.count,
-                .outcome = v.outcome,
-                .actual = sp.draw.eql(&saved.bag),
-            };
-        }
+        const best = for (accs[0..made], 0..) |*a, mi| {
+            if (a.losses() <= min_losses) break ours[mi];
+        } else unreachable;
+        if (detail) |d| try describe(gpa, d, &key, best, sub.items, vs, &saved.bag);
         // Another thread may have stored the same verdicts meanwhile: the
         // first stored stays (a reader may hold it).
         if (self.io) |io| self.cache_mutex.lockUncancelable(io);
         defer if (self.io) |io| self.cache_mutex.unlock(io);
-        const gop = try self.cache.getOrPut(gpa, key);
-        if (gop.found_existing) gpa.free(vs) else gop.value_ptr.* = vs;
+        const gop = self.cache.getOrPut(gpa, key) catch |err| {
+            if (detail) |d| gpa.free(d.subs);
+            return err;
+        };
+        if (gop.found_existing) gpa.free(vs) else gop.value_ptr.* = .{ .verdicts = vs, .best = best };
         return verdict;
     }
 
-    /// The verdicts stored for `key`; they stay until the cache is cleared
+    /// Fills `d` from a nested pre-endgame's result.
+    fn describe(gpa: Allocator, d: *Detail, key: *const CacheKey, best: Move, sub: []const Perm, vs: []const Verdict, actual: *const Draw) Allocator.Error!void {
+        d.unseen = key.unseen;
+        d.best = best;
+        d.subs = try gpa.alloc(SubVerdict, sub.len);
+        for (sub, vs, d.subs) |sp, v, *out| out.* = .{
+            .draw = sp.draw,
+            .count = sp.count,
+            .outcome = v.outcome,
+            .actual = sp.draw.eql(actual),
+        };
+    }
+
+    /// The result stored for `key`; it stays until the cache is cleared
     /// between depths.
-    fn cacheGet(self: *Solver, key: CacheKey) ?[]Verdict {
+    fn cacheGet(self: *Solver, key: CacheKey) ?CacheEntry {
         if (self.io) |io| self.cache_mutex.lockUncancelable(io);
         defer if (self.io) |io| self.cache_mutex.unlock(io);
         return self.cache.get(key);
     }
 
-    /// Explains the result of play `m` for the eventuality's ordering (the
-    /// solver must have been made with Options.eventuality, and solved, so
-    /// that its endgames are the solve's depth): our play and draw; the
-    /// opponent's reply that decides it (the first that beats us, or ties);
-    /// then at each of our turns with tiles in the bag, within the nested
-    /// depth limit, the nested pre-endgame that chose our play, and the
+    /// Explains the result of play `r` (from the result of a solve made
+    /// with Options.eventuality, so that the endgames are its depth and its
+    /// cache holds the nested pre-endgames it solved) for the eventuality's
+    /// ordering: our play and draw; the opponent's reply that decides it
+    /// (the first that beats us, or ties), as the solve found it; then at
+    /// each of our turns with tiles in the bag, within the nested depth
+    /// limit, the nested pre-endgame that chose our play, and the
     /// opponent's deciding reply to that play.
-    pub fn explain(self: *Solver, m: *const Move) Error!Explanation {
-        if (self.opts.eventuality == null) return error.BadEventuality;
+    pub fn explain(self: *Solver, r: *const PlayResult) Error!Explanation {
+        if (self.opts.eventuality == null or r.outcomes.len != 1) return error.BadEventuality;
         const gpa = self.gpa;
         const t = self.threads[0];
         const perm = &self.perms.items[0];
-        self.rootNode(perm, &t.nodes[0]);
-        var row: [1]Row = .{.{}};
-        var acc: Acc = .{ .rows = &row };
-        try self.recurse(t, &acc, 0, m, 0, perm.count, self.emptiesBag(m), false, 0, false);
-
+        const m = &r.move;
         self.rootNode(perm, &t.nodes[0]);
         var e: Explanation = .{
             .play = m.*,
-            .outcome = row[0].outcome,
+            .outcome = r.outcomes[0].outcome,
             .rack_before = t.nodes[0].pos.racks[0],
             .opp_rack = t.nodes[0].pos.racks[1],
             .bag_before = t.nodes[0].bag,
@@ -1226,29 +1274,31 @@ pub const Solver = struct {
         while (level + 2 < max_levels) {
             const n = &t.nodes[level];
             if (n.over or n.bag.len == 0) break;
-            // The opponent to move: their deciding reply.
-            const replies = try gpa.dupe(Move, try t.genAll(n, level));
-            defer gpa.free(replies);
-            sortReplies(replies, t.nodes[level].scoreless > 0);
+            // The opponent to move: their deciding reply (after our play
+            // of the root, the one the solve found).
             var decisive: ?Move = null;
-            var tried: u32 = @intCast(replies.len);
-            var tie: ?Move = null;
-            for (replies, 0..) |*r, i| {
-                var rrow: [1]Row = .{.{}};
-                var racc: Acc = .{ .rows = &rrow };
-                try self.recurse(t, &racc, level, r, 0, 1, false, false, depth, false);
-                if (rrow[0].outcome == .loss) {
-                    decisive = r.*;
-                    tried = @intCast(i + 1);
-                    break;
-                }
-                if (rrow[0].outcome == .draw and tie == null) tie = r.*;
-            }
-            if (decisive == null) decisive = tie;
             if (levels.items.len == 0) {
-                e.replies = tried;
+                decisive = r.decisive;
+                e.replies = r.replies;
                 e.decisive = decisive;
-            } else levels.items[levels.items.len - 1].reply = decisive;
+            } else {
+                const replies = try gpa.dupe(Move, try t.genAll(n, level));
+                defer gpa.free(replies);
+                sortReplies(replies, t.nodes[level].scoreless > 0);
+                var tie: ?Move = null;
+                for (replies) |*reply| {
+                    var rrow: [1]Row = .{.{}};
+                    var racc: Acc = .{ .rows = &rrow };
+                    try self.recurse(t, &racc, level, reply, 0, 1, false, false, depth, false);
+                    if (rrow[0].outcome == .loss) {
+                        decisive = reply.*;
+                        break;
+                    }
+                    if (rrow[0].outcome == .draw and tie == null) tie = reply.*;
+                }
+                if (decisive == null) decisive = tie;
+                levels.items[levels.items.len - 1].reply = decisive;
+            }
             const reply = decisive orelse break;
             play(n, &t.nodes[level + 1], &reply);
             const ours = &t.nodes[level + 1];
@@ -1623,7 +1673,7 @@ test "an eventuality explained: two in the bag" {
         var res = try s.solve(null, null);
         defer res.deinit(gpa);
         try testing.expectEqual(1, res.plays[0].outcomes.len);
-        var e = try s.explain(&res.plays[0].move);
+        var e = try s.explain(&res.plays[0]);
         defer e.deinit(gpa);
         try testing.expectEqual(res.plays[0].outcomes[0].outcome, e.outcome);
         // We drew the first tile; the opponent's rack is the rest.
@@ -1690,7 +1740,7 @@ fn manualExplain(store: *@import("../data/data.zig").Store, cgp: []const u8, pla
     defer s.deinit();
     var res = try s.solve(null, null);
     defer res.deinit(gpa);
-    return .{ .e = try s.explain(&res.plays[0].move), .ld = p.dist };
+    return .{ .e = try s.explain(&res.plays[0]), .ld = p.dist };
 }
 
 fn expectMove(ld: *const tiles.LetterDistribution, want: []const u8, got: ?Move) !void {
