@@ -222,7 +222,18 @@ as they land.
       (Workspace). The cross-check runs
       Go's ordering and MAGPIE's node for node, and the defaults by
       value, on one thread and on four with each parallel search.
-- [ ] **8. Preendgame.** `go preendgame`. Check: identical results.
+- [x] **8. Preendgame.** `go preendgame`. Check: identical results.
+      Done: Macondo's pessimistic pre-endgame with all its options (the
+      plies, iterative deepening, `max-tiles-left`, `max-nested-depth`,
+      the spread tiebreak, the early cutoff, given plays, a known opponent
+      rack, eventualities with their explanations), run in the background
+      with `stop`, a time limit and a progress line a depth. Its results
+      match Go's golden files (`src/preendgame/testdata`), the manual's
+      examples among them, on one thread and on four. From MAGPIE: draws
+      split by multiset, one pruned word graph for all the endgames, and
+      idle threads taking the opponent's replies when there are fewer
+      plays and orderings than threads. The endgames' greedy playouts find Go's pick best first,
+      and a pre-endgame's endgames share their caches.
 - [ ] **9. What the interfaces read from searches.** The shell, the game
       analyzer, the bot and the ML explainer use more than a search's best
       move. Each item is small and stays out of the hot loops when unused:
