@@ -256,6 +256,10 @@ pub const Options = struct {
     /// Generate moves and cross-sets over a word graph of only the words
     /// this endgame's tiles can make (speed only).
     pruned_kwg: bool = true,
+    /// Generate over this word graph rather than the lexicon's: one the
+    /// caller pruned for a pool of tiles holding this endgame's (the
+    /// pre-endgame's, made once for all its endgames; speed only).
+    kwg: ?@import("../data/kwg.zig").Kwg = null,
     /// The greedy playout picks plays by score plus, for a play that goes
     /// out, twice the opponent's rack (MAGPIE's pick; Go's is the score
     /// alone). It changes the values of searches that stop short of the
@@ -1029,7 +1033,7 @@ pub const Solver = struct {
             .pos = p,
             .board = p.board,
             .dist = p.dist,
-            .kwg = p.lexicon.kwg,
+            .kwg = opts.kwg orelse p.lexicon.kwg,
             .racks = p.racks,
             .scores = p.scores,
             .gen = undefined,
@@ -1059,6 +1063,40 @@ pub const Solver = struct {
         s.scoreless = if (p.scoreless_turns + 1 >= p.max_scoreless_turns) 1 else 0;
         s.last_scoreless = 0;
         return s;
+    }
+
+    /// Readies the solver for position `p` (of the same lexicon and
+    /// letter distribution) with `opts`, keeping its memory: the
+    /// pre-endgame searches many small endgames, which would spend more
+    /// time making solvers than searching. `opts` keeps the move lists as
+    /// they were (on or off); `p` must outlive the next solve.
+    pub fn reset(self: *Solver, p: *const position.Position, opts: Options) void {
+        std.debug.assert(self.helpers.len == 0 and p.dist == self.dist and opts.lists == self.opts.lists);
+        if (self.pruned) |*pr| pr.deinit(self.gpa);
+        self.pruned = null;
+        self.opts = opts;
+        self.pos = p;
+        self.board = p.board;
+        self.board.journal = &self.journal;
+        self.journal.saved.clearRetainingCapacity();
+        _ = self.journal.mark();
+        self.kwg = opts.kwg orelse p.lexicon.kwg;
+        self.gen.kwg = self.kwg;
+        self.racks = p.racks;
+        self.scores = p.scores;
+        self.on_turn = 0;
+        self.playing = true;
+        self.scoreless = if (p.scoreless_turns + 1 >= p.max_scoreless_turns) 1 else 0;
+        self.last_scoreless = 0;
+        self.playout_out_first = false;
+        self.halt = null;
+        self.stop = null;
+        self.abdada = null;
+        self.under_first_reply = false;
+        self.deferred.clearRetainingCapacity();
+        self.split_path.clearRetainingCapacity();
+        self.frames.clearRetainingCapacity();
+        self.arena.clearRetainingCapacity();
     }
 
     pub fn deinit(self: *Solver) void {

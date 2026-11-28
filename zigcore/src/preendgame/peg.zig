@@ -30,6 +30,8 @@ const equity = @import("../equity/equity.zig");
 const endgame = @import("../endgame/endgame.zig");
 const ttable = @import("../endgame/ttable.zig");
 const zobrist_mod = @import("../endgame/zobrist.zig");
+const wordprune = @import("../endgame/wordprune.zig");
+const Kwg = @import("../data/kwg.zig").Kwg;
 const MachineLetter = tiles.MachineLetter;
 const Rack = tiles.Rack;
 const Move = move_mod.Move;
@@ -286,8 +288,12 @@ const Thread = struct {
     nodes: []Node,
     lists: []std.ArrayList(Move),
     endgames: u64 = 0,
+    /// The endgame solver, made once and reset for each endgame, and the
+    /// position it searches.
+    eg: ?*endgame.Solver = null,
+    eg_pos: Position = undefined,
 
-    fn init(gpa: Allocator, index: usize, root: *const Position) Allocator.Error!*Thread {
+    fn init(gpa: Allocator, index: usize, root: *const Position, kwg: Kwg) Allocator.Error!*Thread {
         const t = try gpa.create(Thread);
         errdefer gpa.destroy(t);
         const nodes = try gpa.alloc(Node, max_levels);
@@ -303,13 +309,14 @@ const Thread = struct {
             .lists = lists,
         };
         nodes[0].pos = root.*;
-        t.gen = .init(gpa, &nodes[0].pos.board, root.lexicon.kwg, root.dist);
+        t.gen = .init(gpa, &nodes[0].pos.board, kwg, root.dist);
         t.gen.gen_pass = true;
         return t;
     }
 
     fn deinit(self: *Thread) void {
         const gpa = self.gpa;
+        if (self.eg) |eg| eg.deinit();
         for (self.lists) |*l| l.deinit(gpa);
         gpa.free(self.lists);
         gpa.free(self.nodes);
@@ -394,6 +401,10 @@ pub const Solver = struct {
     /// have (the early cutoff's bound).
     min_potential2: u64 = std.math.maxInt(u64),
     cache: std.AutoHashMapUnmanaged(CacheKey, []Verdict) = .empty,
+    /// The words the tiles in play can make on the board (Go builds the
+    /// same graph): moves and endgames are generated over it.
+    pruned: ?wordprune.Pruned = null,
+    kwg: Kwg,
     thread: *Thread,
 
     /// `p` has the player to solve for on turn, with a full rack. The
@@ -408,6 +419,7 @@ pub const Solver = struct {
             .opts = opts,
             .zobrist = zobrist,
             .tt = tt,
+            .kwg = p.lexicon.kwg,
             .thread = undefined,
         };
         s.root.last_move = null;
@@ -432,7 +444,11 @@ pub const Solver = struct {
         for (0..s.num_in_bag) |i| s.num_combos *= rack_tile_limit + s.num_in_bag - i;
         try permutations(gpa, &s.maybe_in_bag, s.num_in_bag, &s.perms);
         errdefer s.perms.deinit(gpa);
-        s.thread = try Thread.init(gpa, 0, &s.root);
+        const pool: Rack = .{ .counts = s.unseenCounts(), .num_tiles = @intCast(unseen) };
+        s.pruned = try wordprune.generate(gpa, &p.board, &p.racks[0], &pool, ld.size, p.lexicon.kwg);
+        errdefer if (s.pruned) |*pr| pr.deinit(gpa);
+        if (s.pruned) |*pr| s.kwg = pr.kwg();
+        s.thread = try Thread.init(gpa, 0, &s.root, s.kwg);
         return s;
     }
 
@@ -441,6 +457,7 @@ pub const Solver = struct {
         self.cache.deinit(self.gpa);
         self.perms.deinit(self.gpa);
         self.thread.deinit();
+        if (self.pruned) |*pr| pr.deinit(self.gpa);
         self.* = undefined;
     }
 
@@ -641,14 +658,15 @@ pub const Solver = struct {
     /// over: the endgame's search for the player on turn.
     fn evaluate(self: *Solver, t: *Thread, n: *const Node, full: bool) Error!i32 {
         if (n.over) return n.spreadForUs();
-        var pos = n.pos;
+        const pos = &t.eg_pos;
+        pos.* = n.pos;
         pos.scoreless_turns = n.scoreless;
         pos.max_scoreless_turns = 2;
         pos.last_move = null;
         // Macondo's quick search: a fixed depth, the window (-1, 1) unless
         // the spread is wanted, its playouts' picks, a pass taking a ply and
         // no sure bounds.
-        const solver = try endgame.Solver.initIn(self.gpa, &pos, self.zobrist, self.tt, .{
+        const opts: endgame.Options = .{
             .first_win = !full,
             .forced_pass = false,
             .sure_out = false,
@@ -656,9 +674,16 @@ pub const Solver = struct {
             .playout_out_bonus = false,
             .clear_tt = false,
             .pruned_kwg = false,
+            .kwg = self.kwg,
             .complete_line = false,
-        }, &t.ws, t.index);
-        defer solver.deinit();
+        };
+        const solver = if (t.eg) |eg| blk: {
+            eg.reset(pos, opts);
+            break :blk eg;
+        } else blk: {
+            t.eg = try endgame.Solver.initIn(self.gpa, pos, self.zobrist, self.tt, opts, &t.ws, t.index);
+            break :blk t.eg.?;
+        };
         const res = try solver.solve(self.plies, null, null);
         t.endgames += 1;
         const final = @as(i32, res.value) + pos.scores[0] - pos.scores[1];
