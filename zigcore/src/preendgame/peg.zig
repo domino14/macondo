@@ -499,6 +499,14 @@ pub const Solver = struct {
     maybe_in_bag: [max_alpha]u8 = @splat(0),
     num_in_bag: u8 = 0,
     perms: std.ArrayList(Perm) = .empty,
+    /// For a play that draws k tiles (k >= 2), reps[k][i] is the first
+    /// ordering that differs from ordering i only in the order of those k
+    /// tiles: it leads to the same position, so it is solved once and its
+    /// outcome copied (MAGPIE's multiset draws). Empty for k < 2.
+    reps: [max_bag + 1][]u32 = @splat(&.{}),
+    /// For a play that empties the bag: the orderings each representative
+    /// stands for (the tiebreak weighs its spread by them).
+    group_counts: []u64 = &.{},
     num_combos: u64 = 0,
     plies: u32 = 0,
     /// Losses (doubled) that the best play emptying the bag can still
@@ -560,6 +568,8 @@ pub const Solver = struct {
             s.perms.items[0] = keep;
             s.perms.shrinkRetainingCapacity(1);
         }
+        try s.makeReps();
+        errdefer s.freeReps();
         const pool: Rack = .{ .counts = s.unseenCounts(), .num_tiles = @intCast(unseen) };
         s.pruned = try wordprune.generate(gpa, &p.board, &p.racks[0], &pool, ld.size, p.lexicon.kwg);
         errdefer if (s.pruned) |*pr| pr.deinit(gpa);
@@ -578,6 +588,7 @@ pub const Solver = struct {
     }
 
     pub fn deinit(self: *Solver) void {
+        self.freeReps();
         self.clearCache();
         self.cache.deinit(self.gpa);
         self.perms.deinit(self.gpa);
@@ -585,6 +596,61 @@ pub const Solver = struct {
         self.gpa.free(self.threads);
         if (self.pruned) |*pr| pr.deinit(self.gpa);
         self.* = undefined;
+    }
+
+    fn makeReps(self: *Solver) Allocator.Error!void {
+        const gpa = self.gpa;
+        const perms = self.perms.items;
+        var map: std.AutoHashMapUnmanaged([max_bag]MachineLetter, u32) = .empty;
+        defer map.deinit(gpa);
+        var k: usize = 2;
+        while (k <= self.num_in_bag) : (k += 1) {
+            const reps = try gpa.alloc(u32, perms.len);
+            self.reps[k] = reps;
+            map.clearRetainingCapacity();
+            for (perms, reps, 0..) |*perm, *r, i| {
+                var key: [max_bag]MachineLetter = @splat(0);
+                @memcpy(key[0..perm.draw.len], perm.draw.slice());
+                std.sort.pdq(MachineLetter, key[0..k], {}, std.sort.asc(MachineLetter));
+                const gop = try map.getOrPut(gpa, key);
+                if (!gop.found_existing) gop.value_ptr.* = @intCast(i);
+                r.* = gop.value_ptr.*;
+            }
+        }
+        self.group_counts = try gpa.alloc(u64, perms.len);
+        @memset(self.group_counts, 0);
+        for (perms, 0..) |perm, i| self.group_counts[self.rep(self.num_in_bag, i)] += perm.count;
+    }
+
+    fn freeReps(self: *Solver) void {
+        for (&self.reps) |*r| {
+            self.gpa.free(r.*);
+            r.* = &.{};
+        }
+        self.gpa.free(self.group_counts);
+        self.group_counts = &.{};
+    }
+
+    /// The ordering solved for ordering `i` by a play that draws `k` tiles.
+    fn rep(self: *const Solver, k: usize, i: usize) usize {
+        return if (k < 2) i else self.reps[k][i];
+    }
+
+    /// The tiles play `m` draws.
+    fn drawn(self: *const Solver, m: *const Move) usize {
+        return if (m.kind == .play) @min(m.tiles_played, self.num_in_bag) else 0;
+    }
+
+    /// Ordering `idx` gets the outcome of `r`, which leads to the same
+    /// position.
+    fn copyRow(self: *Solver, acc: *Acc, r: usize, idx: usize, empties: bool) void {
+        const src = acc.rows[r];
+        const ct = self.perms.items[idx].count;
+        acc.rows[idx] = .{ .outcome = src.outcome, .count = if (src.outcome == .none) 0 else ct, .finalized = src.finalized };
+        if (src.finalized) {
+            acc.credit(src.outcome, ct);
+            if (empties) _ = self.min_potential2.fetchMin(2 * self.num_combos -| acc.points(), .monotonic);
+        }
     }
 
     fn clearCache(self: *Solver) void {
@@ -755,7 +821,14 @@ pub const Solver = struct {
         };
         try self.runJobs(&jobs);
         if (per_perm) {
-            for (plays) |*p| p.acc.finalize();
+            for (plays) |*p| {
+                const k = self.drawn(&p.move);
+                for (0..self.perms.items.len) |i| {
+                    const r = self.rep(k, i);
+                    if (r != i) self.copyRow(&p.acc, r, i, self.emptiesBag(&p.move));
+                }
+                p.acc.finalize();
+            }
         }
     }
 
@@ -785,8 +858,11 @@ pub const Solver = struct {
         if (jobs.tiebreak) |idxs| {
             const p = &jobs.plays[idxs[j / nperms]];
             const idx = j % nperms;
+            // The play empties the bag: one endgame for each set of tiles
+            // we draw, weighed by the orderings it stands for.
+            if (self.rep(self.num_in_bag, idx) != idx) return;
             self.rootNode(&self.perms.items[idx], &t.nodes[0]);
-            return self.recurse(t, &p.acc, 0, &p.move, idx, self.perms.items[idx].count, true, true, 0, true);
+            return self.recurse(t, &p.acc, 0, &p.move, idx, @intCast(self.group_counts[idx]), true, true, 0, true);
         }
         if (!jobs.per_perm) return self.solvePlay(t, &jobs.plays[j]);
         const p = &jobs.plays[j / nperms];
@@ -797,6 +873,7 @@ pub const Solver = struct {
             return;
         }
         if (self.skipped(p)) return;
+        if (self.rep(self.drawn(&p.move), idx) != idx) return;
         self.rootNode(&self.perms.items[idx], &t.nodes[0]);
         try self.recurse(t, &p.acc, 0, &p.move, idx, self.perms.items[idx].count, self.emptiesBag(&p.move), false, 0, true);
     }
@@ -836,10 +913,16 @@ pub const Solver = struct {
         }
         if (self.skipped(p)) return;
         const empties = self.emptiesBag(&p.move);
+        const k = self.drawn(&p.move);
         for (self.perms.items, 0..) |*perm, idx| {
             if (self.opts.early_cutoff and !self.avoidPrune(&p.move) and p.acc.losses() > self.min_potential2.load(.monotonic)) {
                 p.cut.store(true, .monotonic);
                 return;
+            }
+            const r = self.rep(k, idx);
+            if (r != idx) {
+                self.copyRow(&p.acc, r, idx, empties);
+                continue;
             }
             self.rootNode(perm, &t.nodes[0]);
             try self.recurse(t, &p.acc, 0, &p.move, idx, perm.count, empties, false, 0, true);
